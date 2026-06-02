@@ -1,0 +1,25 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "SharpCpp.V2.Tool (Debug)",
+      "type": "coreclr",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/SharpCpp.Tool/bin/Debug/net8.0/SharpCpp.V2.Tool.dll",
+      "args": ["sample-metadata"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "preLaunchTask": "CMake: Build Tool (Debug)"
+    },
+    {
+      "name": "SharpCpp.V2.Tool Sample Metadata to File (Debug)",
+      "type": "coreclr",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/SharpCpp.Tool/bin/Debug/net8.0/SharpCpp.V2.Tool.dll",
+      "args": ["sample-metadata", "${workspaceFolder}/out/generated/sample/SharpCpp.Sample.Bindings.json"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "preLaunchTask": "CMake: Build Tool (Debug)"
+    }
+  ]
+}

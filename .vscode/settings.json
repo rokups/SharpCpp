@@ -1,0 +1,13 @@
+{
+    "cmake.mergedCompileCommands": "${workspaceFolder}/compile_commands.json",
+    "chat.tools.terminal.autoApprove": {
+        "dotnet": true,
+        "git": true,
+        "cmake": true,
+        "ctest": true,
+        "head": true,
+        "ls": true,
+        "awk": true,
+        "grep": true
+    }
+}

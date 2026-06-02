@@ -1,0 +1,103 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "CMake: Configure",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--preset", "dev"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "CMake: Build Debug",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "--preset", "Debug"],
+      "group": "build",
+      "dependsOn": "CMake: Configure",
+      "problemMatcher": []
+    },
+    {
+      "label": "CMake: Build Release",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "--preset", "Release"],
+      "group": "build",
+      "dependsOn": "CMake: Configure",
+      "problemMatcher": []
+    },
+    {
+      "label": "CMake: Build Model (Debug)",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "--preset", "Debug", "--target", "sharpcpp2-model"],
+      "group": "build",
+      "dependsOn": "CMake: Configure",
+      "problemMatcher": []
+    },
+    {
+      "label": "CMake: Build Metadata (Debug)",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "--preset", "Debug", "--target", "sharpcpp2-metadata"],
+      "group": "build",
+      "dependsOn": "CMake: Configure",
+      "problemMatcher": []
+    },
+    {
+      "label": "CMake: Build Tool (Debug)",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "--preset", "Debug", "--target", "sharpcpp2-tool"],
+      "group": "build",
+      "dependsOn": "CMake: Configure",
+      "problemMatcher": []
+    },
+    {
+      "label": "CMake: Build Managed (Debug)",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "--preset", "Debug", "--target", "sharpcpp2-managed"],
+      "group": "build",
+      "dependsOn": "CMake: Configure",
+      "problemMatcher": []
+    },
+    {
+      "label": "CMake: Build Tests (Debug)",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "--preset", "tests-debug"],
+      "group": "build",
+      "dependsOn": "CMake: Configure",
+      "problemMatcher": []
+    },
+    {
+      "label": "CMake: Build Tests (Release)",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "--preset", "tests-release"],
+      "group": "build",
+      "dependsOn": "CMake: Configure",
+      "problemMatcher": []
+    },
+    {
+      "label": "CTest: Run All (Debug)",
+      "type": "shell",
+      "command": "ctest",
+      "args": ["--preset", "Debug"],
+      "group": "test",
+      "dependsOn": "CMake: Build Tests (Debug)",
+      "problemMatcher": []
+    },
+    {
+      "label": "CTest: Run All (Release)",
+      "type": "shell",
+      "command": "ctest",
+      "args": ["--preset", "Release"],
+      "group": "test",
+      "dependsOn": "CMake: Build Tests (Release)",
+      "problemMatcher": []
+    }
+  ]
+}
