@@ -15,15 +15,15 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - [x] Pipeline skeleton implemented
 - [x] Rendering skeleton implemented
 - [x] Unit test projects wired through CMake/ctest
-- [ ] First vertical slice: primitive/value parameters + simple handle returns + metadata export
-- [ ] Generated output contract wired through tool/CMake
-- [ ] E2E generator and runtime tests wired
+- [x] First vertical slice: primitive/value parameters + simple handle returns + metadata export
+- [x] Generated output contract wired through tool/CMake
+- [x] E2E generator and runtime tests wired
 
 ## Current Focus
 
-1. Finish the first real vertical slice by replacing sample/tool bootstrap with parsed input.
-2. Add the first renderer-owned generated artifacts beside metadata output.
-3. Keep feature scope narrow until primitive/value + handle flows are end-to-end.
+1. Broaden the ClangSharp-backed parser beyond the single E2E sample header.
+2. Expand the first slice from `int` + handle to a larger primitive/value surface.
+3. Keep feature scope narrow until the parse -> render -> runtime path is solid.
 
 ## Decisions So Far
 
@@ -31,6 +31,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - Use `sharpcpp-*` CMake targets.
 - Keep structurally independent from `../SharpCpp`; reuse is copy/adapt only.
 - Start with the early-grouped project split from `doc/11-project-shape-blueprint.md`: `Model`, `Metadata`, `Parsing`, `Pipeline`, `Rendering`, `Tool`, `Support`.
+- The first E2E slice must go through ClangSharp rather than a permanently hardcoded binding model.
 - Bootstrap the first exported artifact through metadata before attempting full parser/renderer breadth.
 
 ## Relevant Doc Anchors
@@ -47,20 +48,23 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - Candidate early copy: `CodeWriter` from `../SharpCpp/src/SharpCpp.Core/Utilities/CodeWriter.cs`
 - Candidate early copy: diagnostic record/collector shape from `../SharpCpp/src/SharpCpp.Core/Diagnostics/`
 - Avoid copying parser/rendering logic until the new contracts exist.
-- Current tool bootstrap emits deterministic sample metadata only; it is not yet a real header-driven generator path.
+- Current generator path parses `tests/SharpCpp.Tests.E2E/SampleRuntime.hpp` through ClangSharp and emits the four generated artifacts under the build tree.
 
 ## Pending Work
 
-1. Replace the sample metadata path with a real parsed-input pipeline.
-2. Add the first generated `.Bindings.g.cs` and `.Bindings.g.cpp` artifacts.
-3. Introduce phase-2 marshaller metadata extraction contracts in `SharpCpp.Parsing`.
-4. Keep unit coverage moving downward from future E2E scenarios.
+1. Expand the ClangSharp parser from the narrow E2E header to more declarations and type kinds.
+2. Introduce phase-2 marshaller metadata extraction contracts in `SharpCpp.Parsing`.
+3. Grow the generated managed/native surface beyond the current primitive `int` + simple handle case.
+4. Add more focused rendering and parsing tests as the feature surface grows.
 
 ## Current Bootstrap Slice
 
 - `SharpCpp.Model` owns the initial mutable binding model, metadata bag, diagnostics, source references, and `CodeWriter`.
 - `SharpCpp.Metadata` owns a deterministic metadata document, exporter, and serializer.
-- `SharpCpp.Tool` can emit a sample metadata artifact to stdout or a file to validate the export contract shape.
+- `SharpCpp.Parsing` now contains a minimal ClangSharp-backed header parser for the E2E sample fixture.
+- `SharpCpp.Rendering` owns the first generated `.Bindings.g.cs`, `.Bindings.Aliases.g.cs`, and `.Bindings.g.cpp` emitters.
+- `SharpCpp.Tool` now drives both metadata-only output and the first generated binding pipeline.
+- `tests/SharpCpp.Tests.E2E` proves one runtime slice end-to-end: primitive `int` arguments plus a simple handle return.
 
 ## Verification Commands
 

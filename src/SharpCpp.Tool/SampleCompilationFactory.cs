@@ -4,7 +4,7 @@ namespace SharpCpp.Tool;
 
 internal static class SampleCompilationFactory
 {
-    public static BindingCompilation Create()
+    public static BindingCompilation CreateMetadataSample()
     {
         var compilation = new BindingCompilation(
             projectName: "SharpCpp.Sample",
@@ -37,6 +37,45 @@ internal static class SampleCompilationFactory
             managedName: "CreateContext",
             returnType: sampleContext.HandleType,
             entryPointName: "sharpcpp_sample_create_context");
+
+        compilation.Members.Add(sampleContext);
+        compilation.Members.Add(addNumbers);
+        compilation.Members.Add(createContext);
+        return compilation;
+    }
+
+    public static BindingCompilation CreateE2ESample()
+    {
+        var compilation = new BindingCompilation(
+            projectName: "SharpCpp.Tests.E2E",
+            managedNamespace: "SharpCpp.Tests.E2E.Generated",
+            managedClassName: "E2EBindings",
+            nativeLibraryName: "SharpCppTestsE2E_Native",
+            headerFiles: new[]
+            {
+                "SampleRuntime.hpp"
+            });
+
+        var sampleContext = new RecordBinding(
+            symbolId: "record:SampleContext",
+            nativeName: "SampleContext",
+            managedName: "SampleContext");
+
+        var addNumbers = new FunctionBinding(
+            symbolId: "function:add_numbers",
+            nativeName: "add_numbers",
+            managedName: "AddNumbers",
+            returnType: BindingType.Int32,
+            entryPointName: "sharpcpp_e2e_add_numbers");
+        addNumbers.Parameters.Add(new ParameterBinding("parameter:add_numbers:lhs", "lhs", "lhs", BindingType.Int32));
+        addNumbers.Parameters.Add(new ParameterBinding("parameter:add_numbers:rhs", "rhs", "rhs", BindingType.Int32));
+
+        var createContext = new FunctionBinding(
+            symbolId: "function:create_context",
+            nativeName: "create_context",
+            managedName: "CreateContext",
+            returnType: sampleContext.HandleType,
+            entryPointName: "sharpcpp_e2e_create_context");
 
         compilation.Members.Add(sampleContext);
         compilation.Members.Add(addNumbers);
