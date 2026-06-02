@@ -1,13 +1,13 @@
-# SharpCpp v2 Restart Progress
+# SharpCpp Restart Progress
 
 ## Goal
 
-Bootstrap an independent SharpCpp v2 line from the design docs in `doc/`, while selectively copying small, bounded pieces from `../SharpCpp`.
+Bootstrap an independent SharpCpp line from the design docs in `doc/`, while selectively copying small, bounded pieces from `../SharpCpp`.
 
 ## Current Status
 
 - [x] Git repository initialized
-- [x] Agent guide added and adapted for v2 bootstrap
+- [x] Agent guide adapted
 - [x] Independent repo/build skeleton started
 - [x] Model foundation implemented
 - [x] Metadata export/import foundation implemented
@@ -27,9 +27,9 @@ Bootstrap an independent SharpCpp v2 line from the design docs in `doc/`, while 
 
 ## Decisions So Far
 
-- Use `SharpCpp.V2.*` managed assembly identities during the rewrite.
-- Use `sharpcpp2-*` CMake targets during the rewrite.
-- Keep v2 structurally independent from `../SharpCpp`; reuse is copy/adapt only.
+- Use `SharpCpp.*` managed assembly identities.
+- Use `sharpcpp-*` CMake targets.
+- Keep structurally independent from `../SharpCpp`; reuse is copy/adapt only.
 - Start with the early-grouped project split from `doc/11-project-shape-blueprint.md`: `Model`, `Metadata`, `Parsing`, `Pipeline`, `Rendering`, `Tool`, `Support`.
 - Bootstrap the first exported artifact through metadata before attempting full parser/renderer breadth.
 
@@ -46,7 +46,7 @@ Bootstrap an independent SharpCpp v2 line from the design docs in `doc/`, while 
 
 - Candidate early copy: `CodeWriter` from `../SharpCpp/src/SharpCpp.Core/Utilities/CodeWriter.cs`
 - Candidate early copy: diagnostic record/collector shape from `../SharpCpp/src/SharpCpp.Core/Diagnostics/`
-- Avoid copying parser/rendering logic until the new contracts exist in v2-owned code.
+- Avoid copying parser/rendering logic until the new contracts exist.
 - Current tool bootstrap emits deterministic sample metadata only; it is not yet a real header-driven generator path.
 
 ## Pending Work
@@ -58,8 +58,8 @@ Bootstrap an independent SharpCpp v2 line from the design docs in `doc/`, while 
 
 ## Current Bootstrap Slice
 
-- `SharpCpp.Model` now owns the initial mutable binding model, metadata bag, diagnostics, source references, and `CodeWriter`.
-- `SharpCpp.Metadata` now owns a deterministic metadata document, exporter, and serializer.
+- `SharpCpp.Model` owns the initial mutable binding model, metadata bag, diagnostics, source references, and `CodeWriter`.
+- `SharpCpp.Metadata` owns a deterministic metadata document, exporter, and serializer.
 - `SharpCpp.Tool` can emit a sample metadata artifact to stdout or a file to validate the export contract shape.
 
 ## Verification Commands

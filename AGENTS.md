@@ -1,11 +1,10 @@
-# SharpCpp v2 Restart - Agent Guide
+# SharpCpp — Agent Guide
 
 ## 1. Scope
 
 This repository is the clean restart line described in `doc/`.
 
 - `doc/` is authoritative for architecture and sequencing.
-- The current job is to build an independent v2 line, not patch v1 in place.
 - Reuse from `../SharpCpp` is allowed by copy/adapt/re-own only.
 
 ## 2. Working Rules
@@ -13,7 +12,6 @@ This repository is the clean restart line described in `doc/`.
 - Think before editing. State assumptions when they matter.
 - Prefer the smallest change that moves the current phase forward.
 - Keep layering clean: `Model -> Metadata -> Parsing/Pipeline/Rendering -> Tool`; `Support` stays runtime-side.
-- Do not add v1 project references, shared output roots, or shared package identities.
 - Do not broaden feature surface before the current slice is coherent.
 
 ## 3. Current Implementation Phase
@@ -56,24 +54,18 @@ Target layout follows `doc/11-project-shape-blueprint.md`.
 
 ## 6. Naming Rules
 
-- Managed assemblies stay distinct from v1 during rewrite. Use `SharpCpp.V2.*` identities.
-- CMake targets stay distinct from v1 during rewrite. Use `sharpcpp2-*` targets.
+- Managed assemblies use `SharpCpp.*` identities.
+- CMake targets use `sharpcpp-*` targets.
 - Generated outputs belong under the build tree, not the source tree.
 
 ## 7. Reuse Policy
 
-Good copy candidates from v1:
+Good copy candidates:
 
 - deterministic utilities such as `CodeWriter`
 - diagnostics record shapes
 - stable metadata serialization helpers
 - small bounded support/runtime helpers
-
-Do not carry over:
-
-- v1 renderer feature branching
-- v1 config-object semantics
-- shared target/package/output identities
 
 ## 8. Communication
 
