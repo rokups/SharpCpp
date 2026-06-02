@@ -7,6 +7,13 @@ public enum BindingParameterDirection
     Out = 2
 }
 
+public enum BindingParameterAbiKind
+{
+    Value = 0,
+    Reference = 1,
+    Pointer = 2
+}
+
 public sealed class ParameterBinding : BindingNamedNode
 {
     public ParameterBinding(
@@ -14,13 +21,15 @@ public sealed class ParameterBinding : BindingNamedNode
         string nativeName,
         string managedName,
         BindingType type,
-        BindingParameterDirection direction = BindingParameterDirection.In)
+        BindingParameterDirection direction = BindingParameterDirection.In,
+        BindingParameterAbiKind abiKind = BindingParameterAbiKind.Value)
         : base(symbolId, nativeName, managedName)
     {
         ArgumentNullException.ThrowIfNull(type);
 
         Type = type;
         Direction = direction;
+        AbiKind = abiKind;
     }
 
     public override BindingNodeKind Kind => BindingNodeKind.Parameter;
@@ -30,4 +39,6 @@ public sealed class ParameterBinding : BindingNamedNode
     public BindingType Type { get; set; }
 
     public BindingParameterDirection Direction { get; set; }
+
+    public BindingParameterAbiKind AbiKind { get; set; }
 }

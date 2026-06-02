@@ -128,15 +128,43 @@ public sealed class ClangSharpHeaderParser
                 parameterName = $"arg{parameterIndex}";
             }
 
+            var (parameterType, direction, abiKind) = MapParameter(parameterCursor.Type);
             function.Parameters.Add(
                 new ParameterBinding(
                     $"parameter:{nativeName}:{parameterName}",
                     parameterName,
                     parameterName,
-                    MapType(parameterCursor.Type, recordsByName)));
+                    parameterType,
+                    direction,
+                    abiKind));
         }
 
         return function;
+    }
+
+    private static (BindingType Type, BindingParameterDirection Direction, BindingParameterAbiKind AbiKind) MapParameter(CXType type)
+    {
+        var normalizedType = type.CanonicalType;
+
+        if (normalizedType.kind == CXTypeKind.CXType_LValueReference)
+        {
+            var pointeeType = normalizedType.PointeeType.CanonicalType;
+            return (
+                MapType(pointeeType, new Dictionary<string, RecordBinding>(StringComparer.Ordinal)),
+                pointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Ref,
+                BindingParameterAbiKind.Reference);
+        }
+
+        if (normalizedType.kind == CXTypeKind.CXType_Pointer)
+        {
+            var pointeeType = normalizedType.PointeeType.CanonicalType;
+            return (
+                MapType(pointeeType, new Dictionary<string, RecordBinding>(StringComparer.Ordinal)),
+                pointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Out,
+                BindingParameterAbiKind.Pointer);
+        }
+
+        return (MapType(type, new Dictionary<string, RecordBinding>(StringComparer.Ordinal)), BindingParameterDirection.In, BindingParameterAbiKind.Value);
     }
 
     private static BindingType MapType(CXType type, IDictionary<string, RecordBinding> recordsByName)
@@ -163,6 +191,12 @@ public sealed class ClangSharpHeaderParser
         {
             CXTypeKind.CXType_Void => BindingType.Void,
             CXTypeKind.CXType_Bool => BindingType.Boolean,
+            CXTypeKind.CXType_Char_S => BindingType.Int8,
+            CXTypeKind.CXType_SChar => BindingType.Int8,
+            CXTypeKind.CXType_Char_U => BindingType.UInt8,
+            CXTypeKind.CXType_UChar => BindingType.UInt8,
+            CXTypeKind.CXType_Short => BindingType.Int16,
+            CXTypeKind.CXType_UShort => BindingType.UInt16,
             CXTypeKind.CXType_Int => BindingType.Int32,
             CXTypeKind.CXType_UInt => BindingType.UInt32,
             CXTypeKind.CXType_LongLong => BindingType.Int64,

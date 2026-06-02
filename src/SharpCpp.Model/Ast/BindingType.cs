@@ -13,14 +13,18 @@ public enum BindingPrimitiveKind
     Unsupported = 0,
     Void = 1,
     Boolean = 2,
-    Int32 = 3,
-    UInt32 = 4,
-    Int64 = 5,
-    UInt64 = 6,
-    Single = 7,
-    Double = 8,
-    NativeInt = 9,
-    NativeUInt = 10
+    Int8 = 3,
+    UInt8 = 4,
+    Int16 = 5,
+    UInt16 = 6,
+    Int32 = 7,
+    UInt32 = 8,
+    Int64 = 9,
+    UInt64 = 10,
+    Single = 11,
+    Double = 12,
+    NativeInt = 13,
+    NativeUInt = 14
 }
 
 public sealed record MarshallerDescriptor(
@@ -47,6 +51,14 @@ public sealed class BindingType
 
     public static BindingType Boolean { get; } = Primitive(BindingPrimitiveKind.Boolean, "bool", "bool", "bool");
 
+    public static BindingType Int8 { get; } = Primitive(BindingPrimitiveKind.Int8, "signed char", "sbyte", "signed char");
+
+    public static BindingType UInt8 { get; } = Primitive(BindingPrimitiveKind.UInt8, "unsigned char", "byte", "unsigned char");
+
+    public static BindingType Int16 { get; } = Primitive(BindingPrimitiveKind.Int16, "short", "short", "short");
+
+    public static BindingType UInt16 { get; } = Primitive(BindingPrimitiveKind.UInt16, "unsigned short", "ushort", "unsigned short");
+
     public static BindingType Int32 { get; } = Primitive(BindingPrimitiveKind.Int32, "int", "int", "int");
 
     public static BindingType UInt32 { get; } = Primitive(BindingPrimitiveKind.UInt32, "unsigned int", "uint", "unsigned int");
@@ -59,9 +71,9 @@ public sealed class BindingType
 
     public static BindingType Double { get; } = Primitive(BindingPrimitiveKind.Double, "double", "double", "double");
 
-    public static BindingType NativeInt { get; } = Primitive(BindingPrimitiveKind.NativeInt, "intptr_t", "nint", "intptr_t");
+    public static BindingType NativeInt { get; } = Primitive(BindingPrimitiveKind.NativeInt, "long", "CLong", "long");
 
-    public static BindingType NativeUInt { get; } = Primitive(BindingPrimitiveKind.NativeUInt, "uintptr_t", "nuint", "uintptr_t");
+    public static BindingType NativeUInt { get; } = Primitive(BindingPrimitiveKind.NativeUInt, "unsigned long", "CULong", "unsigned long");
 
     public BindingTypeKind Kind { get; }
 

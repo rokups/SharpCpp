@@ -22,7 +22,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 ## Current Focus
 
 1. Broaden the ClangSharp-backed parser beyond the single E2E sample header.
-2. Expand the first slice from `int` + handle to a larger primitive/value surface.
+2. Expand the first slice beyond builtin primitives into more native surface categories.
 3. Keep feature scope narrow until the parse -> render -> runtime path is solid.
 
 ## Decisions So Far
@@ -64,7 +64,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - `SharpCpp.Parsing` now contains a minimal ClangSharp-backed header parser for the E2E sample fixture.
 - `SharpCpp.Rendering` owns the first generated `.Bindings.g.cs`, `.Bindings.Aliases.g.cs`, and `.Bindings.g.cpp` emitters.
 - `SharpCpp.Tool` now drives both metadata-only output and the first generated binding pipeline.
-- `tests/SharpCpp.Tests.E2E` proves one runtime slice end-to-end: primitive `int` arguments plus a simple handle return.
+- `tests/SharpCpp.Tests.E2E` now proves the builtin primitive value/in/ref/out surface end-to-end, plus a simple handle return.
 
 ## Verification Commands
 
