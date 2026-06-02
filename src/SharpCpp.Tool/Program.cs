@@ -72,8 +72,8 @@ internal static class Program
                 ManagedNamespace: "SharpCpp.Tests.E2E.Generated",
                 ManagedClassName: "E2EBindings",
                 NativeLibraryName: "SharpCppTestsE2E_Native",
-                HeaderFilePath: Path.Combine(fixtureRoot, "SampleRuntime.hpp"),
-                HeaderIncludePath: "SampleRuntime.hpp",
+                HeaderFilePath: Path.Combine(fixtureRoot, "SampleRuntime", "SampleRuntime.hpp"),
+                HeaderIncludePath: "SampleRuntime/SampleRuntime.hpp",
                 ClangArguments: new[]
                 {
                     "-xc++",

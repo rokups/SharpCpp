@@ -48,7 +48,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - Candidate early copy: `CodeWriter` from `../SharpCpp/src/SharpCpp.Core/Utilities/CodeWriter.cs`
 - Candidate early copy: diagnostic record/collector shape from `../SharpCpp/src/SharpCpp.Core/Diagnostics/`
 - Avoid copying parser/rendering logic until the new contracts exist.
-- Current generator path parses `tests/SharpCpp.Tests.E2E/SampleRuntime.hpp` through ClangSharp and emits the four generated artifacts under the build tree.
+- Current generator path parses `tests/SharpCpp.Tests.E2E/SampleRuntime/SampleRuntime.hpp` through ClangSharp and emits the four generated artifacts under the build tree.
 
 ## Pending Work
 

@@ -2,9 +2,9 @@ using SharpCpp.Tests.E2E.Generated;
 
 using Xunit;
 
-namespace SharpCpp.Tests.E2E.Basic;
+namespace SharpCpp.Tests.E2E.SampleRuntime;
 
-public sealed class BasicRuntimeTests
+public sealed class SampleRuntimeTests
 {
     [Fact]
     public void Primitive_arguments_roundtrip_through_generated_bindings()

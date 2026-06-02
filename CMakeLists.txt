@@ -248,6 +248,7 @@ function(sharpcpp_add_dotnet_build_target target_name project_path)
     USES_TERMINAL)
 
   add_custom_target("${target_name}" DEPENDS "${stamp_file}")
+  set_target_properties("${target_name}" PROPERTIES SHARPCPP_DOTNET_BUILD_STAMP "${stamp_file}")
 endfunction()
 
 function(sharpcpp_set_binary_output target_name)
@@ -278,6 +279,7 @@ sharpcpp_add_dotnet_build_target(sharpcpp-tests-model "${CMAKE_SOURCE_DIR}/tests
 sharpcpp_add_dotnet_build_target(sharpcpp-tests-metadata "${CMAKE_SOURCE_DIR}/tests/SharpCpp.Tests.Metadata/SharpCpp.Tests.Metadata.csproj")
 
 add_custom_target(sharpcpp-generator DEPENDS sharpcpp-tool)
+get_target_property(SHARPCPP_TOOL_BUILD_STAMP sharpcpp-tool SHARPCPP_DOTNET_BUILD_STAMP)
 
 set(SHARPCPP_E2E_GENERATED_ROOT "${CMAKE_BINARY_DIR}/generated/sharpcpp-e2e")
 set(SHARPCPP_E2E_FILE_STEM "SharpCppTestsE2E")
@@ -298,7 +300,7 @@ add_custom_command(
           --generated-root "$<SHELL_PATH:${SHARPCPP_E2E_GENERATED_ROOT}>"
           --project-root "$<SHELL_PATH:${CMAKE_SOURCE_DIR}>"
           --file-stem "${SHARPCPP_E2E_FILE_STEM}"
-  DEPENDS sharpcpp-generator
+  DEPENDS "${SHARPCPP_TOOL_BUILD_STAMP}"
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
   VERBATIM
   USES_TERMINAL)
@@ -315,7 +317,7 @@ add_library(
   SharpCppTestsE2E_Native
   SHARED
   "${SHARPCPP_E2E_GENERATED_CPP}"
-  "${CMAKE_SOURCE_DIR}/tests/SharpCpp.Tests.E2E/src/SampleRuntime.cpp")
+  "${CMAKE_SOURCE_DIR}/tests/SharpCpp.Tests.E2E/SampleRuntime/SampleRuntime.cpp")
 add_dependencies(SharpCppTestsE2E_Native sharpcpp-generate-e2e)
 target_compile_features(SharpCppTestsE2E_Native PRIVATE cxx_std_20)
 target_include_directories(
