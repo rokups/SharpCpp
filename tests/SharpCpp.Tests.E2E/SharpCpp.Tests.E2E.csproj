@@ -20,11 +20,7 @@
     </PackageReference>
   </ItemGroup>
 
-  <Target Name="IncludeGeneratedSharpCppSources"
-          BeforeTargets="CoreCompile"
-          Condition="'$(SharpCppGeneratedDir)' != '' and Exists('$(SharpCppGeneratedDir)')">
-    <ItemGroup>
-      <Compile Include="$(SharpCppGeneratedDir)/*.cs" LinkBase="Generated" Visible="false" />
-    </ItemGroup>
-  </Target>
+  <ItemGroup Condition="'$(SharpCppGeneratedDir)' != '' and Exists('$(SharpCppGeneratedDir)')">
+    <Compile Include="$(SharpCppGeneratedDir)/*.cs" LinkBase="Generated" Visible="false" />
+  </ItemGroup>
 </Project>

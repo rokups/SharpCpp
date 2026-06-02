@@ -122,6 +122,7 @@ function(sharpcpp_write_last_props)
   get_property(intermediate_root GLOBAL PROPERTY SHARPCPP_INTERMEDIATE_ROOT)
   get_property(build_props_file GLOBAL PROPERTY SHARPCPP_BUILD_PROPS_FILE)
   get_property(compat_props_file GLOBAL PROPERTY SHARPCPP_COMPAT_PROPS_FILE)
+  get_property(e2e_generated_dir GLOBAL PROPERTY SHARPCPP_E2E_GENERATED_DIR)
 
   string(REPLACE "\\" "/" output_root "${output_root}")
   string(REPLACE "\\" "/" intermediate_root "${intermediate_root}")
@@ -140,6 +141,14 @@ function(sharpcpp_write_last_props)
       "    <SharpCppIntermediateRoot>${intermediate_root}/${configuration}</SharpCppIntermediateRoot>\n"
       "  </PropertyGroup>\n")
   endforeach()
+
+  if(NOT e2e_generated_dir STREQUAL "")
+    string(REPLACE "\\" "/" e2e_generated_dir "${e2e_generated_dir}")
+    string(APPEND content
+      "  <PropertyGroup Condition=\"'$(MSBuildProjectName)' == 'SharpCpp.Tests.E2E'\">\n"
+      "    <SharpCppGeneratedDir>${e2e_generated_dir}</SharpCppGeneratedDir>\n"
+      "  </PropertyGroup>\n")
+  endif()
 
   string(APPEND content "</Project>\n")
 
@@ -293,6 +302,7 @@ set(SHARPCPP_E2E_GENERATED_CS "${SHARPCPP_E2E_GENERATED_ROOT}/${SHARPCPP_E2E_FIL
 set(SHARPCPP_E2E_GENERATED_ALIAS_CS "${SHARPCPP_E2E_GENERATED_ROOT}/${SHARPCPP_E2E_FILE_STEM}.Bindings.Aliases.g.cs")
 set(SHARPCPP_E2E_GENERATED_CPP "${SHARPCPP_E2E_GENERATED_ROOT}/${SHARPCPP_E2E_FILE_STEM}.Bindings.g.cpp")
 set(SHARPCPP_E2E_METADATA_FILE "${SHARPCPP_E2E_GENERATED_ROOT}/${SHARPCPP_E2E_FILE_STEM}.Bindings.json")
+set_property(GLOBAL PROPERTY SHARPCPP_E2E_GENERATED_DIR "${SHARPCPP_E2E_GENERATED_ROOT}")
 
 add_custom_command(
   OUTPUT
