@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>SharpCpp.V2.Parsing</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../SharpCpp.Model/SharpCpp.Model.csproj" />
+    <ProjectReference Include="../SharpCpp.Metadata/SharpCpp.Metadata.csproj" />
+  </ItemGroup>
+</Project>

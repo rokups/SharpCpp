@@ -1,0 +1,9 @@
+.CMakeLast.props
+out/
+.vs/
+**/bin/
+**/obj/
+*.user
+*.suo
+compile_commands.json
+TestResults/
