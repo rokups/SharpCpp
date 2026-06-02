@@ -154,6 +154,8 @@ public static class BindingOutputRenderer
             #else
             #define SHARPCPP_EXPORT extern "C" __attribute__((visibility("default")))
             #endif
+
+            using namespace SharpCpp;
             """);
 
         foreach (var headerFile in compilation.HeaderFiles.OrderBy(static header => header, StringComparer.Ordinal))
@@ -173,7 +175,7 @@ public static class BindingOutputRenderer
 
             writer.WriteLine();
             writer.Write($$"""
-                SHARPCPP_EXPORT SharpCpp::ret_t<{{function.CppReturnTypeName}}> {{function.EntryPointName}}({{parameterList}})
+                SHARPCPP_EXPORT ret_t<{{function.CppReturnTypeName}}> {{function.EntryPointName}}({{parameterList}})
                 {
                 """);
 
@@ -244,7 +246,7 @@ public static class BindingOutputRenderer
 
     private static string RenderNativeParameter(ParameterBinding parameter)
     {
-        return $"SharpCpp::arg_t<{parameter.CppTypeName}> {parameter.NativeName}";
+        return $"arg_t<{parameter.CppTypeName}> {parameter.NativeName}";
     }
 
     private static string RenderNativeInvocationArgument(ParameterBinding parameter)

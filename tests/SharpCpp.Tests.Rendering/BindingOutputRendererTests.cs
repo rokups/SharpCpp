@@ -15,7 +15,7 @@ public sealed class BindingOutputRendererTests
             "SharpCpp.Sample",
             "SampleBindings",
             "SharpCpp.Sample.Native",
-            new[] { "SampleRuntime/SampleRuntime.hpp" });
+            new[] { "Builtin/Builtin.hpp" });
         var function = new FunctionBinding(
             "function:add_numbers",
             "add_numbers",
@@ -29,9 +29,10 @@ public sealed class BindingOutputRendererTests
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
 
+        Assert.Contains("using namespace SharpCpp;", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("#define SHARPCPP_EXPORT extern \"C\"", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("extern \"C\"\n{", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("#include \"SharpCpp/Marshaller.hpp\"", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("SHARPCPP_EXPORT SharpCpp::ret_t<int> sharpcpp_sample_add_numbers(SharpCpp::arg_t<int> lhs, SharpCpp::arg_t<int> rhs)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT ret_t<int> sharpcpp_sample_add_numbers(arg_t<int> lhs, arg_t<int> rhs)", nativeOutput, StringComparison.Ordinal);
     }
 }

@@ -2,9 +2,9 @@ using SharpCpp.Tests.E2E.Generated;
 
 using Xunit;
 
-namespace SharpCpp.Tests.E2E.SampleRuntime;
+namespace SharpCpp.Tests.E2E.Builtin;
 
-public sealed class SampleRuntimeTests
+public sealed class BuiltinTests
 {
     [Fact]
     public void AddNumbers_roundtrips_int32_arguments()
