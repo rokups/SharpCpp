@@ -22,7 +22,8 @@ public sealed class ParameterBinding : BindingNamedNode
         string managedName,
         BindingType type,
         BindingParameterDirection direction = BindingParameterDirection.In,
-        BindingParameterAbiKind abiKind = BindingParameterAbiKind.Value)
+        BindingParameterAbiKind abiKind = BindingParameterAbiKind.Value,
+        string? cppTypeName = null)
         : base(symbolId, nativeName, managedName)
     {
         ArgumentNullException.ThrowIfNull(type);
@@ -30,6 +31,7 @@ public sealed class ParameterBinding : BindingNamedNode
         Type = type;
         Direction = direction;
         AbiKind = abiKind;
+        CppTypeName = string.IsNullOrWhiteSpace(cppTypeName) ? type.CppTypeName : cppTypeName;
     }
 
     public override BindingNodeKind Kind => BindingNodeKind.Parameter;
@@ -41,4 +43,6 @@ public sealed class ParameterBinding : BindingNamedNode
     public BindingParameterDirection Direction { get; set; }
 
     public BindingParameterAbiKind AbiKind { get; set; }
+
+    public string CppTypeName { get; set; }
 }

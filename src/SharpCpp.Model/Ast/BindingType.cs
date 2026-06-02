@@ -24,7 +24,8 @@ public enum BindingPrimitiveKind
     Single = 11,
     Double = 12,
     NativeInt = 13,
-    NativeUInt = 14
+    NativeUInt = 14,
+    IntPtr = 15
 }
 
 public sealed record MarshallerDescriptor(
@@ -75,6 +76,8 @@ public sealed class BindingType
 
     public static BindingType NativeUInt { get; } = Primitive(BindingPrimitiveKind.NativeUInt, "unsigned long", "CULong", "unsigned long");
 
+    public static BindingType IntPtr { get; } = Primitive(BindingPrimitiveKind.IntPtr, "void*", "global::System.IntPtr", "void*");
+
     public BindingTypeKind Kind { get; }
 
     public BindingPrimitiveKind PrimitiveKind { get; }
@@ -112,6 +115,18 @@ public sealed class BindingType
         return new BindingType(
             BindingTypeKind.Enum,
             BindingPrimitiveKind.Unsupported,
+            new MarshallerDescriptor(cppTypeName, abiTypeName, publicTypeName));
+    }
+
+    public static BindingType CreateConfigured(string cppTypeName, string publicTypeName, string abiTypeName)
+    {
+        var primitiveKind = string.Equals(publicTypeName, "global::System.IntPtr", StringComparison.Ordinal)
+            ? BindingPrimitiveKind.IntPtr
+            : BindingPrimitiveKind.Unsupported;
+
+        return new BindingType(
+            BindingTypeKind.Primitive,
+            primitiveKind,
             new MarshallerDescriptor(cppTypeName, abiTypeName, publicTypeName));
     }
 

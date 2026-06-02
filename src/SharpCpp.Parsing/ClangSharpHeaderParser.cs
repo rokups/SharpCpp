@@ -1,4 +1,5 @@
 using ClangSharp.Interop;
+using System.Text.RegularExpressions;
 
 using SharpCpp.Model.Ast;
 
@@ -6,6 +7,16 @@ namespace SharpCpp.Parsing;
 
 public sealed class ClangSharpHeaderParser
 {
+    private static readonly Regex ManagedTypeMarshallerExpression = new(
+        @"template\s*<>\s*struct\s*\[\[\s*sharpcpp::managed_type\((?<body>.*?)\)\s*\]\]\s*Marshaller\s*<\s*(?<cppType>.*?)\s*>\s*\{(?<members>.*?)\};",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled | RegexOptions.Singleline);
+    private static readonly Regex PublicTypeExpression = new(
+        @"public_type\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex AbiTypeAliasExpression = new(
+        @"using\s+abi_type\s*=\s*(?<value>[^;]+);",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     public unsafe BindingCompilation Parse(ClangSharpParseRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -39,6 +50,7 @@ public sealed class ClangSharpHeaderParser
             request.NativeLibraryName,
             new[] { request.HeaderIncludePath });
         var recordsByName = new Dictionary<string, RecordBinding>(StringComparer.Ordinal);
+        var managedTypeOverrides = LoadManagedTypeOverrides(request.MarshallerConfigurationFiles);
 
         translationUnit.Cursor.VisitChildren(
             (child, _, _) =>
@@ -55,7 +67,7 @@ public sealed class ClangSharpHeaderParser
                         break;
 
                     case CXCursorKind.CXCursor_FunctionDecl:
-                        compilation.Members.Add(CreateFunction(child, request.EntryPointPrefix, recordsByName));
+                        compilation.Members.Add(CreateFunction(child, request.EntryPointPrefix, recordsByName, managedTypeOverrides));
                         break;
                 }
 
@@ -109,15 +121,20 @@ public sealed class ClangSharpHeaderParser
         compilation.Members.Add(record);
     }
 
-    private static FunctionBinding CreateFunction(CXCursor cursor, string entryPointPrefix, IDictionary<string, RecordBinding> recordsByName)
+    private static FunctionBinding CreateFunction(
+        CXCursor cursor,
+        string entryPointPrefix,
+        IDictionary<string, RecordBinding> recordsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
     {
         var nativeName = cursor.Spelling.ToString();
         var function = new FunctionBinding(
             $"function:{nativeName}",
             nativeName,
             ToPascalCase(nativeName),
-            MapType(cursor.ResultType, recordsByName),
-            entryPointName: $"{entryPointPrefix}_{nativeName}");
+            MapType(cursor.ResultType, recordsByName, managedTypeOverrides),
+            entryPointName: $"{entryPointPrefix}_{nativeName}",
+            cppReturnTypeName: NormalizeTypeName(cursor.ResultType.Spelling.ToString()));
 
         for (uint parameterIndex = 0; parameterIndex < cursor.NumArguments; parameterIndex++)
         {
@@ -128,7 +145,7 @@ public sealed class ClangSharpHeaderParser
                 parameterName = $"arg{parameterIndex}";
             }
 
-            var (parameterType, direction, abiKind) = MapParameter(parameterCursor.Type);
+            var (parameterType, direction, abiKind) = MapParameter(parameterCursor.Type, managedTypeOverrides);
             function.Parameters.Add(
                 new ParameterBinding(
                     $"parameter:{nativeName}:{parameterName}",
@@ -136,13 +153,16 @@ public sealed class ClangSharpHeaderParser
                     parameterName,
                     parameterType,
                     direction,
-                    abiKind));
+                    abiKind,
+                    NormalizeTypeName(parameterCursor.Type.Spelling.ToString())));
         }
 
         return function;
     }
 
-    private static (BindingType Type, BindingParameterDirection Direction, BindingParameterAbiKind AbiKind) MapParameter(CXType type)
+    private static (BindingType Type, BindingParameterDirection Direction, BindingParameterAbiKind AbiKind) MapParameter(
+        CXType type,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
     {
         var normalizedType = type.CanonicalType;
 
@@ -150,7 +170,7 @@ public sealed class ClangSharpHeaderParser
         {
             var pointeeType = normalizedType.PointeeType.CanonicalType;
             return (
-                MapType(pointeeType, new Dictionary<string, RecordBinding>(StringComparer.Ordinal)),
+                MapType(pointeeType, new Dictionary<string, RecordBinding>(StringComparer.Ordinal), managedTypeOverrides),
                 pointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Ref,
                 BindingParameterAbiKind.Reference);
         }
@@ -158,22 +178,52 @@ public sealed class ClangSharpHeaderParser
         if (normalizedType.kind == CXTypeKind.CXType_Pointer)
         {
             var pointeeType = normalizedType.PointeeType.CanonicalType;
+
+            if (pointeeType.kind is CXTypeKind.CXType_Void or CXTypeKind.CXType_Record)
+            {
+                return (
+                    MapType(type, new Dictionary<string, RecordBinding>(StringComparer.Ordinal), managedTypeOverrides),
+                    BindingParameterDirection.In,
+                    BindingParameterAbiKind.Value);
+            }
+
             return (
-                MapType(pointeeType, new Dictionary<string, RecordBinding>(StringComparer.Ordinal)),
+                MapType(pointeeType, new Dictionary<string, RecordBinding>(StringComparer.Ordinal), managedTypeOverrides),
                 pointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Out,
                 BindingParameterAbiKind.Pointer);
         }
 
-        return (MapType(type, new Dictionary<string, RecordBinding>(StringComparer.Ordinal)), BindingParameterDirection.In, BindingParameterAbiKind.Value);
+        return (MapType(type, new Dictionary<string, RecordBinding>(StringComparer.Ordinal), managedTypeOverrides), BindingParameterDirection.In, BindingParameterAbiKind.Value);
     }
 
-    private static BindingType MapType(CXType type, IDictionary<string, RecordBinding> recordsByName)
+    private static BindingType MapType(
+        CXType type,
+        IDictionary<string, RecordBinding> recordsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
     {
         var normalizedType = type.CanonicalType;
+        var normalizedTypeName = NormalizeTypeName(type.Spelling.ToString());
+
+        if (managedTypeOverrides.TryGetValue(normalizedTypeName, out var managedTypeOverride))
+        {
+            return BindingType.CreateConfigured(
+                managedTypeOverride.CppTypeName,
+                managedTypeOverride.PublicTypeName,
+                managedTypeOverride.AbiTypeName);
+        }
 
         if (normalizedType.kind == CXTypeKind.CXType_Pointer)
         {
             var pointeeType = normalizedType.PointeeType.CanonicalType;
+            if (pointeeType.kind == CXTypeKind.CXType_Void &&
+                managedTypeOverrides.TryGetValue("void*", out var voidPointerOverride))
+            {
+                return BindingType.CreateConfigured(
+                    NormalizeTypeName(type.Spelling.ToString()),
+                    voidPointerOverride.PublicTypeName,
+                    voidPointerOverride.AbiTypeName);
+            }
+
             if (pointeeType.kind == CXTypeKind.CXType_Record)
             {
                 var recordName = NormalizeRecordName(pointeeType.Spelling.ToString());
@@ -224,4 +274,47 @@ public sealed class ClangSharpHeaderParser
             .Replace("class ", string.Empty, StringComparison.Ordinal)
             .Trim();
     }
+
+    private static string NormalizeTypeName(string spelling)
+    {
+        return Regex.Replace(spelling.Trim(), @"\s+", " ")
+            .Replace(" *", "*", StringComparison.Ordinal)
+            .Replace(" &", "&", StringComparison.Ordinal);
+    }
+
+    private static IReadOnlyDictionary<string, ManagedTypeOverride> LoadManagedTypeOverrides(IReadOnlyList<string> files)
+    {
+        var result = new Dictionary<string, ManagedTypeOverride>(StringComparer.Ordinal);
+
+        foreach (var file in files)
+        {
+            var path = Path.GetFullPath(file);
+            if (!File.Exists(path))
+            {
+                continue;
+            }
+
+            var sourceText = File.ReadAllText(path);
+            foreach (Match match in ManagedTypeMarshallerExpression.Matches(sourceText))
+            {
+                var body = match.Groups["body"].Value;
+                var publicTypeMatch = PublicTypeExpression.Match(body);
+                var abiTypeMatch = AbiTypeAliasExpression.Match(match.Groups["members"].Value);
+                if (!publicTypeMatch.Success || !abiTypeMatch.Success)
+                {
+                    continue;
+                }
+
+                var cppTypeName = NormalizeTypeName(match.Groups["cppType"].Value);
+                result[cppTypeName] = new ManagedTypeOverride(
+                    cppTypeName,
+                    publicTypeMatch.Groups["value"].Value,
+                    NormalizeTypeName(abiTypeMatch.Groups["value"].Value));
+            }
+        }
+
+        return result;
+    }
+
+    private sealed record ManagedTypeOverride(string CppTypeName, string PublicTypeName, string AbiTypeName);
 }

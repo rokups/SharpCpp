@@ -1,9 +1,17 @@
 #pragma once
 
+#include <cstdint>
+
 struct SampleContext
 {
     int Value;
 };
+
+inline void* opaque_token()
+{
+    static int token = 42;
+    return &token;
+}
 
 inline int add_numbers(int lhs, int rhs)
 {
@@ -14,6 +22,26 @@ inline SampleContext* create_context()
 {
     static SampleContext context { 42 };
     return &context;
+}
+
+inline void* roundtrip_void_ptr(void* value)
+{
+    return value;
+}
+
+inline const void* echo_in_void_ptr(const void* value)
+{
+    return value;
+}
+
+inline void replace_ref_void_ptr(void*& value)
+{
+    value = opaque_token();
+}
+
+inline void write_out_void_ptr(void** value)
+{
+    *value = opaque_token();
 }
 
 #define SHARPCPP_SAMPLE_BUILTIN(NAME, TYPE, OUT_VALUE) \

@@ -311,7 +311,7 @@ add_custom_command(
     "${SHARPCPP_E2E_GENERATED_CPP}"
     "${SHARPCPP_E2E_METADATA_FILE}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "$<SHELL_PATH:${SHARPCPP_E2E_GENERATED_ROOT}>"
-  COMMAND "${DOTNET_EXECUTABLE}" "$<SHELL_PATH:${SHARPCPP_BIN_DIR}/SharpCpp.Tool.dll>"
+  COMMAND "${DOTNET_EXECUTABLE}" run --project "$<SHELL_PATH:${CMAKE_SOURCE_DIR}/src/SharpCpp.Tool/SharpCpp.Tool.csproj>" --configuration $<IF:$<CONFIG:Debug>,Debug,Release> --
           generate-sample
           --generated-root "$<SHELL_PATH:${SHARPCPP_E2E_GENERATED_ROOT}>"
           --project-root "$<SHELL_PATH:${CMAKE_SOURCE_DIR}>"
@@ -340,6 +340,8 @@ target_include_directories(
   PRIVATE
     "${SHARPCPP_E2E_GENERATED_ROOT}"
     "${CMAKE_SOURCE_DIR}/tests/SharpCpp.Tests.E2E")
+target_link_libraries(SharpCppTestsE2E_Native PRIVATE sharpcpp-native-support)
+target_compile_options(SharpCppTestsE2E_Native PRIVATE $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-Wno-attributes>)
 sharpcpp_set_binary_output(SharpCppTestsE2E_Native)
 
 sharpcpp_add_dotnet_build_target(

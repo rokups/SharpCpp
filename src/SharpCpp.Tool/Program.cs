@@ -78,7 +78,13 @@ internal static class Program
                 {
                     "-xc++",
                     "-std=c++20",
+                    "-Wno-unknown-attributes",
+                    $"-I{Path.Combine(projectRoot, "include")}",
                     $"-I{fixtureRoot}"
+                },
+                MarshallerConfigurationFiles: new[]
+                {
+                    Path.Combine(projectRoot, "include", "SharpCpp", "Marshaller.hpp")
                 },
                 EntryPointPrefix: "sharpcpp_e2e"));
         var renderedBindings = BindingOutputRenderer.Render(compilation, fileStem);

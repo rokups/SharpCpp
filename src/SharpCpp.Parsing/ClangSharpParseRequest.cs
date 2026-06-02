@@ -8,4 +8,5 @@ public sealed record ClangSharpParseRequest(
     string HeaderFilePath,
     string HeaderIncludePath,
     IReadOnlyList<string> ClangArguments,
+    IReadOnlyList<string> MarshallerConfigurationFiles,
     string EntryPointPrefix);

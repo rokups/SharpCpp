@@ -31,6 +31,7 @@ public sealed class BindingOutputRendererTests
 
         Assert.Contains("#define SHARPCPP_EXPORT extern \"C\"", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("extern \"C\"\n{", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("SHARPCPP_EXPORT int sharpcpp_sample_add_numbers", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("#include \"SharpCpp/Marshaller.hpp\"", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT SharpCpp::ret_t<int> sharpcpp_sample_add_numbers(SharpCpp::arg_t<int> lhs, SharpCpp::arg_t<int> rhs)", nativeOutput, StringComparison.Ordinal);
     }
 }

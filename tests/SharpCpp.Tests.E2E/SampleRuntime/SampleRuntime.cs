@@ -205,6 +205,24 @@ public sealed class SampleRuntimeTests
     }
 
     [Fact]
+    public void VoidPtr_value_in_ref_and_out_bindings_roundtrip()
+    {
+        var roundtripValue = new IntPtr(0x1234);
+        Assert.Equal(roundtripValue, E2EBindings.RoundtripVoidPtr(roundtripValue));
+
+        var inValue = new IntPtr(0x5678);
+        Assert.Equal(inValue, E2EBindings.EchoInVoidPtr(inValue));
+
+        var expectedToken = E2EBindings.OpaqueToken();
+        var refValue = IntPtr.Zero;
+        E2EBindings.ReplaceRefVoidPtr(ref refValue);
+        Assert.Equal(expectedToken, refValue);
+
+        E2EBindings.WriteOutVoidPtr(out var outValue);
+        Assert.Equal(expectedToken, outValue);
+    }
+
+    [Fact]
     public void Simple_handle_return_creates_non_null_wrapper()
     {
         var context = E2EBindings.CreateContext();
