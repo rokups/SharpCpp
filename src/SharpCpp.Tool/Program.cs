@@ -58,7 +58,7 @@ internal static class Program
 
     private static void PrintUsage()
     {
-        Console.WriteLine("SharpCpp v2 bootstrap tool");
+        Console.WriteLine("SharpCpp bootstrap tool");
         Console.WriteLine();
         Console.WriteLine("Commands:");
         Console.WriteLine("  sample-metadata [output-path]   Emit deterministic sample metadata.");

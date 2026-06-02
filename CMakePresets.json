@@ -19,7 +19,7 @@
       "configurePreset": "dev",
       "configuration": "Debug",
       "targets": [
-        "sharpcpp2-all"
+        "sharpcpp-all"
       ]
     },
     {
@@ -27,7 +27,7 @@
       "configurePreset": "dev",
       "configuration": "Release",
       "targets": [
-        "sharpcpp2-all"
+        "sharpcpp-all"
       ]
     },
     {
@@ -35,7 +35,7 @@
       "configurePreset": "dev",
       "configuration": "Debug",
       "targets": [
-        "sharpcpp2-tests"
+        "sharpcpp-tests"
       ]
     },
     {
@@ -43,7 +43,7 @@
       "configurePreset": "dev",
       "configuration": "Release",
       "targets": [
-        "sharpcpp2-tests"
+        "sharpcpp-tests"
       ]
     }
   ],

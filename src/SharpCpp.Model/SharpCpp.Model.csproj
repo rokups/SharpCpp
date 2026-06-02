@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <AssemblyName>SharpCpp.V2.Model</AssemblyName>
+    <AssemblyName>SharpCpp.Model</AssemblyName>
   </PropertyGroup>
 </Project>

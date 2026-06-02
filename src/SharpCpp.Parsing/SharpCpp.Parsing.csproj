@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <AssemblyName>SharpCpp.V2.Parsing</AssemblyName>
+    <AssemblyName>SharpCpp.Parsing</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>

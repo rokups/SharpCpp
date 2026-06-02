@@ -1,18 +1,18 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(SharpCppV2 LANGUAGES CXX)
+project(SharpCpp LANGUAGES CXX)
 
 include(CTest)
 
 find_program(DOTNET_EXECUTABLE dotnet REQUIRED)
 
-function(sharpcpp2_initialize_consumer)
+function(sharpcpp_initialize_consumer)
   set(options)
   set(oneValueArgs PACKAGE_ROOT CONSUMER_ROOT OUTPUT_ROOT INTERMEDIATE_ROOT DOTNET_STATE_DIR PROPS_FILE COMPAT_PROPS_FILE)
   set(multiValueArgs)
   cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
-  get_property(already_initialized GLOBAL PROPERTY SHARPCPP2_CONSUMER_INITIALIZED)
+  get_property(already_initialized GLOBAL PROPERTY SHARPCPP_CONSUMER_INITIALIZED)
   if(already_initialized)
     return()
   endif()
@@ -59,31 +59,31 @@ function(sharpcpp2_initialize_consumer)
     get_filename_component(compat_props_file "${ARG_COMPAT_PROPS_FILE}" ABSOLUTE BASE_DIR "${consumer_root}")
   endif()
 
-  set_property(GLOBAL PROPERTY SHARPCPP2_PACKAGE_ROOT "${package_root}")
-  set_property(GLOBAL PROPERTY SHARPCPP2_CONSUMER_ROOT "${consumer_root}")
-  set_property(GLOBAL PROPERTY SHARPCPP2_OUTPUT_ROOT "${output_root}")
-  set_property(GLOBAL PROPERTY SHARPCPP2_INTERMEDIATE_ROOT "${intermediate_root}")
-  set_property(GLOBAL PROPERTY SHARPCPP2_DOTNET_STATE_DIR "${dotnet_state_dir}")
-  set_property(GLOBAL PROPERTY SHARPCPP2_BUILD_PROPS_FILE "${build_props_file}")
-  set_property(GLOBAL PROPERTY SHARPCPP2_COMPAT_PROPS_FILE "${compat_props_file}")
-  set_property(GLOBAL PROPERTY SHARPCPP2_CONSUMER_INITIALIZED TRUE)
+  set_property(GLOBAL PROPERTY SHARPCPP_PACKAGE_ROOT "${package_root}")
+  set_property(GLOBAL PROPERTY SHARPCPP_CONSUMER_ROOT "${consumer_root}")
+  set_property(GLOBAL PROPERTY SHARPCPP_OUTPUT_ROOT "${output_root}")
+  set_property(GLOBAL PROPERTY SHARPCPP_INTERMEDIATE_ROOT "${intermediate_root}")
+  set_property(GLOBAL PROPERTY SHARPCPP_DOTNET_STATE_DIR "${dotnet_state_dir}")
+  set_property(GLOBAL PROPERTY SHARPCPP_BUILD_PROPS_FILE "${build_props_file}")
+  set_property(GLOBAL PROPERTY SHARPCPP_COMPAT_PROPS_FILE "${compat_props_file}")
+  set_property(GLOBAL PROPERTY SHARPCPP_CONSUMER_INITIALIZED TRUE)
 
-  get_property(finalize_deferred GLOBAL PROPERTY SHARPCPP2_CONSUMER_FINALIZE_DEFERRED)
+  get_property(finalize_deferred GLOBAL PROPERTY SHARPCPP_CONSUMER_FINALIZE_DEFERRED)
   if(NOT finalize_deferred)
-    cmake_language(DEFER CALL sharpcpp2_finalize_consumer)
-    set_property(GLOBAL PROPERTY SHARPCPP2_CONSUMER_FINALIZE_DEFERRED TRUE)
+    cmake_language(DEFER CALL sharpcpp_finalize_consumer)
+    set_property(GLOBAL PROPERTY SHARPCPP_CONSUMER_FINALIZE_DEFERRED TRUE)
   endif()
 endfunction()
 
-function(sharpcpp2_ensure_consumer_initialized)
-  get_property(consumer_initialized GLOBAL PROPERTY SHARPCPP2_CONSUMER_INITIALIZED)
+function(sharpcpp_ensure_consumer_initialized)
+  get_property(consumer_initialized GLOBAL PROPERTY SHARPCPP_CONSUMER_INITIALIZED)
   if(NOT consumer_initialized)
-    sharpcpp2_initialize_consumer()
+    sharpcpp_initialize_consumer()
   endif()
 endfunction()
 
-function(sharpcpp2_write_last_props)
-  sharpcpp2_ensure_consumer_initialized()
+function(sharpcpp_write_last_props)
+  sharpcpp_ensure_consumer_initialized()
 
   set(configurations)
   if(CMAKE_CONFIGURATION_TYPES)
@@ -96,10 +96,10 @@ function(sharpcpp2_write_last_props)
   list(REMOVE_DUPLICATES configurations)
   list(GET configurations 0 default_configuration)
 
-  get_property(output_root GLOBAL PROPERTY SHARPCPP2_OUTPUT_ROOT)
-  get_property(intermediate_root GLOBAL PROPERTY SHARPCPP2_INTERMEDIATE_ROOT)
-  get_property(build_props_file GLOBAL PROPERTY SHARPCPP2_BUILD_PROPS_FILE)
-  get_property(compat_props_file GLOBAL PROPERTY SHARPCPP2_COMPAT_PROPS_FILE)
+  get_property(output_root GLOBAL PROPERTY SHARPCPP_OUTPUT_ROOT)
+  get_property(intermediate_root GLOBAL PROPERTY SHARPCPP_INTERMEDIATE_ROOT)
+  get_property(build_props_file GLOBAL PROPERTY SHARPCPP_BUILD_PROPS_FILE)
+  get_property(compat_props_file GLOBAL PROPERTY SHARPCPP_COMPAT_PROPS_FILE)
 
   string(REPLACE "\\" "/" output_root "${output_root}")
   string(REPLACE "\\" "/" intermediate_root "${intermediate_root}")
@@ -132,16 +132,16 @@ function(sharpcpp2_write_last_props)
   endif()
 endfunction()
 
-function(sharpcpp2_restore_dotnet_project)
-  sharpcpp2_ensure_consumer_initialized()
+function(sharpcpp_restore_dotnet_project)
+  sharpcpp_ensure_consumer_initialized()
 
   if("${ARGN}" STREQUAL "")
     return()
   endif()
 
-  get_property(build_props_file GLOBAL PROPERTY SHARPCPP2_BUILD_PROPS_FILE)
-  get_property(package_root GLOBAL PROPERTY SHARPCPP2_PACKAGE_ROOT)
-  get_property(intermediate_root GLOBAL PROPERTY SHARPCPP2_INTERMEDIATE_ROOT)
+  get_property(build_props_file GLOBAL PROPERTY SHARPCPP_BUILD_PROPS_FILE)
+  get_property(package_root GLOBAL PROPERTY SHARPCPP_PACKAGE_ROOT)
+  get_property(intermediate_root GLOBAL PROPERTY SHARPCPP_INTERMEDIATE_ROOT)
 
   set(configurations)
   if(CMAKE_CONFIGURATION_TYPES)
@@ -170,10 +170,10 @@ function(sharpcpp2_restore_dotnet_project)
   endforeach()
 endfunction()
 
-function(sharpcpp2_finalize_consumer)
-  sharpcpp2_ensure_consumer_initialized()
-  sharpcpp2_write_last_props()
-  sharpcpp2_restore_dotnet_project(
+function(sharpcpp_finalize_consumer)
+  sharpcpp_ensure_consumer_initialized()
+  sharpcpp_write_last_props()
+  sharpcpp_restore_dotnet_project(
     "${CMAKE_SOURCE_DIR}/src/SharpCpp.Model/SharpCpp.Model.csproj"
     "${CMAKE_SOURCE_DIR}/src/SharpCpp.Metadata/SharpCpp.Metadata.csproj"
     "${CMAKE_SOURCE_DIR}/src/SharpCpp.Parsing/SharpCpp.Parsing.csproj"
@@ -185,19 +185,19 @@ function(sharpcpp2_finalize_consumer)
     "${CMAKE_SOURCE_DIR}/tests/SharpCpp.Tests.Metadata/SharpCpp.Tests.Metadata.csproj")
 endfunction()
 
-function(sharpcpp2_add_dotnet_build_target target_name project_path)
-  sharpcpp2_ensure_consumer_initialized()
+function(sharpcpp_add_dotnet_build_target target_name project_path)
+  sharpcpp_ensure_consumer_initialized()
 
   set(options)
   set(oneValueArgs)
   set(multiValueArgs DEPENDS PROPERTIES)
   cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
-  get_property(consumer_root GLOBAL PROPERTY SHARPCPP2_CONSUMER_ROOT)
-  get_property(package_root GLOBAL PROPERTY SHARPCPP2_PACKAGE_ROOT)
-  get_property(build_props_file GLOBAL PROPERTY SHARPCPP2_BUILD_PROPS_FILE)
-  get_property(output_root GLOBAL PROPERTY SHARPCPP2_OUTPUT_ROOT)
-  get_property(dotnet_state_dir GLOBAL PROPERTY SHARPCPP2_DOTNET_STATE_DIR)
+  get_property(consumer_root GLOBAL PROPERTY SHARPCPP_CONSUMER_ROOT)
+  get_property(package_root GLOBAL PROPERTY SHARPCPP_PACKAGE_ROOT)
+  get_property(build_props_file GLOBAL PROPERTY SHARPCPP_BUILD_PROPS_FILE)
+  get_property(output_root GLOBAL PROPERTY SHARPCPP_OUTPUT_ROOT)
+  get_property(dotnet_state_dir GLOBAL PROPERTY SHARPCPP_DOTNET_STATE_DIR)
 
   get_filename_component(absolute_project_path "${project_path}" ABSOLUTE BASE_DIR "${consumer_root}")
   get_filename_component(project_dir "${absolute_project_path}" DIRECTORY)
@@ -249,46 +249,46 @@ function(sharpcpp2_add_dotnet_build_target target_name project_path)
   add_custom_target("${target_name}" DEPENDS "${stamp_file}")
 endfunction()
 
-set(SHARPCPP2_BIN_DIR "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
+set(SHARPCPP_BIN_DIR "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
 
-sharpcpp2_initialize_consumer()
+sharpcpp_initialize_consumer()
 
-add_library(sharpcpp2-native-support INTERFACE)
-target_compile_features(sharpcpp2-native-support INTERFACE cxx_std_20)
-target_include_directories(sharpcpp2-native-support INTERFACE "${CMAKE_SOURCE_DIR}/include")
+add_library(sharpcpp-native-support INTERFACE)
+target_compile_features(sharpcpp-native-support INTERFACE cxx_std_20)
+target_include_directories(sharpcpp-native-support INTERFACE "${CMAKE_SOURCE_DIR}/include")
 
-sharpcpp2_add_dotnet_build_target(sharpcpp2-model "${CMAKE_SOURCE_DIR}/src/SharpCpp.Model/SharpCpp.Model.csproj")
-sharpcpp2_add_dotnet_build_target(sharpcpp2-metadata "${CMAKE_SOURCE_DIR}/src/SharpCpp.Metadata/SharpCpp.Metadata.csproj")
-sharpcpp2_add_dotnet_build_target(sharpcpp2-parsing "${CMAKE_SOURCE_DIR}/src/SharpCpp.Parsing/SharpCpp.Parsing.csproj")
-sharpcpp2_add_dotnet_build_target(sharpcpp2-pipeline "${CMAKE_SOURCE_DIR}/src/SharpCpp.Pipeline/SharpCpp.Pipeline.csproj")
-sharpcpp2_add_dotnet_build_target(sharpcpp2-rendering "${CMAKE_SOURCE_DIR}/src/SharpCpp.Rendering/SharpCpp.Rendering.csproj")
-sharpcpp2_add_dotnet_build_target(sharpcpp2-support "${CMAKE_SOURCE_DIR}/src/SharpCpp.Support/SharpCpp.Support.csproj")
-sharpcpp2_add_dotnet_build_target(sharpcpp2-tool "${CMAKE_SOURCE_DIR}/src/SharpCpp.Tool/SharpCpp.Tool.csproj")
-sharpcpp2_add_dotnet_build_target(sharpcpp2-tests-model "${CMAKE_SOURCE_DIR}/tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj")
-sharpcpp2_add_dotnet_build_target(sharpcpp2-tests-metadata "${CMAKE_SOURCE_DIR}/tests/SharpCpp.Tests.Metadata/SharpCpp.Tests.Metadata.csproj")
-
-add_custom_target(
-  sharpcpp2-managed
-  DEPENDS
-    sharpcpp2-model
-    sharpcpp2-metadata
-    sharpcpp2-parsing
-    sharpcpp2-pipeline
-    sharpcpp2-rendering
-    sharpcpp2-support
-    sharpcpp2-tool)
+sharpcpp_add_dotnet_build_target(sharpcpp-model "${CMAKE_SOURCE_DIR}/src/SharpCpp.Model/SharpCpp.Model.csproj")
+sharpcpp_add_dotnet_build_target(sharpcpp-metadata "${CMAKE_SOURCE_DIR}/src/SharpCpp.Metadata/SharpCpp.Metadata.csproj")
+sharpcpp_add_dotnet_build_target(sharpcpp-parsing "${CMAKE_SOURCE_DIR}/src/SharpCpp.Parsing/SharpCpp.Parsing.csproj")
+sharpcpp_add_dotnet_build_target(sharpcpp-pipeline "${CMAKE_SOURCE_DIR}/src/SharpCpp.Pipeline/SharpCpp.Pipeline.csproj")
+sharpcpp_add_dotnet_build_target(sharpcpp-rendering "${CMAKE_SOURCE_DIR}/src/SharpCpp.Rendering/SharpCpp.Rendering.csproj")
+sharpcpp_add_dotnet_build_target(sharpcpp-support "${CMAKE_SOURCE_DIR}/src/SharpCpp.Support/SharpCpp.Support.csproj")
+sharpcpp_add_dotnet_build_target(sharpcpp-tool "${CMAKE_SOURCE_DIR}/src/SharpCpp.Tool/SharpCpp.Tool.csproj")
+sharpcpp_add_dotnet_build_target(sharpcpp-tests-model "${CMAKE_SOURCE_DIR}/tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj")
+sharpcpp_add_dotnet_build_target(sharpcpp-tests-metadata "${CMAKE_SOURCE_DIR}/tests/SharpCpp.Tests.Metadata/SharpCpp.Tests.Metadata.csproj")
 
 add_custom_target(
-  sharpcpp2-tests
+  sharpcpp-managed
   DEPENDS
-    sharpcpp2-managed
-    sharpcpp2-tests-model
-    sharpcpp2-tests-metadata)
-add_custom_target(sharpcpp2-all ALL DEPENDS sharpcpp2-managed)
+    sharpcpp-model
+    sharpcpp-metadata
+    sharpcpp-parsing
+    sharpcpp-pipeline
+    sharpcpp-rendering
+    sharpcpp-support
+    sharpcpp-tool)
+
+add_custom_target(
+  sharpcpp-tests
+  DEPENDS
+    sharpcpp-managed
+    sharpcpp-tests-model
+    sharpcpp-tests-metadata)
+add_custom_target(sharpcpp-all ALL DEPENDS sharpcpp-managed)
 
 if(BUILD_TESTING)
   add_test(
-    NAME sharpcpp2.tests.model
+    NAME sharpcpp.tests.model
     COMMAND "${DOTNET_EXECUTABLE}" test "${CMAKE_SOURCE_DIR}/tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj"
             --configuration $<CONFIG>
             --no-build
@@ -296,7 +296,7 @@ if(BUILD_TESTING)
             --logger "console;verbosity=minimal")
 
   add_test(
-    NAME sharpcpp2.tests.metadata
+    NAME sharpcpp.tests.metadata
     COMMAND "${DOTNET_EXECUTABLE}" test "${CMAKE_SOURCE_DIR}/tests/SharpCpp.Tests.Metadata/SharpCpp.Tests.Metadata.csproj"
             --configuration $<CONFIG>
             --no-build

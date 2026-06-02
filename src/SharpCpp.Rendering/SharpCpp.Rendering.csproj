@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <AssemblyName>SharpCpp.V2.Rendering</AssemblyName>
+    <AssemblyName>SharpCpp.Rendering</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>

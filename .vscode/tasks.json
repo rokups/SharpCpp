@@ -31,7 +31,7 @@
       "label": "CMake: Build Model (Debug)",
       "type": "shell",
       "command": "cmake",
-      "args": ["--build", "--preset", "Debug", "--target", "sharpcpp2-model"],
+      "args": ["--build", "--preset", "Debug", "--target", "sharpcpp-model"],
       "group": "build",
       "dependsOn": "CMake: Configure",
       "problemMatcher": []
@@ -40,7 +40,7 @@
       "label": "CMake: Build Metadata (Debug)",
       "type": "shell",
       "command": "cmake",
-      "args": ["--build", "--preset", "Debug", "--target", "sharpcpp2-metadata"],
+      "args": ["--build", "--preset", "Debug", "--target", "sharpcpp-metadata"],
       "group": "build",
       "dependsOn": "CMake: Configure",
       "problemMatcher": []
@@ -49,7 +49,7 @@
       "label": "CMake: Build Tool (Debug)",
       "type": "shell",
       "command": "cmake",
-      "args": ["--build", "--preset", "Debug", "--target", "sharpcpp2-tool"],
+      "args": ["--build", "--preset", "Debug", "--target", "sharpcpp-tool"],
       "group": "build",
       "dependsOn": "CMake: Configure",
       "problemMatcher": []
@@ -58,7 +58,7 @@
       "label": "CMake: Build Managed (Debug)",
       "type": "shell",
       "command": "cmake",
-      "args": ["--build", "--preset", "Debug", "--target", "sharpcpp2-managed"],
+      "args": ["--build", "--preset", "Debug", "--target", "sharpcpp-managed"],
       "group": "build",
       "dependsOn": "CMake: Configure",
       "problemMatcher": []
