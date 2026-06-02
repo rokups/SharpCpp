@@ -29,6 +29,20 @@ public sealed class BuiltinTests
     }
 
     [Fact]
+    public void Bool_marked_pointer_in_ref_and_out_bindings_roundtrip()
+    {
+        var inValue = false;
+        Assert.False(E2EBindings.EchoMarkedInBool(in inValue));
+
+        var refValue = false;
+        E2EBindings.ReplaceMarkedRefBool(ref refValue);
+        Assert.True(refValue);
+
+        E2EBindings.WriteMarkedOutBool(out var outValue);
+        Assert.True(outValue);
+    }
+
+    [Fact]
     public void Char_value_in_ref_and_out_bindings_roundtrip()
     {
         Assert.Equal((byte)201, E2EBindings.RoundtripChar((byte)201));
@@ -41,6 +55,20 @@ public sealed class BuiltinTests
         Assert.Equal((byte)42, refValue);
 
         E2EBindings.WriteOutChar(out var outValue);
+        Assert.Equal((byte)90, outValue);
+    }
+
+    [Fact]
+    public void Char_marked_pointer_in_ref_and_out_bindings_roundtrip()
+    {
+        byte inValue = 17;
+        Assert.Equal((byte)17, E2EBindings.EchoMarkedInChar(in inValue));
+
+        byte refValue = 41;
+        E2EBindings.ReplaceMarkedRefChar(ref refValue);
+        Assert.Equal((byte)42, refValue);
+
+        E2EBindings.WriteMarkedOutChar(out var outValue);
         Assert.Equal((byte)90, outValue);
     }
 
@@ -61,6 +89,20 @@ public sealed class BuiltinTests
     }
 
     [Fact]
+    public void Int8_marked_pointer_in_ref_and_out_bindings_roundtrip()
+    {
+        sbyte inValue = 7;
+        Assert.Equal((sbyte)7, E2EBindings.EchoMarkedInInt8(in inValue));
+
+        sbyte refValue = 41;
+        E2EBindings.ReplaceMarkedRefInt8(ref refValue);
+        Assert.Equal((sbyte)42, refValue);
+
+        E2EBindings.WriteMarkedOutInt8(out var outValue);
+        Assert.Equal((sbyte)-12, outValue);
+    }
+
+    [Fact]
     public void UInt8_value_in_ref_and_out_bindings_roundtrip()
     {
         Assert.Equal((byte)201, E2EBindings.RoundtripUint8((byte)201));
@@ -73,6 +115,20 @@ public sealed class BuiltinTests
         Assert.Equal((byte)42, refValue);
 
         E2EBindings.WriteOutUint8(out var outValue);
+        Assert.Equal((byte)240, outValue);
+    }
+
+    [Fact]
+    public void UInt8_marked_pointer_in_ref_and_out_bindings_roundtrip()
+    {
+        byte inValue = 17;
+        Assert.Equal((byte)17, E2EBindings.EchoMarkedInUint8(in inValue));
+
+        byte refValue = 41;
+        E2EBindings.ReplaceMarkedRefUint8(ref refValue);
+        Assert.Equal((byte)42, refValue);
+
+        E2EBindings.WriteMarkedOutUint8(out var outValue);
         Assert.Equal((byte)240, outValue);
     }
 
@@ -93,6 +149,20 @@ public sealed class BuiltinTests
     }
 
     [Fact]
+    public void Int16_marked_pointer_in_ref_and_out_bindings_roundtrip()
+    {
+        short inValue = 1234;
+        Assert.Equal((short)1234, E2EBindings.EchoMarkedInInt16(in inValue));
+
+        short refValue = 41;
+        E2EBindings.ReplaceMarkedRefInt16(ref refValue);
+        Assert.Equal((short)42, refValue);
+
+        E2EBindings.WriteMarkedOutInt16(out var outValue);
+        Assert.Equal((short)-1234, outValue);
+    }
+
+    [Fact]
     public void UInt16_value_in_ref_and_out_bindings_roundtrip()
     {
         Assert.Equal((ushort)54321, E2EBindings.RoundtripUint16((ushort)54321));
@@ -105,6 +175,20 @@ public sealed class BuiltinTests
         Assert.Equal((ushort)42, refValue);
 
         E2EBindings.WriteOutUint16(out var outValue);
+        Assert.Equal((ushort)45678, outValue);
+    }
+
+    [Fact]
+    public void UInt16_marked_pointer_in_ref_and_out_bindings_roundtrip()
+    {
+        ushort inValue = 2345;
+        Assert.Equal((ushort)2345, E2EBindings.EchoMarkedInUint16(in inValue));
+
+        ushort refValue = 41;
+        E2EBindings.ReplaceMarkedRefUint16(ref refValue);
+        Assert.Equal((ushort)42, refValue);
+
+        E2EBindings.WriteMarkedOutUint16(out var outValue);
         Assert.Equal((ushort)45678, outValue);
     }
 
@@ -125,6 +209,20 @@ public sealed class BuiltinTests
     }
 
     [Fact]
+    public void Int32_marked_pointer_in_ref_and_out_bindings_roundtrip()
+    {
+        var inValue = 7654321;
+        Assert.Equal(7654321, E2EBindings.EchoMarkedInInt32(in inValue));
+
+        var refValue = 41;
+        E2EBindings.ReplaceMarkedRefInt32(ref refValue);
+        Assert.Equal(42, refValue);
+
+        E2EBindings.WriteMarkedOutInt32(out var outValue);
+        Assert.Equal(-123456789, outValue);
+    }
+
+    [Fact]
     public void UInt32_value_in_ref_and_out_bindings_roundtrip()
     {
         Assert.Equal(3456789012u, E2EBindings.RoundtripUint32(3456789012u));
@@ -137,6 +235,20 @@ public sealed class BuiltinTests
         Assert.Equal(42u, refValue);
 
         E2EBindings.WriteOutUint32(out var outValue);
+        Assert.Equal(3456789012u, outValue);
+    }
+
+    [Fact]
+    public void UInt32_marked_pointer_in_ref_and_out_bindings_roundtrip()
+    {
+        uint inValue = 1234567890u;
+        Assert.Equal(1234567890u, E2EBindings.EchoMarkedInUint32(in inValue));
+
+        uint refValue = 41;
+        E2EBindings.ReplaceMarkedRefUint32(ref refValue);
+        Assert.Equal(42u, refValue);
+
+        E2EBindings.WriteMarkedOutUint32(out var outValue);
         Assert.Equal(3456789012u, outValue);
     }
 
@@ -157,6 +269,20 @@ public sealed class BuiltinTests
     }
 
     [Fact]
+    public void Int64_marked_pointer_in_ref_and_out_bindings_roundtrip()
+    {
+        long inValue = 1234567890123456789L;
+        Assert.Equal(1234567890123456789L, E2EBindings.EchoMarkedInInt64(in inValue));
+
+        long refValue = 41;
+        E2EBindings.ReplaceMarkedRefInt64(ref refValue);
+        Assert.Equal(42L, refValue);
+
+        E2EBindings.WriteMarkedOutInt64(out var outValue);
+        Assert.Equal(-1234567890123456789L, outValue);
+    }
+
+    [Fact]
     public void UInt64_value_in_ref_and_out_bindings_roundtrip()
     {
         Assert.Equal(12345678901234567890UL, E2EBindings.RoundtripUint64(12345678901234567890UL));
@@ -169,6 +295,20 @@ public sealed class BuiltinTests
         Assert.Equal(42UL, refValue);
 
         E2EBindings.WriteOutUint64(out var outValue);
+        Assert.Equal(12345678901234567890UL, outValue);
+    }
+
+    [Fact]
+    public void UInt64_marked_pointer_in_ref_and_out_bindings_roundtrip()
+    {
+        ulong inValue = 9876543210123456789UL;
+        Assert.Equal(9876543210123456789UL, E2EBindings.EchoMarkedInUint64(in inValue));
+
+        ulong refValue = 41;
+        E2EBindings.ReplaceMarkedRefUint64(ref refValue);
+        Assert.Equal(42UL, refValue);
+
+        E2EBindings.WriteMarkedOutUint64(out var outValue);
         Assert.Equal(12345678901234567890UL, outValue);
     }
 
@@ -189,6 +329,20 @@ public sealed class BuiltinTests
     }
 
     [Fact]
+    public void Single_marked_pointer_in_ref_and_out_bindings_roundtrip()
+    {
+        float inValue = 1.5f;
+        Assert.Equal(1.5f, E2EBindings.EchoMarkedInSingle(in inValue));
+
+        float refValue = 40.75f;
+        E2EBindings.ReplaceMarkedRefSingle(ref refValue);
+        Assert.Equal(41.75f, refValue);
+
+        E2EBindings.WriteMarkedOutSingle(out var outValue);
+        Assert.Equal(6.5f, outValue);
+    }
+
+    [Fact]
     public void Double_value_in_ref_and_out_bindings_roundtrip()
     {
         Assert.Equal(7.75, E2EBindings.RoundtripDouble(7.75));
@@ -201,6 +355,20 @@ public sealed class BuiltinTests
         Assert.Equal(40.5, refValue);
 
         E2EBindings.WriteOutDouble(out var outValue);
+        Assert.Equal(9.25, outValue);
+    }
+
+    [Fact]
+    public void Double_marked_pointer_in_ref_and_out_bindings_roundtrip()
+    {
+        double inValue = 4.5;
+        Assert.Equal(4.5, E2EBindings.EchoMarkedInDouble(in inValue));
+
+        double refValue = 39.5;
+        E2EBindings.ReplaceMarkedRefDouble(ref refValue);
+        Assert.Equal(40.5, refValue);
+
+        E2EBindings.WriteMarkedOutDouble(out var outValue);
         Assert.Equal(9.25, outValue);
     }
 
@@ -219,6 +387,17 @@ public sealed class BuiltinTests
         Assert.Equal(expectedToken, refValue);
 
         E2EBindings.WriteOutVoidPtr(out var outValue);
+        Assert.Equal(expectedToken, outValue);
+    }
+
+    [Fact]
+    public void VoidPtr_marked_pointer_in_and_out_bindings_roundtrip()
+    {
+        var inValue = new IntPtr(0x5678);
+        Assert.Equal(inValue, E2EBindings.EchoMarkedInVoidPtr(inValue));
+
+        var expectedToken = E2EBindings.OpaqueToken();
+        E2EBindings.WriteMarkedOutVoidPtr(out var outValue);
         Assert.Equal(expectedToken, outValue);
     }
 

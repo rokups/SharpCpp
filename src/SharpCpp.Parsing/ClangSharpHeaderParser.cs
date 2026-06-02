@@ -1,4 +1,5 @@
 using ClangSharp.Interop;
+using System.Text;
 using System.Text.RegularExpressions;
 
 using SharpCpp.Model.Ast;
@@ -7,6 +8,12 @@ namespace SharpCpp.Parsing;
 
 public sealed class ClangSharpHeaderParser
 {
+    private static readonly Regex PassKindAttributeExpression = new(
+        @"\[\[\s*sharpcpp::(?<kind>in|out|ref)\s*\]\]",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex FlagsAttributeExpression = new(
+        @"\[\[\s*sharpcpp::flags\s*\]\]",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex ManagedTypeMarshallerExpression = new(
         @"template\s*<>\s*struct\s*\[\[\s*sharpcpp::managed_type\((?<body>.*?)\)\s*\]\]\s*Marshaller\s*<\s*(?<cppType>.*?)\s*>\s*\{(?<members>.*?)\};",
         RegexOptions.CultureInvariant | RegexOptions.Compiled | RegexOptions.Singleline);
@@ -50,6 +57,7 @@ public sealed class ClangSharpHeaderParser
             request.NativeLibraryName,
             new[] { request.HeaderIncludePath });
         var recordsByName = new Dictionary<string, RecordBinding>(StringComparer.Ordinal);
+        var enumsByName = new Dictionary<string, EnumBinding>(StringComparer.Ordinal);
         var managedTypeOverrides = LoadManagedTypeOverrides(request.MarshallerConfigurationFiles);
 
         translationUnit.Cursor.VisitChildren(
@@ -66,8 +74,12 @@ public sealed class ClangSharpHeaderParser
                         RegisterRecord(child, compilation, recordsByName);
                         break;
 
+                    case CXCursorKind.CXCursor_EnumDecl:
+                        RegisterEnum(child, compilation, enumsByName);
+                        break;
+
                     case CXCursorKind.CXCursor_FunctionDecl:
-                        compilation.Members.Add(CreateFunction(child, request.EntryPointPrefix, recordsByName, managedTypeOverrides));
+                        compilation.Members.Add(CreateFunction(child, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides));
                         break;
                 }
 
@@ -125,6 +137,7 @@ public sealed class ClangSharpHeaderParser
         CXCursor cursor,
         string entryPointPrefix,
         IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
     {
         var nativeName = cursor.Spelling.ToString();
@@ -132,7 +145,7 @@ public sealed class ClangSharpHeaderParser
             $"function:{nativeName}",
             nativeName,
             ToPascalCase(nativeName),
-            MapType(cursor.ResultType, recordsByName, managedTypeOverrides),
+            MapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides),
             entryPointName: $"{entryPointPrefix}_{nativeName}",
             cppReturnTypeName: NormalizeTypeName(cursor.ResultType.Spelling.ToString()));
 
@@ -145,7 +158,7 @@ public sealed class ClangSharpHeaderParser
                 parameterName = $"arg{parameterIndex}";
             }
 
-            var (parameterType, direction, abiKind) = MapParameter(parameterCursor.Type, managedTypeOverrides);
+            var (parameterType, direction, abiKind) = MapParameter(cursor, parameterCursor, recordsByName, enumsByName, managedTypeOverrides);
             function.Parameters.Add(
                 new ParameterBinding(
                     $"parameter:{nativeName}:{parameterName}",
@@ -161,17 +174,24 @@ public sealed class ClangSharpHeaderParser
     }
 
     private static (BindingType Type, BindingParameterDirection Direction, BindingParameterAbiKind AbiKind) MapParameter(
-        CXType type,
+        CXCursor functionCursor,
+        CXCursor parameterCursor,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
     {
+        var type = parameterCursor.Type;
         var normalizedType = type.CanonicalType;
+        var explicitDirection = TryGetPassKindOverride(functionCursor, parameterCursor, out var overrideDirection)
+            ? overrideDirection
+            : (BindingParameterDirection?)null;
 
         if (normalizedType.kind == CXTypeKind.CXType_LValueReference)
         {
             var pointeeType = normalizedType.PointeeType.CanonicalType;
             return (
-                MapType(pointeeType, new Dictionary<string, RecordBinding>(StringComparer.Ordinal), managedTypeOverrides),
-                pointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Ref,
+                MapType(pointeeType, recordsByName, enumsByName, managedTypeOverrides),
+                explicitDirection ?? (pointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Ref),
                 BindingParameterAbiKind.Reference);
         }
 
@@ -182,23 +202,24 @@ public sealed class ClangSharpHeaderParser
             if (pointeeType.kind is CXTypeKind.CXType_Void or CXTypeKind.CXType_Record)
             {
                 return (
-                    MapType(type, new Dictionary<string, RecordBinding>(StringComparer.Ordinal), managedTypeOverrides),
-                    BindingParameterDirection.In,
+                    MapType(type, recordsByName, enumsByName, managedTypeOverrides),
+                    explicitDirection ?? BindingParameterDirection.In,
                     BindingParameterAbiKind.Value);
             }
 
             return (
-                MapType(pointeeType, new Dictionary<string, RecordBinding>(StringComparer.Ordinal), managedTypeOverrides),
-                pointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Out,
+                MapType(pointeeType, recordsByName, enumsByName, managedTypeOverrides),
+                explicitDirection ?? (pointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Out),
                 BindingParameterAbiKind.Pointer);
         }
 
-        return (MapType(type, new Dictionary<string, RecordBinding>(StringComparer.Ordinal), managedTypeOverrides), BindingParameterDirection.In, BindingParameterAbiKind.Value);
+        return (MapType(type, recordsByName, enumsByName, managedTypeOverrides), explicitDirection ?? BindingParameterDirection.In, BindingParameterAbiKind.Value);
     }
 
     private static BindingType MapType(
         CXType type,
         IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
     {
         var normalizedType = type.CanonicalType;
@@ -226,7 +247,7 @@ public sealed class ClangSharpHeaderParser
 
             if (pointeeType.kind == CXTypeKind.CXType_Record)
             {
-                var recordName = NormalizeRecordName(pointeeType.Spelling.ToString());
+                var recordName = NormalizeNamedTypeName(pointeeType.Spelling.ToString());
                 if (!recordsByName.TryGetValue(recordName, out var record))
                 {
                     record = new RecordBinding($"record:{recordName}", recordName, recordName);
@@ -235,6 +256,17 @@ public sealed class ClangSharpHeaderParser
 
                 return record.HandleType;
             }
+        }
+
+        if (normalizedType.kind == CXTypeKind.CXType_Enum)
+        {
+            var enumName = NormalizeNamedTypeName(normalizedType.Spelling.ToString());
+            if (enumsByName.TryGetValue(enumName, out var @enum))
+            {
+                return BindingType.CreateEnum(enumName, @enum.ManagedName, @enum.UnderlyingTypeName);
+            }
+
+            return BindingType.CreateEnum(enumName, ToPascalCase(enumName), normalizedType.CanonicalType.Spelling.ToString());
         }
 
         return normalizedType.kind switch
@@ -267,9 +299,12 @@ public sealed class ClangSharpHeaderParser
                 .Select(static part => char.ToUpperInvariant(part[0]) + part[1..]));
     }
 
-    private static string NormalizeRecordName(string spelling)
+    private static string NormalizeNamedTypeName(string spelling)
     {
         return spelling
+            .Replace("enum class ", string.Empty, StringComparison.Ordinal)
+            .Replace("enum ", string.Empty, StringComparison.Ordinal)
+            .Replace("const ", string.Empty, StringComparison.Ordinal)
             .Replace("struct ", string.Empty, StringComparison.Ordinal)
             .Replace("class ", string.Empty, StringComparison.Ordinal)
             .Trim();
@@ -280,6 +315,207 @@ public sealed class ClangSharpHeaderParser
         return Regex.Replace(spelling.Trim(), @"\s+", " ")
             .Replace(" *", "*", StringComparison.Ordinal)
             .Replace(" &", "&", StringComparison.Ordinal);
+    }
+
+    private static bool TryGetPassKindOverride(CXCursor functionCursor, CXCursor parameterCursor, out BindingParameterDirection direction)
+    {
+        var match = PassKindAttributeExpression.Match(GetSourceText(parameterCursor.TranslationUnit, parameterCursor.Extent));
+        if (!match.Success && TryGetParameterDeclarationSourceText(functionCursor, parameterCursor, out var parameterSourceText))
+        {
+            match = PassKindAttributeExpression.Match(parameterSourceText);
+        }
+
+        if (!match.Success)
+        {
+            direction = default;
+            return false;
+        }
+
+        direction = match.Groups["kind"].Value switch
+        {
+            "in" => BindingParameterDirection.In,
+            "ref" => BindingParameterDirection.Ref,
+            "out" => BindingParameterDirection.Out,
+            _ => throw new NotSupportedException($"Unsupported pass-kind attribute '{match.Groups["kind"].Value}'.")
+        };
+        return true;
+    }
+
+    private static bool TryGetParameterDeclarationSourceText(CXCursor functionCursor, CXCursor parameterCursor, out string sourceText)
+    {
+        var functionSourceText = GetSourceText(functionCursor.TranslationUnit, functionCursor.Extent);
+        var openParenthesisIndex = functionSourceText.IndexOf('(');
+        if (openParenthesisIndex < 0)
+        {
+            sourceText = string.Empty;
+            return false;
+        }
+
+        var nestingDepth = 0;
+        var closeParenthesisIndex = -1;
+        for (var index = openParenthesisIndex; index < functionSourceText.Length; index++)
+        {
+            switch (functionSourceText[index])
+            {
+                case '(':
+                    nestingDepth++;
+                    break;
+                case ')':
+                    nestingDepth--;
+                    if (nestingDepth == 0)
+                    {
+                        closeParenthesisIndex = index;
+                    }
+                    break;
+            }
+
+            if (closeParenthesisIndex >= 0)
+            {
+                break;
+            }
+        }
+
+        if (closeParenthesisIndex < 0)
+        {
+            sourceText = string.Empty;
+            return false;
+        }
+
+        var parameterListText = functionSourceText[(openParenthesisIndex + 1)..closeParenthesisIndex];
+        if (functionCursor.NumArguments == 1)
+        {
+            sourceText = parameterListText;
+            return true;
+        }
+
+        var parameterName = parameterCursor.Spelling.ToString();
+        if (string.IsNullOrWhiteSpace(parameterName))
+        {
+            sourceText = string.Empty;
+            return false;
+        }
+
+        foreach (var part in SplitTopLevelParameters(parameterListText))
+        {
+            if (part.Contains(parameterName, StringComparison.Ordinal))
+            {
+                sourceText = part;
+                return true;
+            }
+        }
+
+        sourceText = string.Empty;
+        return false;
+    }
+
+    private static IReadOnlyList<string> SplitTopLevelParameters(string parameterListText)
+    {
+        var result = new List<string>();
+        var segmentStart = 0;
+        var angleDepth = 0;
+        var parenDepth = 0;
+
+        for (var index = 0; index < parameterListText.Length; index++)
+        {
+            switch (parameterListText[index])
+            {
+                case '<':
+                    angleDepth++;
+                    break;
+                case '>':
+                    angleDepth = Math.Max(0, angleDepth - 1);
+                    break;
+                case '(':
+                    parenDepth++;
+                    break;
+                case ')':
+                    parenDepth = Math.Max(0, parenDepth - 1);
+                    break;
+                case ',' when angleDepth == 0 && parenDepth == 0:
+                    result.Add(parameterListText[segmentStart..index]);
+                    segmentStart = index + 1;
+                    break;
+            }
+        }
+
+        result.Add(parameterListText[segmentStart..]);
+        return result;
+    }
+
+    private static unsafe void RegisterEnum(CXCursor cursor, BindingCompilation compilation, IDictionary<string, EnumBinding> enumsByName)
+    {
+        var nativeName = cursor.Spelling.ToString();
+        if (string.IsNullOrWhiteSpace(nativeName) || enumsByName.ContainsKey(nativeName))
+        {
+            return;
+        }
+
+        var @enum = new EnumBinding(
+            $"enum:{nativeName}",
+            nativeName,
+            ToPascalCase(nativeName),
+            NormalizeTypeName(cursor.EnumDecl_IntegerType.Spelling.ToString()))
+        {
+            IsFlags = FlagsAttributeExpression.IsMatch(GetSourceText(cursor.TranslationUnit, cursor.Extent))
+        };
+
+        cursor.VisitChildren(
+            (child, _, _) =>
+            {
+                if (child.Kind != CXCursorKind.CXCursor_EnumConstantDecl)
+                {
+                    return CXChildVisitResult.CXChildVisit_Continue;
+                }
+
+                @enum.Values.Add(
+                    new EnumValueBinding(
+                        child.Spelling.ToString(),
+                        ToPascalCase(child.Spelling.ToString()),
+                        FormatEnumValue(@enum.UnderlyingTypeName, child)));
+                return CXChildVisitResult.CXChildVisit_Continue;
+            },
+            new CXClientData(IntPtr.Zero));
+
+        enumsByName.Add(nativeName, @enum);
+        compilation.Members.Add(@enum);
+    }
+
+    private static string FormatEnumValue(string underlyingTypeName, CXCursor cursor)
+    {
+        if (underlyingTypeName.StartsWith("unsigned", StringComparison.Ordinal))
+        {
+            var value = cursor.EnumConstantDeclUnsignedValue;
+            return underlyingTypeName switch
+            {
+                "unsigned int" => $"{value}u",
+                "unsigned long long" => $"{value}UL",
+                "unsigned short" => value.ToString(),
+                _ => value.ToString()
+            };
+        }
+
+        return cursor.EnumConstantDeclValue.ToString();
+    }
+
+    private static string GetSourceText(CXTranslationUnit translationUnit, CXSourceRange sourceRange)
+    {
+        var tokens = translationUnit.Tokenize(sourceRange);
+
+        try
+        {
+            var builder = new StringBuilder();
+
+            foreach (var token in tokens)
+            {
+                builder.Append(token.GetSpelling(translationUnit).ToString());
+            }
+
+            return builder.ToString();
+        }
+        finally
+        {
+            translationUnit.DisposeTokens(tokens);
+        }
     }
 
     private static IReadOnlyDictionary<string, ManagedTypeOverride> LoadManagedTypeOverrides(IReadOnlyList<string> files)

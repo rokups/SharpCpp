@@ -237,6 +237,20 @@ function(sharpcpp_add_dotnet_build_target target_name project_path)
     endif()
   endforeach()
 
+  set(resolved_depends)
+  foreach(dependency IN LISTS ARG_DEPENDS)
+    if(TARGET "${dependency}")
+      get_target_property(dotnet_dependency_stamp "${dependency}" SHARPCPP_DOTNET_BUILD_STAMP)
+      if(dotnet_dependency_stamp AND NOT dotnet_dependency_stamp MATCHES "-NOTFOUND")
+        list(APPEND resolved_depends "${dotnet_dependency_stamp}")
+      else()
+        list(APPEND resolved_depends "${dependency}")
+      endif()
+    else()
+      list(APPEND resolved_depends "${dependency}")
+    endif()
+  endforeach()
+
   set(stamp_file "${dotnet_state_dir}/$<CONFIG>/${target_name}.stamp")
 
   add_custom_command(
@@ -255,7 +269,7 @@ function(sharpcpp_add_dotnet_build_target target_name project_path)
             "-p:SharpCppCMakePropsPath=${build_props_file}"
             ${ARG_PROPERTIES}
     COMMAND "${CMAKE_COMMAND}" -E touch "$<SHELL_PATH:${stamp_file}>"
-    DEPENDS ${ARG_DEPENDS} ${project_inputs} ${existing_shared_inputs}
+    DEPENDS ${resolved_depends} ${project_inputs} ${existing_shared_inputs}
     WORKING_DIRECTORY "${consumer_root}"
     VERBATIM
     USES_TERMINAL)
@@ -297,7 +311,16 @@ get_target_property(SHARPCPP_TOOL_BUILD_STAMP sharpcpp-tool SHARPCPP_DOTNET_BUIL
 
 set(SHARPCPP_E2E_GENERATED_ROOT "${CMAKE_BINARY_DIR}/generated/sharpcpp-e2e")
 set(SHARPCPP_E2E_FILE_STEM "SharpCppTestsE2E")
-set(SHARPCPP_E2E_HEADER_FILE "${CMAKE_SOURCE_DIR}/tests/SharpCpp.Tests.E2E/Builtin/Builtin.hpp")
+file(GLOB_RECURSE SHARPCPP_E2E_INPUT_HEADERS CONFIGURE_DEPENDS
+  "${CMAKE_SOURCE_DIR}/tests/SharpCpp.Tests.E2E/*/*.hpp")
+file(GLOB_RECURSE SHARPCPP_E2E_GENERATOR_INPUTS CONFIGURE_DEPENDS
+  "${CMAKE_SOURCE_DIR}/src/SharpCpp.Model/*.cs"
+  "${CMAKE_SOURCE_DIR}/src/SharpCpp.Metadata/*.cs"
+  "${CMAKE_SOURCE_DIR}/src/SharpCpp.Parsing/*.cs"
+  "${CMAKE_SOURCE_DIR}/src/SharpCpp.Rendering/*.cs"
+  "${CMAKE_SOURCE_DIR}/src/SharpCpp.Tool/*.cs"
+  "${CMAKE_SOURCE_DIR}/include/SharpCpp/*.hpp"
+  "${CMAKE_SOURCE_DIR}/include/SharpCpp/*.h")
 set(SHARPCPP_E2E_GENERATED_CS "${SHARPCPP_E2E_GENERATED_ROOT}/${SHARPCPP_E2E_FILE_STEM}.Bindings.g.cs")
 set(SHARPCPP_E2E_GENERATED_ALIAS_CS "${SHARPCPP_E2E_GENERATED_ROOT}/${SHARPCPP_E2E_FILE_STEM}.Bindings.Aliases.g.cs")
 set(SHARPCPP_E2E_GENERATED_CPP "${SHARPCPP_E2E_GENERATED_ROOT}/${SHARPCPP_E2E_FILE_STEM}.Bindings.g.cpp")
@@ -316,7 +339,7 @@ add_custom_command(
           --generated-root "$<SHELL_PATH:${SHARPCPP_E2E_GENERATED_ROOT}>"
           --project-root "$<SHELL_PATH:${CMAKE_SOURCE_DIR}>"
           --file-stem "${SHARPCPP_E2E_FILE_STEM}"
-  DEPENDS "${SHARPCPP_TOOL_BUILD_STAMP}" "${SHARPCPP_E2E_HEADER_FILE}"
+  DEPENDS "${SHARPCPP_TOOL_BUILD_STAMP}" ${SHARPCPP_E2E_INPUT_HEADERS} ${SHARPCPP_E2E_GENERATOR_INPUTS}
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
   VERBATIM
   USES_TERMINAL)

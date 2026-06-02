@@ -21,8 +21,8 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 
 ## Current Focus
 
-1. Broaden the ClangSharp-backed parser beyond the single E2E sample header.
-2. Expand the first slice beyond builtin primitives into more native surface categories.
+1. Broaden the ClangSharp-backed parser beyond the current builtin/enum E2E fixture headers.
+2. Expand the first slice beyond builtin primitives and enums into more native surface categories.
 3. Keep feature scope narrow until the parse -> render -> runtime path is solid.
 
 ## Decisions So Far
@@ -61,10 +61,10 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 
 - `SharpCpp.Model` owns the initial mutable binding model, metadata bag, diagnostics, source references, and `CodeWriter`.
 - `SharpCpp.Metadata` owns a deterministic metadata document, exporter, and serializer.
-- `SharpCpp.Parsing` now contains a minimal ClangSharp-backed header parser for the E2E sample fixture.
+- `SharpCpp.Parsing` now contains a minimal ClangSharp-backed header parser for multiple E2E fixture headers, including explicit `[[sharpcpp::in|ref|out]]` parameter overrides and `[[sharpcpp::flags]]` enums.
 - `SharpCpp.Rendering` owns the first generated `.Bindings.g.cs`, `.Bindings.Aliases.g.cs`, and `.Bindings.g.cpp` emitters.
 - `SharpCpp.Tool` now drives both metadata-only output and the first generated binding pipeline.
-- `tests/SharpCpp.Tests.E2E` now proves the builtin primitive value/in/ref/out surface end-to-end, plus a simple handle return.
+- `tests/SharpCpp.Tests.E2E` now proves builtin primitive value/in/ref/out, explicit attribute-driven pointer pass kinds, enum/flags emission, and a simple handle return end-to-end.
 
 ## Verification Commands
 

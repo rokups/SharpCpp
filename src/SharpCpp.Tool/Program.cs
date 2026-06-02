@@ -1,4 +1,5 @@
 using SharpCpp.Metadata.Export;
+using SharpCpp.Model.Ast;
 using SharpCpp.Parsing;
 using SharpCpp.Rendering;
 
@@ -66,27 +67,53 @@ internal static class Program
         var projectRoot = GetPathOption(args, "--project-root") ?? Environment.CurrentDirectory;
         var fixtureRoot = Path.Combine(projectRoot, "tests", "SharpCpp.Tests.E2E");
         var parser = new ClangSharpHeaderParser();
-        var compilation = parser.Parse(
-            new ClangSharpParseRequest(
-                ProjectName: "SharpCpp.Tests.E2E",
-                ManagedNamespace: "SharpCpp.Tests.E2E.Generated",
-                ManagedClassName: "E2EBindings",
-                NativeLibraryName: "SharpCppTestsE2E_Native",
-                HeaderFilePath: Path.Combine(fixtureRoot, "Builtin", "Builtin.hpp"),
-                HeaderIncludePath: "Builtin/Builtin.hpp",
-                ClangArguments: new[]
-                {
-                    "-xc++",
-                    "-std=c++20",
-                    "-Wno-unknown-attributes",
-                    $"-I{Path.Combine(projectRoot, "include")}",
-                    $"-I{fixtureRoot}"
-                },
-                MarshallerConfigurationFiles: new[]
-                {
-                    Path.Combine(projectRoot, "include", "SharpCpp", "Marshaller.hpp")
-                },
-                EntryPointPrefix: "sharpcpp_e2e"));
+        var clangArguments = new[]
+        {
+            "-xc++",
+            "-std=c++20",
+            "-Wno-unknown-attributes",
+            $"-I{Path.Combine(projectRoot, "include")}",
+            $"-I{fixtureRoot}"
+        };
+        var marshallerConfigurationFiles = new[]
+        {
+            Path.Combine(projectRoot, "include", "SharpCpp", "Marshaller.hpp")
+        };
+
+        var compilation = new BindingCompilation(
+            "SharpCpp.Tests.E2E",
+            "SharpCpp.Tests.E2E.Generated",
+            "E2EBindings",
+            "SharpCppTestsE2E_Native",
+            Array.Empty<string>());
+
+        var headerFiles = Directory
+            .EnumerateFiles(fixtureRoot, "*.hpp", SearchOption.AllDirectories)
+            .OrderBy(static path => path, StringComparer.Ordinal)
+            .ToArray();
+
+        foreach (var headerFilePath in headerFiles)
+        {
+            var relativeHeaderPath = Path.GetRelativePath(fixtureRoot, headerFilePath).Replace('\\', '/');
+            var parsedHeaderCompilation = parser.Parse(
+                new ClangSharpParseRequest(
+                    ProjectName: compilation.ProjectName,
+                    ManagedNamespace: compilation.ManagedNamespace,
+                    ManagedClassName: compilation.ManagedClassName,
+                    NativeLibraryName: compilation.NativeLibraryName,
+                    HeaderFilePath: headerFilePath,
+                    HeaderIncludePath: relativeHeaderPath,
+                    ClangArguments: clangArguments,
+                    MarshallerConfigurationFiles: marshallerConfigurationFiles,
+                    EntryPointPrefix: "sharpcpp_e2e"));
+
+            compilation.HeaderFiles.Add(relativeHeaderPath);
+            foreach (var member in parsedHeaderCompilation.Members.ToArray())
+            {
+                compilation.Members.Add(member);
+            }
+        }
+
         var renderedBindings = BindingOutputRenderer.Render(compilation, fileStem);
         var metadataDocument = BindingMetadataExporter.Export(
             compilation,
