@@ -1,0 +1,30 @@
+<Project>
+  <PropertyGroup>
+    <SharpCppPackageRoot Condition="'$(SharpCppPackageRoot)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..'))</SharpCppPackageRoot>
+    <SharpCppCompatPropsPath>$([System.IO.Path]::GetFullPath('$(SharpCppPackageRoot)/.CMakeLast.props'))</SharpCppCompatPropsPath>
+  </PropertyGroup>
+
+  <Import Project="$(SharpCppCMakePropsPath)"
+          Condition="'$(SharpCppCMakePropsPath)' != '' and Exists('$(SharpCppCMakePropsPath)')" />
+  <Import Project="$(SharpCppCompatPropsPath)"
+          Condition="'$(SharpCppCMakePropsPath)' == '' and Exists('$(SharpCppCompatPropsPath)')" />
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Deterministic>true</Deterministic>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <NuGetAudit>false</NuGetAudit>
+    <SharpCppOutputDir Condition="'$(SharpCppOutputDir)' == ''"></SharpCppOutputDir>
+    <SharpCppIntermediateRoot Condition="'$(SharpCppIntermediateRoot)' == ''"></SharpCppIntermediateRoot>
+    <DefaultItemExcludes>$(DefaultItemExcludes);$(MSBuildProjectDirectory)/obj/**;$(MSBuildProjectDirectory)/bin/**</DefaultItemExcludes>
+    <OutputPath Condition="'$(SharpCppOutputDir)' != ''">$(SharpCppOutputDir)/</OutputPath>
+    <BaseIntermediateOutputPath Condition="'$(SharpCppIntermediateRoot)' != ''">$(SharpCppIntermediateRoot)/$(MSBuildProjectName)/</BaseIntermediateOutputPath>
+    <AppendTargetFrameworkToOutputPath Condition="'$(SharpCppOutputDir)' != ''">false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath Condition="'$(SharpCppOutputDir)' != ''">false</AppendRuntimeIdentifierToOutputPath>
+  </PropertyGroup>
+</Project>
