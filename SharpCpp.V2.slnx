@@ -8,4 +8,8 @@
     <Project Path="src/SharpCpp.Support/SharpCpp.Support.csproj" />
     <Project Path="src/SharpCpp.Tool/SharpCpp.Tool.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SharpCpp.Tests.Metadata/SharpCpp.Tests.Metadata.csproj" />
+    <Project Path="tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj" />
+  </Folder>
 </Solution>

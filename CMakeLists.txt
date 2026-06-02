@@ -28,6 +28,8 @@ sharpcpp2_add_dotnet_build_target(sharpcpp2-pipeline "${CMAKE_SOURCE_DIR}/src/Sh
 sharpcpp2_add_dotnet_build_target(sharpcpp2-rendering "${CMAKE_SOURCE_DIR}/src/SharpCpp.Rendering/SharpCpp.Rendering.csproj")
 sharpcpp2_add_dotnet_build_target(sharpcpp2-support "${CMAKE_SOURCE_DIR}/src/SharpCpp.Support/SharpCpp.Support.csproj")
 sharpcpp2_add_dotnet_build_target(sharpcpp2-tool "${CMAKE_SOURCE_DIR}/src/SharpCpp.Tool/SharpCpp.Tool.csproj")
+sharpcpp2_add_dotnet_build_target(sharpcpp2-tests-model "${CMAKE_SOURCE_DIR}/tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj")
+sharpcpp2_add_dotnet_build_target(sharpcpp2-tests-metadata "${CMAKE_SOURCE_DIR}/tests/SharpCpp.Tests.Metadata/SharpCpp.Tests.Metadata.csproj")
 
 add_custom_target(
   sharpcpp2-managed
@@ -40,5 +42,28 @@ add_custom_target(
     sharpcpp2-support
     sharpcpp2-tool)
 
-add_custom_target(sharpcpp2-tests DEPENDS sharpcpp2-managed)
+add_custom_target(
+  sharpcpp2-tests
+  DEPENDS
+    sharpcpp2-managed
+    sharpcpp2-tests-model
+    sharpcpp2-tests-metadata)
 add_custom_target(sharpcpp2-all ALL DEPENDS sharpcpp2-managed)
+
+if(BUILD_TESTING)
+  add_test(
+    NAME sharpcpp2.tests.model
+    COMMAND "${DOTNET_EXECUTABLE}" test "${CMAKE_SOURCE_DIR}/tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj"
+            --configuration $<CONFIG>
+            --no-build
+            --no-restore
+            --logger "console;verbosity=minimal")
+
+  add_test(
+    NAME sharpcpp2.tests.metadata
+    COMMAND "${DOTNET_EXECUTABLE}" test "${CMAKE_SOURCE_DIR}/tests/SharpCpp.Tests.Metadata/SharpCpp.Tests.Metadata.csproj"
+            --configuration $<CONFIG>
+            --no-build
+            --no-restore
+            --logger "console;verbosity=minimal")
+endif()
