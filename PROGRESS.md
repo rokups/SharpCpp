@@ -18,6 +18,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - [x] First vertical slice: primitive/value parameters + simple handle returns + metadata export
 - [x] Generated output contract wired through tool/CMake
 - [x] E2E generator and runtime tests wired
+- [x] P/Invoke self parameter changed from `nint` to wrapper type (SafeHandle-derived) for instance methods, operators, field accessors — leverages `LibraryImport` source generator's `AddRef`/`Release` to keep `this` alive during native calls
 
 ## Current Focus
 

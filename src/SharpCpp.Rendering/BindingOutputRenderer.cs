@@ -283,12 +283,12 @@ public static class BindingOutputRenderer
 
             if (property.Getter is not null)
             {
-                pinvokeDeclarations.Add(RenderManagedInstanceImportDeclaration(compilation, property.Getter));
+                pinvokeDeclarations.Add(RenderManagedInstanceImportDeclaration(compilation, property.Getter, record.ManagedName));
             }
 
             if (property.Setter is not null)
             {
-                pinvokeDeclarations.Add(RenderManagedInstanceImportDeclaration(compilation, property.Setter));
+                pinvokeDeclarations.Add(RenderManagedInstanceImportDeclaration(compilation, property.Setter, record.ManagedName));
             }
         }
 
@@ -302,7 +302,7 @@ public static class BindingOutputRenderer
             else
             {
                 writer.Write(RenderManagedInstanceMethod(compilation, record, method));
-                pinvokeDeclarations.Add(RenderManagedInstanceImportDeclaration(compilation, method));
+                pinvokeDeclarations.Add(RenderManagedInstanceImportDeclaration(compilation, method, record.ManagedName));
             }
         }
 
@@ -330,7 +330,7 @@ public static class BindingOutputRenderer
             else
             {
                 writer.Write(RenderManagedOperator(record, method));
-                pinvokeDeclarations.Add(RenderManagedOperatorImportDeclaration(compilation, method));
+                pinvokeDeclarations.Add(RenderManagedOperatorImportDeclaration(compilation, method, record.ManagedName));
             }
         }
 
@@ -344,11 +344,11 @@ public static class BindingOutputRenderer
             else
             {
                 writer.Write(RenderManagedProperty(field));
-                pinvokeDeclarations.Add(RenderManagedFieldGetterImportDeclaration(compilation, field));
+                pinvokeDeclarations.Add(RenderManagedFieldGetterImportDeclaration(compilation, field, record.ManagedName));
 
                 if (!field.IsReadOnly)
                 {
-                    pinvokeDeclarations.Add(RenderManagedFieldSetterImportDeclaration(compilation, field));
+                    pinvokeDeclarations.Add(RenderManagedFieldSetterImportDeclaration(compilation, field, record.ManagedName));
                 }
             }
         }
@@ -393,7 +393,7 @@ writer.WriteLine();
             ", ",
             function.Parameters.Select(RenderManagedPublicParameter));
         var invocationPlan = BuildManagedInvocationPlan(function.Parameters);
-        var invokeArguments = string.Join(", ", new[] { "Handle" }.Concat(invocationPlan.Arguments));
+        var invokeArguments = string.Join(", ", new[] { "this" }.Concat(invocationPlan.Arguments));
         var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType);
         var importMethodName = GetManagedImportMethodName(function);
         var memberModifier = ShouldUseNewModifier(compilation, record, function.ManagedName) ? "new " : string.Empty;
@@ -508,7 +508,7 @@ writer.WriteLine();
                 writer.Write($$"""
                     get
                     {
-                    return new {{property.Getter.ReturnType.ManagedTypeName}}({{GetManagedImportMethodName(property.Getter)}}(Handle));
+                    return new {{property.Getter.ReturnType.ManagedTypeName}}({{GetManagedImportMethodName(property.Getter)}}(this));
                     }
                     """);
             }
@@ -517,7 +517,7 @@ writer.WriteLine();
                 writer.Write($$"""
                     get
                     {
-                    return {{GetManagedImportMethodName(property.Getter)}}(Handle);
+                    return {{GetManagedImportMethodName(property.Getter)}}(this);
                     }
                     """);
             }
@@ -531,7 +531,7 @@ writer.WriteLine();
             writer.Write($$"""
                 set
                 {
-                {{GetManagedImportMethodName(property.Setter)}}(Handle, {{setterArgument}});
+                {{GetManagedImportMethodName(property.Setter)}}(this, {{setterArgument}});
                 }
                 """);
         }
@@ -715,7 +715,7 @@ writer.WriteLine();
             writer.Write($$"""
                 public bool Equals({{record.ManagedName}} rhs)
                 {
-                return __PInvoke.{{function.ManagedName}}(Handle, rhs.Handle);
+                return __PInvoke.{{function.ManagedName}}(this, rhs);
                 }
                 """);
             return writer.ToString();
@@ -726,7 +726,7 @@ writer.WriteLine();
             writer.Write($$"""
                 public bool LessThan({{record.ManagedName}} rhs)
                 {
-                return __PInvoke.{{function.ManagedName}}(Handle, rhs.Handle);
+                return __PInvoke.{{function.ManagedName}}(this, rhs);
                 }
                 """);
             return writer.ToString();
@@ -739,7 +739,7 @@ writer.WriteLine();
             writer.Write($$"""
                 public static {{conversionKeyword}} operator {{targetTypeName}}({{record.ManagedName}} value)
                 {
-                return __PInvoke.{{function.ManagedName}}(value is null ? 0 : value.Handle);
+                return __PInvoke.{{function.ManagedName}}(value);
                 }
                 """);
             return writer.ToString();
@@ -754,7 +754,7 @@ writer.WriteLine();
                 writer.Write($$"""
                     public static {{returnTypeName}} operator +({{record.ManagedName}} left, {{parameter}})
                     {
-                    return new {{function.ReturnType.ManagedTypeName}}(__PInvoke.{{function.ManagedName}}(left.Handle, {{RenderManagedInvocationArgument(function.Parameters[0])}}));
+                    return new {{function.ReturnType.ManagedTypeName}}(__PInvoke.{{function.ManagedName}}(left, {{RenderManagedSafeHandleInvocationArgument(function.Parameters[0])}}));
                     }
                     """);
             }
@@ -763,7 +763,7 @@ writer.WriteLine();
                 writer.Write($$"""
                     public static {{returnTypeName}} operator +({{record.ManagedName}} left, {{parameter}})
                     {
-                    return __PInvoke.{{function.ManagedName}}(left.Handle, {{RenderManagedInvocationArgument(function.Parameters[0])}});
+                    return __PInvoke.{{function.ManagedName}}(left, {{RenderManagedSafeHandleInvocationArgument(function.Parameters[0])}});
                     }
                     """);
             }
@@ -777,8 +777,7 @@ writer.WriteLine();
             writer.Write($$"""
                 public static {{returnTypeName}} operator {{function.OperatorToken}}({{record.ManagedName}} left, {{parameterTypeName}} right)
                 {
-                var __right = right.Handle;
-                return __PInvoke.{{function.ManagedName}}(left.Handle, __right);
+                return __PInvoke.{{function.ManagedName}}(left, right);
                 }
                 """);
             return writer.ToString();
@@ -792,7 +791,7 @@ writer.WriteLine();
                 writer.Write($$"""
                     public static {{returnTypeName}} operator -({{record.ManagedName}} value)
                     {
-                    return new {{function.ReturnType.ManagedTypeName}}(__PInvoke.{{function.ManagedName}}(value is null ? 0 : value.Handle));
+                    return new {{function.ReturnType.ManagedTypeName}}(__PInvoke.{{function.ManagedName}}(value));
                     }
                     """);
             }
@@ -801,7 +800,7 @@ writer.WriteLine();
                 writer.Write($$"""
                     public static {{returnTypeName}} operator -({{record.ManagedName}} value)
                     {
-                    return __PInvoke.{{function.ManagedName}}(value is null ? 0 : value.Handle);
+                    return __PInvoke.{{function.ManagedName}}(value);
                     }
                     """);
             }
@@ -818,12 +817,12 @@ writer.WriteLine();
             .Any(candidate => string.Equals(candidate.OperatorToken, operatorToken, StringComparison.Ordinal));
     }
 
-    private static string RenderManagedOperatorImportDeclaration(BindingCompilation compilation, FunctionBinding function)
+    private static string RenderManagedOperatorImportDeclaration(BindingCompilation compilation, FunctionBinding function, string recordManagedName)
     {
         var writer = new CodeWriter();
         var parameterList = function.Parameters.Count == 0
-            ? "nint self"
-            : string.Join(", ", new[] { "nint self" }.Concat(function.Parameters.Select(RenderManagedParameter)));
+            ? $"{recordManagedName} self"
+            : string.Join(", ", new[] { $"{recordManagedName} self" }.Concat(function.Parameters.Select(RenderManagedSafeHandleParameter)));
         var returnTypeName = GetManagedImportTypeName(function.ReturnType);
         var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
@@ -838,12 +837,13 @@ writer.WriteLine();
         return writer.ToString();
     }
 
-    private static string RenderManagedInstanceImportDeclaration(BindingCompilation compilation, FunctionBinding function)
+    private static string RenderManagedInstanceImportDeclaration(BindingCompilation compilation, FunctionBinding function, string recordManagedName, bool useSafeHandleParams = false)
     {
         var writer = new CodeWriter();
+        Func<ParameterBinding, string> parameterRenderer = useSafeHandleParams ? RenderManagedSafeHandleParameter : RenderManagedParameter;
         var parameterList = string.Join(
             ", ",
-            new[] { "nint self" }.Concat(function.Parameters.Select(RenderManagedParameter)));
+            new[] { $"{recordManagedName} self" }.Concat(function.Parameters.Select(parameterRenderer)));
         var returnTypeName = GetManagedImportTypeName(function.ReturnType);
         var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
         var importMethodName = GetManagedImportMethodName(function);
@@ -903,13 +903,13 @@ writer.WriteLine();
         if (field.Type.Kind == BindingTypeKind.Handle)
         {
             writer.Write($$"""
-                return new {{field.Type.ManagedTypeName}}(__PInvoke.Get_{{field.ManagedName}}(Handle));
+                return new {{field.Type.ManagedTypeName}}(__PInvoke.Get_{{field.ManagedName}}(this));
                 """);
         }
         else
         {
             writer.Write($$"""
-                return __PInvoke.Get_{{field.ManagedName}}(Handle);
+                return __PInvoke.Get_{{field.ManagedName}}(this);
                 """);
         }
 
@@ -927,7 +927,7 @@ writer.WriteLine();
             writer.Write($$"""
                 set
                 {
-                __PInvoke.Set_{{field.ManagedName}}(Handle, {{setterArgument}});
+                __PInvoke.Set_{{field.ManagedName}}(this, {{setterArgument}});
                 }
                 """);
         }
@@ -939,14 +939,14 @@ writer.WriteLine();
         return writer.ToString();
     }
 
-    private static string RenderManagedFieldGetterImportDeclaration(BindingCompilation compilation, FieldBinding field)
+    private static string RenderManagedFieldGetterImportDeclaration(BindingCompilation compilation, FieldBinding field, string recordManagedName)
     {
         var writer = new CodeWriter();
         var returnTypeName = GetManagedImportTypeName(field.Type);
         var returnAttribute = GetManagedReturnAttribute(field.Type);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
-            ? $"internal static partial {returnTypeName} Get_{field.ManagedName}(nint self);"
-            : $"{returnAttribute}\ninternal static partial {returnTypeName} Get_{field.ManagedName}(nint self);";
+            ? $"internal static partial {returnTypeName} Get_{field.ManagedName}({recordManagedName} self);"
+            : $"{returnAttribute}\ninternal static partial {returnTypeName} Get_{field.ManagedName}({recordManagedName} self);";
 
         writer.Write($$"""
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_get")]
@@ -955,7 +955,7 @@ writer.WriteLine();
         return writer.ToString();
     }
 
-    private static string RenderManagedFieldSetterImportDeclaration(BindingCompilation compilation, FieldBinding field)
+    private static string RenderManagedFieldSetterImportDeclaration(BindingCompilation compilation, FieldBinding field, string recordManagedName)
     {
         var writer = new CodeWriter();
         var parameter = RenderManagedParameter(
@@ -970,7 +970,7 @@ writer.WriteLine();
 
         writer.Write($$"""
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_set")]
-            internal static partial void Set_{{field.ManagedName}}(nint self, {{parameter}});
+            internal static partial void Set_{{field.ManagedName}}({{recordManagedName}} self, {{parameter}});
             """);
         return writer.ToString();
     }
@@ -1178,6 +1178,19 @@ writer.WriteLine();
         };
     }
 
+    private static string RenderManagedSafeHandleParameter(ParameterBinding parameter)
+    {
+        var modifier = parameter.Direction switch
+        {
+            BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => "in ",
+            BindingParameterDirection.Ref => "ref ",
+            BindingParameterDirection.Out => "out ",
+            _ => string.Empty
+        };
+        var attribute = GetManagedParameterAttribute(parameter.Type);
+
+        return $"{attribute}{modifier}{GetManagedWrapperTypeName(parameter.Type)} {parameter.ManagedName}";
+    }
 
     private static string RenderManagedParameter(ParameterBinding parameter)
     {
@@ -1248,6 +1261,17 @@ writer.WriteLine();
             BindingParameterDirection.Ref => $"ref {valueExpression}",
             BindingParameterDirection.Out => $"out {valueExpression}",
             _ => valueExpression
+        };
+    }
+
+    private static string RenderManagedSafeHandleInvocationArgument(ParameterBinding parameter)
+    {
+        return parameter.Direction switch
+        {
+            BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => $"in {parameter.ManagedName}",
+            BindingParameterDirection.Ref => $"ref {parameter.ManagedName}",
+            BindingParameterDirection.Out => $"out {parameter.ManagedName}",
+            _ => parameter.ManagedName
         };
     }
 
