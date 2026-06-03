@@ -65,4 +65,19 @@ public sealed class InheritanceTests
         Assert.IsAssignableFrom<BaseCounter>(result);
         Assert.Equal(20, result.GetValue());
     }
+
+    [Fact]
+    public void Base_typed_fields_can_store_derived_wrappers()
+    {
+        var derived = new DerivedCounter(10, 2);
+        var holder = E2EBindings.CreateInheritanceHolder(derived);
+
+        Assert.IsAssignableFrom<BaseCounter>(holder.BaseView);
+        Assert.Equal(10, holder.BaseView.GetValue());
+
+        holder.BaseView = new DerivedCounter(20, 3);
+
+        Assert.IsAssignableFrom<BaseCounter>(holder.BaseView);
+        Assert.Equal(20, holder.BaseView.GetValue());
+    }
 }

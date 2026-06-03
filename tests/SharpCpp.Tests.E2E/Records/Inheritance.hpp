@@ -48,6 +48,18 @@ private:
     int bonus_{};
 };
 
+struct inheritance_holder
+{
+    base_counter* base_view{};
+};
+
+inline inheritance_holder* create_inheritance_holder(base_counter* base_view)
+{
+    static inheritance_holder holder {};
+    holder.base_view = base_view;
+    return &holder;
+}
+
 inline int read_base_counter(base_counter* value)
 {
     return value->get_value();
