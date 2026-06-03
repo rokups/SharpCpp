@@ -68,6 +68,8 @@ public static class BindingOutputRenderer
             {
             """);
 
+        var freeFunctionDeclarations = new List<string>();
+
         foreach (var function in functions.Where(static function => function.Parent is not RecordBinding && !function.IsConstructor))
         {
             writer.WriteLine();
@@ -78,9 +80,30 @@ public static class BindingOutputRenderer
             else
             {
                 writer.Write(RenderManagedWrapperMethod(function));
-                writer.WriteLine();
-                writer.Write(RenderManagedImportDeclaration(compilation, function));
+                freeFunctionDeclarations.Add(RenderManagedImportDeclaration(compilation, function));
             }
+        }
+
+        if (freeFunctionDeclarations.Count > 0)
+        {
+            writer.WriteLine();
+            writer.Write(
+                """
+                internal static partial class __PInvoke
+                {
+                """);
+
+            foreach (var declaration in freeFunctionDeclarations)
+            {
+                writer.WriteLine();
+                writer.Write(declaration);
+            }
+
+            writer.WriteLine();
+            writer.Write(
+                """
+                }
+                """);
         }
 
         writer.WriteLine();
@@ -117,7 +140,7 @@ public static class BindingOutputRenderer
         if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
         {
             writer.Write($$"""
-                {{importMethodName}}({{invokeArguments}});
+                __PInvoke.{{importMethodName}}({{invokeArguments}});
                 """);
 
             foreach (var statement in invocationPlan.PostCallStatements)
@@ -128,7 +151,7 @@ public static class BindingOutputRenderer
         else if (function.ReturnType.Kind == BindingTypeKind.Handle)
         {
             writer.Write($$"""
-                var __result = {{importMethodName}}({{invokeArguments}});
+                var __result = __PInvoke.{{importMethodName}}({{invokeArguments}});
                 """);
 
             foreach (var statement in invocationPlan.PostCallStatements)
@@ -143,7 +166,7 @@ public static class BindingOutputRenderer
         else
         {
             writer.Write($$"""
-                var __result = {{importMethodName}}({{invokeArguments}});
+                var __result = __PInvoke.{{importMethodName}}({{invokeArguments}});
                 """);
 
             foreach (var statement in invocationPlan.PostCallStatements)
@@ -174,8 +197,8 @@ public static class BindingOutputRenderer
         var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
         var importMethodName = GetManagedImportMethodName(function);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
-            ? $"private static partial {returnTypeName} {importMethodName}({parameterList});"
-            : $"{returnAttribute}\nprivate static partial {returnTypeName} {importMethodName}({parameterList});";
+            ? $"internal static partial {returnTypeName} {importMethodName}({parameterList});"
+            : $"{returnAttribute}\ninternal static partial {returnTypeName} {importMethodName}({parameterList});";
 
         writer.Write(
             $$"""
@@ -193,6 +216,8 @@ public static class BindingOutputRenderer
     private static string RenderRecord(BindingCompilation compilation, RecordBinding record)
     {
         var writer = new CodeWriter();
+        var pinvokeDeclarations = new List<string> { RenderManagedDeleteImportDeclaration(compilation, record) };
+
         WriteDocumentationComment(writer, record);
         var baseClause = string.IsNullOrWhiteSpace(record.ManagedBaseTypeName)
             ? " : global::SharpCpp.Support.NativeObject"
@@ -229,8 +254,6 @@ public static class BindingOutputRenderer
 
         writer.WriteLine();
         writer.Write(RenderManagedDispose(record));
-        writer.WriteLine();
-        writer.Write(RenderManagedDeleteImportDeclaration(compilation, record));
 
         var accessorProperties = CollectAccessorProperties(record);
         var accessorMethodIds = accessorProperties
@@ -248,8 +271,7 @@ public static class BindingOutputRenderer
             else
             {
                 writer.Write(RenderManagedConstructor(constructor));
-                writer.WriteLine();
-                writer.Write(RenderManagedConstructorImportDeclaration(compilation, constructor));
+                pinvokeDeclarations.Add(RenderManagedConstructorImportDeclaration(compilation, constructor));
             }
         }
 
@@ -260,14 +282,12 @@ public static class BindingOutputRenderer
 
             if (property.Getter is not null)
             {
-                writer.WriteLine();
-                writer.Write(RenderManagedInstanceImportDeclaration(compilation, property.Getter));
+                pinvokeDeclarations.Add(RenderManagedInstanceImportDeclaration(compilation, property.Getter));
             }
 
             if (property.Setter is not null)
             {
-                writer.WriteLine();
-                writer.Write(RenderManagedInstanceImportDeclaration(compilation, property.Setter));
+                pinvokeDeclarations.Add(RenderManagedInstanceImportDeclaration(compilation, property.Setter));
             }
         }
 
@@ -281,8 +301,7 @@ public static class BindingOutputRenderer
             else
             {
                 writer.Write(RenderManagedInstanceMethod(compilation, record, method));
-                writer.WriteLine();
-                writer.Write(RenderManagedInstanceImportDeclaration(compilation, method));
+                pinvokeDeclarations.Add(RenderManagedInstanceImportDeclaration(compilation, method));
             }
         }
 
@@ -296,8 +315,7 @@ public static class BindingOutputRenderer
             else
             {
                 writer.Write(RenderManagedStaticMethod(method));
-                writer.WriteLine();
-                writer.Write(RenderManagedStaticImportDeclaration(compilation, method));
+                pinvokeDeclarations.Add(RenderManagedStaticImportDeclaration(compilation, method));
             }
         }
 
@@ -311,8 +329,7 @@ public static class BindingOutputRenderer
             else
             {
                 writer.Write(RenderManagedOperator(record, method));
-                writer.WriteLine();
-                writer.Write(RenderManagedOperatorImportDeclaration(compilation, method));
+                pinvokeDeclarations.Add(RenderManagedOperatorImportDeclaration(compilation, method));
             }
         }
 
@@ -326,16 +343,38 @@ public static class BindingOutputRenderer
             else
             {
                 writer.Write(RenderManagedProperty(field));
-                writer.WriteLine();
-                writer.Write(RenderManagedFieldGetterImportDeclaration(compilation, field));
+                pinvokeDeclarations.Add(RenderManagedFieldGetterImportDeclaration(compilation, field));
 
                 if (!field.IsReadOnly)
                 {
-                    writer.WriteLine();
-                    writer.Write(RenderManagedFieldSetterImportDeclaration(compilation, field));
+                    pinvokeDeclarations.Add(RenderManagedFieldSetterImportDeclaration(compilation, field));
                 }
             }
         }
+
+writer.WriteLine();
+        writer.Write(
+            string.IsNullOrWhiteSpace(record.ManagedBaseTypeName)
+            ? """
+            internal static partial class __PInvoke
+            {
+            """
+            : """
+            new internal static partial class __PInvoke
+            {
+            """);
+
+        foreach (var declaration in pinvokeDeclarations)
+        {
+            writer.WriteLine();
+            writer.Write(declaration);
+        }
+
+        writer.WriteLine();
+        writer.Write(
+            """
+            }
+            """);
 
         writer.WriteLine();
         writer.Write(
@@ -371,7 +410,7 @@ public static class BindingOutputRenderer
         if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
         {
             writer.Write($$"""
-                {{importMethodName}}({{invokeArguments}});
+                __PInvoke.{{importMethodName}}({{invokeArguments}});
                 """);
 
             foreach (var statement in invocationPlan.PostCallStatements)
@@ -382,7 +421,7 @@ public static class BindingOutputRenderer
         else if (function.ReturnType.Kind == BindingTypeKind.Handle)
         {
             writer.Write($$"""
-                var __result = {{importMethodName}}({{invokeArguments}});
+                var __result = __PInvoke.{{importMethodName}}({{invokeArguments}});
                 """);
 
             foreach (var statement in invocationPlan.PostCallStatements)
@@ -397,7 +436,7 @@ public static class BindingOutputRenderer
         else
         {
             writer.Write($$"""
-                var __result = {{importMethodName}}({{invokeArguments}});
+                var __result = __PInvoke.{{importMethodName}}({{invokeArguments}});
                 """);
 
             foreach (var statement in invocationPlan.PostCallStatements)
@@ -436,7 +475,7 @@ public static class BindingOutputRenderer
             protected override bool ReleaseNativeHandle(nint handle)
             {
             if (OwnsNativeHandle)
-                __PInvoke_Delete(handle);
+                __PInvoke.Delete(handle);
             return true;
             }
             """;
@@ -446,7 +485,7 @@ public static class BindingOutputRenderer
     {
         return $$"""
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{record.NativeName}}_delete")]
-            private static partial void __PInvoke_Delete(nint self);
+            internal static partial void Delete(nint self);
             """;
     }
 
@@ -550,7 +589,7 @@ public static class BindingOutputRenderer
 
         writer.Write($$"""
             public {{constructorName}}({{parameterList}})
-                : this({{importMethodName}}({{invokeArguments}}), true)
+                : this(__PInvoke.{{importMethodName}}({{invokeArguments}}), true)
             {
             }
             """);
@@ -567,7 +606,7 @@ public static class BindingOutputRenderer
 
         writer.Write($$"""
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}")]
-            private static partial nint {{importMethodName}}({{parameterList}});
+            internal static partial nint {{importMethodName}}({{parameterList}});
             """);
         return writer.ToString();
     }
@@ -597,7 +636,7 @@ public static class BindingOutputRenderer
         if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
         {
             writer.Write($$"""
-                {{importMethodName}}({{invokeArguments}});
+                __PInvoke.{{importMethodName}}({{invokeArguments}});
                 """);
 
             foreach (var statement in invocationPlan.PostCallStatements)
@@ -608,7 +647,7 @@ public static class BindingOutputRenderer
         else if (function.ReturnType.Kind == BindingTypeKind.Handle)
         {
             writer.Write($$"""
-                var __result = {{importMethodName}}({{invokeArguments}});
+                var __result = __PInvoke.{{importMethodName}}({{invokeArguments}});
                 """);
 
             foreach (var statement in invocationPlan.PostCallStatements)
@@ -623,7 +662,7 @@ public static class BindingOutputRenderer
         else
         {
             writer.Write($$"""
-                var __result = {{importMethodName}}({{invokeArguments}});
+                var __result = __PInvoke.{{importMethodName}}({{invokeArguments}});
                 """);
 
             foreach (var statement in invocationPlan.PostCallStatements)
@@ -654,8 +693,8 @@ public static class BindingOutputRenderer
         var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
         var importMethodName = GetManagedImportMethodName(function);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
-            ? $"private static partial {returnTypeName} {importMethodName}({parameterList});"
-            : $"{returnAttribute}\nprivate static partial {returnTypeName} {importMethodName}({parameterList});";
+            ? $"internal static partial {returnTypeName} {importMethodName}({parameterList});"
+            : $"{returnAttribute}\ninternal static partial {returnTypeName} {importMethodName}({parameterList});";
 
         writer.Write(
             $$"""
@@ -675,7 +714,7 @@ public static class BindingOutputRenderer
             writer.Write($$"""
                 public bool Equals({{record.ManagedName}} rhs)
                 {
-                return __PInvoke_{{function.ManagedName}}(Handle, rhs.Handle);
+                return __PInvoke.{{function.ManagedName}}(Handle, rhs.Handle);
                 }
                 """);
             return writer.ToString();
@@ -686,7 +725,7 @@ public static class BindingOutputRenderer
             writer.Write($$"""
                 public bool LessThan({{record.ManagedName}} rhs)
                 {
-                return __PInvoke_{{function.ManagedName}}(Handle, rhs.Handle);
+                return __PInvoke.{{function.ManagedName}}(Handle, rhs.Handle);
                 }
                 """);
             return writer.ToString();
@@ -699,7 +738,7 @@ public static class BindingOutputRenderer
             writer.Write($$"""
                 public static {{conversionKeyword}} operator {{targetTypeName}}({{record.ManagedName}} value)
                 {
-                return __PInvoke_{{function.ManagedName}}(value is null ? 0 : value.Handle);
+                return __PInvoke.{{function.ManagedName}}(value is null ? 0 : value.Handle);
                 }
                 """);
             return writer.ToString();
@@ -714,7 +753,7 @@ public static class BindingOutputRenderer
                 writer.Write($$"""
                     public static {{returnTypeName}} operator +({{record.ManagedName}} left, {{parameter}})
                     {
-                    return new {{function.ReturnType.ManagedTypeName}}(__PInvoke_{{function.ManagedName}}(left.Handle, {{RenderManagedInvocationArgument(function.Parameters[0])}}));
+                    return new {{function.ReturnType.ManagedTypeName}}(__PInvoke.{{function.ManagedName}}(left.Handle, {{RenderManagedInvocationArgument(function.Parameters[0])}}));
                     }
                     """);
             }
@@ -723,7 +762,7 @@ public static class BindingOutputRenderer
                 writer.Write($$"""
                     public static {{returnTypeName}} operator +({{record.ManagedName}} left, {{parameter}})
                     {
-                    return __PInvoke_{{function.ManagedName}}(left.Handle, {{RenderManagedInvocationArgument(function.Parameters[0])}});
+                    return __PInvoke.{{function.ManagedName}}(left.Handle, {{RenderManagedInvocationArgument(function.Parameters[0])}});
                     }
                     """);
             }
@@ -738,7 +777,7 @@ public static class BindingOutputRenderer
                 public static {{returnTypeName}} operator {{function.OperatorToken}}({{record.ManagedName}} left, {{parameterTypeName}} right)
                 {
                 var __right = right.Handle;
-                return __PInvoke_{{function.ManagedName}}(left.Handle, __right);
+                return __PInvoke.{{function.ManagedName}}(left.Handle, __right);
                 }
                 """);
             return writer.ToString();
@@ -752,7 +791,7 @@ public static class BindingOutputRenderer
                 writer.Write($$"""
                     public static {{returnTypeName}} operator -({{record.ManagedName}} value)
                     {
-                    return new {{function.ReturnType.ManagedTypeName}}(__PInvoke_{{function.ManagedName}}(value is null ? 0 : value.Handle));
+                    return new {{function.ReturnType.ManagedTypeName}}(__PInvoke.{{function.ManagedName}}(value is null ? 0 : value.Handle));
                     }
                     """);
             }
@@ -761,7 +800,7 @@ public static class BindingOutputRenderer
                 writer.Write($$"""
                     public static {{returnTypeName}} operator -({{record.ManagedName}} value)
                     {
-                    return __PInvoke_{{function.ManagedName}}(value is null ? 0 : value.Handle);
+                    return __PInvoke.{{function.ManagedName}}(value is null ? 0 : value.Handle);
                     }
                     """);
             }
@@ -787,8 +826,8 @@ public static class BindingOutputRenderer
         var returnTypeName = GetManagedImportTypeName(function.ReturnType);
         var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
-            ? $"private static partial {returnTypeName} __PInvoke_{function.ManagedName}({parameterList});"
-            : $"{returnAttribute}\nprivate static partial {returnTypeName} __PInvoke_{function.ManagedName}({parameterList});";
+            ? $"internal static partial {returnTypeName} {function.ManagedName}({parameterList});"
+            : $"{returnAttribute}\ninternal static partial {returnTypeName} {function.ManagedName}({parameterList});";
 
         writer.Write(
             $$"""
@@ -808,8 +847,8 @@ public static class BindingOutputRenderer
         var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
         var importMethodName = GetManagedImportMethodName(function);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
-            ? $"private static partial {returnTypeName} {importMethodName}({parameterList});"
-            : $"{returnAttribute}\nprivate static partial {returnTypeName} {importMethodName}({parameterList});";
+            ? $"internal static partial {returnTypeName} {importMethodName}({parameterList});"
+            : $"{returnAttribute}\ninternal static partial {returnTypeName} {importMethodName}({parameterList});";
 
         writer.Write(
             $$"""
@@ -863,13 +902,13 @@ public static class BindingOutputRenderer
         if (field.Type.Kind == BindingTypeKind.Handle)
         {
             writer.Write($$"""
-                return new {{field.Type.ManagedTypeName}}(__PInvoke_Get_{{field.ManagedName}}(Handle));
+                return new {{field.Type.ManagedTypeName}}(__PInvoke.Get_{{field.ManagedName}}(Handle));
                 """);
         }
         else
         {
             writer.Write($$"""
-                return __PInvoke_Get_{{field.ManagedName}}(Handle);
+                return __PInvoke.Get_{{field.ManagedName}}(Handle);
                 """);
         }
 
@@ -887,7 +926,7 @@ public static class BindingOutputRenderer
             writer.Write($$"""
                 set
                 {
-                __PInvoke_Set_{{field.ManagedName}}(Handle, {{setterArgument}});
+                __PInvoke.Set_{{field.ManagedName}}(Handle, {{setterArgument}});
                 }
                 """);
         }
@@ -905,8 +944,8 @@ public static class BindingOutputRenderer
         var returnTypeName = GetManagedImportTypeName(field.Type);
         var returnAttribute = GetManagedReturnAttribute(field.Type);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
-            ? $"private static partial {returnTypeName} __PInvoke_Get_{field.ManagedName}(nint self);"
-            : $"{returnAttribute}\nprivate static partial {returnTypeName} __PInvoke_Get_{field.ManagedName}(nint self);";
+            ? $"internal static partial {returnTypeName} Get_{field.ManagedName}(nint self);"
+            : $"{returnAttribute}\ninternal static partial {returnTypeName} Get_{field.ManagedName}(nint self);";
 
         writer.Write($$"""
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_get")]
@@ -930,7 +969,7 @@ public static class BindingOutputRenderer
 
         writer.Write($$"""
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_set")]
-            private static partial void __PInvoke_Set_{{field.ManagedName}}(nint self, {{parameter}});
+            internal static partial void Set_{{field.ManagedName}}(nint self, {{parameter}});
             """);
         return writer.ToString();
     }
@@ -1259,7 +1298,7 @@ public static class BindingOutputRenderer
 
     private static string GetManagedImportMethodName(FunctionBinding function)
     {
-        var builder = new StringBuilder("__PInvoke_");
+        var builder = new StringBuilder();
         builder.Append(function.ManagedName);
 
         foreach (var parameter in function.Parameters)
