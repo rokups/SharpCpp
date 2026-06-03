@@ -170,22 +170,20 @@ public static class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         var baseClause = string.IsNullOrWhiteSpace(record.ManagedBaseTypeName)
-            ? " : global::System.IDisposable"
+            ? " : global::SharpCpp.Support.NativeObject"
             : $" : {record.ManagedBaseTypeName}";
         writer.Write(
             $$"""
             public partial class {{record.ManagedName}}{{baseClause}}
             {
             internal {{record.ManagedName}}(nint handle, bool ownsHandle = false)
-            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? string.Empty : "    : base(handle, ownsHandle)")}}
+                : base(handle, ownsHandle)
             {
-            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "Handle = handle;" : string.Empty)}}
-            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "OwnsHandle = ownsHandle;" : string.Empty)}}
             }
 
-            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "public nint Handle { get; private set; }" : string.Empty)}}
-            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "public bool OwnsHandle { get; }" : string.Empty)}}
-            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "public bool IsNull => Handle == 0;" : string.Empty)}}
+            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "public nint Handle => DangerousGetHandle();" : string.Empty)}}
+            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "public bool OwnsHandle => OwnsNativeHandle;" : string.Empty)}}
+            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "public bool IsNull => IsClosed || IsInvalid;" : string.Empty)}}
             """);
 
         if (record.Members.OfType<FunctionBinding>().Any(static function => function.OperatorToken is "==" or "!="))
@@ -373,38 +371,12 @@ public static class BindingOutputRenderer
 
     private static string RenderManagedDispose(RecordBinding record)
     {
-        if (string.IsNullOrWhiteSpace(record.ManagedBaseTypeName))
-        {
-            return """
-                public void Dispose()
-                {
-                if (Handle == 0)
-                {
-                return;
-                }
-
-                var handle = Handle;
-                Handle = 0;
-
-                if (OwnsHandle)
-                {
-                DisposeCore(handle);
-                }
-
-                global::System.GC.SuppressFinalize(this);
-                }
-
-                protected virtual void DisposeCore(nint handle)
-                {
-                __PInvoke_Delete(handle);
-                }
-                """;
-        }
-
         return """
-            protected override void DisposeCore(nint handle)
+            protected override bool ReleaseNativeHandle(nint handle)
             {
-            __PInvoke_Delete(handle);
+            if (OwnsNativeHandle)
+                __PInvoke_Delete(handle);
+            return true;
             }
             """;
     }

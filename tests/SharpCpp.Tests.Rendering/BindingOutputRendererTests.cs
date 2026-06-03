@@ -233,10 +233,9 @@ public sealed class BindingOutputRendererTests
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("public partial class Widget : global::System.IDisposable", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("public bool OwnsHandle { get; }", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("public void Dispose()", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("protected virtual void DisposeCore(nint handle)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public partial class Widget : global::SharpCpp.Support.NativeObject", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public bool OwnsHandle => OwnsNativeHandle;", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("protected override bool ReleaseNativeHandle(nint handle)", managedOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -260,8 +259,8 @@ public sealed class BindingOutputRendererTests
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
         Assert.Contains("public partial class DerivedWidget : BaseWidget", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("protected override void DisposeCore(nint handle)", managedOutput, StringComparison.Ordinal);
-        Assert.DoesNotContain("public bool OwnsHandle { get; }", managedOutput[(managedOutput.IndexOf("public partial class DerivedWidget", StringComparison.Ordinal))..], StringComparison.Ordinal);
+        Assert.Contains("protected override bool ReleaseNativeHandle(nint handle)", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("public bool OwnsHandle => OwnsNativeHandle;", managedOutput[(managedOutput.IndexOf("public partial class DerivedWidget", StringComparison.Ordinal))..], StringComparison.Ordinal);
     }
 
     [Fact]
