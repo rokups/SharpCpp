@@ -14,10 +14,20 @@ struct field_payload
 
 struct field_box
 {
+    field_box(int count, bool enabled, field_mode mode, field_payload* payload, int fixed_value)
+        : count(count)
+        , enabled(enabled)
+        , mode(mode)
+        , payload(payload)
+        , fixed_value(fixed_value)
+    {
+    }
+
     int count{};
     bool enabled{};
     field_mode mode{field_mode::idle};
     field_payload* payload{};
+    const int fixed_value{};
 };
 
 inline field_payload* create_field_payload(int value)
@@ -25,12 +35,7 @@ inline field_payload* create_field_payload(int value)
     return new field_payload { value };
 }
 
-inline field_box* create_field_box(int count, bool enabled, field_mode mode, field_payload* payload)
+inline field_box* create_field_box(int count, bool enabled, field_mode mode, field_payload* payload, int fixed_value)
 {
-    static field_box box {};
-    box.count = count;
-    box.enabled = enabled;
-    box.mode = mode;
-    box.payload = payload;
-    return &box;
+    return new field_box(count, enabled, mode, payload, fixed_value);
 }
