@@ -76,7 +76,8 @@ public static class BindingOutputRenderer
         var parameterList = string.Join(
             ", ",
             function.Parameters.Select(RenderManagedPublicParameter));
-        var invokeArguments = string.Join(", ", function.Parameters.Select(RenderManagedInvocationArgument));
+        var invocationPlan = BuildManagedInvocationPlan(function.Parameters);
+        var invokeArguments = string.Join(", ", invocationPlan.Arguments);
         var returnTypeName = GetManagedWrapperTypeName(function.ReturnType);
 
         writer.Write($$"""
@@ -84,22 +85,51 @@ public static class BindingOutputRenderer
             {
             """);
 
+        foreach (var statement in invocationPlan.PreCallStatements)
+        {
+            writer.Write(statement);
+        }
+
         if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
         {
             writer.Write($$"""
                 __PInvoke_{{function.ManagedName}}({{invokeArguments}});
                 """);
+
+            foreach (var statement in invocationPlan.PostCallStatements)
+            {
+                writer.Write(statement);
+            }
         }
         else if (function.ReturnType.Kind == BindingTypeKind.Handle)
         {
             writer.Write($$"""
-                return new {{function.ReturnType.ManagedTypeName}}(__PInvoke_{{function.ManagedName}}({{invokeArguments}}));
+                var __result = __PInvoke_{{function.ManagedName}}({{invokeArguments}});
+                """);
+
+            foreach (var statement in invocationPlan.PostCallStatements)
+            {
+                writer.Write(statement);
+            }
+
+            writer.Write($$"""
+                return new {{function.ReturnType.ManagedTypeName}}(__result);
                 """);
         }
         else
         {
             writer.Write($$"""
-                return __PInvoke_{{function.ManagedName}}({{invokeArguments}});
+                var __result = __PInvoke_{{function.ManagedName}}({{invokeArguments}});
+                """);
+
+            foreach (var statement in invocationPlan.PostCallStatements)
+            {
+                writer.Write(statement);
+            }
+
+            writer.Write(
+                """
+                return __result;
                 """);
         }
 
@@ -202,7 +232,8 @@ public static class BindingOutputRenderer
         var parameterList = string.Join(
             ", ",
             function.Parameters.Select(RenderManagedPublicParameter));
-        var invokeArguments = string.Join(", ", new[] { "Handle" }.Concat(function.Parameters.Select(RenderManagedInvocationArgument)));
+        var invocationPlan = BuildManagedInvocationPlan(function.Parameters);
+        var invokeArguments = string.Join(", ", new[] { "Handle" }.Concat(invocationPlan.Arguments));
         var returnTypeName = GetManagedWrapperTypeName(function.ReturnType);
 
         writer.Write($$"""
@@ -210,22 +241,51 @@ public static class BindingOutputRenderer
             {
             """);
 
+        foreach (var statement in invocationPlan.PreCallStatements)
+        {
+            writer.Write(statement);
+        }
+
         if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
         {
             writer.Write($$"""
                 __PInvoke_{{function.ManagedName}}({{invokeArguments}});
                 """);
+
+            foreach (var statement in invocationPlan.PostCallStatements)
+            {
+                writer.Write(statement);
+            }
         }
         else if (function.ReturnType.Kind == BindingTypeKind.Handle)
         {
             writer.Write($$"""
-                return new {{function.ReturnType.ManagedTypeName}}(__PInvoke_{{function.ManagedName}}({{invokeArguments}}));
+                var __result = __PInvoke_{{function.ManagedName}}({{invokeArguments}});
+                """);
+
+            foreach (var statement in invocationPlan.PostCallStatements)
+            {
+                writer.Write(statement);
+            }
+
+            writer.Write($$"""
+                return new {{function.ReturnType.ManagedTypeName}}(__result);
                 """);
         }
         else
         {
             writer.Write($$"""
-                return __PInvoke_{{function.ManagedName}}({{invokeArguments}});
+                var __result = __PInvoke_{{function.ManagedName}}({{invokeArguments}});
+                """);
+
+            foreach (var statement in invocationPlan.PostCallStatements)
+            {
+                writer.Write(statement);
+            }
+
+            writer.Write(
+                """
+                return __result;
                 """);
         }
 
@@ -276,7 +336,8 @@ public static class BindingOutputRenderer
         var parameterList = string.Join(
             ", ",
             function.Parameters.Select(RenderManagedPublicParameter));
-        var invokeArguments = string.Join(", ", function.Parameters.Select(RenderManagedInvocationArgument));
+        var invocationPlan = BuildManagedInvocationPlan(function.Parameters);
+        var invokeArguments = string.Join(", ", invocationPlan.Arguments);
         var returnTypeName = GetManagedWrapperTypeName(function.ReturnType);
 
         writer.Write($$"""
@@ -284,22 +345,51 @@ public static class BindingOutputRenderer
             {
             """);
 
+        foreach (var statement in invocationPlan.PreCallStatements)
+        {
+            writer.Write(statement);
+        }
+
         if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
         {
             writer.Write($$"""
                 __PInvoke_{{function.ManagedName}}({{invokeArguments}});
                 """);
+
+            foreach (var statement in invocationPlan.PostCallStatements)
+            {
+                writer.Write(statement);
+            }
         }
         else if (function.ReturnType.Kind == BindingTypeKind.Handle)
         {
             writer.Write($$"""
-                return new {{function.ReturnType.ManagedTypeName}}(__PInvoke_{{function.ManagedName}}({{invokeArguments}}));
+                var __result = __PInvoke_{{function.ManagedName}}({{invokeArguments}});
+                """);
+
+            foreach (var statement in invocationPlan.PostCallStatements)
+            {
+                writer.Write(statement);
+            }
+
+            writer.Write($$"""
+                return new {{function.ReturnType.ManagedTypeName}}(__result);
                 """);
         }
         else
         {
             writer.Write($$"""
-                return __PInvoke_{{function.ManagedName}}({{invokeArguments}});
+                var __result = __PInvoke_{{function.ManagedName}}({{invokeArguments}});
+                """);
+
+            foreach (var statement in invocationPlan.PostCallStatements)
+            {
+                writer.Write(statement);
+            }
+
+            writer.Write(
+                """
+                return __result;
                 """);
         }
 
@@ -712,6 +802,50 @@ public static class BindingOutputRenderer
             _ => valueExpression
         };
     }
+
+    private static ManagedInvocationPlan BuildManagedInvocationPlan(IEnumerable<ParameterBinding> parameters)
+    {
+        var arguments = new List<string>();
+        var preCallStatements = new List<string>();
+        var postCallStatements = new List<string>();
+
+        foreach (var parameter in parameters)
+        {
+            if (parameter.Type.Kind == BindingTypeKind.Handle && parameter.Direction is BindingParameterDirection.Ref or BindingParameterDirection.Out)
+            {
+                var abiVariableName = $"__abi_{parameter.ManagedName}";
+
+                if (parameter.Direction == BindingParameterDirection.Ref)
+                {
+                    preCallStatements.Add($$"""
+                        var {{abiVariableName}} = {{parameter.ManagedName}}.Handle;
+                        """);
+                    arguments.Add($"ref {abiVariableName}");
+                }
+                else
+                {
+                    preCallStatements.Add($$"""
+                        nint {{abiVariableName}};
+                        """);
+                    arguments.Add($"out {abiVariableName}");
+                }
+
+                postCallStatements.Add($$"""
+                    {{parameter.ManagedName}} = new {{parameter.Type.ManagedTypeName}}({{abiVariableName}});
+                    """);
+                continue;
+            }
+
+            arguments.Add(RenderManagedInvocationArgument(parameter));
+        }
+
+        return new ManagedInvocationPlan(arguments, preCallStatements, postCallStatements);
+    }
+
+    private sealed record ManagedInvocationPlan(
+        IReadOnlyList<string> Arguments,
+        IReadOnlyList<string> PreCallStatements,
+        IReadOnlyList<string> PostCallStatements);
 
     private static string GetManagedParameterAttribute(BindingType type)
     {

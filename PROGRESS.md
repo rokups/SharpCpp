@@ -73,6 +73,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - Public static record methods now parse from C++ records, emit static thunks, and surface as `public static` members on managed wrappers.
 - Handle-typed parameters on free/static methods now surface as wrapper objects in managed signatures and pass native handles through generated thunks.
 - Handle-typed record fields now surface as wrapper-valued managed properties with getter/setter thunking.
+- Handle-typed `ref` / `out` parameters now round-trip through wrapper-local ABI temps, so managed signatures stay wrapper-shaped even when native thunks mutate pointer values.
 
 ## Verification Commands
 
