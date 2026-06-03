@@ -25,4 +25,14 @@ public sealed class ConstructorTests
 
         Assert.True(box.IsNull);
     }
+
+    [Fact]
+    public void Overloaded_constructor_creates_wrapper_and_initializes_state()
+    {
+        var box = new ConstructorBox(10, 2);
+
+        Assert.False(box.IsNull);
+        Assert.True(box.OwnsHandle);
+        Assert.Equal(12, box.GetValue());
+    }
 }

@@ -382,6 +382,8 @@ public sealed class ClangSharpHeaderParser
                 });
         }
 
+        function.EntryPointName = BuildEntrypointName("sharpcpp_e2e", $"{record.NativeName}_ctor", function.Parameters);
+
         return function;
     }
 

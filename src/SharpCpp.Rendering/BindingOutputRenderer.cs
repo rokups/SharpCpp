@@ -390,10 +390,11 @@ public static class BindingOutputRenderer
         var constructorName = function.Parent is RecordBinding record
             ? record.ManagedName
             : NormalizeEnumManagedTypeName(function.ManagedName);
+        var importMethodName = GetManagedImportMethodName(function);
 
         writer.Write($$"""
             public {{constructorName}}({{parameterList}})
-                : this(__PInvoke_Ctor({{invokeArguments}}), true)
+                : this({{importMethodName}}({{invokeArguments}}), true)
             {
             }
             """);
@@ -406,10 +407,11 @@ public static class BindingOutputRenderer
         var parameterList = string.Join(
             ", ",
             function.Parameters.Select(RenderManagedParameter));
+        var importMethodName = GetManagedImportMethodName(function);
 
         writer.Write($$"""
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}")]
-            private static partial nint __PInvoke_Ctor({{parameterList}});
+            private static partial nint {{importMethodName}}({{parameterList}});
             """);
         return writer.ToString();
     }

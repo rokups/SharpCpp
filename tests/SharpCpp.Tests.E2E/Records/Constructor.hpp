@@ -7,6 +7,11 @@ struct constructor_box
     {
     }
 
+    constructor_box(int left, int right)
+        : value_(left + right)
+    {
+    }
+
     int get_value()
     {
         return value_;
