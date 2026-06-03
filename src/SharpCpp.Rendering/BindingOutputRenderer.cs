@@ -220,7 +220,7 @@ public static class BindingOutputRenderer
         foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && !function.IsStatic && !function.IsConversionOperator && function.OperatorToken is null).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             writer.WriteLine();
-            writer.Write(RenderManagedInstanceMethod(method));
+            writer.Write(RenderManagedInstanceMethod(compilation, record, method));
             writer.WriteLine();
             writer.Write(RenderManagedInstanceImportDeclaration(compilation, method));
         }
@@ -263,7 +263,7 @@ public static class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string RenderManagedInstanceMethod(FunctionBinding function)
+    private static string RenderManagedInstanceMethod(BindingCompilation compilation, RecordBinding record, FunctionBinding function)
     {
         var writer = new CodeWriter();
         var parameterList = string.Join(
@@ -273,9 +273,10 @@ public static class BindingOutputRenderer
         var invokeArguments = string.Join(", ", new[] { "Handle" }.Concat(invocationPlan.Arguments));
         var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType);
         var importMethodName = GetManagedImportMethodName(function);
+        var memberModifier = ShouldUseNewModifier(compilation, record, function.ManagedName) ? "new " : string.Empty;
 
         writer.Write($$"""
-            public {{returnTypeName}} {{function.ManagedName}}({{parameterList}})
+            public {{memberModifier}}{{returnTypeName}} {{function.ManagedName}}({{parameterList}})
             {
             """);
 
@@ -332,6 +333,18 @@ public static class BindingOutputRenderer
             }
             """);
         return writer.ToString();
+    }
+
+    private static bool ShouldUseNewModifier(BindingCompilation compilation, RecordBinding record, string managedName)
+    {
+        if (string.IsNullOrWhiteSpace(record.ManagedBaseTypeName))
+        {
+            return false;
+        }
+
+        var baseRecord = compilation.Records.FirstOrDefault(candidate => string.Equals(candidate.ManagedName, record.ManagedBaseTypeName, StringComparison.Ordinal));
+        return baseRecord is not null &&
+               baseRecord.Members.OfType<FunctionBinding>().Any(candidate => string.Equals(candidate.ManagedName, managedName, StringComparison.Ordinal));
     }
 
     private static string RenderManagedDispose(RecordBinding record)
