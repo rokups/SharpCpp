@@ -21,9 +21,6 @@ public sealed class ClangSharpHeaderParser
     private static readonly Regex PublicTypeExpression = new(
         @"public_type\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex AbiTypeAliasExpression = new(
-        @"using\s+abi_type\s*=\s*(?<value>[^;]+);",
-        RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex IgnoreAttributeExpression = new(
         @"\[\[\s*sharpcpp::ignore(?:\s*\(\s*""(?<reason>[^""]*)""\s*\))?\s*\]\]",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -654,8 +651,7 @@ public sealed class ClangSharpHeaderParser
         {
             return BindingType.CreateConfigured(
                 managedTypeOverride.CppTypeName,
-                managedTypeOverride.PublicTypeName,
-                managedTypeOverride.AbiTypeName);
+                managedTypeOverride.PublicTypeName);
         }
 
         if (normalizedType.kind == CXTypeKind.CXType_Pointer)
@@ -666,8 +662,7 @@ public sealed class ClangSharpHeaderParser
             {
                 return BindingType.CreateConfigured(
                     NormalizeTypeName(type.Spelling.ToString()),
-                    voidPointerOverride.PublicTypeName,
-                    voidPointerOverride.AbiTypeName);
+                    voidPointerOverride.PublicTypeName);
             }
 
             if (pointeeType.kind == CXTypeKind.CXType_Record)
@@ -697,10 +692,10 @@ public sealed class ClangSharpHeaderParser
             var enumName = NormalizeNamedTypeName(normalizedType.Spelling.ToString());
             if (enumsByName.TryGetValue(enumName, out var @enum))
             {
-                return BindingType.CreateEnum(enumName, @enum.ManagedName, @enum.UnderlyingTypeName);
+                return BindingType.CreateEnum(enumName, @enum.ManagedName);
             }
 
-            return BindingType.CreateEnum(enumName, ToPascalCase(enumName), normalizedType.CanonicalType.Spelling.ToString());
+            return BindingType.CreateEnum(enumName, ToPascalCase(enumName));
         }
 
         return normalizedType.kind switch
@@ -1180,8 +1175,7 @@ public sealed class ClangSharpHeaderParser
             {
                 var body = match.Groups["body"].Value;
                 var publicTypeMatch = PublicTypeExpression.Match(body);
-                var abiTypeMatch = AbiTypeAliasExpression.Match(match.Groups["members"].Value);
-                if (!publicTypeMatch.Success || !abiTypeMatch.Success)
+                if (!publicTypeMatch.Success)
                 {
                     continue;
                 }
@@ -1189,8 +1183,7 @@ public sealed class ClangSharpHeaderParser
                 var cppTypeName = NormalizeTypeName(match.Groups["cppType"].Value);
                 result[cppTypeName] = new ManagedTypeOverride(
                     cppTypeName,
-                    publicTypeMatch.Groups["value"].Value,
-                    NormalizeTypeName(abiTypeMatch.Groups["value"].Value));
+                    publicTypeMatch.Groups["value"].Value);
             }
         }
 
@@ -1237,5 +1230,5 @@ public sealed class ClangSharpHeaderParser
             new CXClientData(IntPtr.Zero));
     }
 
-    private sealed record ManagedTypeOverride(string CppTypeName, string PublicTypeName, string AbiTypeName);
+    private sealed record ManagedTypeOverride(string CppTypeName, string PublicTypeName);
 }

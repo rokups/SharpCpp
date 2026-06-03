@@ -62,7 +62,6 @@ public sealed record BindingMetadataTypeReference(
     string Kind,
     string CppType,
     string PublicType,
-    string AbiType,
     string? Primitive,
     string? RecordId,
     string? MarshallerType);

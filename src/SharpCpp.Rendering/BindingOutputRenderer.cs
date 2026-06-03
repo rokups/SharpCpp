@@ -1138,15 +1138,6 @@ public static class BindingOutputRenderer
         };
     }
 
-    private static string GetNativeAbiTypeName(BindingType type)
-    {
-        return type.Kind switch
-        {
-            BindingTypeKind.Primitive => type.AbiTypeName,
-            BindingTypeKind.Handle => type.AbiTypeName,
-            _ => throw new NotSupportedException($"Native emission does not support '{type.Kind}'.")
-        };
-    }
 
     private static string RenderManagedParameter(ParameterBinding parameter)
     {
@@ -1204,12 +1195,6 @@ public static class BindingOutputRenderer
         return $"{returnTypeName}({method.OwningRecordCppTypeName}::*)({parameterTypes}){constQualifier}";
     }
 
-    private static string BuildNativeFunctionSignatureWithSelf(FunctionBinding method)
-    {
-        var returnTypeName = method.CppReturnTypeName;
-        var parameterTypes = string.Join(", ", method.Parameters.Select(static p => p.CppTypeName));
-        return $"{returnTypeName}({parameterTypes})";
-    }
 
     private static string RenderManagedInvocationArgument(ParameterBinding parameter)
     {

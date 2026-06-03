@@ -73,7 +73,7 @@ public static class BindingMetadataExporter
             @enum.NativeName,
             @enum.ManagedName,
             ManagedBaseTypeName: null,
-            CreateTypeReference(BindingType.CreateEnum(@enum.NativeName, @enum.ManagedName, @enum.UnderlyingTypeName)),
+            CreateTypeReference(BindingType.CreateEnum(@enum.NativeName, @enum.ManagedName)),
             IsFlags: @enum.IsFlags,
             Values: @enum.Values
                 .OrderBy(static value => value.ManagedName, StringComparer.Ordinal)
@@ -147,7 +147,6 @@ public static class BindingMetadataExporter
             type.Kind.ToString().ToLowerInvariant(),
             type.CppTypeName,
             type.ManagedTypeName,
-            type.AbiTypeName,
             type.Kind == BindingTypeKind.Primitive ? type.PrimitiveKind.ToString().ToLowerInvariant() : null,
             type.RecordId,
             type.MarshallerTypeName);
