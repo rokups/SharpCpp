@@ -74,6 +74,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - Handle-typed parameters on free/static methods now surface as wrapper objects in managed signatures and pass native handles through generated thunks.
 - Handle-typed record fields now surface as wrapper-valued managed properties with getter/setter thunking.
 - Handle-typed `ref` / `out` parameters now round-trip through wrapper-local ABI temps, so managed signatures stay wrapper-shaped even when native thunks mutate pointer values.
+- Enums and flags now compose inside record constructors, static methods, and instance methods, not just as top-level free-function signatures.
 
 ## Verification Commands
 
