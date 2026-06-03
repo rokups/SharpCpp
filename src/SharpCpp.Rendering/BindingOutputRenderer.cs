@@ -53,7 +53,7 @@ public static class BindingOutputRenderer
             {
             """);
 
-        foreach (var function in functions)
+        foreach (var function in functions.Where(static function => function.Parent is not RecordBinding && !function.IsConstructor))
         {
             writer.WriteLine();
             writer.Write(RenderManagedWrapperMethod(function));
@@ -150,7 +150,15 @@ public static class BindingOutputRenderer
             public bool IsNull => Handle == 0;
             """);
 
-        foreach (var method in record.Members.OfType<FunctionBinding>().OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        foreach (var constructor in record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor).OrderBy(static function => function.Parameters.Count))
+        {
+            writer.WriteLine();
+            writer.Write(RenderManagedConstructor(constructor));
+            writer.WriteLine();
+            writer.Write(RenderManagedConstructorImportDeclaration(compilation, constructor));
+        }
+
+        foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             writer.WriteLine();
             writer.Write(RenderManagedInstanceMethod(method));
@@ -216,6 +224,40 @@ public static class BindingOutputRenderer
         writer.Write(
             """
             }
+            """);
+        return writer.ToString();
+    }
+
+    private static string RenderManagedConstructor(FunctionBinding function)
+    {
+        var writer = new CodeWriter();
+        var parameterList = string.Join(
+            ", ",
+            function.Parameters.Select(RenderManagedParameter));
+        var invokeArguments = string.Join(", ", function.Parameters.Select(RenderManagedInvocationArgument));
+        var constructorName = function.Parent is RecordBinding record
+            ? record.ManagedName
+            : NormalizeEnumManagedTypeName(function.ManagedName);
+
+        writer.Write($$"""
+            public {{constructorName}}({{parameterList}})
+                : this(__PInvoke_Create({{invokeArguments}}))
+            {
+            }
+            """);
+        return writer.ToString();
+    }
+
+    private static string RenderManagedConstructorImportDeclaration(BindingCompilation compilation, FunctionBinding function)
+    {
+        var writer = new CodeWriter();
+        var parameterList = string.Join(
+            ", ",
+            function.Parameters.Select(RenderManagedParameter));
+
+        writer.Write($$"""
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}")]
+            private static partial nint __PInvoke_Create({{parameterList}});
             """);
         return writer.ToString();
     }
@@ -408,7 +450,7 @@ public static class BindingOutputRenderer
                 """);
         }
 
-        foreach (var method in compilation.Records.SelectMany(static record => record.Members.OfType<FunctionBinding>()).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        foreach (var method in compilation.Records.SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => !function.IsConstructor).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             var parameterList = string.Join(
                 ", ",
@@ -435,6 +477,22 @@ public static class BindingOutputRenderer
             }
 
             writer.Write($$"""
+                }
+                """);
+        }
+
+        foreach (var constructor in compilation.Records.SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => function.IsConstructor).OrderBy(static function => function.ManagedName, StringComparer.Ordinal))
+        {
+            var parameterList = string.Join(
+                ", ",
+                constructor.Parameters.Select(RenderNativeParameter));
+            var invokeArguments = string.Join(", ", constructor.Parameters.Select(RenderNativeInvocationArgument));
+
+            writer.WriteLine();
+            writer.Write($$"""
+                SHARPCPP_EXPORT ret_t<{{constructor.CppReturnTypeName}}> {{constructor.EntryPointName}}({{parameterList}})
+                {
+                return new {{constructor.OwningRecordCppTypeName}}({{invokeArguments}});
                 }
                 """);
         }

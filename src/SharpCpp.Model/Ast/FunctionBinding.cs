@@ -35,5 +35,7 @@ public sealed class FunctionBinding : BindingNamedNode
 
     public string? OwningRecordCppTypeName { get; set; }
 
+    public bool IsConstructor { get; set; }
+
     public IList<ParameterBinding> Parameters => _parameters;
 }

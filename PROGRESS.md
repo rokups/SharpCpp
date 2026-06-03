@@ -21,8 +21,8 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 
 ## Current Focus
 
-1. Broaden the ClangSharp-backed parser beyond the current builtin/enum/record-method/field E2E fixture headers.
-2. Expand the first slice beyond builtin primitives, enums, record methods, and fields into more native surface categories.
+1. Broaden the ClangSharp-backed parser beyond the current builtin/enum/record-method/field/constructor E2E fixture headers.
+2. Expand the first slice beyond builtin primitives, enums, record methods, fields, and constructors into more native surface categories.
 3. Keep feature scope narrow until the parse -> render -> runtime path is solid.
 
 ## Decisions So Far
@@ -69,6 +69,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - The same customization points are available through the binding model API today via `ParameterBinding.Direction`, `ParameterBinding.AbiKind`, `EnumBinding.IsFlags`, and `EnumBinding.Values`.
 - Record instance methods now parse from C++ records, emit native self thunks, and surface as instance methods on managed handle wrappers.
 - Public record fields now parse from C++ records, emit getter/setter thunks, and surface as managed properties on handle wrappers.
+- Public record constructors now parse from C++ records, emit native allocation thunks, and surface as managed constructors on handle wrappers.
 
 ## Verification Commands
 

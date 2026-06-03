@@ -133,7 +133,7 @@ public sealed class ClangSharpHeaderParser
             return;
         }
 
-        var record = new RecordBinding($"record:{nativeName}", nativeName, nativeName);
+        var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(nativeName));
         recordsByName.Add(nativeName, record);
         compilation.Members.Add(record);
 
@@ -152,6 +152,25 @@ public sealed class ClangSharpHeaderParser
                 }
 
                 record.Members.Add(CreateMethod(record, child, recordsByName, enumsByName, managedTypeOverrides));
+                return CXChildVisitResult.CXChildVisit_Continue;
+            },
+            new CXClientData(IntPtr.Zero));
+
+        cursor.VisitChildren(
+            (child, _, _) =>
+            {
+                if (child.Kind != CXCursorKind.CXCursor_Constructor)
+                {
+                    return CXChildVisitResult.CXChildVisit_Continue;
+                }
+
+                if (child.CXXAccessSpecifier == CX_CXXAccessSpecifier.CX_CXXPrivate ||
+                    child.CXXAccessSpecifier == CX_CXXAccessSpecifier.CX_CXXProtected)
+                {
+                    return CXChildVisitResult.CXChildVisit_Continue;
+                }
+
+                record.Members.Add(CreateConstructor(record, child, recordsByName, enumsByName, managedTypeOverrides));
                 return CXChildVisitResult.CXChildVisit_Continue;
             },
             new CXClientData(IntPtr.Zero));
@@ -209,6 +228,50 @@ public sealed class ClangSharpHeaderParser
             function.Parameters.Add(
                 new ParameterBinding(
                     $"parameter:{record.NativeName}:{nativeName}:{parameterName}",
+                    parameterName,
+                    parameterName,
+                    parameterType,
+                    direction,
+                    abiKind,
+                    NormalizeTypeName(parameterCursor.Type.Spelling.ToString())));
+        }
+
+        return function;
+    }
+
+    private static FunctionBinding CreateConstructor(
+        RecordBinding record,
+        CXCursor cursor,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
+    {
+        var function = new FunctionBinding(
+            $"ctor:{record.NativeName}:{cursor.Hash}",
+            record.NativeName,
+            record.ManagedName,
+            record.HandleType,
+            entryPointName: $"sharpcpp_e2e_{record.NativeName}_ctor",
+            cppReturnTypeName: $"{record.NativeName}*")
+        {
+            IsStatic = false,
+            IsConstructor = true,
+            OwningRecordCppTypeName = record.NativeName
+        };
+
+        for (uint parameterIndex = 0; parameterIndex < cursor.NumArguments; parameterIndex++)
+        {
+            var parameterCursor = cursor.GetArgument(parameterIndex);
+            var parameterName = parameterCursor.Spelling.ToString();
+            if (string.IsNullOrWhiteSpace(parameterName))
+            {
+                parameterName = $"arg{parameterIndex}";
+            }
+
+            var (parameterType, direction, abiKind) = MapParameter(cursor, parameterCursor, recordsByName, enumsByName, managedTypeOverrides);
+            function.Parameters.Add(
+                new ParameterBinding(
+                    $"parameter:{record.NativeName}:ctor:{parameterName}",
                     parameterName,
                     parameterName,
                     parameterType,
