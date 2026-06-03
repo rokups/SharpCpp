@@ -78,7 +78,7 @@ public static class BindingOutputRenderer
             function.Parameters.Select(RenderManagedPublicParameter));
         var invocationPlan = BuildManagedInvocationPlan(function.Parameters);
         var invokeArguments = string.Join(", ", invocationPlan.Arguments);
-        var returnTypeName = GetManagedWrapperTypeName(function.ReturnType);
+        var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType);
 
         writer.Write($$"""
             public static {{returnTypeName}} {{function.ManagedName}}({{parameterList}})
@@ -234,7 +234,7 @@ public static class BindingOutputRenderer
             function.Parameters.Select(RenderManagedPublicParameter));
         var invocationPlan = BuildManagedInvocationPlan(function.Parameters);
         var invokeArguments = string.Join(", ", new[] { "Handle" }.Concat(invocationPlan.Arguments));
-        var returnTypeName = GetManagedWrapperTypeName(function.ReturnType);
+        var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType);
 
         writer.Write($$"""
             public {{returnTypeName}} {{function.ManagedName}}({{parameterList}})
@@ -338,7 +338,7 @@ public static class BindingOutputRenderer
             function.Parameters.Select(RenderManagedPublicParameter));
         var invocationPlan = BuildManagedInvocationPlan(function.Parameters);
         var invokeArguments = string.Join(", ", invocationPlan.Arguments);
-        var returnTypeName = GetManagedWrapperTypeName(function.ReturnType);
+        var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType);
 
         writer.Write($$"""
             public static {{returnTypeName}} {{function.ManagedName}}({{parameterList}})
@@ -467,7 +467,7 @@ public static class BindingOutputRenderer
     private static string RenderManagedProperty(FieldBinding field)
     {
         var writer = new CodeWriter();
-        var propertyTypeName = GetManagedWrapperTypeName(field.Type);
+        var propertyTypeName = GetManagedPublicReturnTypeName(field.Type);
         writer.Write($$"""
             public {{propertyTypeName}} {{field.ManagedName}}
             {
@@ -496,7 +496,7 @@ public static class BindingOutputRenderer
         if (!field.IsReadOnly)
         {
             var setterArgument = field.Type.Kind == BindingTypeKind.Handle
-                ? "value.Handle"
+                ? "value is null ? 0 : value.Handle"
                 : "value";
 
             writer.Write($$"""
@@ -722,6 +722,11 @@ public static class BindingOutputRenderer
             BindingTypeKind.Enum => NormalizeEnumManagedTypeName(type.ManagedTypeName),
             _ => throw new NotSupportedException($"Managed wrapper emission does not support '{type.Kind}'.")
         };
+    }
+
+    private static string GetManagedPublicReturnTypeName(BindingType type)
+    {
+        return GetManagedWrapperTypeName(type);
     }
 
     private static string GetManagedImportTypeName(BindingType type)
