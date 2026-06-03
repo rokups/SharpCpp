@@ -89,6 +89,9 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - Custom generators can now explicitly mark handle-returning functions as owned through the AST, without relying on naming heuristics.
 - Record static and instance overloads now get distinct generated entrypoints and private import helpers too.
 - C++ namespace-qualified types now correctly round-trip through the parser and renderer: `CppQualifiedName` on `RecordBinding` and `FunctionBinding` stores the full `ns1::ns2::Name` path, native C++ thunks use it for `reinterpret_cast`, `new`, `delete`, and `arg_t<>/ret_t<>` type arguments, while managed C# code uses the unqualified `NativeName`-derived PascalCase name. Entrypoint names remain flat (unqualified) since C linkage cannot encode `::`.
+- `Marshaller<T>` now carries `ConvertToAbi(cpp_value)` and `ConvertToCpp(abi_value)` methods, with identity implementations for primitives/pointers/void* and address-of/dereference for references.
+- Native thunks now use `MarshallerInvoker` invocation helpers (`invoke_as<FT>`, `invoke<FT>`, `construct`, `destroy`, `get_field`, `set_field`) instead of inline `reinterpret_cast`, `*param`, or pointer-pass-through. Generated code emits `using FT = Ret(Args...);` typedefs for clean template dispatch.
+- `IsConstMethod` on `FunctionBinding` detected via `clang_CXXMethod_isConst` from ClangSharp, with `const` propagated to the `FT` member-function-pointer signature.
 
 ## Verification Commands
 

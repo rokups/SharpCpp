@@ -41,6 +41,8 @@ public sealed class FunctionBinding : BindingNamedNode
 
     public bool IsConstructor { get; set; }
 
+    public bool IsConstMethod { get; set; }
+
     public string? OperatorToken { get; set; }
 
     public bool IsConversionOperator { get; set; }

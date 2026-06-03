@@ -1,4 +1,5 @@
 using ClangSharp.Interop;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -262,6 +263,7 @@ public sealed class ClangSharpHeaderParser
             cppQualifiedName: $"{record.CppQualifiedName}::{nativeName}")
         {
             IsStatic = false,
+            IsConstMethod = clang.CXXMethod_isConst(cursor) != 0,
             OwningRecordCppTypeName = record.CppQualifiedName
         };
         ApplyOperatorMetadata(function, cursor);
