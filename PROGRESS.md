@@ -78,6 +78,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - Read-only C++ fields now surface as getter-only managed properties.
 - Simple single inheritance now maps to managed class inheritance, so derived wrappers reuse base methods and properties.
 - Base-typed parameters and returns now accept derived wrappers and flow through the inherited wrapper hierarchy cleanly.
+- Builtin and enum literal default parameters now surface directly in free functions, constructors, static methods, and instance methods.
 
 ## Verification Commands
 

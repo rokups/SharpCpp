@@ -275,7 +275,10 @@ public sealed class ClangSharpHeaderParser
                     parameterType,
                     direction,
                     abiKind,
-                    NormalizeTypeName(parameterCursor.Type.Spelling.ToString())));
+                    NormalizeTypeName(parameterCursor.Type.Spelling.ToString()))
+                {
+                    ManagedDefaultValueExpression = GetManagedDefaultValueExpression(parameterCursor, parameterType)
+                });
         }
 
         return function;
@@ -319,7 +322,10 @@ public sealed class ClangSharpHeaderParser
                     parameterType,
                     direction,
                     abiKind,
-                    NormalizeTypeName(parameterCursor.Type.Spelling.ToString())));
+                    NormalizeTypeName(parameterCursor.Type.Spelling.ToString()))
+                {
+                    ManagedDefaultValueExpression = GetManagedDefaultValueExpression(parameterCursor, parameterType)
+                });
         }
 
         return function;
@@ -363,7 +369,10 @@ public sealed class ClangSharpHeaderParser
                     parameterType,
                     direction,
                     abiKind,
-                    NormalizeTypeName(parameterCursor.Type.Spelling.ToString())));
+                    NormalizeTypeName(parameterCursor.Type.Spelling.ToString()))
+                {
+                    ManagedDefaultValueExpression = GetManagedDefaultValueExpression(parameterCursor, parameterType)
+                });
         }
 
         return function;
@@ -421,7 +430,10 @@ public sealed class ClangSharpHeaderParser
                     parameterType,
                     direction,
                     abiKind,
-                    NormalizeTypeName(parameterCursor.Type.Spelling.ToString())));
+                    NormalizeTypeName(parameterCursor.Type.Spelling.ToString()))
+                {
+                    ManagedDefaultValueExpression = GetManagedDefaultValueExpression(parameterCursor, parameterType)
+                });
         }
 
         return function;
@@ -770,6 +782,54 @@ public sealed class ClangSharpHeaderParser
         {
             translationUnit.DisposeTokens(tokens);
         }
+    }
+
+    private static string? GetManagedDefaultValueExpression(CXCursor parameterCursor, BindingType parameterType)
+    {
+        if (!parameterCursor.HasDefaultArg)
+        {
+            return null;
+        }
+
+        var defaultArgumentCursor = parameterCursor.DefaultArg;
+        if (defaultArgumentCursor.Kind == CXCursorKind.CXCursor_FirstInvalid && parameterCursor.HasUninstantiatedDefaultArg)
+        {
+            defaultArgumentCursor = parameterCursor.UninstantiatedDefaultArg;
+        }
+
+        if (defaultArgumentCursor.Kind == CXCursorKind.CXCursor_FirstInvalid)
+        {
+            return null;
+        }
+
+        var asWrittenCursor = defaultArgumentCursor.SubExprAsWritten;
+        var expressionCursor = asWrittenCursor.Kind == CXCursorKind.CXCursor_FirstInvalid
+            ? defaultArgumentCursor
+            : asWrittenCursor;
+        var expression = GetSourceText(expressionCursor.TranslationUnit, expressionCursor.Extent);
+
+        if (parameterType.Kind == BindingTypeKind.Enum)
+        {
+            return NormalizeManagedEnumDefaultExpression(parameterType.ManagedTypeName, expression);
+        }
+
+        return expressionCursor.Kind switch
+        {
+            CXCursorKind.CXCursor_CXXBoolLiteralExpr => expression.ToLowerInvariant(),
+            _ => expression
+        };
+    }
+
+    private static string NormalizeManagedEnumDefaultExpression(string managedTypeName, string expression)
+    {
+        var separatorIndex = expression.LastIndexOf("::", StringComparison.Ordinal);
+        if (separatorIndex < 0)
+        {
+            return expression;
+        }
+
+        var valueName = expression[(separatorIndex + 2)..];
+        return $"{managedTypeName}.{ToPascalCase(valueName)}";
     }
 
     private static IReadOnlyDictionary<string, ManagedTypeOverride> LoadManagedTypeOverrides(IReadOnlyList<string> files)

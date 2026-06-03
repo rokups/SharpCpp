@@ -777,7 +777,16 @@ public static class BindingOutputRenderer
             _ => string.Empty
         };
 
-        return $"{modifier}{GetManagedWrapperTypeName(parameter.Type)} {parameter.ManagedName}";
+        var signature = $"{modifier}{GetManagedWrapperTypeName(parameter.Type)} {parameter.ManagedName}";
+
+        if (parameter.Direction == BindingParameterDirection.In &&
+            parameter.AbiKind == BindingParameterAbiKind.Value &&
+            parameter.ManagedDefaultValueExpression is { Length: > 0 } defaultValueExpression)
+        {
+            signature += $" = {defaultValueExpression}";
+        }
+
+        return signature;
     }
 
     private static string RenderNativeParameter(ParameterBinding parameter)

@@ -45,4 +45,6 @@ public sealed class ParameterBinding : BindingNamedNode
     public BindingParameterAbiKind AbiKind { get; set; }
 
     public string CppTypeName { get; set; }
+
+    public string? ManagedDefaultValueExpression { get; set; }
 }
