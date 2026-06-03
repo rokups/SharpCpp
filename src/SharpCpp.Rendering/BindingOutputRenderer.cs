@@ -158,6 +158,20 @@ public static class BindingOutputRenderer
             writer.Write(RenderManagedInstanceImportDeclaration(compilation, method));
         }
 
+        foreach (var field in record.Members.OfType<FieldBinding>().OrderBy(static field => field.ManagedName, StringComparer.Ordinal))
+        {
+            writer.WriteLine();
+            writer.Write(RenderManagedProperty(field));
+            writer.WriteLine();
+            writer.Write(RenderManagedFieldGetterImportDeclaration(compilation, field));
+
+            if (!field.IsReadOnly)
+            {
+                writer.WriteLine();
+                writer.Write(RenderManagedFieldSetterImportDeclaration(compilation, field));
+            }
+        }
+
         writer.WriteLine();
         writer.Write(
             """
@@ -248,6 +262,86 @@ public static class BindingOutputRenderer
         writer.Write(
             """
             }
+            """);
+        return writer.ToString();
+    }
+
+    private static string RenderManagedProperty(FieldBinding field)
+    {
+        var writer = new CodeWriter();
+        var propertyTypeName = GetManagedWrapperTypeName(field.Type);
+        writer.Write($$"""
+            public {{propertyTypeName}} {{field.ManagedName}}
+            {
+            get
+            {
+            """);
+
+        if (field.Type.Kind == BindingTypeKind.Handle)
+        {
+            writer.Write($$"""
+                return new {{field.Type.ManagedTypeName}}(__PInvoke_Get_{{field.ManagedName}}(Handle));
+                """);
+        }
+        else
+        {
+            writer.Write($$"""
+                return __PInvoke_Get_{{field.ManagedName}}(Handle);
+                """);
+        }
+
+        writer.Write(
+            """
+            }
+            """);
+
+        if (!field.IsReadOnly)
+        {
+            writer.Write($$"""
+                set
+                {
+                __PInvoke_Set_{{field.ManagedName}}(Handle, value);
+                }
+                """);
+        }
+
+        writer.Write(
+            """
+            }
+            """);
+        return writer.ToString();
+    }
+
+    private static string RenderManagedFieldGetterImportDeclaration(BindingCompilation compilation, FieldBinding field)
+    {
+        var writer = new CodeWriter();
+        var returnTypeName = GetManagedImportTypeName(field.Type);
+        var returnAttribute = GetManagedReturnAttribute(field.Type);
+
+        writer.Write($$"""
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{field.OwningRecordCppTypeName}}_{{field.NativeName}}_get")]
+            {{returnAttribute}}
+            private static partial {{returnTypeName}} __PInvoke_Get_{{field.ManagedName}}(nint self);
+            """);
+        return writer.ToString();
+    }
+
+    private static string RenderManagedFieldSetterImportDeclaration(BindingCompilation compilation, FieldBinding field)
+    {
+        var writer = new CodeWriter();
+        var parameter = RenderManagedParameter(
+            new ParameterBinding(
+                $"field:set:{field.NativeName}",
+                "value",
+                "value",
+                field.Type,
+                BindingParameterDirection.In,
+                BindingParameterAbiKind.Value,
+                field.CppTypeName));
+
+        writer.Write($$"""
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{field.OwningRecordCppTypeName}}_{{field.NativeName}}_set")]
+            private static partial void __PInvoke_Set_{{field.ManagedName}}(nint self, {{parameter}});
             """);
         return writer.ToString();
     }
@@ -343,6 +437,28 @@ public static class BindingOutputRenderer
             writer.Write($$"""
                 }
                 """);
+        }
+
+        foreach (var field in compilation.Records.SelectMany(static record => record.Members.OfType<FieldBinding>()).OrderBy(static field => field.ManagedName, StringComparer.Ordinal))
+        {
+            writer.WriteLine();
+            writer.Write($$"""
+                SHARPCPP_EXPORT ret_t<{{field.CppTypeName}}> sharpcpp_e2e_{{field.OwningRecordCppTypeName}}_{{field.NativeName}}_get(arg_t<{{field.OwningRecordCppTypeName}}*> self)
+                {
+                return reinterpret_cast<{{field.OwningRecordCppTypeName}}*>(self)->{{field.NativeName}};
+                }
+                """);
+
+            if (!field.IsReadOnly)
+            {
+                writer.WriteLine();
+                writer.Write($$"""
+                    SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{field.OwningRecordCppTypeName}}_{{field.NativeName}}_set(arg_t<{{field.OwningRecordCppTypeName}}*> self, arg_t<{{field.CppTypeName}}> value)
+                    {
+                    reinterpret_cast<{{field.OwningRecordCppTypeName}}*>(self)->{{field.NativeName}} = value;
+                    }
+                    """);
+            }
         }
 
         return writer.ToString();

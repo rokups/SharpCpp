@@ -71,7 +71,7 @@ public sealed class ClangSharpHeaderParser
                 switch (child.Kind)
                 {
                     case CXCursorKind.CXCursor_StructDecl:
-                        RegisterRecord(child, compilation, recordsByName);
+                        RegisterRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides);
                         break;
 
                     case CXCursorKind.CXCursor_EnumDecl:
@@ -120,7 +120,12 @@ public sealed class ClangSharpHeaderParser
         return string.Equals(Path.GetFullPath(filePath), headerFilePath, StringComparison.Ordinal);
     }
 
-    private static unsafe void RegisterRecord(CXCursor cursor, BindingCompilation compilation, IDictionary<string, RecordBinding> recordsByName)
+    private static unsafe void RegisterRecord(
+        CXCursor cursor,
+        BindingCompilation compilation,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
     {
         var nativeName = cursor.Spelling.ToString();
         if (string.IsNullOrWhiteSpace(nativeName) || recordsByName.ContainsKey(nativeName))
@@ -146,7 +151,26 @@ public sealed class ClangSharpHeaderParser
                     return CXChildVisitResult.CXChildVisit_Continue;
                 }
 
-                record.Members.Add(CreateMethod(record, child, recordsByName));
+                record.Members.Add(CreateMethod(record, child, recordsByName, enumsByName, managedTypeOverrides));
+                return CXChildVisitResult.CXChildVisit_Continue;
+            },
+            new CXClientData(IntPtr.Zero));
+
+        cursor.VisitChildren(
+            (child, _, _) =>
+            {
+                if (child.Kind != CXCursorKind.CXCursor_FieldDecl)
+                {
+                    return CXChildVisitResult.CXChildVisit_Continue;
+                }
+
+                if (child.CXXAccessSpecifier == CX_CXXAccessSpecifier.CX_CXXPrivate ||
+                    child.CXXAccessSpecifier == CX_CXXAccessSpecifier.CX_CXXProtected)
+                {
+                    return CXChildVisitResult.CXChildVisit_Continue;
+                }
+
+                record.Members.Add(CreateField(record, child, recordsByName, enumsByName, managedTypeOverrides));
                 return CXChildVisitResult.CXChildVisit_Continue;
             },
             new CXClientData(IntPtr.Zero));
@@ -155,14 +179,16 @@ public sealed class ClangSharpHeaderParser
     private static FunctionBinding CreateMethod(
         RecordBinding record,
         CXCursor cursor,
-        IDictionary<string, RecordBinding> recordsByName)
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
     {
         var nativeName = cursor.Spelling.ToString();
         var function = new FunctionBinding(
             $"method:{record.NativeName}:{nativeName}",
             nativeName,
             ToPascalCase(nativeName),
-            MapType(cursor.ResultType, recordsByName, new Dictionary<string, EnumBinding>(StringComparer.Ordinal), new Dictionary<string, ManagedTypeOverride>(StringComparer.Ordinal)),
+            MapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides),
             entryPointName: $"sharpcpp_e2e_{record.NativeName}_{nativeName}",
             cppReturnTypeName: NormalizeTypeName(cursor.ResultType.Spelling.ToString()))
         {
@@ -179,7 +205,7 @@ public sealed class ClangSharpHeaderParser
                 parameterName = $"arg{parameterIndex}";
             }
 
-            var (parameterType, direction, abiKind) = MapParameter(cursor, parameterCursor, recordsByName, new Dictionary<string, EnumBinding>(StringComparer.Ordinal), new Dictionary<string, ManagedTypeOverride>(StringComparer.Ordinal));
+            var (parameterType, direction, abiKind) = MapParameter(cursor, parameterCursor, recordsByName, enumsByName, managedTypeOverrides);
             function.Parameters.Add(
                 new ParameterBinding(
                     $"parameter:{record.NativeName}:{nativeName}:{parameterName}",
@@ -192,6 +218,24 @@ public sealed class ClangSharpHeaderParser
         }
 
         return function;
+    }
+
+    private static FieldBinding CreateField(
+        RecordBinding record,
+        CXCursor cursor,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
+    {
+        var nativeName = cursor.Spelling.ToString();
+        return new FieldBinding(
+            $"field:{record.NativeName}:{nativeName}",
+            nativeName,
+            ToPascalCase(nativeName),
+            MapType(cursor.Type, recordsByName, enumsByName, managedTypeOverrides),
+            NormalizeTypeName(cursor.Type.Spelling.ToString()),
+            record.NativeName,
+            isReadOnly: cursor.Type.IsConstQualified);
     }
 
     private static FunctionBinding CreateFunction(

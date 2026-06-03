@@ -6,5 +6,6 @@ public enum BindingNodeKind
     Record = 2,
     Function = 3,
     Parameter = 4,
-    Enum = 5
+    Enum = 5,
+    Field = 6
 }
