@@ -4,16 +4,28 @@
 #include <functional>
 #include <tuple>
 #include <type_traits>
-#include <concepts>
+#include <utility>
 
 namespace SharpCpp
 {
 namespace detail
 {
+template <typename T, typename = void>
+struct has_sync : std::false_type {};
+
+template <typename T>
+struct has_sync<T, std::void_t<decltype(std::declval<T&>().Sync())>> : std::true_type {};
+
+template <typename T>
+inline constexpr bool has_sync_v = has_sync<T>::value;
+
+template <typename T>
+using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
+
 template <typename TMarshaller>
 constexpr void SyncMarshaller(TMarshaller& marshaller)
 {
-    if constexpr (requires { marshaller.Sync(); })
+    if constexpr (has_sync_v<TMarshaller>)
     {
         marshaller.Sync();
     }
@@ -28,7 +40,7 @@ constexpr void SyncMarshallersImpl(TMarshallerTuple& marshallers, std::index_seq
 template <typename TMarshallerTuple>
 constexpr void SyncMarshallers(TMarshallerTuple& marshallers)
 {
-    using tuple_type = std::remove_cvref_t<TMarshallerTuple>;
+    using tuple_type = remove_cvref_t<TMarshallerTuple>;
     SyncMarshallersImpl(marshallers, std::make_index_sequence<std::tuple_size_v<tuple_type>>{});
 }
 
@@ -206,8 +218,11 @@ struct MarshallerInvoker
             std::forward<TAbiArgs>(abiArguments)...);
     }
 
-    template <typename FT, typename TMethod, typename TSelfAbi, typename... TAbiArgs>
-        requires (std::is_member_function_pointer_v<TMethod> && !std::same_as<TMethod, FT>)
+    template <typename FT, typename TMethod, typename TSelfAbi, typename... TAbiArgs,
+        std::enable_if_t<
+            std::is_member_function_pointer_v<TMethod> &&
+            !std::is_same_v<TMethod, FT>,
+            int> = 0>
     static decltype(auto) invoke(TMethod method, TSelfAbi self, TAbiArgs&&... abiArguments)
     {
         using traits = detail::MemberFunctionTraits<TMethod>;

@@ -292,6 +292,7 @@ sharpcpp_initialize_consumer(SOLUTION_FILE "${CMAKE_SOURCE_DIR}/SharpCpp.slnx")
 add_library(sharpcpp-native-support INTERFACE)
 target_compile_features(sharpcpp-native-support INTERFACE cxx_std_20)
 target_include_directories(sharpcpp-native-support INTERFACE "${CMAKE_SOURCE_DIR}/include")
+set_target_properties(sharpcpp-native-support PROPERTIES INTERFACE_CXX_SCAN_FOR_MODULES OFF)
 
 sharpcpp_add_dotnet_build_target(sharpcpp-model "${CMAKE_SOURCE_DIR}/src/SharpCpp.Model/SharpCpp.Model.csproj")
 sharpcpp_add_dotnet_build_target(sharpcpp-metadata "${CMAKE_SOURCE_DIR}/src/SharpCpp.Metadata/SharpCpp.Metadata.csproj" DEPENDS sharpcpp-model)
@@ -356,6 +357,7 @@ add_library(
   "${SHARPCPP_E2E_GENERATED_CPP}")
 add_dependencies(SharpCppTestsE2E_Native sharpcpp-generate-e2e)
 target_compile_features(SharpCppTestsE2E_Native PRIVATE cxx_std_20)
+set_target_properties(SharpCppTestsE2E_Native PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 target_include_directories(
   SharpCppTestsE2E_Native
   PRIVATE
