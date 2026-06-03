@@ -26,7 +26,11 @@ public sealed record BindingMetadataType(
     string NativeName,
     string ManagedName,
     string? ManagedBaseTypeName,
-    BindingMetadataTypeReference Projection);
+    BindingMetadataTypeReference Projection,
+    bool IsFlags = false,
+    IReadOnlyList<BindingMetadataEnumValue>? Values = null);
+
+public sealed record BindingMetadataEnumValue(string NativeName, string ManagedName, string ValueExpression);
 
 public sealed record BindingMetadataFunction(
     string SymbolId,

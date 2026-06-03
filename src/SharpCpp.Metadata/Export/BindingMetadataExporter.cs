@@ -69,7 +69,12 @@ public static class BindingMetadataExporter
             @enum.NativeName,
             @enum.ManagedName,
             ManagedBaseTypeName: null,
-            CreateTypeReference(BindingType.CreateEnum(@enum.NativeName, @enum.ManagedName, @enum.UnderlyingTypeName)));
+            CreateTypeReference(BindingType.CreateEnum(@enum.NativeName, @enum.ManagedName, @enum.UnderlyingTypeName)),
+            IsFlags: @enum.IsFlags,
+            Values: @enum.Values
+                .OrderBy(static value => value.ManagedName, StringComparer.Ordinal)
+                .Select(static value => new BindingMetadataEnumValue(value.NativeName, value.ManagedName, value.ValueExpression))
+                .ToArray());
     }
 
     private static BindingMetadataFunction CreateFunction(FunctionBinding function)

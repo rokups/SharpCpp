@@ -73,4 +73,41 @@ public sealed class BindingMetadataExporterTests
         Assert.Equal(original.Types, roundTripped.Types);
         Assert.Equal(original.Functions, roundTripped.Functions);
     }
+
+    [Fact]
+    public void Export_includes_enum_flag_status_and_values()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "enum.hpp" });
+        var permissions = new EnumBinding("enum:permissions", "permissions", "Permissions", "unsigned int")
+        {
+            IsFlags = true
+        };
+        permissions.Values.Add(new EnumValueBinding("read", "Read", "1u"));
+        permissions.Values.Add(new EnumValueBinding("write", "Write", "2u"));
+        compilation.Members.Add(permissions);
+
+        var document = BindingMetadataExporter.Export(compilation);
+        var exportedEnum = Assert.Single(document.Types);
+
+        Assert.True(exportedEnum.IsFlags);
+        Assert.Collection(
+            exportedEnum.Values!,
+            value =>
+            {
+                Assert.Equal("read", value.NativeName);
+                Assert.Equal("Read", value.ManagedName);
+                Assert.Equal("1u", value.ValueExpression);
+            },
+            value =>
+            {
+                Assert.Equal("write", value.NativeName);
+                Assert.Equal("Write", value.ManagedName);
+                Assert.Equal("2u", value.ValueExpression);
+            });
+    }
 }
