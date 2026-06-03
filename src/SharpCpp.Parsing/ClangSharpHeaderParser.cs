@@ -99,7 +99,38 @@ public sealed class ClangSharpHeaderParser
             },
             new CXClientData(IntPtr.Zero));
 
+        AssignImportMethodNames(compilation);
+
         return compilation;
+    }
+
+    private static void AssignImportMethodNames(BindingCompilation compilation)
+    {
+        foreach (var group in compilation.Members.OfType<FunctionBinding>()
+            .Where(static function => function.Parent is not RecordBinding)
+            .GroupBy(static function => function.ManagedName, StringComparer.Ordinal))
+        {
+            var counter = 0;
+            foreach (var function in group.OrderBy(static f => f.SymbolId, StringComparer.Ordinal))
+            {
+                counter++;
+                function.ImportMethodName = counter == 1 ? function.ManagedName : $"{function.ManagedName}{counter}";
+            }
+        }
+
+        foreach (var record in compilation.Records)
+        {
+            foreach (var group in record.Members.OfType<FunctionBinding>()
+                .GroupBy(static function => function.ManagedName, StringComparer.Ordinal))
+            {
+                var counter = 0;
+                foreach (var function in group.OrderBy(static f => f.SymbolId, StringComparer.Ordinal))
+                {
+                    counter++;
+                    function.ImportMethodName = counter == 1 ? function.ManagedName : $"{function.ManagedName}{counter}";
+                }
+            }
+        }
     }
 
     private static void ValidateDiagnostics(CXTranslationUnit translationUnit, string headerFilePath)

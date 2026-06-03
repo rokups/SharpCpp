@@ -21,6 +21,7 @@ public sealed class FunctionBinding : BindingNamedNode
         CppReturnTypeName = string.IsNullOrWhiteSpace(cppReturnTypeName) ? returnType.CppTypeName : cppReturnTypeName;
         CppQualifiedName = string.IsNullOrWhiteSpace(cppQualifiedName) ? nativeName : cppQualifiedName;
         _parameters = new BindingNodeCollection<ParameterBinding>(this);
+        ImportMethodName = ManagedName;
     }
 
     public override BindingNodeKind Kind => BindingNodeKind.Function;
@@ -34,6 +35,8 @@ public sealed class FunctionBinding : BindingNamedNode
     public string CppReturnTypeName { get; set; }
 
     public string CppQualifiedName { get; set; }
+
+    public string ImportMethodName { get; set; }
 
     public bool IsStatic { get; set; } = true;
 

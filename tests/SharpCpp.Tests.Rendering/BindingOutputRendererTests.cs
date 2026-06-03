@@ -67,7 +67,7 @@ public sealed class BindingOutputRendererTests
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
         Assert.Contains("public static void WritePayload(out PayloadRecord payload)", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("internal static partial void WritePayload_payload_recordPtrRef(out nint payload);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial void WritePayload(out nint payload);", managedOutput, StringComparison.Ordinal);
         Assert.Contains("nint __abi_payload;", managedOutput, StringComparison.Ordinal);
         Assert.Contains("payload = new PayloadRecord(__abi_payload);", managedOutput, StringComparison.Ordinal);
     }
@@ -208,14 +208,14 @@ public sealed class BindingOutputRendererTests
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("OverloadValue_int", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("OverloadValue_int_int", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("OverloadBox_int", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("OverloadBox_int_int", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("Mix_int", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("Mix_int_int", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("Combine_int", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("Combine_int_int", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("OverloadValue", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("OverloadValue2", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("OverloadBox", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("OverloadBox2", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("Mix", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("Mix2", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("Combine", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("Combine2", managedOutput, StringComparison.Ordinal);
     }
 
     [Fact]
