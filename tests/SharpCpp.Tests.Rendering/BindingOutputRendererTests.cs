@@ -217,4 +217,50 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("__PInvoke_Combine_int", managedOutput, StringComparison.Ordinal);
         Assert.Contains("__PInvoke_Combine_int_int", managedOutput, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Managed_output_renders_owned_wrapper_surface_for_root_records()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/Constructor.hpp" });
+        var record = new RecordBinding("record:widget", "widget", "Widget");
+        compilation.Members.Add(record);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public partial class Widget : global::System.IDisposable", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public bool OwnsHandle { get; }", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public void Dispose()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("protected virtual void DisposeCore(nint handle)", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Managed_output_renders_dispose_override_for_derived_records()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/Inheritance.hpp" });
+        var baseRecord = new RecordBinding("record:base_widget", "base_widget", "BaseWidget");
+        var derivedRecord = new RecordBinding("record:derived_widget", "derived_widget", "DerivedWidget")
+        {
+            ManagedBaseTypeName = "BaseWidget"
+        };
+        compilation.Members.Add(baseRecord);
+        compilation.Members.Add(derivedRecord);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public partial class DerivedWidget : BaseWidget", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("protected override void DisposeCore(nint handle)", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("public bool OwnsHandle { get; }", managedOutput[(managedOutput.IndexOf("public partial class DerivedWidget", StringComparison.Ordinal))..], StringComparison.Ordinal);
+    }
 }
