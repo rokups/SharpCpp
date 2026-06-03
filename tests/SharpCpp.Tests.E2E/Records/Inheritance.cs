@@ -12,6 +12,7 @@ public sealed class InheritanceTests
         var derived = new DerivedCounter(10, 2);
 
         Assert.IsAssignableFrom<BaseCounter>(derived);
+        Assert.Equal(2, derived.GetKind());
         Assert.Equal(10, derived.GetValue());
         Assert.Equal(2, derived.GetBonus());
         Assert.Equal(12, derived.AddAll());
@@ -22,6 +23,7 @@ public sealed class InheritanceTests
     {
         BaseCounter counter = new DerivedCounter(10, 2);
 
+        Assert.Equal(2, counter.GetKind());
         Assert.Equal(10, counter.GetValue());
     }
 
@@ -43,6 +45,7 @@ public sealed class InheritanceTests
         var counter = new DerivedCounter(10, 2);
 
         Assert.Equal(10, E2EBindings.ReadBaseCounter(counter));
+        Assert.Equal(2, E2EBindings.ReadBaseCounterKind(counter));
     }
 
     [Fact]

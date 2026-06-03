@@ -7,6 +7,11 @@ struct base_counter
     {
     }
 
+    virtual int get_kind() const
+    {
+        return 1;
+    }
+
     int get_value() const
     {
         return value_;
@@ -27,6 +32,11 @@ struct derived_counter : base_counter
     int get_bonus() const
     {
         return bonus_;
+    }
+
+    int get_kind() const override
+    {
+        return 2;
     }
 
     int add_all() const
@@ -63,4 +73,9 @@ inline inheritance_holder* create_inheritance_holder(base_counter* base_view)
 inline int read_base_counter(base_counter* value)
 {
     return value->get_value();
+}
+
+inline int read_base_counter_kind(base_counter* value)
+{
+    return value->get_kind();
 }
