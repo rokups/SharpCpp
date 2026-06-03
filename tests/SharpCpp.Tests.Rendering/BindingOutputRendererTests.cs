@@ -387,4 +387,36 @@ public sealed class BindingOutputRendererTests
 
         Assert.Contains("// public int Skip; // excluded: marked [[sharpcpp::ignore]]", managedOutput, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Managed_output_renders_documentation_comment_for_record()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings",
+            "SharpCpp.Sample.Native", new[] { "Doc/Doc.hpp" });
+        var record = new RecordBinding("record:doc", "doc", "Doc");
+        record.SetMetadata(MetadataKeys.DocumentationComment, "Represents a documented record.");
+        compilation.Members.Add(record);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("/// <summary>Represents a documented record.</summary>", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Managed_output_escapes_xml_in_documentation_comments()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings",
+            "SharpCpp.Sample.Native", new[] { "Doc/Doc.hpp" });
+        var function = new FunctionBinding("function:escape", "escape", "Escape", BindingType.Int32, "entry_escape");
+        function.SetMetadata(MetadataKeys.DocumentationComment, "Handles <tag> escaping & special chars.");
+        compilation.Members.Add(function);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("/// <summary>Handles &lt;tag&gt; escaping &amp; special chars.</summary>", managedOutput, StringComparison.Ordinal);
+    }
 }

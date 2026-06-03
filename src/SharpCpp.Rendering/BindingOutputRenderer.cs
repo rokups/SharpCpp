@@ -95,6 +95,7 @@ public static class BindingOutputRenderer
     private static string RenderManagedWrapperMethod(FunctionBinding function)
     {
         var writer = new CodeWriter();
+        WriteDocumentationComment(writer, function);
         var parameterList = string.Join(
             ", ",
             function.Parameters.Select(RenderManagedPublicParameter));
@@ -192,6 +193,7 @@ public static class BindingOutputRenderer
     private static string RenderRecord(BindingCompilation compilation, RecordBinding record)
     {
         var writer = new CodeWriter();
+        WriteDocumentationComment(writer, record);
         var baseClause = string.IsNullOrWhiteSpace(record.ManagedBaseTypeName)
             ? " : global::SharpCpp.Support.NativeObject"
             : $" : {record.ManagedBaseTypeName}";
@@ -346,6 +348,7 @@ public static class BindingOutputRenderer
     private static string RenderManagedInstanceMethod(BindingCompilation compilation, RecordBinding record, FunctionBinding function)
     {
         var writer = new CodeWriter();
+        WriteDocumentationComment(writer, function);
         var parameterList = string.Join(
             ", ",
             function.Parameters.Select(RenderManagedPublicParameter));
@@ -535,6 +538,7 @@ public static class BindingOutputRenderer
     private static string RenderManagedConstructor(FunctionBinding function)
     {
         var writer = new CodeWriter();
+        WriteDocumentationComment(writer, function);
         var parameterList = string.Join(
             ", ",
             function.Parameters.Select(RenderManagedPublicParameter));
@@ -571,6 +575,7 @@ public static class BindingOutputRenderer
     private static string RenderManagedStaticMethod(FunctionBinding function)
     {
         var writer = new CodeWriter();
+        WriteDocumentationComment(writer, function);
         var parameterList = string.Join(
             ", ",
             function.Parameters.Select(RenderManagedPublicParameter));
@@ -663,6 +668,7 @@ public static class BindingOutputRenderer
     private static string RenderManagedOperator(RecordBinding record, FunctionBinding function)
     {
         var writer = new CodeWriter();
+        WriteDocumentationComment(writer, function);
 
         if (function.Parameters.Count == 1 && function.OperatorToken == "==" && !HasOperator(record, "!="))
         {
@@ -816,6 +822,7 @@ public static class BindingOutputRenderer
     private static string RenderEnum(EnumBinding @enum)
     {
         var writer = new CodeWriter();
+        WriteDocumentationComment(writer, @enum);
 
         if (@enum.IsFlags)
         {
@@ -844,6 +851,7 @@ public static class BindingOutputRenderer
     private static string RenderManagedProperty(FieldBinding field)
     {
         var writer = new CodeWriter();
+        WriteDocumentationComment(writer, field);
         var propertyTypeName = GetManagedPublicReturnTypeName(field.Type);
         writer.Write($$"""
             public {{propertyTypeName}} {{field.ManagedName}}
@@ -1373,5 +1381,16 @@ public static class BindingOutputRenderer
         var isStatic = function.IsStatic || function.Parent is null;
         var staticModifier = isStatic ? "static " : string.Empty;
         return $"// public {staticModifier}{returnTypeName} {function.ManagedName}({parameterList}); // excluded: {reason}";
+    }
+
+    private static void WriteDocumentationComment(CodeWriter writer, BindingNode node)
+    {
+        if (!node.TryGetMetadata(MetadataKeys.DocumentationComment, out string? comment) || string.IsNullOrWhiteSpace(comment))
+        {
+            return;
+        }
+
+        var escaped = System.Security.SecurityElement.Escape(comment!);
+        writer.Write($"/// <summary>{escaped}</summary>");
     }
 }

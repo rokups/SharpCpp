@@ -92,6 +92,7 @@ public sealed class ClangSharpHeaderParser
                     {
                         var function = CreateFunction(child, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
                         CheckAndApplyIgnoreAttribute(child, function);
+        ExtractAndApplyDocumentation(child, function);
                         compilation.Members.Add(function);
                         break;
                     }
@@ -150,6 +151,7 @@ public sealed class ClangSharpHeaderParser
         var cppQualifiedName = GetCppQualifiedName(cursor);
         var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(nativeName), cppQualifiedName);
         CheckAndApplyIgnoreAttribute(cursor, record);
+        ExtractAndApplyDocumentation(cursor, record);
         recordsByName.Add(nativeName, record);
         compilation.Members.Add(record);
 
@@ -193,6 +195,7 @@ public sealed class ClangSharpHeaderParser
 
                 var method = CreateMethod(record, child, recordsByName, enumsByName, managedTypeOverrides);
                 CheckAndApplyIgnoreAttribute(child, method);
+        ExtractAndApplyDocumentation(child, method);
                 record.Members.Add(method);
                 return CXChildVisitResult.CXChildVisit_Continue;
             },
@@ -214,6 +217,7 @@ public sealed class ClangSharpHeaderParser
 
                 var staticMethod = CreateStaticMethod(record, child, recordsByName, enumsByName, managedTypeOverrides);
                 CheckAndApplyIgnoreAttribute(child, staticMethod);
+        ExtractAndApplyDocumentation(child, staticMethod);
                 record.Members.Add(staticMethod);
                 return CXChildVisitResult.CXChildVisit_Continue;
             },
@@ -235,6 +239,7 @@ public sealed class ClangSharpHeaderParser
 
                 var ctor = CreateConstructor(record, child, recordsByName, enumsByName, managedTypeOverrides);
                 CheckAndApplyIgnoreAttribute(child, ctor);
+        ExtractAndApplyDocumentation(child, ctor);
                 record.Members.Add(ctor);
                 return CXChildVisitResult.CXChildVisit_Continue;
             },
@@ -256,6 +261,7 @@ public sealed class ClangSharpHeaderParser
 
                 var field = CreateField(record, child, recordsByName, enumsByName, managedTypeOverrides);
                 CheckAndApplyIgnoreAttribute(child, field);
+        ExtractAndApplyDocumentation(child, field);
                 record.Members.Add(field);
                 return CXChildVisitResult.CXChildVisit_Continue;
             },
@@ -1013,6 +1019,23 @@ public sealed class ClangSharpHeaderParser
         }
     }
 
+    private static void ExtractAndApplyDocumentation(CXCursor cursor, BindingNode node)
+    {
+        var briefComment = cursor.BriefCommentText;
+        try
+        {
+            var commentText = briefComment.CString;
+            if (!string.IsNullOrWhiteSpace(commentText))
+            {
+                node.SetMetadata(MetadataKeys.DocumentationComment, commentText.Trim());
+            }
+        }
+        finally
+        {
+            briefComment.Dispose();
+        }
+    }
+
     private static unsafe void RegisterEnum(CXCursor cursor, BindingCompilation compilation, IDictionary<string, EnumBinding> enumsByName)
     {
         var nativeName = cursor.Spelling.ToString();
@@ -1031,6 +1054,7 @@ public sealed class ClangSharpHeaderParser
         };
 
         CheckAndApplyIgnoreAttribute(cursor, @enum);
+        ExtractAndApplyDocumentation(cursor, @enum);
 
         cursor.VisitChildren(
             (child, _, _) =>
@@ -1202,6 +1226,7 @@ public sealed class ClangSharpHeaderParser
                     {
                         var function = CreateFunction(child, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
                         CheckAndApplyIgnoreAttribute(child, function);
+        ExtractAndApplyDocumentation(child, function);
                         compilation.Members.Add(function);
                         break;
                     }
