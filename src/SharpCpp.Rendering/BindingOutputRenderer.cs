@@ -75,7 +75,7 @@ public static class BindingOutputRenderer
         var writer = new CodeWriter();
         var parameterList = string.Join(
             ", ",
-            function.Parameters.Select(RenderManagedParameter));
+            function.Parameters.Select(RenderManagedPublicParameter));
         var invokeArguments = string.Join(", ", function.Parameters.Select(RenderManagedInvocationArgument));
         var returnTypeName = GetManagedWrapperTypeName(function.ReturnType);
 
@@ -201,7 +201,7 @@ public static class BindingOutputRenderer
         var writer = new CodeWriter();
         var parameterList = string.Join(
             ", ",
-            function.Parameters.Select(RenderManagedParameter));
+            function.Parameters.Select(RenderManagedPublicParameter));
         var invokeArguments = string.Join(", ", new[] { "Handle" }.Concat(function.Parameters.Select(RenderManagedInvocationArgument)));
         var returnTypeName = GetManagedWrapperTypeName(function.ReturnType);
 
@@ -241,7 +241,7 @@ public static class BindingOutputRenderer
         var writer = new CodeWriter();
         var parameterList = string.Join(
             ", ",
-            function.Parameters.Select(RenderManagedParameter));
+            function.Parameters.Select(RenderManagedPublicParameter));
         var invokeArguments = string.Join(", ", function.Parameters.Select(RenderManagedInvocationArgument));
         var constructorName = function.Parent is RecordBinding record
             ? record.ManagedName
@@ -275,7 +275,7 @@ public static class BindingOutputRenderer
         var writer = new CodeWriter();
         var parameterList = string.Join(
             ", ",
-            function.Parameters.Select(RenderManagedParameter));
+            function.Parameters.Select(RenderManagedPublicParameter));
         var invokeArguments = string.Join(", ", function.Parameters.Select(RenderManagedInvocationArgument));
         var returnTypeName = GetManagedWrapperTypeName(function.ReturnType);
 
@@ -665,6 +665,19 @@ public static class BindingOutputRenderer
         return $"{attribute}{modifier}{GetManagedImportTypeName(parameter.Type)} {parameter.ManagedName}";
     }
 
+    private static string RenderManagedPublicParameter(ParameterBinding parameter)
+    {
+        var modifier = parameter.Direction switch
+        {
+            BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => "in ",
+            BindingParameterDirection.Ref => "ref ",
+            BindingParameterDirection.Out => "out ",
+            _ => string.Empty
+        };
+
+        return $"{modifier}{GetManagedWrapperTypeName(parameter.Type)} {parameter.ManagedName}";
+    }
+
     private static string RenderNativeParameter(ParameterBinding parameter)
     {
         return $"arg_t<{parameter.CppTypeName}> {parameter.NativeName}";
@@ -683,12 +696,16 @@ public static class BindingOutputRenderer
 
     private static string RenderManagedInvocationArgument(ParameterBinding parameter)
     {
+        var valueExpression = parameter.Type.Kind == BindingTypeKind.Handle
+            ? $"{parameter.ManagedName}.Handle"
+            : parameter.ManagedName;
+
         return parameter.Direction switch
         {
-            BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => $"in {parameter.ManagedName}",
-            BindingParameterDirection.Ref => $"ref {parameter.ManagedName}",
-            BindingParameterDirection.Out => $"out {parameter.ManagedName}",
-            _ => parameter.ManagedName
+            BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => $"in {valueExpression}",
+            BindingParameterDirection.Ref => $"ref {valueExpression}",
+            BindingParameterDirection.Out => $"out {valueExpression}",
+            _ => valueExpression
         };
     }
 

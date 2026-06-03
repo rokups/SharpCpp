@@ -7,7 +7,7 @@ struct factory_box
     {
     }
 
-    int get_value()
+    int get_value() const
     {
         return value_;
     }
@@ -24,6 +24,16 @@ struct factory_box
         return lhs + rhs;
     }
 
+    static factory_box* identity(factory_box* value)
+    {
+        return value;
+    }
+
 private:
     int value_{};
 };
+
+inline int read_factory_box(const factory_box* value)
+{
+    return value->get_value();
+}

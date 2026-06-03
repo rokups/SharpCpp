@@ -20,4 +20,22 @@ public sealed class FactoryTests
     {
         Assert.Equal(42, FactoryBox.Add(19, 23));
     }
+
+    [Fact]
+    public void Free_function_can_accept_wrapper_parameter()
+    {
+        var box = FactoryBox.Create(10);
+
+        Assert.Equal(10, E2EBindings.ReadFactoryBox(box));
+    }
+
+    [Fact]
+    public void Static_method_can_roundtrip_wrapper_parameter()
+    {
+        var box = FactoryBox.Create(10);
+        var copy = FactoryBox.Identity(box);
+
+        Assert.False(copy.IsNull);
+        Assert.Equal(10, copy.GetValue());
+    }
 }

@@ -71,6 +71,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - Public record fields now parse from C++ records, emit getter/setter thunks, and surface as managed properties on handle wrappers.
 - Public record constructors now parse from C++ records, emit native allocation thunks, and surface as managed constructors on handle wrappers.
 - Public static record methods now parse from C++ records, emit static thunks, and surface as `public static` members on managed wrappers.
+- Handle-typed parameters on free/static methods now surface as wrapper objects in managed signatures and pass native handles through generated thunks.
 
 ## Verification Commands
 
