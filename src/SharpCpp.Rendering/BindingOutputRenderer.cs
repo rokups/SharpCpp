@@ -272,6 +272,7 @@ public static class BindingOutputRenderer
         var invocationPlan = BuildManagedInvocationPlan(function.Parameters);
         var invokeArguments = string.Join(", ", new[] { "Handle" }.Concat(invocationPlan.Arguments));
         var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType);
+        var importMethodName = GetManagedImportMethodName(function);
 
         writer.Write($$"""
             public {{returnTypeName}} {{function.ManagedName}}({{parameterList}})
@@ -286,7 +287,7 @@ public static class BindingOutputRenderer
         if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
         {
             writer.Write($$"""
-                __PInvoke_{{function.ManagedName}}({{invokeArguments}});
+                {{importMethodName}}({{invokeArguments}});
                 """);
 
             foreach (var statement in invocationPlan.PostCallStatements)
@@ -297,7 +298,7 @@ public static class BindingOutputRenderer
         else if (function.ReturnType.Kind == BindingTypeKind.Handle)
         {
             writer.Write($$"""
-                var __result = __PInvoke_{{function.ManagedName}}({{invokeArguments}});
+                var __result = {{importMethodName}}({{invokeArguments}});
                 """);
 
             foreach (var statement in invocationPlan.PostCallStatements)
@@ -312,7 +313,7 @@ public static class BindingOutputRenderer
         else
         {
             writer.Write($$"""
-                var __result = __PInvoke_{{function.ManagedName}}({{invokeArguments}});
+                var __result = {{importMethodName}}({{invokeArguments}});
                 """);
 
             foreach (var statement in invocationPlan.PostCallStatements)
@@ -422,6 +423,7 @@ public static class BindingOutputRenderer
         var invocationPlan = BuildManagedInvocationPlan(function.Parameters);
         var invokeArguments = string.Join(", ", invocationPlan.Arguments);
         var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType);
+        var importMethodName = GetManagedImportMethodName(function);
 
         writer.Write($$"""
             public static {{returnTypeName}} {{function.ManagedName}}({{parameterList}})
@@ -436,7 +438,7 @@ public static class BindingOutputRenderer
         if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
         {
             writer.Write($$"""
-                __PInvoke_{{function.ManagedName}}({{invokeArguments}});
+                {{importMethodName}}({{invokeArguments}});
                 """);
 
             foreach (var statement in invocationPlan.PostCallStatements)
@@ -447,7 +449,7 @@ public static class BindingOutputRenderer
         else if (function.ReturnType.Kind == BindingTypeKind.Handle)
         {
             writer.Write($$"""
-                var __result = __PInvoke_{{function.ManagedName}}({{invokeArguments}});
+                var __result = {{importMethodName}}({{invokeArguments}});
                 """);
 
             foreach (var statement in invocationPlan.PostCallStatements)
@@ -462,7 +464,7 @@ public static class BindingOutputRenderer
         else
         {
             writer.Write($$"""
-                var __result = __PInvoke_{{function.ManagedName}}({{invokeArguments}});
+                var __result = {{importMethodName}}({{invokeArguments}});
                 """);
 
             foreach (var statement in invocationPlan.PostCallStatements)
@@ -491,12 +493,13 @@ public static class BindingOutputRenderer
             function.Parameters.Select(RenderManagedParameter));
         var returnTypeName = GetManagedImportTypeName(function.ReturnType);
         var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
+        var importMethodName = GetManagedImportMethodName(function);
 
         writer.Write(
             $$"""
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}")]
             {{returnAttribute}}
-            private static partial {{returnTypeName}} __PInvoke_{{function.ManagedName}}({{parameterList}});
+            private static partial {{returnTypeName}} {{importMethodName}}({{parameterList}});
             """);
         return writer.ToString();
     }
@@ -610,12 +613,13 @@ public static class BindingOutputRenderer
             new[] { "nint self" }.Concat(function.Parameters.Select(RenderManagedParameter)));
         var returnTypeName = GetManagedImportTypeName(function.ReturnType);
         var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
+        var importMethodName = GetManagedImportMethodName(function);
 
         writer.Write(
             $$"""
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}")]
             {{returnAttribute}}
-            private static partial {{returnTypeName}} __PInvoke_{{function.ManagedName}}({{parameterList}});
+            private static partial {{returnTypeName}} {{importMethodName}}({{parameterList}});
             """);
         return writer.ToString();
     }

@@ -283,6 +283,8 @@ public sealed class ClangSharpHeaderParser
                 });
         }
 
+        function.EntryPointName = BuildEntrypointName("sharpcpp_e2e", $"{record.NativeName}_{GetEntrypointSuffix(cursor, nativeName)}", function.Parameters);
+
         return function;
     }
 
@@ -330,6 +332,8 @@ public sealed class ClangSharpHeaderParser
                     ManagedDefaultValueExpression = GetManagedDefaultValueExpression(parameterCursor, parameterType)
                 });
         }
+
+        function.EntryPointName = BuildEntrypointName("sharpcpp_e2e", $"{record.NativeName}_{GetEntrypointSuffix(cursor, nativeName)}", function.Parameters);
 
         return function;
     }
