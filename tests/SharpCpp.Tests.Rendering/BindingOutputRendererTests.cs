@@ -285,4 +285,106 @@ public sealed class BindingOutputRendererTests
 
         Assert.Contains("return new Widget(__result, true);", managedOutput, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Managed_output_renders_comment_stub_for_ignored_record()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Ignore/Ignore.hpp" });
+        var record = new RecordBinding("record:skipped", "skipped", "Skipped");
+        record.SetMetadata(MetadataKeys.IgnoreReason, "not yet supported");
+        compilation.Members.Add(record);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("// class Skipped; // excluded: not yet supported", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("public partial class Skipped", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Managed_output_renders_comment_stub_for_ignored_free_function()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Ignore/Ignore.hpp" });
+        var function = new FunctionBinding("function:skipped_fn", "skipped_fn", "SkippedFn", BindingType.Int32, "entry_skipped");
+        function.SetMetadata(MetadataKeys.IgnoreReason, "manual stub");
+        compilation.Members.Add(function);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("// public static int SkippedFn()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("// excluded: manual stub", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n    public static int SkippedFn(", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Managed_output_renders_comment_stub_for_ignored_enum()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Ignore/Ignore.hpp" });
+        var @enum = new EnumBinding("enum:skipped", "skipped", "Skipped", "unsigned int");
+        @enum.SetMetadata(MetadataKeys.IgnoreReason, "marked [[sharpcpp::ignore]]");
+        compilation.Members.Add(@enum);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("// enum Skipped; // excluded: marked [[sharpcpp::ignore]]", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Managed_output_renders_comment_stub_for_ignored_members_within_record()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Ignore/Ignore.hpp" });
+        var record = new RecordBinding("record:box", "box", "Box");
+        var ignoredMethod = new FunctionBinding("method:box:skip", "skip", "Skip", BindingType.Int32, "entry_skip") { OwningRecordCppTypeName = "box", IsStatic = false };
+        ignoredMethod.SetMetadata(MetadataKeys.IgnoreReason, "internal only");
+        record.Members.Add(ignoredMethod);
+        compilation.Members.Add(record);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("// public int Skip(); // excluded: internal only", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Managed_output_renders_comment_stub_for_ignored_field()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Ignore/Ignore.hpp" });
+        var record = new RecordBinding("record:box", "box", "Box");
+        var ignoredField = new FieldBinding("field:box:skip", "skip", "Skip", BindingType.Int32, "int", "box");
+        ignoredField.SetMetadata(MetadataKeys.IgnoreReason, "marked [[sharpcpp::ignore]]");
+        record.Members.Add(ignoredField);
+        compilation.Members.Add(record);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("// public int Skip; // excluded: marked [[sharpcpp::ignore]]", managedOutput, StringComparison.Ordinal);
+    }
 }

@@ -24,6 +24,9 @@ public sealed class ClangSharpHeaderParser
     private static readonly Regex AbiTypeAliasExpression = new(
         @"using\s+abi_type\s*=\s*(?<value>[^;]+);",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex IgnoreAttributeExpression = new(
+        @"\[\[\s*sharpcpp::ignore(?:\s*\(\s*""(?<reason>[^""]*)""\s*\))?\s*\]\]",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     public unsafe BindingCompilation Parse(ClangSharpParseRequest request)
     {
@@ -40,6 +43,8 @@ public sealed class ClangSharpHeaderParser
         {
             throw new FileNotFoundException($"Header file '{headerFilePath}' was not found.", headerFilePath);
         }
+
+        PreScanIgnoreAnnotations(new[] { headerFilePath });
 
         using var index = CXIndex.Create();
         using var translationUnit = CXTranslationUnit.Parse(
@@ -84,8 +89,12 @@ public sealed class ClangSharpHeaderParser
                         break;
 
                     case CXCursorKind.CXCursor_FunctionDecl:
-                        compilation.Members.Add(CreateFunction(child, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides));
+                    {
+                        var function = CreateFunction(child, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
+                        CheckAndApplyIgnoreAttribute(child, function);
+                        compilation.Members.Add(function);
                         break;
+                    }
                 }
 
                 return CXChildVisitResult.CXChildVisit_Continue;
@@ -140,6 +149,7 @@ public sealed class ClangSharpHeaderParser
 
         var cppQualifiedName = GetCppQualifiedName(cursor);
         var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(nativeName), cppQualifiedName);
+        CheckAndApplyIgnoreAttribute(cursor, record);
         recordsByName.Add(nativeName, record);
         compilation.Members.Add(record);
 
@@ -181,7 +191,9 @@ public sealed class ClangSharpHeaderParser
                     return CXChildVisitResult.CXChildVisit_Continue;
                 }
 
-                record.Members.Add(CreateMethod(record, child, recordsByName, enumsByName, managedTypeOverrides));
+                var method = CreateMethod(record, child, recordsByName, enumsByName, managedTypeOverrides);
+                CheckAndApplyIgnoreAttribute(child, method);
+                record.Members.Add(method);
                 return CXChildVisitResult.CXChildVisit_Continue;
             },
             new CXClientData(IntPtr.Zero));
@@ -200,7 +212,9 @@ public sealed class ClangSharpHeaderParser
                     return CXChildVisitResult.CXChildVisit_Continue;
                 }
 
-                record.Members.Add(CreateStaticMethod(record, child, recordsByName, enumsByName, managedTypeOverrides));
+                var staticMethod = CreateStaticMethod(record, child, recordsByName, enumsByName, managedTypeOverrides);
+                CheckAndApplyIgnoreAttribute(child, staticMethod);
+                record.Members.Add(staticMethod);
                 return CXChildVisitResult.CXChildVisit_Continue;
             },
             new CXClientData(IntPtr.Zero));
@@ -219,7 +233,9 @@ public sealed class ClangSharpHeaderParser
                     return CXChildVisitResult.CXChildVisit_Continue;
                 }
 
-                record.Members.Add(CreateConstructor(record, child, recordsByName, enumsByName, managedTypeOverrides));
+                var ctor = CreateConstructor(record, child, recordsByName, enumsByName, managedTypeOverrides);
+                CheckAndApplyIgnoreAttribute(child, ctor);
+                record.Members.Add(ctor);
                 return CXChildVisitResult.CXChildVisit_Continue;
             },
             new CXClientData(IntPtr.Zero));
@@ -238,7 +254,9 @@ public sealed class ClangSharpHeaderParser
                     return CXChildVisitResult.CXChildVisit_Continue;
                 }
 
-                record.Members.Add(CreateField(record, child, recordsByName, enumsByName, managedTypeOverrides));
+                var field = CreateField(record, child, recordsByName, enumsByName, managedTypeOverrides);
+                CheckAndApplyIgnoreAttribute(child, field);
+                record.Members.Add(field);
                 return CXChildVisitResult.CXChildVisit_Continue;
             },
             new CXClientData(IntPtr.Zero));
@@ -915,6 +933,86 @@ public sealed class ClangSharpHeaderParser
         return result;
     }
 
+    private static void CheckAndApplyIgnoreAttribute(CXCursor cursor, BindingNode node)
+    {
+        var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
+        if (node is RecordBinding || node is EnumBinding)
+        {
+            var braceIndex = sourceText.IndexOf('{');
+            if (braceIndex >= 0)
+            {
+                sourceText = sourceText[..braceIndex];
+            }
+        }
+
+        var match = IgnoreAttributeExpression.Match(sourceText);
+        if (!match.Success)
+        {
+            cursor.Location.GetFileLocation(out var file, out var line, out var column, out _);
+            var filePath = Path.GetFullPath(file.Name.CString);
+
+            if (!string.IsNullOrWhiteSpace(filePath) &&
+                s_ignoreAnnotations.TryGetValue(filePath, out var annotations))
+            {
+                var oneBasedCursorLine = (int)line;
+                var matchingAnnotation = annotations
+                    .Where(annotation => annotation.Line == oneBasedCursorLine || annotation.Line == oneBasedCursorLine - 1)
+                    .OrderBy(annotation => annotation.Line)
+                    .LastOrDefault();
+
+                if (matchingAnnotation is not null)
+                {
+                    var reason = matchingAnnotation.Reason ?? "marked [[sharpcpp::ignore]]";
+                    node.SetMetadata(MetadataKeys.IgnoreReason, reason);
+                    return;
+                }
+            }
+
+            return;
+        }
+
+        var reasonFromMatch = match.Groups["reason"].Success
+            ? match.Groups["reason"].Value
+            : "marked [[sharpcpp::ignore]]";
+        node.SetMetadata(MetadataKeys.IgnoreReason, reasonFromMatch);
+    }
+
+    private static readonly Dictionary<string, List<IgnoreAnnotation>> s_ignoreAnnotations = new(StringComparer.Ordinal);
+
+    private sealed record IgnoreAnnotation(int Line, int Column, string? Reason);
+
+    private static void PreScanIgnoreAnnotations(IReadOnlyList<string> headerFiles)
+    {
+        foreach (var headerFile in headerFiles)
+        {
+            var path = Path.GetFullPath(headerFile);
+            if (!File.Exists(path) || s_ignoreAnnotations.ContainsKey(path))
+            {
+                continue;
+            }
+
+            var content = File.ReadAllText(path);
+            var lines = content.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+            var annotations = new List<IgnoreAnnotation>();
+
+            for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
+            {
+                var lineText = lines[lineIndex];
+                foreach (Match match in IgnoreAttributeExpression.Matches(lineText))
+                {
+                    var column = match.Index + 1;
+                    var reason = match.Groups["reason"].Success ? match.Groups["reason"].Value : null;
+                    annotations.Add(new IgnoreAnnotation(lineIndex + 1, column, reason));
+                }
+            }
+
+            if (annotations.Count > 0)
+            {
+                s_ignoreAnnotations[path] = annotations;
+            }
+        }
+    }
+
     private static unsafe void RegisterEnum(CXCursor cursor, BindingCompilation compilation, IDictionary<string, EnumBinding> enumsByName)
     {
         var nativeName = cursor.Spelling.ToString();
@@ -931,6 +1029,8 @@ public sealed class ClangSharpHeaderParser
         {
             IsFlags = FlagsAttributeExpression.IsMatch(GetSourceText(cursor.TranslationUnit, cursor.Extent))
         };
+
+        CheckAndApplyIgnoreAttribute(cursor, @enum);
 
         cursor.VisitChildren(
             (child, _, _) =>
@@ -1099,8 +1199,12 @@ public sealed class ClangSharpHeaderParser
                         break;
 
                     case CXCursorKind.CXCursor_FunctionDecl:
-                        compilation.Members.Add(CreateFunction(child, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides));
+                    {
+                        var function = CreateFunction(child, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
+                        CheckAndApplyIgnoreAttribute(child, function);
+                        compilation.Members.Add(function);
                         break;
+                    }
                 }
 
                 return CXChildVisitResult.CXChildVisit_Continue;

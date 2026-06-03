@@ -38,13 +38,27 @@ public static class BindingOutputRenderer
         foreach (var record in records)
         {
             writer.WriteLine();
-            writer.Write(RenderRecord(compilation, record));
+            if (record.HasMetadata(MetadataKeys.IgnoreReason))
+            {
+                writer.Write(RenderIgnoredStub(record));
+            }
+            else
+            {
+                writer.Write(RenderRecord(compilation, record));
+            }
         }
 
         foreach (var @enum in compilation.Enums.OrderBy(static item => item.ManagedName, StringComparer.Ordinal))
         {
             writer.WriteLine();
-            writer.Write(RenderEnum(@enum));
+            if (@enum.HasMetadata(MetadataKeys.IgnoreReason))
+            {
+                writer.Write(RenderIgnoredStub(@enum));
+            }
+            else
+            {
+                writer.Write(RenderEnum(@enum));
+            }
         }
 
         writer.WriteLine();
@@ -57,9 +71,16 @@ public static class BindingOutputRenderer
         foreach (var function in functions.Where(static function => function.Parent is not RecordBinding && !function.IsConstructor))
         {
             writer.WriteLine();
-            writer.Write(RenderManagedWrapperMethod(function));
-            writer.WriteLine();
-            writer.Write(RenderManagedImportDeclaration(compilation, function));
+            if (function.HasMetadata(MetadataKeys.IgnoreReason))
+            {
+                writer.Write(RenderIgnoredStub(function));
+            }
+            else
+            {
+                writer.Write(RenderManagedWrapperMethod(function));
+                writer.WriteLine();
+                writer.Write(RenderManagedImportDeclaration(compilation, function));
+            }
         }
 
         writer.WriteLine();
@@ -151,12 +172,14 @@ public static class BindingOutputRenderer
         var returnTypeName = GetManagedImportTypeName(function.ReturnType);
         var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
         var importMethodName = GetManagedImportMethodName(function);
+        var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
+            ? $"private static partial {returnTypeName} {importMethodName}({parameterList});"
+            : $"{returnAttribute}\nprivate static partial {returnTypeName} {importMethodName}({parameterList});";
 
         writer.Write(
             $$"""
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}")]
-            {{returnAttribute}}
-            private static partial {{returnTypeName}} {{importMethodName}}({{parameterList}});
+            {{importMethodLine}}
             """);
         return writer.ToString();
     }
@@ -216,9 +239,16 @@ public static class BindingOutputRenderer
         foreach (var constructor in record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor).OrderBy(static function => function.Parameters.Count))
         {
             writer.WriteLine();
-            writer.Write(RenderManagedConstructor(constructor));
-            writer.WriteLine();
-            writer.Write(RenderManagedConstructorImportDeclaration(compilation, constructor));
+            if (constructor.HasMetadata(MetadataKeys.IgnoreReason))
+            {
+                writer.Write(RenderIgnoredStub(constructor));
+            }
+            else
+            {
+                writer.Write(RenderManagedConstructor(constructor));
+                writer.WriteLine();
+                writer.Write(RenderManagedConstructorImportDeclaration(compilation, constructor));
+            }
         }
 
         foreach (var property in accessorProperties.OrderBy(static property => property.PropertyName, StringComparer.Ordinal))
@@ -242,38 +272,66 @@ public static class BindingOutputRenderer
         foreach (var method in record.Members.OfType<FunctionBinding>().Where(function => !function.IsConstructor && !function.IsStatic && !function.IsConversionOperator && function.OperatorToken is null && !accessorMethodIds.Contains(function.SymbolId)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             writer.WriteLine();
-            writer.Write(RenderManagedInstanceMethod(compilation, record, method));
-            writer.WriteLine();
-            writer.Write(RenderManagedInstanceImportDeclaration(compilation, method));
+            if (method.HasMetadata(MetadataKeys.IgnoreReason))
+            {
+                writer.Write(RenderIgnoredStub(method));
+            }
+            else
+            {
+                writer.Write(RenderManagedInstanceMethod(compilation, record, method));
+                writer.WriteLine();
+                writer.Write(RenderManagedInstanceImportDeclaration(compilation, method));
+            }
         }
 
         foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic && !function.IsConversionOperator && function.OperatorToken is null).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             writer.WriteLine();
-            writer.Write(RenderManagedStaticMethod(method));
-            writer.WriteLine();
-            writer.Write(RenderManagedStaticImportDeclaration(compilation, method));
+            if (method.HasMetadata(MetadataKeys.IgnoreReason))
+            {
+                writer.Write(RenderIgnoredStub(method));
+            }
+            else
+            {
+                writer.Write(RenderManagedStaticMethod(method));
+                writer.WriteLine();
+                writer.Write(RenderManagedStaticImportDeclaration(compilation, method));
+            }
         }
 
         foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => function.IsConversionOperator || function.OperatorToken is not null).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             writer.WriteLine();
-            writer.Write(RenderManagedOperator(record, method));
-            writer.WriteLine();
-            writer.Write(RenderManagedOperatorImportDeclaration(compilation, method));
+            if (method.HasMetadata(MetadataKeys.IgnoreReason))
+            {
+                writer.Write(RenderIgnoredStub(method));
+            }
+            else
+            {
+                writer.Write(RenderManagedOperator(record, method));
+                writer.WriteLine();
+                writer.Write(RenderManagedOperatorImportDeclaration(compilation, method));
+            }
         }
 
         foreach (var field in record.Members.OfType<FieldBinding>().OrderBy(static field => field.ManagedName, StringComparer.Ordinal))
         {
             writer.WriteLine();
-            writer.Write(RenderManagedProperty(field));
-            writer.WriteLine();
-            writer.Write(RenderManagedFieldGetterImportDeclaration(compilation, field));
-
-            if (!field.IsReadOnly)
+            if (field.HasMetadata(MetadataKeys.IgnoreReason))
             {
+                writer.Write(RenderIgnoredStub(field));
+            }
+            else
+            {
+                writer.Write(RenderManagedProperty(field));
                 writer.WriteLine();
-                writer.Write(RenderManagedFieldSetterImportDeclaration(compilation, field));
+                writer.Write(RenderManagedFieldGetterImportDeclaration(compilation, field));
+
+                if (!field.IsReadOnly)
+                {
+                    writer.WriteLine();
+                    writer.Write(RenderManagedFieldSetterImportDeclaration(compilation, field));
+                }
             }
         }
 
@@ -590,12 +648,14 @@ public static class BindingOutputRenderer
         var returnTypeName = GetManagedImportTypeName(function.ReturnType);
         var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
         var importMethodName = GetManagedImportMethodName(function);
+        var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
+            ? $"private static partial {returnTypeName} {importMethodName}({parameterList});"
+            : $"{returnAttribute}\nprivate static partial {returnTypeName} {importMethodName}({parameterList});";
 
         writer.Write(
             $$"""
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}")]
-            {{returnAttribute}}
-            private static partial {{returnTypeName}} {{importMethodName}}({{parameterList}});
+            {{importMethodLine}}
             """);
         return writer.ToString();
     }
@@ -720,12 +780,14 @@ public static class BindingOutputRenderer
             : string.Join(", ", new[] { "nint self" }.Concat(function.Parameters.Select(RenderManagedParameter)));
         var returnTypeName = GetManagedImportTypeName(function.ReturnType);
         var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
+        var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
+            ? $"private static partial {returnTypeName} __PInvoke_{function.ManagedName}({parameterList});"
+            : $"{returnAttribute}\nprivate static partial {returnTypeName} __PInvoke_{function.ManagedName}({parameterList});";
 
         writer.Write(
             $$"""
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}")]
-            {{returnAttribute}}
-            private static partial {{returnTypeName}} __PInvoke_{{function.ManagedName}}({{parameterList}});
+            {{importMethodLine}}
             """);
         return writer.ToString();
     }
@@ -739,12 +801,14 @@ public static class BindingOutputRenderer
         var returnTypeName = GetManagedImportTypeName(function.ReturnType);
         var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
         var importMethodName = GetManagedImportMethodName(function);
+        var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
+            ? $"private static partial {returnTypeName} {importMethodName}({parameterList});"
+            : $"{returnAttribute}\nprivate static partial {returnTypeName} {importMethodName}({parameterList});";
 
         writer.Write(
             $$"""
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}")]
-            {{returnAttribute}}
-            private static partial {{returnTypeName}} {{importMethodName}}({{parameterList}});
+            {{importMethodLine}}
             """);
         return writer.ToString();
     }
@@ -832,11 +896,13 @@ public static class BindingOutputRenderer
         var writer = new CodeWriter();
         var returnTypeName = GetManagedImportTypeName(field.Type);
         var returnAttribute = GetManagedReturnAttribute(field.Type);
+        var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
+            ? $"private static partial {returnTypeName} __PInvoke_Get_{field.ManagedName}(nint self);"
+            : $"{returnAttribute}\nprivate static partial {returnTypeName} __PInvoke_Get_{field.ManagedName}(nint self);";
 
         writer.Write($$"""
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_get")]
-            {{returnAttribute}}
-            private static partial {{returnTypeName}} __PInvoke_Get_{{field.ManagedName}}(nint self);
+            {{importMethodLine}}
             """);
         return writer.ToString();
     }
@@ -890,7 +956,7 @@ public static class BindingOutputRenderer
 
         foreach (var function in functions)
         {
-            if (function.Parent is RecordBinding || function.IsConstructor)
+            if (function.Parent is RecordBinding || function.IsConstructor || function.HasMetadata(MetadataKeys.IgnoreReason))
             {
                 continue;
             }
@@ -924,7 +990,7 @@ public static class BindingOutputRenderer
                 """);
         }
 
-        foreach (var method in compilation.Records.SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => !function.IsConstructor && !function.IsStatic).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        foreach (var method in compilation.Records.SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => !function.IsConstructor && !function.IsStatic && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             var parameterList = string.Join(", ", new[] { $"arg_t<{method.OwningRecordCppTypeName}*> self" }.Concat(method.Parameters.Select(RenderNativeParameter)));
             var abiArguments = string.Join(", ", method.Parameters.Select(static p => p.NativeName));
@@ -955,7 +1021,7 @@ public static class BindingOutputRenderer
                 """);
         }
 
-        foreach (var method in compilation.Records.SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => function.IsStatic).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        foreach (var method in compilation.Records.SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => function.IsStatic && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             var parameterList = string.Join(", ", method.Parameters.Select(RenderNativeParameter));
             var abiArguments = string.Join(", ", method.Parameters.Select(static p => p.NativeName));
@@ -986,7 +1052,7 @@ public static class BindingOutputRenderer
                 """);
         }
 
-        foreach (var constructor in compilation.Records.SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => function.IsConstructor).OrderBy(static function => function.ManagedName, StringComparer.Ordinal))
+        foreach (var constructor in compilation.Records.SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => function.IsConstructor && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.ManagedName, StringComparer.Ordinal))
         {
             var parameterList = string.Join(", ", constructor.Parameters.Select(RenderNativeParameter));
             var abiArguments = string.Join(", ", constructor.Parameters.Select(static p => p.NativeName));
@@ -1001,7 +1067,7 @@ public static class BindingOutputRenderer
                 """);
         }
 
-        foreach (var field in compilation.Records.SelectMany(static record => record.Members.OfType<FieldBinding>()).OrderBy(static field => field.ManagedName, StringComparer.Ordinal))
+        foreach (var field in compilation.Records.SelectMany(static record => record.Members.OfType<FieldBinding>()).Where(static field => !field.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static field => field.ManagedName, StringComparer.Ordinal))
         {
             writer.WriteLine();
             writer.Write($$"""
@@ -1023,7 +1089,7 @@ public static class BindingOutputRenderer
             }
         }
 
-        foreach (var record in compilation.Records.OrderBy(static record => record.ManagedName, StringComparer.Ordinal))
+        foreach (var record in compilation.Records.Where(static record => !record.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static record => record.ManagedName, StringComparer.Ordinal))
         {
             writer.WriteLine();
             writer.Write($$"""
@@ -1274,5 +1340,38 @@ public static class BindingOutputRenderer
             normalized
                 .Split([' ', '_'], StringSplitOptions.RemoveEmptyEntries)
                 .Select(static part => char.ToUpperInvariant(part[0]) + part[1..]));
+    }
+
+    private static string RenderIgnoredStub(BindingNode node)
+    {
+        var reason = node.TryGetMetadata(MetadataKeys.IgnoreReason, out string? metadataReason)
+            ? metadataReason!
+            : "excluded";
+
+        return node switch
+        {
+            RecordBinding record => $"// class {record.ManagedName}; // excluded: {reason}",
+            EnumBinding @enum => $"// enum {@enum.ManagedName}; // excluded: {reason}",
+            FunctionBinding function => RenderIgnoredFunctionStub(function, reason),
+            FieldBinding field => $"// public {GetManagedWrapperTypeName(field.Type)} {field.ManagedName}; // excluded: {reason}",
+            _ => $"// {node.Kind}; // excluded: {reason}"
+        };
+    }
+
+    private static string RenderIgnoredFunctionStub(FunctionBinding function, string reason)
+    {
+        var parameterList = string.Join(
+            ", ",
+            function.Parameters.Select(RenderManagedPublicParameter));
+        var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType);
+
+        if (function.IsConstructor)
+        {
+            return $"// public {function.ManagedName}({parameterList}); // excluded: {reason}";
+        }
+
+        var isStatic = function.IsStatic || function.Parent is null;
+        var staticModifier = isStatic ? "static " : string.Empty;
+        return $"// public {staticModifier}{returnTypeName} {function.ManagedName}({parameterList}); // excluded: {reason}";
     }
 }

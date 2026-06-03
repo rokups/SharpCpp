@@ -6,6 +6,7 @@ public static class MetadataKeys
     public const string ManagedTypeIdentity = "managed_type_identity";
     public const string Marshaller = "marshaller";
     public const string AccessorProperty = "accessor_property";
+    public const string IgnoreReason = "ignore_reason";
 }
 
 public enum AccessorPropertyKind
