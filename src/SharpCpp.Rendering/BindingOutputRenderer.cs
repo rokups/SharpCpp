@@ -209,6 +209,12 @@ public static class BindingOutputRenderer
         writer.WriteLine();
         writer.Write(RenderManagedDeleteImportDeclaration(compilation, record));
 
+        var accessorProperties = CollectAccessorProperties(record);
+        var accessorMethodIds = accessorProperties
+            .SelectMany(static property => new[] { property.Getter?.SymbolId, property.Setter?.SymbolId })
+            .Where(static symbolId => !string.IsNullOrWhiteSpace(symbolId))
+            .ToHashSet(StringComparer.Ordinal);
+
         foreach (var constructor in record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor).OrderBy(static function => function.Parameters.Count))
         {
             writer.WriteLine();
@@ -217,7 +223,25 @@ public static class BindingOutputRenderer
             writer.Write(RenderManagedConstructorImportDeclaration(compilation, constructor));
         }
 
-        foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && !function.IsStatic && !function.IsConversionOperator && function.OperatorToken is null).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        foreach (var property in accessorProperties.OrderBy(static property => property.PropertyName, StringComparer.Ordinal))
+        {
+            writer.WriteLine();
+            writer.Write(RenderManagedAccessorProperty(property));
+
+            if (property.Getter is not null)
+            {
+                writer.WriteLine();
+                writer.Write(RenderManagedInstanceImportDeclaration(compilation, property.Getter));
+            }
+
+            if (property.Setter is not null)
+            {
+                writer.WriteLine();
+                writer.Write(RenderManagedInstanceImportDeclaration(compilation, property.Setter));
+            }
+        }
+
+        foreach (var method in record.Members.OfType<FunctionBinding>().Where(function => !function.IsConstructor && !function.IsStatic && !function.IsConversionOperator && function.OperatorToken is null && !accessorMethodIds.Contains(function.SymbolId)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             writer.WriteLine();
             writer.Write(RenderManagedInstanceMethod(compilation, record, method));
@@ -391,6 +415,91 @@ public static class BindingOutputRenderer
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{record.NativeName}}_delete")]
             private static partial void __PInvoke_Delete(nint self);
             """;
+    }
+
+    private static string RenderManagedAccessorProperty(AccessorProperty property)
+    {
+        var writer = new CodeWriter();
+        var type = property.Getter?.ReturnType ?? property.Setter!.Parameters[0].Type;
+        var propertyTypeName = GetManagedPublicReturnTypeName(type);
+
+        writer.Write($$"""
+            public {{propertyTypeName}} {{property.PropertyName}}
+            {
+            """);
+
+        if (property.Getter is not null)
+        {
+            if (property.Getter.ReturnType.Kind == BindingTypeKind.Handle)
+            {
+                writer.Write($$"""
+                    get
+                    {
+                    return new {{property.Getter.ReturnType.ManagedTypeName}}({{GetManagedImportMethodName(property.Getter)}}(Handle));
+                    }
+                    """);
+            }
+            else
+            {
+                writer.Write($$"""
+                    get
+                    {
+                    return {{GetManagedImportMethodName(property.Getter)}}(Handle);
+                    }
+                    """);
+            }
+        }
+
+        if (property.Setter is not null)
+        {
+            var setterArgument = property.Setter.Parameters[0].Type.Kind == BindingTypeKind.Handle
+                ? "value is null ? 0 : value.Handle"
+                : "value";
+            writer.Write($$"""
+                set
+                {
+                {{GetManagedImportMethodName(property.Setter)}}(Handle, {{setterArgument}});
+                }
+                """);
+        }
+
+        writer.Write(
+            """
+            }
+            """);
+        return writer.ToString();
+    }
+
+    private static IReadOnlyList<AccessorProperty> CollectAccessorProperties(RecordBinding record)
+    {
+        var getters = new Dictionary<string, FunctionBinding>(StringComparer.Ordinal);
+        var setters = new Dictionary<string, FunctionBinding>(StringComparer.Ordinal);
+
+        foreach (var method in record.Members.OfType<FunctionBinding>())
+        {
+            if (!method.TryGetMetadata<AccessorPropertyAnnotation>(MetadataKeys.AccessorProperty, out var accessor) || accessor is null)
+            {
+                continue;
+            }
+
+            if (accessor.Kind == AccessorPropertyKind.Getter)
+            {
+                getters[accessor.PropertyName] = method;
+            }
+            else
+            {
+                setters[accessor.PropertyName] = method;
+            }
+        }
+
+        return getters.Keys
+            .Concat(setters.Keys)
+            .Distinct(StringComparer.Ordinal)
+            .Select(propertyName => new AccessorProperty(
+                propertyName,
+                getters.TryGetValue(propertyName, out var getter) ? getter : null,
+                setters.TryGetValue(propertyName, out var setter) ? setter : null))
+            .ToArray();
     }
 
     private static string RenderManagedConstructor(FunctionBinding function)
@@ -1079,6 +1188,8 @@ public static class BindingOutputRenderer
         IReadOnlyList<string> Arguments,
         IReadOnlyList<string> PreCallStatements,
         IReadOnlyList<string> PostCallStatements);
+
+    private sealed record AccessorProperty(string PropertyName, FunctionBinding? Getter, FunctionBinding? Setter);
 
     private static string GetManagedImportMethodName(FunctionBinding function)
     {

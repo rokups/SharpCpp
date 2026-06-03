@@ -127,4 +127,31 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("public partial class DerivedBox : BaseBox", managedOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("__PInvoke_Set_Count", managedOutput, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Managed_output_can_synthesize_properties_from_ast_annotations()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/AccessorProperty.hpp" });
+        var record = new RecordBinding("record:accessor_box", "accessor_box", "AccessorBox");
+        var getter = new FunctionBinding("method:accessor_box:get_count", "get_count", "GetCount", BindingType.Int32, "entry_get") { OwningRecordCppTypeName = "accessor_box" };
+        getter.SetMetadata(MetadataKeys.AccessorProperty, new AccessorPropertyAnnotation("Count", AccessorPropertyKind.Getter));
+        var setter = new FunctionBinding("method:accessor_box:set_count", "set_count", "SetCount", BindingType.Void, "entry_set") { OwningRecordCppTypeName = "accessor_box" };
+        setter.Parameters.Add(new ParameterBinding("parameter:set_count:value", "value", "value", BindingType.Int32));
+        setter.SetMetadata(MetadataKeys.AccessorProperty, new AccessorPropertyAnnotation("Count", AccessorPropertyKind.Setter));
+        record.Members.Add(getter);
+        record.Members.Add(setter);
+        compilation.Members.Add(record);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public int Count", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("public int GetCount()", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("public void SetCount(int value)", managedOutput, StringComparison.Ordinal);
+    }
 }
