@@ -44,7 +44,8 @@ public sealed record BindingMetadataRecordMember(
     bool IsConstructor,
     string? OperatorToken = null,
     bool IsConversionOperator = false,
-    bool IsExplicitConversionOperator = false);
+    bool IsExplicitConversionOperator = false,
+    bool ReturnsOwnedHandle = false);
 
 public sealed record BindingMetadataFunction(
     string SymbolId,
@@ -52,7 +53,8 @@ public sealed record BindingMetadataFunction(
     string ManagedName,
     string EntryPoint,
     BindingMetadataTypeReference ReturnType,
-    IReadOnlyList<BindingMetadataParameter> Parameters);
+    IReadOnlyList<BindingMetadataParameter> Parameters,
+    bool ReturnsOwnedHandle = false);
 
 public sealed record BindingMetadataParameter(string Name, string Direction, BindingMetadataTypeReference Type, string? DefaultValueExpression = null);
 

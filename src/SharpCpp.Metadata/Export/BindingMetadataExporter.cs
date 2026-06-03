@@ -99,7 +99,8 @@ public static class BindingMetadataExporter
             function.ManagedName,
             function.EntryPointName,
             CreateTypeReference(function.ReturnType),
-            parameters);
+            parameters,
+            function.ReturnsOwnedHandle);
     }
 
     private static BindingMetadataRecordMember CreateRecordMember(BindingNode member)
@@ -125,7 +126,8 @@ public static class BindingMetadataExporter
                 function.IsConstructor,
                 function.OperatorToken,
                 function.IsConversionOperator,
-                function.IsExplicitConversionOperator),
+                function.IsExplicitConversionOperator,
+                function.ReturnsOwnedHandle),
             FieldBinding field => new BindingMetadataRecordMember(
                 "field",
                 field.NativeName,

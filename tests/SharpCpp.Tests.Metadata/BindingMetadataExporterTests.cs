@@ -191,4 +191,27 @@ public sealed class BindingMetadataExporterTests
         Assert.Equal("23", Assert.Single(plusMember.Parameters!).DefaultValueExpression);
         Assert.True(conversionMember.IsExplicitConversionOperator);
     }
+
+    [Fact]
+    public void Export_includes_owned_handle_return_flag()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "factory.hpp" });
+        var record = new RecordBinding("record:Widget", "widget", "Widget");
+        var factory = new FunctionBinding("function:create_widget", "create_widget", "CreateWidget", record.HandleType, "entry_create")
+        {
+            ReturnsOwnedHandle = true
+        };
+        compilation.Members.Add(record);
+        compilation.Members.Add(factory);
+
+        var document = BindingMetadataExporter.Export(compilation);
+        var exportedFunction = Assert.Single(document.Functions);
+
+        Assert.True(exportedFunction.ReturnsOwnedHandle);
+    }
 }
