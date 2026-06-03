@@ -937,13 +937,13 @@ public static class BindingOutputRenderer
             if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
             {
                 writer.Write($$"""
-                    MarshallerInvoker::invoke_as<FT>(static_cast<FT*>(&{{function.NativeName}}){{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                    MarshallerInvoker::invoke_as<FT>(&{{function.NativeName}}{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
                     """);
             }
             else
             {
                 writer.Write($$"""
-                    return MarshallerInvoker::invoke_as<FT>(static_cast<FT*>(&{{function.NativeName}}){{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                    return MarshallerInvoker::invoke_as<FT>(&{{function.NativeName}}{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
                     """);
             }
 
@@ -952,22 +952,11 @@ public static class BindingOutputRenderer
                 """);
         }
 
-        var overloadedMethodNames = compilation.Records
-            .SelectMany(static record => record.Members.OfType<FunctionBinding>().Where(static f => !f.IsConstructor && !f.IsStatic))
-            .GroupBy(static f => (f.Parent, f.NativeName))
-            .Where(static g => g.Skip(1).Any())
-            .Select(static g => g.Key)
-            .ToHashSet();
-
         foreach (var method in compilation.Records.SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => !function.IsConstructor && !function.IsStatic).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             var parameterList = string.Join(", ", new[] { $"arg_t<{method.OwningRecordCppTypeName}*> self" }.Concat(method.Parameters.Select(RenderNativeParameter)));
             var abiArguments = string.Join(", ", method.Parameters.Select(static p => p.NativeName));
             var memberSignature = BuildNativeMethodSignature(method);
-            var isOverloaded = overloadedMethodNames.Contains((method.Parent, method.NativeName));
-            var methodExpr = isOverloaded
-                ? $"static_cast<FT>(&{method.OwningRecordCppTypeName}::{method.NativeName})"
-                : $"&{method.OwningRecordCppTypeName}::{method.NativeName}";
 
             writer.WriteLine();
             writer.Write($$"""
@@ -979,13 +968,13 @@ public static class BindingOutputRenderer
             if (method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
             {
                 writer.Write($$"""
-                    MarshallerInvoker::invoke<FT>({{methodExpr}}, self{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                    MarshallerInvoker::invoke<FT>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}, self{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
                     """);
             }
             else
             {
                 writer.Write($$"""
-                    return MarshallerInvoker::invoke<FT>({{methodExpr}}, self{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                    return MarshallerInvoker::invoke<FT>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}, self{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
                     """);
             }
 
@@ -1010,13 +999,13 @@ public static class BindingOutputRenderer
             if (method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
             {
                 writer.Write($$"""
-                    MarshallerInvoker::invoke_as<FT>(static_cast<FT*>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}){{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                    MarshallerInvoker::invoke_as<FT>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
                     """);
             }
             else
             {
                 writer.Write($$"""
-                    return MarshallerInvoker::invoke_as<FT>(static_cast<FT*>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}){{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                    return MarshallerInvoker::invoke_as<FT>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
                     """);
             }
 
