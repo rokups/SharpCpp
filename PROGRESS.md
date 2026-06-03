@@ -21,8 +21,8 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 
 ## Current Focus
 
-1. Broaden the ClangSharp-backed parser beyond the current builtin/enum E2E fixture headers.
-2. Expand the first slice beyond builtin primitives and enums into more native surface categories.
+1. Broaden the ClangSharp-backed parser beyond the current builtin/enum/record-method E2E fixture headers.
+2. Expand the first slice beyond builtin primitives, enums, and record methods into more native surface categories.
 3. Keep feature scope narrow until the parse -> render -> runtime path is solid.
 
 ## Decisions So Far
@@ -67,6 +67,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - `SharpCpp.Tool` now drives both metadata-only output and the first generated binding pipeline.
 - `tests/SharpCpp.Tests.E2E` now proves builtin primitive value/in/ref/out, explicit attribute-driven pointer pass kinds, enum/flags emission, and a simple handle return end-to-end.
 - The same customization points are available through the binding model API today via `ParameterBinding.Direction`, `ParameterBinding.AbiKind`, `EnumBinding.IsFlags`, and `EnumBinding.Values`.
+- Record instance methods now parse from C++ records, emit native self thunks, and surface as instance methods on managed handle wrappers.
 
 ## Verification Commands
 

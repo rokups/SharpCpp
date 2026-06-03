@@ -120,7 +120,7 @@ public sealed class ClangSharpHeaderParser
         return string.Equals(Path.GetFullPath(filePath), headerFilePath, StringComparison.Ordinal);
     }
 
-    private static void RegisterRecord(CXCursor cursor, BindingCompilation compilation, IDictionary<string, RecordBinding> recordsByName)
+    private static unsafe void RegisterRecord(CXCursor cursor, BindingCompilation compilation, IDictionary<string, RecordBinding> recordsByName)
     {
         var nativeName = cursor.Spelling.ToString();
         if (string.IsNullOrWhiteSpace(nativeName) || recordsByName.ContainsKey(nativeName))
@@ -131,6 +131,67 @@ public sealed class ClangSharpHeaderParser
         var record = new RecordBinding($"record:{nativeName}", nativeName, nativeName);
         recordsByName.Add(nativeName, record);
         compilation.Members.Add(record);
+
+        cursor.VisitChildren(
+            (child, _, _) =>
+            {
+                if (child.Kind != CXCursorKind.CXCursor_CXXMethod || child.CXXMethod_IsStatic)
+                {
+                    return CXChildVisitResult.CXChildVisit_Continue;
+                }
+
+                if (child.CXXAccessSpecifier == CX_CXXAccessSpecifier.CX_CXXPrivate ||
+                    child.CXXAccessSpecifier == CX_CXXAccessSpecifier.CX_CXXProtected)
+                {
+                    return CXChildVisitResult.CXChildVisit_Continue;
+                }
+
+                record.Members.Add(CreateMethod(record, child, recordsByName));
+                return CXChildVisitResult.CXChildVisit_Continue;
+            },
+            new CXClientData(IntPtr.Zero));
+    }
+
+    private static FunctionBinding CreateMethod(
+        RecordBinding record,
+        CXCursor cursor,
+        IDictionary<string, RecordBinding> recordsByName)
+    {
+        var nativeName = cursor.Spelling.ToString();
+        var function = new FunctionBinding(
+            $"method:{record.NativeName}:{nativeName}",
+            nativeName,
+            ToPascalCase(nativeName),
+            MapType(cursor.ResultType, recordsByName, new Dictionary<string, EnumBinding>(StringComparer.Ordinal), new Dictionary<string, ManagedTypeOverride>(StringComparer.Ordinal)),
+            entryPointName: $"sharpcpp_e2e_{record.NativeName}_{nativeName}",
+            cppReturnTypeName: NormalizeTypeName(cursor.ResultType.Spelling.ToString()))
+        {
+            IsStatic = false,
+            OwningRecordCppTypeName = record.NativeName
+        };
+
+        for (uint parameterIndex = 0; parameterIndex < cursor.NumArguments; parameterIndex++)
+        {
+            var parameterCursor = cursor.GetArgument(parameterIndex);
+            var parameterName = parameterCursor.Spelling.ToString();
+            if (string.IsNullOrWhiteSpace(parameterName))
+            {
+                parameterName = $"arg{parameterIndex}";
+            }
+
+            var (parameterType, direction, abiKind) = MapParameter(cursor, parameterCursor, recordsByName, new Dictionary<string, EnumBinding>(StringComparer.Ordinal), new Dictionary<string, ManagedTypeOverride>(StringComparer.Ordinal));
+            function.Parameters.Add(
+                new ParameterBinding(
+                    $"parameter:{record.NativeName}:{nativeName}:{parameterName}",
+                    parameterName,
+                    parameterName,
+                    parameterType,
+                    direction,
+                    abiKind,
+                    NormalizeTypeName(parameterCursor.Type.Spelling.ToString())));
+        }
+
+        return function;
     }
 
     private static FunctionBinding CreateFunction(

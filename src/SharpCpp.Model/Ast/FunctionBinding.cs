@@ -33,5 +33,7 @@ public sealed class FunctionBinding : BindingNamedNode
 
     public bool IsStatic { get; set; } = true;
 
+    public string? OwningRecordCppTypeName { get; set; }
+
     public IList<ParameterBinding> Parameters => _parameters;
 }
