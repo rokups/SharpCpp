@@ -258,13 +258,11 @@ function(sharpcpp_add_dotnet_build_target target_name project_path)
     COMMAND "${CMAKE_COMMAND}" -E make_directory "$<SHELL_PATH:${output_root}/$<CONFIG>>"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "$<SHELL_PATH:${dotnet_state_dir}/$<CONFIG>>"
     COMMAND "${CMAKE_COMMAND}" -E env "MSBuildEnableWorkloadResolver=false"
-            "${DOTNET_EXECUTABLE}" msbuild "${absolute_project_path}"
-            -maxcpucount:1
-            -restore:false
-            -nologo
-            -verbosity:quiet
-            -consoleloggerparameters:ErrorsOnly
-            -p:Configuration=$<IF:$<CONFIG:Debug>,Debug,Release>
+            "${DOTNET_EXECUTABLE}" build "${absolute_project_path}"
+            --configuration $<IF:$<CONFIG:Debug>,Debug,Release>
+            --no-restore
+            --nologo
+            --verbosity minimal
             "-p:SharpCppPackageRoot=${package_root}"
             "-p:SharpCppCMakePropsPath=${build_props_file}"
             ${ARG_PROPERTIES}

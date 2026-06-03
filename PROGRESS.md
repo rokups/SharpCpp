@@ -33,6 +33,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - Start with the early-grouped project split from `doc/11-project-shape-blueprint.md`: `Model`, `Metadata`, `Parsing`, `Pipeline`, `Rendering`, `Tool`, `Support`.
 - The first E2E slice must go through ClangSharp rather than a permanently hardcoded binding model.
 - Bootstrap the first exported artifact through metadata before attempting full parser/renderer breadth.
+- Attribute-driven customization points should also be writable through the C# AST API so custom generators can mark nodes directly.
 
 ## Relevant Doc Anchors
 
@@ -65,6 +66,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - `SharpCpp.Rendering` owns the first generated `.Bindings.g.cs`, `.Bindings.Aliases.g.cs`, and `.Bindings.g.cpp` emitters.
 - `SharpCpp.Tool` now drives both metadata-only output and the first generated binding pipeline.
 - `tests/SharpCpp.Tests.E2E` now proves builtin primitive value/in/ref/out, explicit attribute-driven pointer pass kinds, enum/flags emission, and a simple handle return end-to-end.
+- The same customization points are available through the binding model API today via `ParameterBinding.Direction`, `ParameterBinding.AbiKind`, `EnumBinding.IsFlags`, and `EnumBinding.Values`.
 
 ## Verification Commands
 
