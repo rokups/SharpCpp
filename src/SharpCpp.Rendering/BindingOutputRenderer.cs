@@ -115,7 +115,7 @@ public static class BindingOutputRenderer
             }
 
             writer.Write($$"""
-                return new {{function.ReturnType.ManagedTypeName}}(__result);
+                return new {{function.ReturnType.ManagedTypeName}}(__result{{(function.ReturnsOwnedHandle ? ", true" : string.Empty)}});
                 """);
         }
         else
@@ -332,7 +332,7 @@ public static class BindingOutputRenderer
             }
 
             writer.Write($$"""
-                return new {{function.ReturnType.ManagedTypeName}}(__result);
+                return new {{function.ReturnType.ManagedTypeName}}(__result{{(function.ReturnsOwnedHandle ? ", true" : string.Empty)}});
                 """);
         }
         else
@@ -582,7 +582,7 @@ public static class BindingOutputRenderer
             }
 
             writer.Write($$"""
-                return new {{function.ReturnType.ManagedTypeName}}(__result);
+                return new {{function.ReturnType.ManagedTypeName}}(__result{{(function.ReturnsOwnedHandle ? ", true" : string.Empty)}});
                 """);
         }
         else
