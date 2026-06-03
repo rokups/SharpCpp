@@ -509,7 +509,7 @@ public static class BindingOutputRenderer
             writer.Write($$"""
                 public static {{conversionKeyword}} operator {{targetTypeName}}({{record.ManagedName}} value)
                 {
-                return __PInvoke_{{function.ManagedName}}(value.Handle);
+                return __PInvoke_{{function.ManagedName}}(value is null ? 0 : value.Handle);
                 }
                 """);
             return writer.ToString();
@@ -562,7 +562,7 @@ public static class BindingOutputRenderer
                 writer.Write($$"""
                     public static {{returnTypeName}} operator -({{record.ManagedName}} value)
                     {
-                    return new {{function.ReturnType.ManagedTypeName}}(__PInvoke_{{function.ManagedName}}(value.Handle));
+                    return new {{function.ReturnType.ManagedTypeName}}(__PInvoke_{{function.ManagedName}}(value is null ? 0 : value.Handle));
                     }
                     """);
             }
@@ -571,7 +571,7 @@ public static class BindingOutputRenderer
                 writer.Write($$"""
                     public static {{returnTypeName}} operator -({{record.ManagedName}} value)
                     {
-                    return __PInvoke_{{function.ManagedName}}(value.Handle);
+                    return __PInvoke_{{function.ManagedName}}(value is null ? 0 : value.Handle);
                     }
                     """);
             }
@@ -1002,7 +1002,7 @@ public static class BindingOutputRenderer
     private static string RenderManagedInvocationArgument(ParameterBinding parameter)
     {
         var valueExpression = parameter.Type.Kind == BindingTypeKind.Handle
-            ? $"{parameter.ManagedName}.Handle"
+            ? $"{parameter.ManagedName} is null ? 0 : {parameter.ManagedName}.Handle"
             : parameter.ManagedName;
 
         return parameter.Direction switch
@@ -1029,7 +1029,7 @@ public static class BindingOutputRenderer
                 if (parameter.Direction == BindingParameterDirection.Ref)
                 {
                     preCallStatements.Add($$"""
-                        var {{abiVariableName}} = {{parameter.ManagedName}}.Handle;
+                        var {{abiVariableName}} = {{parameter.ManagedName}} is null ? 0 : {{parameter.ManagedName}}.Handle;
                         """);
                     arguments.Add($"ref {abiVariableName}");
                 }

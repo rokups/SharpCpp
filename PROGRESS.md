@@ -82,6 +82,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - Minimal operator projection now works for member unary/binary operators and primitive conversion operators on records.
 - Comparison operator pairs (`==`, `!=`, `<`, `>`) now project cleanly for record wrappers.
 - Wrappers now track owned-vs-borrowed handle semantics and generated constructors opt into disposal through native delete thunks.
+- Non-nullable wrapper parameters now treat runtime `null` as `nint.Zero`, so null-handle flows remain expressible without turning every handle surface into `T?`.
 
 ## Verification Commands
 

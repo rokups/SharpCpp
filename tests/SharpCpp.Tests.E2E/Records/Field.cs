@@ -39,4 +39,15 @@ public sealed class FieldTests
         Assert.True(fixedValue.CanRead);
         Assert.False(fixedValue.CanWrite);
     }
+
+    [Fact]
+    public void Handle_backed_properties_can_store_null_wrapper_values()
+    {
+        var payload = E2EBindings.CreateFieldPayload(10);
+        var box = E2EBindings.CreateFieldBox(2, true, FieldMode.Active, payload, 99);
+
+        box.Payload = null!;
+
+        Assert.True(box.Payload.IsNull);
+    }
 }

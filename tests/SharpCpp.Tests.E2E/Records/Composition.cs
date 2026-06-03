@@ -17,6 +17,14 @@ public sealed class CompositionTests
     }
 
     [Fact]
+    public void Free_function_can_roundtrip_null_record_wrapper()
+    {
+        var result = E2EBindings.EchoPayload(null!);
+
+        Assert.True(result.IsNull);
+    }
+
+    [Fact]
     public void Static_method_can_accept_and_return_record_wrapper()
     {
         var payload = PayloadRecord.Create(10);
@@ -60,5 +68,18 @@ public sealed class CompositionTests
 
         Assert.Equal(second.Handle, owner.GetPayload().Handle);
         Assert.Equal(20, owner.GetPayload().GetValue());
+    }
+
+    [Fact]
+    public void Instance_method_can_accept_null_record_wrapper()
+    {
+        var first = PayloadRecord.Create(10);
+        var owner = new OwnerRecord(first);
+
+        var previous = owner.ReplacePayload(null!);
+
+        Assert.Equal(first.Handle, previous.Handle);
+        Assert.Equal(10, previous.GetValue());
+        Assert.True(owner.GetPayload().IsNull);
     }
 }

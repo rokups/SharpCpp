@@ -41,6 +41,14 @@ public sealed class FactoryTests
     }
 
     [Fact]
+    public void Static_method_can_roundtrip_null_wrapper_parameter()
+    {
+        var copy = FactoryBox.Identity(null!);
+
+        Assert.True(copy.IsNull);
+    }
+
+    [Fact]
     public void Borrowed_wrapper_can_be_disposed_without_owning_native_lifetime()
     {
         var box = FactoryBox.Create(10);
