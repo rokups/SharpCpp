@@ -26,6 +26,18 @@ public sealed class InheritanceTests
     }
 
     [Fact]
+    public void Derived_wrapper_created_by_constructor_owns_handle_and_disposes_through_base_layer()
+    {
+        var counter = new DerivedCounter(10, 2);
+
+        Assert.True(counter.OwnsHandle);
+
+        counter.Dispose();
+
+        Assert.True(counter.IsNull);
+    }
+
+    [Fact]
     public void Free_function_can_accept_derived_wrapper_as_base_parameter()
     {
         var counter = new DerivedCounter(10, 2);
