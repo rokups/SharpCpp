@@ -85,6 +85,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - Non-nullable wrapper parameters now treat runtime `null` as `nint.Zero`, so null-handle flows remain expressible without turning every handle surface into `T?`.
 - Top-level free-function overloads now get distinct generated entrypoints and private import helpers, so overloads are safe in the first slice.
 - Record static methods, instance methods, and constructors now get the same overload-safe naming treatment.
+- Partial comparison/equality operator sets now fall back to named methods when C# requires a missing companion operator.
 - Record static and instance overloads now get distinct generated entrypoints and private import helpers too.
 
 ## Verification Commands

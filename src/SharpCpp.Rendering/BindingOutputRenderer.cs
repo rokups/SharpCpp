@@ -632,6 +632,28 @@ public static class BindingOutputRenderer
     {
         var writer = new CodeWriter();
 
+        if (function.Parameters.Count == 1 && function.OperatorToken == "==" && !HasOperator(record, "!="))
+        {
+            writer.Write($$"""
+                public bool Equals({{record.ManagedName}} rhs)
+                {
+                return __PInvoke_{{function.ManagedName}}(Handle, rhs.Handle);
+                }
+                """);
+            return writer.ToString();
+        }
+
+        if (function.Parameters.Count == 1 && function.OperatorToken == "<" && !HasOperator(record, ">"))
+        {
+            writer.Write($$"""
+                public bool LessThan({{record.ManagedName}} rhs)
+                {
+                return __PInvoke_{{function.ManagedName}}(Handle, rhs.Handle);
+                }
+                """);
+            return writer.ToString();
+        }
+
         if (function.IsConversionOperator)
         {
             var targetTypeName = GetManagedWrapperTypeName(function.ReturnType);
@@ -709,6 +731,13 @@ public static class BindingOutputRenderer
         }
 
         throw new NotSupportedException($"Managed operator emission does not support '{function.ManagedName}'.");
+    }
+
+    private static bool HasOperator(RecordBinding record, string operatorToken)
+    {
+        return record.Members
+            .OfType<FunctionBinding>()
+            .Any(candidate => string.Equals(candidate.OperatorToken, operatorToken, StringComparison.Ordinal));
     }
 
     private static string RenderManagedOperatorImportDeclaration(BindingCompilation compilation, FunctionBinding function)
