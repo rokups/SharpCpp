@@ -80,6 +80,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - Base-typed parameters and returns now accept derived wrappers and flow through the inherited wrapper hierarchy cleanly.
 - Builtin and enum literal default parameters now surface directly in free functions, constructors, static methods, and instance methods.
 - Minimal operator projection now works for member unary/binary operators and primitive conversion operators on records.
+- Comparison operator pairs (`==`, `!=`, `<`, `>`) now project cleanly for record wrappers.
 
 ## Verification Commands
 

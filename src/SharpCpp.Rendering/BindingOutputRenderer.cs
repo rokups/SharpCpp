@@ -183,6 +183,22 @@ public static class BindingOutputRenderer
             {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "public bool IsNull => Handle == 0;" : string.Empty)}}
             """);
 
+        if (record.Members.OfType<FunctionBinding>().Any(static function => function.OperatorToken is "==" or "!="))
+        {
+            writer.WriteLine();
+            writer.Write($$"""
+                public override bool Equals(object obj)
+                {
+                return obj is {{record.ManagedName}} other && this == other;
+                }
+
+                public override int GetHashCode()
+                {
+                return Handle.GetHashCode();
+                }
+                """);
+        }
+
         foreach (var constructor in record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor).OrderBy(static function => function.Parameters.Count))
         {
             writer.WriteLine();
@@ -468,6 +484,20 @@ public static class BindingOutputRenderer
                     }
                     """);
             }
+            return writer.ToString();
+        }
+
+        if (function.Parameters.Count == 1 && function.OperatorToken is "==" or "!=" or "<" or ">")
+        {
+            var returnTypeName = GetManagedWrapperTypeName(function.ReturnType);
+            var parameterTypeName = GetManagedWrapperTypeName(function.Parameters[0].Type);
+            writer.Write($$"""
+                public static {{returnTypeName}} operator {{function.OperatorToken}}({{record.ManagedName}} left, {{parameterTypeName}} right)
+                {
+                var __right = right.Handle;
+                return __PInvoke_{{function.ManagedName}}(left.Handle, __right);
+                }
+                """);
             return writer.ToString();
         }
 
@@ -891,6 +921,11 @@ public static class BindingOutputRenderer
 
     private static string RenderNativeInvocationArgument(ParameterBinding parameter)
     {
+        if (parameter.Type.Kind == BindingTypeKind.Handle && parameter.CppTypeName.Contains('&', StringComparison.Ordinal))
+        {
+            return $"*{parameter.NativeName}";
+        }
+
         return parameter.AbiKind switch
         {
             BindingParameterAbiKind.Value => parameter.NativeName,

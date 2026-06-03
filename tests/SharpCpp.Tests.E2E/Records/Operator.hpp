@@ -32,6 +32,26 @@ struct operator_box
         return -value_;
     }
 
+    bool operator==(const operator_box& rhs) const
+    {
+        return value_ == rhs.value_;
+    }
+
+    bool operator!=(const operator_box& rhs) const
+    {
+        return value_ != rhs.value_;
+    }
+
+    bool operator<(const operator_box& rhs) const
+    {
+        return value_ < rhs.value_;
+    }
+
+    bool operator>(const operator_box& rhs) const
+    {
+        return value_ > rhs.value_;
+    }
+
 private:
     int value_{};
 };

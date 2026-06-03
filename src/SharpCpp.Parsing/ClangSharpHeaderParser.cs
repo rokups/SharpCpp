@@ -460,6 +460,10 @@ public sealed class ClangSharpHeaderParser
         {
             CX_OverloadedOperatorKind.CX_OO_Plus => "+",
             CX_OverloadedOperatorKind.CX_OO_Minus => "-",
+            CX_OverloadedOperatorKind.CX_OO_EqualEqual => "==",
+            CX_OverloadedOperatorKind.CX_OO_ExclaimEqual => "!=",
+            CX_OverloadedOperatorKind.CX_OO_Less => "<",
+            CX_OverloadedOperatorKind.CX_OO_Greater => ">",
             _ => null
         };
     }
@@ -477,6 +481,10 @@ public sealed class ClangSharpHeaderParser
             {
                 CX_OverloadedOperatorKind.CX_OO_Plus => cursor.NumArguments == 0 ? "OperatorUnaryPlus" : "OperatorPlus",
                 CX_OverloadedOperatorKind.CX_OO_Minus => cursor.NumArguments == 0 ? "OperatorUnaryMinus" : "OperatorMinus",
+                CX_OverloadedOperatorKind.CX_OO_EqualEqual => "OperatorEquals",
+                CX_OverloadedOperatorKind.CX_OO_ExclaimEqual => "OperatorNotEquals",
+                CX_OverloadedOperatorKind.CX_OO_Less => "OperatorLessThan",
+                CX_OverloadedOperatorKind.CX_OO_Greater => "OperatorGreaterThan",
                 _ => ToPascalCase(nativeName)
             };
         }
@@ -497,6 +505,10 @@ public sealed class ClangSharpHeaderParser
             {
                 CX_OverloadedOperatorKind.CX_OO_Plus => cursor.NumArguments == 0 ? "operator_unary_plus" : "operator_plus",
                 CX_OverloadedOperatorKind.CX_OO_Minus => cursor.NumArguments == 0 ? "operator_unary_minus" : "operator_minus",
+                CX_OverloadedOperatorKind.CX_OO_EqualEqual => "operator_equal_equal",
+                CX_OverloadedOperatorKind.CX_OO_ExclaimEqual => "operator_not_equal",
+                CX_OverloadedOperatorKind.CX_OO_Less => "operator_less",
+                CX_OverloadedOperatorKind.CX_OO_Greater => "operator_greater",
                 _ => nativeName
             };
         }
@@ -520,6 +532,15 @@ public sealed class ClangSharpHeaderParser
         if (normalizedType.kind == CXTypeKind.CXType_LValueReference)
         {
             var pointeeType = normalizedType.PointeeType.CanonicalType;
+
+            if (pointeeType.kind == CXTypeKind.CXType_Record)
+            {
+                return (
+                    MapType(pointeeType, recordsByName, enumsByName, managedTypeOverrides),
+                    explicitDirection ?? BindingParameterDirection.In,
+                    BindingParameterAbiKind.Value);
+            }
+
             return (
                 MapType(pointeeType, recordsByName, enumsByName, managedTypeOverrides),
                 explicitDirection ?? (pointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Ref),
@@ -585,6 +606,15 @@ public sealed class ClangSharpHeaderParser
                     recordsByName.Add(recordName, record);
                 }
 
+                return record.HandleType;
+            }
+        }
+
+        if (normalizedType.kind == CXTypeKind.CXType_Record)
+        {
+            var recordName = NormalizeNamedTypeName(normalizedType.Spelling.ToString());
+            if (recordsByName.TryGetValue(recordName, out var record))
+            {
                 return record.HandleType;
             }
         }

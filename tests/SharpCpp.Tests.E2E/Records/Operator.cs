@@ -27,4 +27,18 @@ public sealed class OperatorTests
         Assert.True((bool)value);
         Assert.False((bool)zero);
     }
+
+    [Fact]
+    public void Managed_surface_exposes_comparison_operator_wrappers()
+    {
+        var left = new OperatorBox(10);
+        var right = new OperatorBox(7);
+        var same = new OperatorBox(10);
+
+        Assert.True(left == same);
+        Assert.True(left != right);
+        Assert.False(left == right);
+        Assert.True(right < left);
+        Assert.True(left > right);
+    }
 }
