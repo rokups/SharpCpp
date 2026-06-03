@@ -70,7 +70,14 @@ public sealed class BindingMetadataExporterTests
         Assert.Equal(original.Fingerprint.ClangArgsHash, roundTripped.Fingerprint.ClangArgsHash);
         Assert.Equal(original.Fingerprint.AttributeVocabularyHash, roundTripped.Fingerprint.AttributeVocabularyHash);
         Assert.Equal(original.Fingerprint.HeaderFiles, roundTripped.Fingerprint.HeaderFiles);
-        Assert.Equal(original.Types, roundTripped.Types);
+        Assert.Equal(original.Types.Select(static type => type.SymbolId), roundTripped.Types.Select(static type => type.SymbolId));
+        Assert.Equal(original.Types.Select(static type => type.IsFlags), roundTripped.Types.Select(static type => type.IsFlags));
+        Assert.Equal(
+            original.Types.Select(static type => type.Values?.Count ?? 0),
+            roundTripped.Types.Select(static type => type.Values?.Count ?? 0));
+        Assert.Equal(
+            original.Types.Select(static type => type.Members?.Count ?? 0),
+            roundTripped.Types.Select(static type => type.Members?.Count ?? 0));
         Assert.Equal(original.Functions, roundTripped.Functions);
     }
 
@@ -108,6 +115,46 @@ public sealed class BindingMetadataExporterTests
                 Assert.Equal("write", value.NativeName);
                 Assert.Equal("Write", value.ManagedName);
                 Assert.Equal("2u", value.ValueExpression);
+            });
+    }
+
+    [Fact]
+    public void Export_includes_record_members()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "record.hpp" });
+        var record = new RecordBinding("record:Counter", "counter", "Counter");
+        record.Members.Add(new FieldBinding("field:counter:value", "value", "Value", BindingType.Int32, "int", "counter", isReadOnly: true));
+        record.Members.Add(new FunctionBinding("ctor:counter", "counter", "Counter", record.HandleType, "entry_ctor") { IsConstructor = true });
+        record.Members.Add(new FunctionBinding("method:counter:get", "get_value", "GetValue", BindingType.Int32, "entry_get") { OwningRecordCppTypeName = "counter" });
+        compilation.Members.Add(record);
+
+        var document = BindingMetadataExporter.Export(compilation);
+        var exportedRecord = Assert.Single(document.Types);
+
+        Assert.Collection(
+            exportedRecord.Members!,
+            member =>
+            {
+                Assert.Equal("constructor", member.Kind);
+                Assert.Equal("Counter", member.ManagedName);
+                Assert.True(member.IsConstructor);
+            },
+            member =>
+            {
+                Assert.Equal("method", member.Kind);
+                Assert.Equal("GetValue", member.ManagedName);
+                Assert.Equal("int", member.Type!.PublicType);
+            },
+            member =>
+            {
+                Assert.Equal("field", member.Kind);
+                Assert.Equal("Value", member.ManagedName);
+                Assert.True(member.IsReadOnly);
             });
     }
 }

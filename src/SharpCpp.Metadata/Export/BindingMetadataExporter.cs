@@ -58,7 +58,11 @@ public static class BindingMetadataExporter
             record.NativeName,
             record.ManagedName,
             record.ManagedBaseTypeName,
-            CreateTypeReference(record.HandleType));
+            CreateTypeReference(record.HandleType),
+            Members: record.Members
+                .Select(CreateRecordMember)
+                .OrderBy(static member => member.ManagedName, StringComparer.Ordinal)
+                .ToArray());
     }
 
     private static BindingMetadataType CreateEnumType(EnumBinding @enum)
@@ -95,6 +99,39 @@ public static class BindingMetadataExporter
             function.EntryPointName,
             CreateTypeReference(function.ReturnType),
             parameters);
+    }
+
+    private static BindingMetadataRecordMember CreateRecordMember(BindingNode member)
+    {
+        return member switch
+        {
+            FunctionBinding function => new BindingMetadataRecordMember(
+                function.IsConstructor ? "constructor" : "method",
+                function.NativeName,
+                function.ManagedName,
+                function.IsConstructor ? null : CreateTypeReference(function.ReturnType),
+                function.Parameters
+                    .OrderBy(static parameter => parameter.ManagedName, StringComparer.Ordinal)
+                    .ThenBy(static parameter => parameter.SymbolId, StringComparer.Ordinal)
+                    .Select(parameter => new BindingMetadataParameter(
+                        parameter.ManagedName,
+                        parameter.Direction.ToString().ToLowerInvariant(),
+                        CreateTypeReference(parameter.Type)))
+                    .ToArray(),
+                IsReadOnly: false,
+                function.IsStatic,
+                function.IsConstructor),
+            FieldBinding field => new BindingMetadataRecordMember(
+                "field",
+                field.NativeName,
+                field.ManagedName,
+                CreateTypeReference(field.Type),
+                Parameters: null,
+                field.IsReadOnly,
+                IsStatic: false,
+                IsConstructor: false),
+            _ => throw new NotSupportedException($"Metadata export does not support member kind '{member.Kind}'.")
+        };
     }
 
     private static BindingMetadataTypeReference CreateTypeReference(BindingType type)

@@ -28,9 +28,20 @@ public sealed record BindingMetadataType(
     string? ManagedBaseTypeName,
     BindingMetadataTypeReference Projection,
     bool IsFlags = false,
-    IReadOnlyList<BindingMetadataEnumValue>? Values = null);
+    IReadOnlyList<BindingMetadataEnumValue>? Values = null,
+    IReadOnlyList<BindingMetadataRecordMember>? Members = null);
 
 public sealed record BindingMetadataEnumValue(string NativeName, string ManagedName, string ValueExpression);
+
+public sealed record BindingMetadataRecordMember(
+    string Kind,
+    string NativeName,
+    string ManagedName,
+    BindingMetadataTypeReference? Type,
+    IReadOnlyList<BindingMetadataParameter>? Parameters,
+    bool IsReadOnly,
+    bool IsStatic,
+    bool IsConstructor);
 
 public sealed record BindingMetadataFunction(
     string SymbolId,
