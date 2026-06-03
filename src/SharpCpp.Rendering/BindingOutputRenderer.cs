@@ -158,12 +158,20 @@ public static class BindingOutputRenderer
             writer.Write(RenderManagedConstructorImportDeclaration(compilation, constructor));
         }
 
-        foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && !function.IsStatic).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             writer.WriteLine();
             writer.Write(RenderManagedInstanceMethod(method));
             writer.WriteLine();
             writer.Write(RenderManagedInstanceImportDeclaration(compilation, method));
+        }
+
+        foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        {
+            writer.WriteLine();
+            writer.Write(RenderManagedStaticMethod(method));
+            writer.WriteLine();
+            writer.Write(RenderManagedStaticImportDeclaration(compilation, method));
         }
 
         foreach (var field in record.Members.OfType<FieldBinding>().OrderBy(static field => field.ManagedName, StringComparer.Ordinal))
@@ -241,7 +249,7 @@ public static class BindingOutputRenderer
 
         writer.Write($$"""
             public {{constructorName}}({{parameterList}})
-                : this(__PInvoke_Create({{invokeArguments}}))
+                : this(__PInvoke_Ctor({{invokeArguments}}))
             {
             }
             """);
@@ -257,7 +265,65 @@ public static class BindingOutputRenderer
 
         writer.Write($$"""
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}")]
-            private static partial nint __PInvoke_Create({{parameterList}});
+            private static partial nint __PInvoke_Ctor({{parameterList}});
+            """);
+        return writer.ToString();
+    }
+
+    private static string RenderManagedStaticMethod(FunctionBinding function)
+    {
+        var writer = new CodeWriter();
+        var parameterList = string.Join(
+            ", ",
+            function.Parameters.Select(RenderManagedParameter));
+        var invokeArguments = string.Join(", ", function.Parameters.Select(RenderManagedInvocationArgument));
+        var returnTypeName = GetManagedWrapperTypeName(function.ReturnType);
+
+        writer.Write($$"""
+            public static {{returnTypeName}} {{function.ManagedName}}({{parameterList}})
+            {
+            """);
+
+        if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+        {
+            writer.Write($$"""
+                __PInvoke_{{function.ManagedName}}({{invokeArguments}});
+                """);
+        }
+        else if (function.ReturnType.Kind == BindingTypeKind.Handle)
+        {
+            writer.Write($$"""
+                return new {{function.ReturnType.ManagedTypeName}}(__PInvoke_{{function.ManagedName}}({{invokeArguments}}));
+                """);
+        }
+        else
+        {
+            writer.Write($$"""
+                return __PInvoke_{{function.ManagedName}}({{invokeArguments}});
+                """);
+        }
+
+        writer.Write(
+            """
+            }
+            """);
+        return writer.ToString();
+    }
+
+    private static string RenderManagedStaticImportDeclaration(BindingCompilation compilation, FunctionBinding function)
+    {
+        var writer = new CodeWriter();
+        var parameterList = string.Join(
+            ", ",
+            function.Parameters.Select(RenderManagedParameter));
+        var returnTypeName = GetManagedImportTypeName(function.ReturnType);
+        var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
+
+        writer.Write(
+            $$"""
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}")]
+            {{returnAttribute}}
+            private static partial {{returnTypeName}} __PInvoke_{{function.ManagedName}}({{parameterList}});
             """);
         return writer.ToString();
     }
@@ -416,7 +482,7 @@ public static class BindingOutputRenderer
 
         foreach (var function in functions)
         {
-            if (!function.IsStatic && function.Parent is RecordBinding)
+            if (function.Parent is RecordBinding || function.IsConstructor)
             {
                 continue;
             }
@@ -450,7 +516,7 @@ public static class BindingOutputRenderer
                 """);
         }
 
-        foreach (var method in compilation.Records.SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => !function.IsConstructor).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        foreach (var method in compilation.Records.SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => !function.IsConstructor && !function.IsStatic).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             var parameterList = string.Join(
                 ", ",
@@ -473,6 +539,37 @@ public static class BindingOutputRenderer
             {
                 writer.Write($$"""
                     return reinterpret_cast<{{method.OwningRecordCppTypeName}}*>(self)->{{method.NativeName}}({{invokeArguments}});
+                    """);
+            }
+
+            writer.Write($$"""
+                }
+                """);
+        }
+
+        foreach (var method in compilation.Records.SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => function.IsStatic).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        {
+            var parameterList = string.Join(
+                ", ",
+                method.Parameters.Select(RenderNativeParameter));
+            var invokeArguments = string.Join(", ", method.Parameters.Select(RenderNativeInvocationArgument));
+
+            writer.WriteLine();
+            writer.Write($$"""
+                SHARPCPP_EXPORT ret_t<{{method.CppReturnTypeName}}> {{method.EntryPointName}}({{parameterList}})
+                {
+                """);
+
+            if (method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+            {
+                writer.Write($$"""
+                    {{method.OwningRecordCppTypeName}}::{{method.NativeName}}({{invokeArguments}});
+                    """);
+            }
+            else
+            {
+                writer.Write($$"""
+                    return {{method.OwningRecordCppTypeName}}::{{method.NativeName}}({{invokeArguments}});
                     """);
             }
 
