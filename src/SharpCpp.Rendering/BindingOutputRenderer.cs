@@ -405,10 +405,14 @@ public static class BindingOutputRenderer
 
         if (!field.IsReadOnly)
         {
+            var setterArgument = field.Type.Kind == BindingTypeKind.Handle
+                ? "value.Handle"
+                : "value";
+
             writer.Write($$"""
                 set
                 {
-                __PInvoke_Set_{{field.ManagedName}}(Handle, value);
+                __PInvoke_Set_{{field.ManagedName}}(Handle, {{setterArgument}});
                 }
                 """);
         }
