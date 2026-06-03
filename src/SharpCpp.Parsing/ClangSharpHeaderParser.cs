@@ -163,7 +163,8 @@ public sealed class ClangSharpHeaderParser
         cursor.VisitChildren(
             (child, _, _) =>
             {
-                if (child.Kind != CXCursorKind.CXCursor_CXXMethod || child.CXXMethod_IsStatic)
+                if ((child.Kind != CXCursorKind.CXCursor_CXXMethod && child.Kind != CXCursorKind.CXCursor_ConversionFunction) ||
+                    child.CXXMethod_IsStatic)
                 {
                     return CXChildVisitResult.CXChildVisit_Continue;
                 }
@@ -248,14 +249,15 @@ public sealed class ClangSharpHeaderParser
         var function = new FunctionBinding(
             $"method:{record.NativeName}:{nativeName}",
             nativeName,
-            ToPascalCase(nativeName),
+            GetManagedMethodName(cursor, nativeName),
             MapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides),
-            entryPointName: $"sharpcpp_e2e_{record.NativeName}_{nativeName}",
+            entryPointName: $"sharpcpp_e2e_{record.NativeName}_{GetEntrypointSuffix(cursor, nativeName)}",
             cppReturnTypeName: NormalizeTypeName(cursor.ResultType.Spelling.ToString()))
         {
             IsStatic = false,
             OwningRecordCppTypeName = record.NativeName
         };
+        ApplyOperatorMetadata(function, cursor);
 
         for (uint parameterIndex = 0; parameterIndex < cursor.NumArguments; parameterIndex++)
         {
@@ -295,14 +297,15 @@ public sealed class ClangSharpHeaderParser
         var function = new FunctionBinding(
             $"static-method:{record.NativeName}:{nativeName}",
             nativeName,
-            ToPascalCase(nativeName),
+            GetManagedMethodName(cursor, nativeName),
             MapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides),
-            entryPointName: $"sharpcpp_e2e_{record.NativeName}_{nativeName}",
+            entryPointName: $"sharpcpp_e2e_{record.NativeName}_{GetEntrypointSuffix(cursor, nativeName)}",
             cppReturnTypeName: NormalizeTypeName(cursor.ResultType.Spelling.ToString()))
         {
             IsStatic = true,
             OwningRecordCppTypeName = record.NativeName
         };
+        ApplyOperatorMetadata(function, cursor);
 
         for (uint parameterIndex = 0; parameterIndex < cursor.NumArguments; parameterIndex++)
         {
@@ -437,6 +440,68 @@ public sealed class ClangSharpHeaderParser
         }
 
         return function;
+    }
+
+    private static void ApplyOperatorMetadata(FunctionBinding function, CXCursor cursor)
+    {
+        if (cursor.Kind == CXCursorKind.CXCursor_ConversionFunction)
+        {
+            function.IsConversionOperator = true;
+            function.IsExplicitConversionOperator = clang.CXXMethod_isExplicit(cursor) != 0;
+            return;
+        }
+
+        if (!cursor.IsOverloadedOperator)
+        {
+            return;
+        }
+
+        function.OperatorToken = cursor.OverloadedOperatorKind switch
+        {
+            CX_OverloadedOperatorKind.CX_OO_Plus => "+",
+            CX_OverloadedOperatorKind.CX_OO_Minus => "-",
+            _ => null
+        };
+    }
+
+    private static string GetManagedMethodName(CXCursor cursor, string nativeName)
+    {
+        if (cursor.Kind == CXCursorKind.CXCursor_ConversionFunction)
+        {
+            return $"OperatorTo{NormalizeNamedTypeName(cursor.ResultType.Spelling.ToString())}";
+        }
+
+        if (cursor.IsOverloadedOperator)
+        {
+            return cursor.OverloadedOperatorKind switch
+            {
+                CX_OverloadedOperatorKind.CX_OO_Plus => cursor.NumArguments == 0 ? "OperatorUnaryPlus" : "OperatorPlus",
+                CX_OverloadedOperatorKind.CX_OO_Minus => cursor.NumArguments == 0 ? "OperatorUnaryMinus" : "OperatorMinus",
+                _ => ToPascalCase(nativeName)
+            };
+        }
+
+        return ToPascalCase(nativeName);
+    }
+
+    private static string GetEntrypointSuffix(CXCursor cursor, string nativeName)
+    {
+        if (cursor.Kind == CXCursorKind.CXCursor_ConversionFunction)
+        {
+            return $"operator_to_{NormalizeNamedTypeName(cursor.ResultType.Spelling.ToString()).ToLowerInvariant()}";
+        }
+
+        if (cursor.IsOverloadedOperator)
+        {
+            return cursor.OverloadedOperatorKind switch
+            {
+                CX_OverloadedOperatorKind.CX_OO_Plus => cursor.NumArguments == 0 ? "operator_unary_plus" : "operator_plus",
+                CX_OverloadedOperatorKind.CX_OO_Minus => cursor.NumArguments == 0 ? "operator_unary_minus" : "operator_minus",
+                _ => nativeName
+            };
+        }
+
+        return nativeName;
     }
 
     private static (BindingType Type, BindingParameterDirection Direction, BindingParameterAbiKind AbiKind) MapParameter(

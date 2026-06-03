@@ -37,5 +37,11 @@ public sealed class FunctionBinding : BindingNamedNode
 
     public bool IsConstructor { get; set; }
 
+    public string? OperatorToken { get; set; }
+
+    public bool IsConversionOperator { get; set; }
+
+    public bool IsExplicitConversionOperator { get; set; }
+
     public IList<ParameterBinding> Parameters => _parameters;
 }

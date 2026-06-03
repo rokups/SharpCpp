@@ -191,7 +191,7 @@ public static class BindingOutputRenderer
             writer.Write(RenderManagedConstructorImportDeclaration(compilation, constructor));
         }
 
-        foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && !function.IsStatic).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && !function.IsStatic && !function.IsConversionOperator && function.OperatorToken is null).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             writer.WriteLine();
             writer.Write(RenderManagedInstanceMethod(method));
@@ -199,12 +199,20 @@ public static class BindingOutputRenderer
             writer.Write(RenderManagedInstanceImportDeclaration(compilation, method));
         }
 
-        foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic && !function.IsConversionOperator && function.OperatorToken is null).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             writer.WriteLine();
             writer.Write(RenderManagedStaticMethod(method));
             writer.WriteLine();
             writer.Write(RenderManagedStaticImportDeclaration(compilation, method));
+        }
+
+        foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => function.IsConversionOperator || function.OperatorToken is not null).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        {
+            writer.WriteLine();
+            writer.Write(RenderManagedOperator(record, method));
+            writer.WriteLine();
+            writer.Write(RenderManagedOperatorImportDeclaration(compilation, method));
         }
 
         foreach (var field in record.Members.OfType<FieldBinding>().OrderBy(static field => field.ManagedName, StringComparer.Ordinal))
@@ -409,6 +417,93 @@ public static class BindingOutputRenderer
         var parameterList = string.Join(
             ", ",
             function.Parameters.Select(RenderManagedParameter));
+        var returnTypeName = GetManagedImportTypeName(function.ReturnType);
+        var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
+
+        writer.Write(
+            $$"""
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}")]
+            {{returnAttribute}}
+            private static partial {{returnTypeName}} __PInvoke_{{function.ManagedName}}({{parameterList}});
+            """);
+        return writer.ToString();
+    }
+
+    private static string RenderManagedOperator(RecordBinding record, FunctionBinding function)
+    {
+        var writer = new CodeWriter();
+
+        if (function.IsConversionOperator)
+        {
+            var targetTypeName = GetManagedWrapperTypeName(function.ReturnType);
+            var conversionKeyword = function.IsExplicitConversionOperator ? "explicit" : "implicit";
+            writer.Write($$"""
+                public static {{conversionKeyword}} operator {{targetTypeName}}({{record.ManagedName}} value)
+                {
+                return __PInvoke_{{function.ManagedName}}(value.Handle);
+                }
+                """);
+            return writer.ToString();
+        }
+
+        if (function.OperatorToken == "+" && function.Parameters.Count == 1)
+        {
+            var returnTypeName = GetManagedWrapperTypeName(function.ReturnType);
+            var parameter = RenderManagedPublicParameter(function.Parameters[0]);
+            if (function.ReturnType.Kind == BindingTypeKind.Handle)
+            {
+                writer.Write($$"""
+                    public static {{returnTypeName}} operator +({{record.ManagedName}} left, {{parameter}})
+                    {
+                    return new {{function.ReturnType.ManagedTypeName}}(__PInvoke_{{function.ManagedName}}(left.Handle, {{RenderManagedInvocationArgument(function.Parameters[0])}}));
+                    }
+                    """);
+            }
+            else
+            {
+                writer.Write($$"""
+                    public static {{returnTypeName}} operator +({{record.ManagedName}} left, {{parameter}})
+                    {
+                    return __PInvoke_{{function.ManagedName}}(left.Handle, {{RenderManagedInvocationArgument(function.Parameters[0])}});
+                    }
+                    """);
+            }
+            return writer.ToString();
+        }
+
+        if (function.OperatorToken == "-" && function.Parameters.Count == 0)
+        {
+            var returnTypeName = GetManagedWrapperTypeName(function.ReturnType);
+            if (function.ReturnType.Kind == BindingTypeKind.Handle)
+            {
+                writer.Write($$"""
+                    public static {{returnTypeName}} operator -({{record.ManagedName}} value)
+                    {
+                    return new {{function.ReturnType.ManagedTypeName}}(__PInvoke_{{function.ManagedName}}(value.Handle));
+                    }
+                    """);
+            }
+            else
+            {
+                writer.Write($$"""
+                    public static {{returnTypeName}} operator -({{record.ManagedName}} value)
+                    {
+                    return __PInvoke_{{function.ManagedName}}(value.Handle);
+                    }
+                    """);
+            }
+            return writer.ToString();
+        }
+
+        throw new NotSupportedException($"Managed operator emission does not support '{function.ManagedName}'.");
+    }
+
+    private static string RenderManagedOperatorImportDeclaration(BindingCompilation compilation, FunctionBinding function)
+    {
+        var writer = new CodeWriter();
+        var parameterList = function.Parameters.Count == 0
+            ? "nint self"
+            : string.Join(", ", new[] { "nint self" }.Concat(function.Parameters.Select(RenderManagedParameter)));
         var returnTypeName = GetManagedImportTypeName(function.ReturnType);
         var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
 

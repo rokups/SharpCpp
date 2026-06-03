@@ -79,6 +79,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - Simple single inheritance now maps to managed class inheritance, so derived wrappers reuse base methods and properties.
 - Base-typed parameters and returns now accept derived wrappers and flow through the inherited wrapper hierarchy cleanly.
 - Builtin and enum literal default parameters now surface directly in free functions, constructors, static methods, and instance methods.
+- Minimal operator projection now works for member unary/binary operators and primitive conversion operators on records.
 
 ## Verification Commands
 
