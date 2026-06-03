@@ -16,6 +16,7 @@ public sealed class FieldTests
         Assert.Equal(2, box.Count);
         Assert.True(box.Enabled);
         Assert.Equal(FieldMode.Active, box.Mode);
+        Assert.False(box.Payload.OwnsHandle);
         Assert.Equal(10, box.Payload.Value);
         Assert.Equal(99, box.FixedValue);
 
@@ -27,6 +28,7 @@ public sealed class FieldTests
         Assert.Equal(7, box.Count);
         Assert.False(box.Enabled);
         Assert.Equal(FieldMode.Suspended, box.Mode);
+        Assert.False(box.Payload.OwnsHandle);
         Assert.Equal(30, box.Payload.Value);
         Assert.Equal(99, box.FixedValue);
     }
