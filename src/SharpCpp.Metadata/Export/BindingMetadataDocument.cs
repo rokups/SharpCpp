@@ -41,7 +41,10 @@ public sealed record BindingMetadataRecordMember(
     IReadOnlyList<BindingMetadataParameter>? Parameters,
     bool IsReadOnly,
     bool IsStatic,
-    bool IsConstructor);
+    bool IsConstructor,
+    string? OperatorToken = null,
+    bool IsConversionOperator = false,
+    bool IsExplicitConversionOperator = false);
 
 public sealed record BindingMetadataFunction(
     string SymbolId,
@@ -51,7 +54,7 @@ public sealed record BindingMetadataFunction(
     BindingMetadataTypeReference ReturnType,
     IReadOnlyList<BindingMetadataParameter> Parameters);
 
-public sealed record BindingMetadataParameter(string Name, string Direction, BindingMetadataTypeReference Type);
+public sealed record BindingMetadataParameter(string Name, string Direction, BindingMetadataTypeReference Type, string? DefaultValueExpression = null);
 
 public sealed record BindingMetadataTypeReference(
     string Kind,

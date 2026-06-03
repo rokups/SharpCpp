@@ -89,7 +89,8 @@ public static class BindingMetadataExporter
             .Select(parameter => new BindingMetadataParameter(
                 parameter.ManagedName,
                 parameter.Direction.ToString().ToLowerInvariant(),
-                CreateTypeReference(parameter.Type)))
+                CreateTypeReference(parameter.Type),
+                parameter.ManagedDefaultValueExpression))
             .ToArray();
 
         return new BindingMetadataFunction(
@@ -116,11 +117,15 @@ public static class BindingMetadataExporter
                     .Select(parameter => new BindingMetadataParameter(
                         parameter.ManagedName,
                         parameter.Direction.ToString().ToLowerInvariant(),
-                        CreateTypeReference(parameter.Type)))
+                        CreateTypeReference(parameter.Type),
+                        parameter.ManagedDefaultValueExpression))
                     .ToArray(),
                 IsReadOnly: false,
                 function.IsStatic,
-                function.IsConstructor),
+                function.IsConstructor,
+                function.OperatorToken,
+                function.IsConversionOperator,
+                function.IsExplicitConversionOperator),
             FieldBinding field => new BindingMetadataRecordMember(
                 "field",
                 field.NativeName,

@@ -157,4 +157,38 @@ public sealed class BindingMetadataExporterTests
                 Assert.True(member.IsReadOnly);
             });
     }
+
+    [Fact]
+    public void Export_includes_parameter_defaults_and_operator_metadata()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "operators.hpp" });
+        var record = new RecordBinding("record:OperatorBox", "operator_box", "OperatorBox");
+        var plus = new FunctionBinding("method:operator_box:operator+", "operator+", "OperatorPlus", BindingType.Int32, "entry_plus")
+        {
+            OperatorToken = "+"
+        };
+        plus.Parameters.Add(new ParameterBinding("parameter:plus:value", "value", "value", BindingType.Int32) { ManagedDefaultValueExpression = "23" });
+        var convert = new FunctionBinding("method:operator_box:operator bool", "operator bool", "OperatorToBool", BindingType.Boolean, "entry_bool")
+        {
+            IsConversionOperator = true,
+            IsExplicitConversionOperator = true
+        };
+        record.Members.Add(plus);
+        record.Members.Add(convert);
+        compilation.Members.Add(record);
+
+        var document = BindingMetadataExporter.Export(compilation);
+        var exportedRecord = Assert.Single(document.Types);
+        var exportedMembers = exportedRecord.Members!;
+        var plusMember = Assert.Single(exportedMembers.Where(static member => member.OperatorToken == "+"));
+        var conversionMember = Assert.Single(exportedMembers.Where(static member => member.IsConversionOperator));
+
+        Assert.Equal("23", Assert.Single(plusMember.Parameters!).DefaultValueExpression);
+        Assert.True(conversionMember.IsExplicitConversionOperator);
+    }
 }
