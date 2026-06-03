@@ -2,7 +2,7 @@ using SharpCpp.Tests.E2E.Generated;
 
 using Xunit;
 
-namespace SharpCpp.Tests.E2E.RecordMethod;
+namespace SharpCpp.Tests.E2E.Records;
 
 public sealed class RecordMethodTests
 {
