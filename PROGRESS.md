@@ -86,6 +86,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - Top-level free-function overloads now get distinct generated entrypoints and private import helpers, so overloads are safe in the first slice.
 - Record static methods, instance methods, and constructors now get the same overload-safe naming treatment.
 - Partial comparison/equality operator sets now fall back to named methods when C# requires a missing companion operator.
+- Custom generators can now explicitly mark handle-returning functions as owned through the AST, without relying on naming heuristics.
 - Record static and instance overloads now get distinct generated entrypoints and private import helpers too.
 
 ## Verification Commands

@@ -43,5 +43,7 @@ public sealed class FunctionBinding : BindingNamedNode
 
     public bool IsExplicitConversionOperator { get; set; }
 
+    public bool ReturnsOwnedHandle { get; set; }
+
     public IList<ParameterBinding> Parameters => _parameters;
 }

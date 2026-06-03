@@ -263,4 +263,27 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("protected override void DisposeCore(nint handle)", managedOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("public bool OwnsHandle { get; }", managedOutput[(managedOutput.IndexOf("public partial class DerivedWidget", StringComparison.Ordinal))..], StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Managed_output_can_mark_handle_returns_as_owned_from_ast()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/Factory.hpp" });
+        var record = new RecordBinding("record:widget", "widget", "Widget");
+        var factory = new FunctionBinding("function:create_widget", "create_widget", "CreateWidget", record.HandleType, "entry_create_widget")
+        {
+            ReturnsOwnedHandle = true
+        };
+        compilation.Members.Add(record);
+        compilation.Members.Add(factory);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("return new Widget(__result, true);", managedOutput, StringComparison.Ordinal);
+    }
 }
