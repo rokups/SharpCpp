@@ -166,18 +166,21 @@ public static class BindingOutputRenderer
     private static string RenderRecord(BindingCompilation compilation, RecordBinding record)
     {
         var writer = new CodeWriter();
+        var baseClause = string.IsNullOrWhiteSpace(record.ManagedBaseTypeName)
+            ? string.Empty
+            : $" : {record.ManagedBaseTypeName}";
         writer.Write(
             $$"""
-            public sealed partial class {{record.ManagedName}}
+            public partial class {{record.ManagedName}}{{baseClause}}
             {
             internal {{record.ManagedName}}(nint handle)
+            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? string.Empty : "    : base(handle)")}}
             {
-            Handle = handle;
+            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "Handle = handle;" : string.Empty)}}
             }
 
-            public nint Handle { get; }
-
-            public bool IsNull => Handle == 0;
+            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "public nint Handle { get; }" : string.Empty)}}
+            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "public bool IsNull => Handle == 0;" : string.Empty)}}
             """);
 
         foreach (var constructor in record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor).OrderBy(static function => function.Parameters.Count))

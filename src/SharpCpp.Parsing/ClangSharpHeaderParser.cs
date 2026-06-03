@@ -140,6 +140,29 @@ public sealed class ClangSharpHeaderParser
         cursor.VisitChildren(
             (child, _, _) =>
             {
+                if (child.Kind != CXCursorKind.CXCursor_CXXBaseSpecifier)
+                {
+                    return CXChildVisitResult.CXChildVisit_Continue;
+                }
+
+                if (record.ManagedBaseTypeName is not null)
+                {
+                    return CXChildVisitResult.CXChildVisit_Continue;
+                }
+
+                var baseTypeName = NormalizeNamedTypeName(child.Type.Spelling.ToString());
+                if (recordsByName.TryGetValue(baseTypeName, out var baseRecord))
+                {
+                    record.ManagedBaseTypeName = baseRecord.ManagedName;
+                }
+
+                return CXChildVisitResult.CXChildVisit_Continue;
+            },
+            new CXClientData(IntPtr.Zero));
+
+        cursor.VisitChildren(
+            (child, _, _) =>
+            {
                 if (child.Kind != CXCursorKind.CXCursor_CXXMethod || child.CXXMethod_IsStatic)
                 {
                     return CXChildVisitResult.CXChildVisit_Continue;

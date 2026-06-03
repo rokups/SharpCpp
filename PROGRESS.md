@@ -76,6 +76,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - Handle-typed `ref` / `out` parameters now round-trip through wrapper-local ABI temps, so managed signatures stay wrapper-shaped even when native thunks mutate pointer values.
 - Enums and flags now compose inside record constructors, static methods, and instance methods, not just as top-level free-function signatures.
 - Read-only C++ fields now surface as getter-only managed properties.
+- Simple single inheritance now maps to managed class inheritance, so derived wrappers reuse base methods and properties.
 
 ## Verification Commands
 
