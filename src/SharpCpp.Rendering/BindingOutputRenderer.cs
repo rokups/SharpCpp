@@ -167,19 +167,21 @@ public static class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         var baseClause = string.IsNullOrWhiteSpace(record.ManagedBaseTypeName)
-            ? string.Empty
+            ? " : global::System.IDisposable"
             : $" : {record.ManagedBaseTypeName}";
         writer.Write(
             $$"""
             public partial class {{record.ManagedName}}{{baseClause}}
             {
-            internal {{record.ManagedName}}(nint handle)
-            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? string.Empty : "    : base(handle)")}}
+            internal {{record.ManagedName}}(nint handle, bool ownsHandle = false)
+            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? string.Empty : "    : base(handle, ownsHandle)")}}
             {
             {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "Handle = handle;" : string.Empty)}}
+            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "OwnsHandle = ownsHandle;" : string.Empty)}}
             }
 
-            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "public nint Handle { get; }" : string.Empty)}}
+            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "public nint Handle { get; private set; }" : string.Empty)}}
+            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "public bool OwnsHandle { get; }" : string.Empty)}}
             {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "public bool IsNull => Handle == 0;" : string.Empty)}}
             """);
 
@@ -198,6 +200,11 @@ public static class BindingOutputRenderer
                 }
                 """);
         }
+
+        writer.WriteLine();
+        writer.Write(RenderManagedDispose(record));
+        writer.WriteLine();
+        writer.Write(RenderManagedDeleteImportDeclaration(compilation, record));
 
         foreach (var constructor in record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor).OrderBy(static function => function.Parameters.Count))
         {
@@ -323,6 +330,52 @@ public static class BindingOutputRenderer
         return writer.ToString();
     }
 
+    private static string RenderManagedDispose(RecordBinding record)
+    {
+        if (string.IsNullOrWhiteSpace(record.ManagedBaseTypeName))
+        {
+            return """
+                public void Dispose()
+                {
+                if (Handle == 0)
+                {
+                return;
+                }
+
+                var handle = Handle;
+                Handle = 0;
+
+                if (OwnsHandle)
+                {
+                DisposeCore(handle);
+                }
+
+                global::System.GC.SuppressFinalize(this);
+                }
+
+                protected virtual void DisposeCore(nint handle)
+                {
+                __PInvoke_Delete(handle);
+                }
+                """;
+        }
+
+        return """
+            protected override void DisposeCore(nint handle)
+            {
+            __PInvoke_Delete(handle);
+            }
+            """;
+    }
+
+    private static string RenderManagedDeleteImportDeclaration(BindingCompilation compilation, RecordBinding record)
+    {
+        return $$"""
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{record.NativeName}}_delete")]
+            private static partial void __PInvoke_Delete(nint self);
+            """;
+    }
+
     private static string RenderManagedConstructor(FunctionBinding function)
     {
         var writer = new CodeWriter();
@@ -336,7 +389,7 @@ public static class BindingOutputRenderer
 
         writer.Write($$"""
             public {{constructorName}}({{parameterList}})
-                : this(__PInvoke_Ctor({{invokeArguments}}))
+                : this(__PInvoke_Ctor({{invokeArguments}}), true)
             {
             }
             """);
@@ -836,6 +889,17 @@ public static class BindingOutputRenderer
                     }
                     """);
             }
+        }
+
+        foreach (var record in compilation.Records.OrderBy(static record => record.ManagedName, StringComparer.Ordinal))
+        {
+            writer.WriteLine();
+            writer.Write($$"""
+                SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{record.NativeName}}_delete(arg_t<{{record.NativeName}}*> self)
+                {
+                delete reinterpret_cast<{{record.NativeName}}*>(self);
+                }
+                """);
         }
 
         return writer.ToString();

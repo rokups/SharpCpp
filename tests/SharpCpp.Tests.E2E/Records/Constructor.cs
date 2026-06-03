@@ -12,6 +12,17 @@ public sealed class ConstructorTests
         var box = new ConstructorBox(10);
 
         Assert.False(box.IsNull);
+        Assert.True(box.OwnsHandle);
         Assert.Equal(10, box.GetValue());
+    }
+
+    [Fact]
+    public void Constructor_created_wrapper_can_be_disposed()
+    {
+        var box = new ConstructorBox(10);
+
+        box.Dispose();
+
+        Assert.True(box.IsNull);
     }
 }

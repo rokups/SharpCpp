@@ -12,6 +12,7 @@ public sealed class FactoryTests
         var box = FactoryBox.Create(10);
 
         Assert.False(box.IsNull);
+        Assert.False(box.OwnsHandle);
         Assert.Equal(10, box.GetValue());
     }
 
@@ -37,5 +38,15 @@ public sealed class FactoryTests
 
         Assert.False(copy.IsNull);
         Assert.Equal(10, copy.GetValue());
+    }
+
+    [Fact]
+    public void Borrowed_wrapper_can_be_disposed_without_owning_native_lifetime()
+    {
+        var box = FactoryBox.Create(10);
+
+        box.Dispose();
+
+        Assert.True(box.IsNull);
     }
 }
