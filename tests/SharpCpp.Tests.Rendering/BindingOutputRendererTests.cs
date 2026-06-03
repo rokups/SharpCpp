@@ -67,7 +67,7 @@ public sealed class BindingOutputRendererTests
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
         Assert.Contains("public static void WritePayload(out PayloadRecord payload)", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("private static partial void __PInvoke_WritePayload(out nint payload);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("private static partial void __PInvoke_WritePayload_payload_recordPtrRef(out nint payload);", managedOutput, StringComparison.Ordinal);
         Assert.Contains("nint __abi_payload;", managedOutput, StringComparison.Ordinal);
         Assert.Contains("payload = new PayloadRecord(__abi_payload);", managedOutput, StringComparison.Ordinal);
     }

@@ -439,6 +439,8 @@ public sealed class ClangSharpHeaderParser
                 });
         }
 
+        function.EntryPointName = BuildEntrypointName(entryPointPrefix, nativeName, function.Parameters);
+
         return function;
     }
 
@@ -514,6 +516,34 @@ public sealed class ClangSharpHeaderParser
         }
 
         return nativeName;
+    }
+
+    private static string BuildEntrypointName(string entryPointPrefix, string baseName, IEnumerable<ParameterBinding> parameters)
+    {
+        var builder = new StringBuilder(entryPointPrefix);
+        builder.Append('_');
+        builder.Append(baseName);
+
+        foreach (var parameter in parameters)
+        {
+            builder.Append('_');
+            builder.Append(SanitizeEntrypointNamePart(parameter.CppTypeName));
+        }
+
+        return builder.ToString();
+    }
+
+    private static string SanitizeEntrypointNamePart(string value)
+    {
+        return NormalizeTypeName(value)
+            .Replace("const ", "const_", StringComparison.Ordinal)
+            .Replace("::", "_", StringComparison.Ordinal)
+            .Replace("*", "ptr", StringComparison.Ordinal)
+            .Replace("&", "ref", StringComparison.Ordinal)
+            .Replace("<", "_", StringComparison.Ordinal)
+            .Replace(">", "_", StringComparison.Ordinal)
+            .Replace(",", "_", StringComparison.Ordinal)
+            .Replace(" ", "_", StringComparison.Ordinal);
     }
 
     private static (BindingType Type, BindingParameterDirection Direction, BindingParameterAbiKind AbiKind) MapParameter(

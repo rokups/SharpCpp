@@ -83,6 +83,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - Comparison operator pairs (`==`, `!=`, `<`, `>`) now project cleanly for record wrappers.
 - Wrappers now track owned-vs-borrowed handle semantics and generated constructors opt into disposal through native delete thunks.
 - Non-nullable wrapper parameters now treat runtime `null` as `nint.Zero`, so null-handle flows remain expressible without turning every handle surface into `T?`.
+- Top-level free-function overloads now get distinct generated entrypoints and private import helpers, so overloads are safe in the first slice.
 
 ## Verification Commands
 
