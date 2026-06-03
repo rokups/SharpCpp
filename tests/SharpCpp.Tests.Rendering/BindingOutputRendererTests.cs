@@ -154,4 +154,67 @@ public sealed class BindingOutputRendererTests
         Assert.DoesNotContain("public int GetCount()", managedOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("public void SetCount(int value)", managedOutput, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Managed_output_uses_distinct_import_names_for_overloads()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/Overload.hpp" });
+        var freeOverloadA = new FunctionBinding("function:overload:int", "overload_value", "OverloadValue", BindingType.Int32, "entry_overload_int");
+        freeOverloadA.Parameters.Add(new ParameterBinding("parameter:overload:value", "value", "value", BindingType.Int32, cppTypeName: "int"));
+        var freeOverloadB = new FunctionBinding("function:overload:int,int", "overload_value", "OverloadValue", BindingType.Int32, "entry_overload_int_int");
+        freeOverloadB.Parameters.Add(new ParameterBinding("parameter:overload:left", "left", "left", BindingType.Int32, cppTypeName: "int"));
+        freeOverloadB.Parameters.Add(new ParameterBinding("parameter:overload:right", "right", "right", BindingType.Int32, cppTypeName: "int"));
+
+        var record = new RecordBinding("record:overload_box", "overload_box", "OverloadBox");
+        var ctorA = new FunctionBinding("ctor:overload_box:int", "overload_box", "OverloadBox", record.HandleType, "entry_ctor_int")
+        {
+            IsConstructor = true,
+            OwningRecordCppTypeName = "overload_box"
+        };
+        ctorA.Parameters.Add(new ParameterBinding("parameter:ctor:value", "value", "value", BindingType.Int32, cppTypeName: "int"));
+        var ctorB = new FunctionBinding("ctor:overload_box:int,int", "overload_box", "OverloadBox", record.HandleType, "entry_ctor_int_int")
+        {
+            IsConstructor = true,
+            OwningRecordCppTypeName = "overload_box"
+        };
+        ctorB.Parameters.Add(new ParameterBinding("parameter:ctor:left", "left", "left", BindingType.Int32, cppTypeName: "int"));
+        ctorB.Parameters.Add(new ParameterBinding("parameter:ctor:right", "right", "right", BindingType.Int32, cppTypeName: "int"));
+        var methodA = new FunctionBinding("method:mix:int", "mix", "Mix", BindingType.Int32, "entry_mix_int") { OwningRecordCppTypeName = "overload_box" };
+        methodA.Parameters.Add(new ParameterBinding("parameter:mix:value", "value", "value", BindingType.Int32, cppTypeName: "int"));
+        var methodB = new FunctionBinding("method:mix:int,int", "mix", "Mix", BindingType.Int32, "entry_mix_int_int") { OwningRecordCppTypeName = "overload_box" };
+        methodB.Parameters.Add(new ParameterBinding("parameter:mix:left", "left", "left", BindingType.Int32, cppTypeName: "int"));
+        methodB.Parameters.Add(new ParameterBinding("parameter:mix:right", "right", "right", BindingType.Int32, cppTypeName: "int"));
+        var staticA = new FunctionBinding("static:combine:int", "combine", "Combine", BindingType.Int32, "entry_combine_int") { IsStatic = true, OwningRecordCppTypeName = "overload_box" };
+        staticA.Parameters.Add(new ParameterBinding("parameter:combine:value", "value", "value", BindingType.Int32, cppTypeName: "int"));
+        var staticB = new FunctionBinding("static:combine:int,int", "combine", "Combine", BindingType.Int32, "entry_combine_int_int") { IsStatic = true, OwningRecordCppTypeName = "overload_box" };
+        staticB.Parameters.Add(new ParameterBinding("parameter:combine:left", "left", "left", BindingType.Int32, cppTypeName: "int"));
+        staticB.Parameters.Add(new ParameterBinding("parameter:combine:right", "right", "right", BindingType.Int32, cppTypeName: "int"));
+
+        record.Members.Add(ctorA);
+        record.Members.Add(ctorB);
+        record.Members.Add(methodA);
+        record.Members.Add(methodB);
+        record.Members.Add(staticA);
+        record.Members.Add(staticB);
+        compilation.Members.Add(record);
+        compilation.Members.Add(freeOverloadA);
+        compilation.Members.Add(freeOverloadB);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("__PInvoke_OverloadValue_int", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke_OverloadValue_int_int", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke_OverloadBox_int", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke_OverloadBox_int_int", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke_Mix_int", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke_Mix_int_int", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke_Combine_int", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke_Combine_int_int", managedOutput, StringComparison.Ordinal);
+    }
 }
