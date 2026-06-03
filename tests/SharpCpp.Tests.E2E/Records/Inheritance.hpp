@@ -34,6 +34,21 @@ struct derived_counter : base_counter
         return value_ + bonus_;
     }
 
+    base_counter* echo_base(base_counter* value)
+    {
+        return value;
+    }
+
+    static base_counter* identity_base(base_counter* value)
+    {
+        return value;
+    }
+
 private:
     int bonus_{};
 };
+
+inline int read_base_counter(base_counter* value)
+{
+    return value->get_value();
+}
