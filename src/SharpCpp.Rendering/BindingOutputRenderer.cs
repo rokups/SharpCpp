@@ -862,7 +862,7 @@ public static class BindingOutputRenderer
         var returnAttribute = GetManagedReturnAttribute(field.Type);
 
         writer.Write($$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{field.OwningRecordCppTypeName}}_{{field.NativeName}}_get")]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_get")]
             {{returnAttribute}}
             private static partial {{returnTypeName}} __PInvoke_Get_{{field.ManagedName}}(nint self);
             """);
@@ -883,7 +883,7 @@ public static class BindingOutputRenderer
                 field.CppTypeName));
 
         writer.Write($$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{field.OwningRecordCppTypeName}}_{{field.NativeName}}_set")]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_set")]
             private static partial void __PInvoke_Set_{{field.ManagedName}}(nint self, {{parameter}});
             """);
         return writer.ToString();
@@ -1033,7 +1033,7 @@ public static class BindingOutputRenderer
         {
             writer.WriteLine();
             writer.Write($$"""
-                SHARPCPP_EXPORT ret_t<{{field.CppTypeName}}> sharpcpp_e2e_{{field.OwningRecordCppTypeName}}_{{field.NativeName}}_get(arg_t<{{field.OwningRecordCppTypeName}}*> self)
+                SHARPCPP_EXPORT ret_t<{{field.CppTypeName}}> sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_get(arg_t<{{field.OwningRecordCppTypeName}}*> self)
                 {
                 return reinterpret_cast<{{field.OwningRecordCppTypeName}}*>(self)->{{field.NativeName}};
                 }
@@ -1043,7 +1043,7 @@ public static class BindingOutputRenderer
             {
                 writer.WriteLine();
                 writer.Write($$"""
-                    SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{field.OwningRecordCppTypeName}}_{{field.NativeName}}_set(arg_t<{{field.OwningRecordCppTypeName}}*> self, arg_t<{{field.CppTypeName}}> value)
+                    SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_set(arg_t<{{field.OwningRecordCppTypeName}}*> self, arg_t<{{field.CppTypeName}}> value)
                     {
                     reinterpret_cast<{{field.OwningRecordCppTypeName}}*>(self)->{{field.NativeName}} = value;
                     }
@@ -1055,9 +1055,9 @@ public static class BindingOutputRenderer
         {
             writer.WriteLine();
             writer.Write($$"""
-                SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{record.NativeName}}_delete(arg_t<{{record.NativeName}}*> self)
+                SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{record.NativeName}}_delete(arg_t<{{record.CppQualifiedName}}*> self)
                 {
-                delete reinterpret_cast<{{record.NativeName}}*>(self);
+                delete reinterpret_cast<{{record.CppQualifiedName}}*>(self);
                 }
                 """);
         }
@@ -1245,6 +1245,11 @@ public static class BindingOutputRenderer
             .Replace(">", "_", StringComparison.Ordinal)
             .Replace(",", "_", StringComparison.Ordinal)
             .Replace(" ", "_", StringComparison.Ordinal);
+    }
+
+    private static string SanitizeNativeEntrypointName(string value)
+    {
+        return value.Replace("::", "_", StringComparison.Ordinal);
     }
 
     private static string GetManagedParameterAttribute(BindingType type)

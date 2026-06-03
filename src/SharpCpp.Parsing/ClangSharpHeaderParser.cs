@@ -70,6 +70,10 @@ public sealed class ClangSharpHeaderParser
 
                 switch (child.Kind)
                 {
+                    case CXCursorKind.CXCursor_Namespace:
+                        VisitNamespace(child, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix);
+                        break;
+
                     case CXCursorKind.CXCursor_StructDecl:
                         RegisterRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides);
                         break;
@@ -133,7 +137,8 @@ public sealed class ClangSharpHeaderParser
             return;
         }
 
-        var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(nativeName));
+        var cppQualifiedName = GetCppQualifiedName(cursor);
+        var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(nativeName), cppQualifiedName);
         recordsByName.Add(nativeName, record);
         compilation.Members.Add(record);
 
@@ -246,16 +251,18 @@ public sealed class ClangSharpHeaderParser
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
     {
         var nativeName = cursor.Spelling.ToString();
+        var returnType = MapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides);
         var function = new FunctionBinding(
             $"method:{record.NativeName}:{nativeName}",
             nativeName,
             GetManagedMethodName(cursor, nativeName),
-            MapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides),
+            returnType,
             entryPointName: $"sharpcpp_e2e_{record.NativeName}_{GetEntrypointSuffix(cursor, nativeName)}",
-            cppReturnTypeName: NormalizeTypeName(cursor.ResultType.Spelling.ToString()))
+            cppReturnTypeName: returnType.CppTypeName,
+            cppQualifiedName: $"{record.CppQualifiedName}::{nativeName}")
         {
             IsStatic = false,
-            OwningRecordCppTypeName = record.NativeName
+            OwningRecordCppTypeName = record.CppQualifiedName
         };
         ApplyOperatorMetadata(function, cursor);
 
@@ -277,7 +284,7 @@ public sealed class ClangSharpHeaderParser
                     parameterType,
                     direction,
                     abiKind,
-                    NormalizeTypeName(parameterCursor.Type.Spelling.ToString()))
+                    ResolveQualifiedTypeName(parameterCursor.Type, recordsByName))
                 {
                     ManagedDefaultValueExpression = GetManagedDefaultValueExpression(parameterCursor, parameterType)
                 });
@@ -296,16 +303,18 @@ public sealed class ClangSharpHeaderParser
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
     {
         var nativeName = cursor.Spelling.ToString();
+        var returnType = MapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides);
         var function = new FunctionBinding(
             $"static-method:{record.NativeName}:{nativeName}",
             nativeName,
             GetManagedMethodName(cursor, nativeName),
-            MapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides),
+            returnType,
             entryPointName: $"sharpcpp_e2e_{record.NativeName}_{GetEntrypointSuffix(cursor, nativeName)}",
-            cppReturnTypeName: NormalizeTypeName(cursor.ResultType.Spelling.ToString()))
+            cppReturnTypeName: returnType.CppTypeName,
+            cppQualifiedName: $"{record.CppQualifiedName}::{nativeName}")
         {
             IsStatic = true,
-            OwningRecordCppTypeName = record.NativeName
+            OwningRecordCppTypeName = record.CppQualifiedName
         };
         ApplyOperatorMetadata(function, cursor);
 
@@ -327,7 +336,7 @@ public sealed class ClangSharpHeaderParser
                     parameterType,
                     direction,
                     abiKind,
-                    NormalizeTypeName(parameterCursor.Type.Spelling.ToString()))
+                    ResolveQualifiedTypeName(parameterCursor.Type, recordsByName))
                 {
                     ManagedDefaultValueExpression = GetManagedDefaultValueExpression(parameterCursor, parameterType)
                 });
@@ -351,11 +360,12 @@ public sealed class ClangSharpHeaderParser
             record.ManagedName,
             record.HandleType,
             entryPointName: $"sharpcpp_e2e_{record.NativeName}_ctor",
-            cppReturnTypeName: $"{record.NativeName}*")
+            cppReturnTypeName: $"{record.CppQualifiedName}*",
+            cppQualifiedName: $"{record.CppQualifiedName}::{record.NativeName}")
         {
             IsStatic = false,
             IsConstructor = true,
-            OwningRecordCppTypeName = record.NativeName
+            OwningRecordCppTypeName = record.CppQualifiedName
         };
 
         for (uint parameterIndex = 0; parameterIndex < cursor.NumArguments; parameterIndex++)
@@ -376,7 +386,7 @@ public sealed class ClangSharpHeaderParser
                     parameterType,
                     direction,
                     abiKind,
-                    NormalizeTypeName(parameterCursor.Type.Spelling.ToString()))
+                    ResolveQualifiedTypeName(parameterCursor.Type, recordsByName))
                 {
                     ManagedDefaultValueExpression = GetManagedDefaultValueExpression(parameterCursor, parameterType)
                 });
@@ -401,7 +411,7 @@ public sealed class ClangSharpHeaderParser
             ToPascalCase(nativeName),
             MapType(cursor.Type, recordsByName, enumsByName, managedTypeOverrides),
             NormalizeTypeName(cursor.Type.Spelling.ToString()),
-            record.NativeName,
+            record.CppQualifiedName,
             isReadOnly: cursor.Type.IsConstQualified);
     }
 
@@ -413,13 +423,14 @@ public sealed class ClangSharpHeaderParser
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
     {
         var nativeName = cursor.Spelling.ToString();
+        var returnType = MapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides);
         var function = new FunctionBinding(
             $"function:{nativeName}",
             nativeName,
             ToPascalCase(nativeName),
-            MapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides),
+            returnType,
             entryPointName: $"{entryPointPrefix}_{nativeName}",
-            cppReturnTypeName: NormalizeTypeName(cursor.ResultType.Spelling.ToString()));
+            cppReturnTypeName: returnType.CppTypeName);
 
         for (uint parameterIndex = 0; parameterIndex < cursor.NumArguments; parameterIndex++)
         {
@@ -439,7 +450,7 @@ public sealed class ClangSharpHeaderParser
                     parameterType,
                     direction,
                     abiKind,
-                    NormalizeTypeName(parameterCursor.Type.Spelling.ToString()))
+                    ResolveQualifiedTypeName(parameterCursor.Type, recordsByName))
                 {
                     ManagedDefaultValueExpression = GetManagedDefaultValueExpression(parameterCursor, parameterType)
                 });
@@ -635,10 +646,10 @@ public sealed class ClangSharpHeaderParser
 
             if (pointeeType.kind == CXTypeKind.CXType_Record)
             {
-                var recordName = NormalizeNamedTypeName(pointeeType.Spelling.ToString());
+                var recordName = GetRecordQualifiedName(pointeeType, recordsByName);
                 if (!recordsByName.TryGetValue(recordName, out var record))
                 {
-                    record = new RecordBinding($"record:{recordName}", recordName, recordName);
+                    record = new RecordBinding($"record:{recordName}", recordName, ToPascalCase(recordName));
                     recordsByName.Add(recordName, record);
                 }
 
@@ -648,7 +659,7 @@ public sealed class ClangSharpHeaderParser
 
         if (normalizedType.kind == CXTypeKind.CXType_Record)
         {
-            var recordName = NormalizeNamedTypeName(normalizedType.Spelling.ToString());
+            var recordName = GetRecordQualifiedName(normalizedType, recordsByName);
             if (recordsByName.TryGetValue(recordName, out var record))
             {
                 return record.HandleType;
@@ -694,6 +705,69 @@ public sealed class ClangSharpHeaderParser
             nativeName
                 .Split('_', StringSplitOptions.RemoveEmptyEntries)
                 .Select(static part => char.ToUpperInvariant(part[0]) + part[1..]));
+    }
+
+    private static string GetRecordQualifiedName(CXType type, IDictionary<string, RecordBinding> recordsByName)
+    {
+        var spelling = type.Spelling.ToString();
+        var normalizedName = NormalizeNamedTypeName(spelling);
+
+        if (recordsByName.TryGetValue(normalizedName, out _))
+        {
+            return normalizedName;
+        }
+
+        foreach (var candidate in recordsByName.Values)
+        {
+            if (spelling.Contains(candidate.CppQualifiedName, StringComparison.Ordinal))
+            {
+                return candidate.NativeName;
+            }
+        }
+
+        return normalizedName;
+    }
+
+    private static string ResolveQualifiedTypeName(CXType type, IDictionary<string, RecordBinding> recordsByName)
+    {
+        var spelling = NormalizeTypeName(type.Spelling.ToString());
+
+        foreach (var record in recordsByName.Values)
+        {
+            spelling = spelling.Replace(record.NativeName, record.CppQualifiedName, StringComparison.Ordinal);
+        }
+
+        return spelling;
+    }
+
+    private static string GetCppQualifiedName(CXCursor cursor)
+    {
+        var names = new List<string>();
+        var current = cursor.SemanticParent;
+
+        while (current.Kind is CXCursorKind.CXCursor_Namespace
+            or CXCursorKind.CXCursor_ClassDecl
+            or CXCursorKind.CXCursor_StructDecl)
+        {
+            var parentName = current.Spelling.ToString();
+            if (!string.IsNullOrWhiteSpace(parentName))
+            {
+                names.Add(parentName);
+            }
+
+            current = current.SemanticParent;
+        }
+
+        var ownName = cursor.Spelling.ToString();
+
+        if (names.Count == 0)
+        {
+            return ownName;
+        }
+
+        names.Reverse();
+        names.Add(ownName);
+        return string.Join("::", names);
     }
 
     private static string NormalizeNamedTypeName(string spelling)
@@ -995,6 +1069,41 @@ public sealed class ClangSharpHeaderParser
         }
 
         return result;
+    }
+
+    private static unsafe void VisitNamespace(
+        CXCursor namespaceCursor,
+        BindingCompilation compilation,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        string entryPointPrefix)
+    {
+        namespaceCursor.VisitChildren(
+            (child, _, _) =>
+            {
+                switch (child.Kind)
+                {
+                    case CXCursorKind.CXCursor_Namespace:
+                        VisitNamespace(child, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix);
+                        break;
+
+                    case CXCursorKind.CXCursor_StructDecl:
+                        RegisterRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides);
+                        break;
+
+                    case CXCursorKind.CXCursor_EnumDecl:
+                        RegisterEnum(child, compilation, enumsByName);
+                        break;
+
+                    case CXCursorKind.CXCursor_FunctionDecl:
+                        compilation.Members.Add(CreateFunction(child, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides));
+                        break;
+                }
+
+                return CXChildVisitResult.CXChildVisit_Continue;
+            },
+            new CXClientData(IntPtr.Zero));
     }
 
     private sealed record ManagedTypeOverride(string CppTypeName, string PublicTypeName, string AbiTypeName);

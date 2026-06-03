@@ -10,7 +10,8 @@ public sealed class FunctionBinding : BindingNamedNode
         string managedName,
         BindingType returnType,
         string? entryPointName = null,
-        string? cppReturnTypeName = null)
+        string? cppReturnTypeName = null,
+        string? cppQualifiedName = null)
         : base(symbolId, nativeName, managedName)
     {
         ArgumentNullException.ThrowIfNull(returnType);
@@ -18,6 +19,7 @@ public sealed class FunctionBinding : BindingNamedNode
         ReturnType = returnType;
         EntryPointName = string.IsNullOrWhiteSpace(entryPointName) ? nativeName : entryPointName;
         CppReturnTypeName = string.IsNullOrWhiteSpace(cppReturnTypeName) ? returnType.CppTypeName : cppReturnTypeName;
+        CppQualifiedName = string.IsNullOrWhiteSpace(cppQualifiedName) ? nativeName : cppQualifiedName;
         _parameters = new BindingNodeCollection<ParameterBinding>(this);
     }
 
@@ -30,6 +32,8 @@ public sealed class FunctionBinding : BindingNamedNode
     public string EntryPointName { get; set; }
 
     public string CppReturnTypeName { get; set; }
+
+    public string CppQualifiedName { get; set; }
 
     public bool IsStatic { get; set; } = true;
 

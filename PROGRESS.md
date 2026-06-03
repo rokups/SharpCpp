@@ -88,6 +88,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - Partial comparison/equality operator sets now fall back to named methods when C# requires a missing companion operator.
 - Custom generators can now explicitly mark handle-returning functions as owned through the AST, without relying on naming heuristics.
 - Record static and instance overloads now get distinct generated entrypoints and private import helpers too.
+- C++ namespace-qualified types now correctly round-trip through the parser and renderer: `CppQualifiedName` on `RecordBinding` and `FunctionBinding` stores the full `ns1::ns2::Name` path, native C++ thunks use it for `reinterpret_cast`, `new`, `delete`, and `arg_t<>/ret_t<>` type arguments, while managed C# code uses the unqualified `NativeName`-derived PascalCase name. Entrypoint names remain flat (unqualified) since C linkage cannot encode `::`.
 
 ## Verification Commands
 
