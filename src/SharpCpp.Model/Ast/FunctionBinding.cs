@@ -40,6 +40,8 @@ public sealed class FunctionBinding : BindingNamedNode
 
     public bool IsStatic { get; set; } = true;
 
+    public BindingAccessModifier AccessModifier { get; set; } = BindingAccessModifier.Public;
+
     public bool IsVirtual { get; set; }
 
     public bool IsPureVirtual { get; set; }

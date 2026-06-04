@@ -372,6 +372,69 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Director_records_render_protected_members_with_director_helpers()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/Protected.hpp" });
+        var record = new RecordBinding("record:protected_counter", "protected_counter", "ProtectedCounter")
+        {
+            IsDirector = true
+        };
+        record.Members.Add(new FunctionBinding("ctor:protected_counter:int", "protected_counter", "ProtectedCounter", record.HandleType, "entry_ctor")
+        {
+            IsConstructor = true,
+            AccessModifier = BindingAccessModifier.Protected,
+            OwningRecordCppTypeName = "protected_counter"
+        });
+        ((FunctionBinding)record.Members[^1]).Parameters.Add(new ParameterBinding("parameter:seed", "seed", "seed", BindingType.Int32, cppTypeName: "int"));
+        record.Members.Add(new FunctionBinding("method:protected_counter:increment", "increment", "Increment", BindingType.Int32, "entry_increment")
+        {
+            IsStatic = false,
+            AccessModifier = BindingAccessModifier.Protected,
+            OwningRecordCppTypeName = "protected_counter"
+        });
+        ((FunctionBinding)record.Members[^1]).Parameters.Add(new ParameterBinding("parameter:amount", "amount", "amount", BindingType.Int32, cppTypeName: "int"));
+        record.Members.Add(new FunctionBinding("method:protected_counter:scale", "scale", "Scale", BindingType.Int32, "entry_scale")
+        {
+            IsStatic = false,
+            IsVirtual = true,
+            AccessModifier = BindingAccessModifier.Protected,
+            OwningRecordCppTypeName = "protected_counter"
+        });
+        ((FunctionBinding)record.Members[^1]).Parameters.Add(new ParameterBinding("parameter:value", "value", "value", BindingType.Int32, cppTypeName: "int"));
+        record.Members.Add(new FunctionBinding("method:protected_counter:call_scale", "call_scale", "CallScale", BindingType.Int32, "entry_call_scale")
+        {
+            IsStatic = false,
+            OwningRecordCppTypeName = "protected_counter"
+        });
+        ((FunctionBinding)record.Members[^1]).Parameters.Add(new ParameterBinding("parameter:value", "value", "value", BindingType.Int32, cppTypeName: "int"));
+        record.Members.Add(new FieldBinding("field:protected_counter:factor_", "factor_", "Factor", BindingType.Int32, "int", "protected_counter")
+        {
+            AccessModifier = BindingAccessModifier.Protected
+        });
+        compilation.Members.Add(record);
+
+        BindingCompilationPolymorphismPass.Apply(compilation);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("protected ProtectedCounter(int", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("protected int Increment(int amount)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("protected virtual int Scale(int value)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("protected int Factor", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__call_Increment", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("__call_Scale", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("__get_Factor", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("protected member access requires a director-backed instance", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Secondary_base_methods_are_projected_with_adjusted_native_dispatch()
     {
         var compilation = new BindingCompilation(

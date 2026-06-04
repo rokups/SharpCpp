@@ -176,6 +176,18 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
+        foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && function.AccessModifier == BindingAccessModifier.Protected))
+        {
+            writer.WriteLine();
+            writer.Write(RenderNativeProtectedMethodHelper(record, method));
+        }
+
+        foreach (var field in record.Members.OfType<FieldBinding>().Where(static field => field.AccessModifier == BindingAccessModifier.Protected))
+        {
+            writer.WriteLine();
+            writer.Write(RenderNativeProtectedFieldHelpers(record, field));
+        }
+
         writer.Write($$"""
             void connect_director({{string.Join(", ", slots.Select((_, index) => $"void* slot{index}"))}})
             {
@@ -345,6 +357,139 @@ public static partial class BindingOutputRenderer
     private static string GetNativeDirectorCallbackFieldName(int index)
     {
         return $"callback_{index}_";
+    }
+
+    private static string RenderNativeProtectedMethodHelper(RecordBinding record, FunctionBinding method)
+    {
+        ValidateProtectedMemberSupport(method);
+
+        var parameterList = string.Join(", ", method.Parameters.Select(parameter => $"arg_t<{parameter.CppTypeName}> {parameter.NativeName}"));
+        var abiArguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
+        var writer = new CodeWriter();
+        var helperName = GetNativeProtectedMethodHelperName(method);
+
+        writer.Write($$"""
+            {{(method.IsStatic ? "static " : string.Empty)}}ret_t<{{method.CppReturnTypeName}}> {{helperName}}({{parameterList}})
+            {
+            """);
+
+        if (method.IsStatic)
+        {
+            writer.WriteLine(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
+                ? $"{record.CppQualifiedName}::{method.NativeName}({abiArguments});"
+                : $"return {record.CppQualifiedName}::{method.NativeName}({abiArguments});");
+        }
+        else
+        {
+            writer.WriteLine(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
+                ? $"this->{method.NativeName}({abiArguments});"
+                : $"return this->{method.NativeName}({abiArguments});");
+        }
+
+        writer.Write(
+            """
+            }
+            """);
+        return writer.ToString();
+    }
+
+    private static string RenderNativeProtectedFieldHelpers(RecordBinding record, FieldBinding field)
+    {
+        ValidateProtectedMemberSupport(field);
+
+        var writer = new CodeWriter();
+        writer.Write($$"""
+            ret_t<{{field.CppTypeName}}> {{GetNativeProtectedFieldGetterHelperName(field)}}()
+            {
+            return this->{{field.NativeName}};
+            }
+            """);
+
+        if (!field.IsReadOnly)
+        {
+            writer.WriteLine();
+            writer.Write($$"""
+                void {{GetNativeProtectedFieldSetterHelperName(field)}}(arg_t<{{field.CppTypeName}}> value)
+                {
+                this->{{field.NativeName}} = value;
+                }
+                """);
+        }
+
+        return writer.ToString();
+    }
+
+    private static string RenderNativeProtectedMethodInvocation(BindingCompilation compilation, FunctionBinding method, string abiArguments, string memberSignature)
+    {
+        var record = compilation.Records.First(candidate => string.Equals(candidate.CppQualifiedName, method.OwningRecordCppTypeName, StringComparison.Ordinal));
+        return $$"""
+                if (auto* director = dynamic_cast<{{GetNativeDirectorClassName(record)}}*>(self))
+                {
+                {{(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
+                    ? $"director->{GetNativeProtectedMethodHelperName(method)}({abiArguments}); return;"
+                    : $"return director->{GetNativeProtectedMethodHelperName(method)}({abiArguments});")}}
+                }
+
+                throw std::runtime_error("SharpCpp protected member access requires a director-backed instance.");
+                """;
+    }
+
+    private static string RenderNativeProtectedFieldGetInvocation(BindingCompilation compilation, FieldBinding field)
+    {
+        var record = compilation.Records.First(candidate => string.Equals(candidate.CppQualifiedName, field.OwningRecordCppTypeName, StringComparison.Ordinal));
+        return $$"""
+                if (auto* director = dynamic_cast<{{GetNativeDirectorClassName(record)}}*>(self))
+                {
+                return director->{{GetNativeProtectedFieldGetterHelperName(field)}}();
+                }
+
+                throw std::runtime_error("SharpCpp protected field access requires a director-backed instance.");
+                """;
+    }
+
+    private static string RenderNativeProtectedFieldSetInvocation(BindingCompilation compilation, FieldBinding field)
+    {
+        var record = compilation.Records.First(candidate => string.Equals(candidate.CppQualifiedName, field.OwningRecordCppTypeName, StringComparison.Ordinal));
+        return $$"""
+                if (auto* director = dynamic_cast<{{GetNativeDirectorClassName(record)}}*>(self))
+                {
+                director->{{GetNativeProtectedFieldSetterHelperName(field)}}(value);
+                return;
+                }
+
+                throw std::runtime_error("SharpCpp protected field access requires a director-backed instance.");
+                """;
+    }
+
+    private static string GetNativeProtectedMethodHelperName(FunctionBinding method)
+    {
+        return $"__call_{SanitizeManagedToken(method.ImportMethodName)}";
+    }
+
+    private static string GetNativeProtectedFieldGetterHelperName(FieldBinding field)
+    {
+        return $"__get_{SanitizeManagedToken(field.ManagedName)}";
+    }
+
+    private static string GetNativeProtectedFieldSetterHelperName(FieldBinding field)
+    {
+        return $"__set_{SanitizeManagedToken(field.ManagedName)}";
+    }
+
+    private static void ValidateProtectedMemberSupport(FunctionBinding method)
+    {
+        if (method.Parameters.Any(parameter => parameter.Direction is not BindingParameterDirection.In || parameter.AbiKind is not BindingParameterAbiKind.Value))
+        {
+            throw new NotSupportedException($"Protected member '{method.ManagedName}' only supports in-value parameters in this slice.");
+        }
+    }
+
+    private static void ValidateProtectedMemberSupport(FieldBinding field)
+    {
+        if (field.Type.Kind == BindingTypeKind.Handle)
+        {
+            throw new NotSupportedException($"Protected field '{field.ManagedName}' does not support handle-typed storage in this slice.");
+        }
     }
 
 
@@ -710,7 +855,7 @@ public static partial class BindingOutputRenderer
         var memberModifier = GetManagedInstanceMethodModifier(compilation, record, function);
 
         writer.Write($$"""
-            public {{memberModifier}}{{returnTypeName}} {{function.ManagedName}}({{parameterList}})
+            {{GetManagedVisibility(function.AccessModifier)}} {{memberModifier}}{{returnTypeName}} {{function.ManagedName}}({{parameterList}})
             {
             """);
 
@@ -808,7 +953,7 @@ public static partial class BindingOutputRenderer
         var propertyTypeName = GetManagedPublicReturnTypeName(type);
 
         writer.Write($$"""
-            public {{propertyTypeName}} {{property.PropertyName}}
+            {{GetManagedVisibility(GetAccessorPropertyAccessModifier(property))}} {{propertyTypeName}} {{property.PropertyName}}
             {
             """);
 
@@ -900,7 +1045,7 @@ public static partial class BindingOutputRenderer
         var importMethodName = GetManagedImportMethodName(function);
 
         writer.Write($$"""
-            public {{constructorName}}({{parameterList}})
+            {{GetManagedVisibility(function.AccessModifier)}} {{constructorName}}({{parameterList}})
                 : this(__PInvoke.{{importMethodName}}({{invokeArguments}}), true)
             {
             {{(requiresDirector ? "ConnectDirector();" : string.Empty)}}
@@ -1044,7 +1189,7 @@ public static partial class BindingOutputRenderer
         var importMethodName = GetManagedImportMethodName(function);
 
         writer.Write($$"""
-            public static {{returnTypeName}} {{function.ManagedName}}({{parameterList}})
+            {{GetManagedVisibility(function.AccessModifier)}} static {{returnTypeName}} {{function.ManagedName}}({{parameterList}})
             {
             """);
 
@@ -1313,7 +1458,7 @@ public static partial class BindingOutputRenderer
         WriteDocumentationComment(writer, field);
         var propertyTypeName = GetManagedPublicReturnTypeName(field.Type);
         writer.Write($$"""
-            public {{propertyTypeName}} {{field.ManagedName}}
+            {{GetManagedVisibility(field.AccessModifier)}} {{propertyTypeName}} {{field.ManagedName}}
             {
             get
             {
@@ -1505,7 +1650,9 @@ public static partial class BindingOutputRenderer
                 using FT = {{memberSignature}};
                 """);
 
-            writer.Write(RenderNativeMethodInvocation(method, abiArguments, memberSignature));
+            writer.Write(method.AccessModifier == BindingAccessModifier.Protected
+                ? RenderNativeProtectedMethodInvocation(compilation, method, abiArguments, memberSignature)
+                : RenderNativeMethodInvocation(method, abiArguments, memberSignature));
 
             writer.Write("""
                 }
@@ -1567,7 +1714,9 @@ public static partial class BindingOutputRenderer
             writer.Write($$"""
                 SHARPCPP_EXPORT ret_t<{{field.CppTypeName}}> sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_get(arg_t<{{field.OwningRecordCppTypeName}}*> self)
                 {
-                return MarshallerInvoker::get_field<{{field.CppTypeName}}>(&{{field.OwningRecordCppTypeName}}::{{field.NativeName}}, self);
+                {{(field.AccessModifier == BindingAccessModifier.Protected
+                    ? RenderNativeProtectedFieldGetInvocation(compilation, field)
+                    : $"return MarshallerInvoker::get_field<{field.CppTypeName}>(&{field.OwningRecordCppTypeName}::{field.NativeName}, self);")}}
                 }
                 """);
 
@@ -1577,7 +1726,9 @@ public static partial class BindingOutputRenderer
                 writer.Write($$"""
                     SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_set(arg_t<{{field.OwningRecordCppTypeName}}*> self, arg_t<{{field.CppTypeName}}> value)
                     {
-                    MarshallerInvoker::set_field<{{field.CppTypeName}}>(&{{field.OwningRecordCppTypeName}}::{{field.NativeName}}, self, value);
+                    {{(field.AccessModifier == BindingAccessModifier.Protected
+                        ? RenderNativeProtectedFieldSetInvocation(compilation, field)
+                        : $"MarshallerInvoker::set_field<{field.CppTypeName}>(&{field.OwningRecordCppTypeName}::{field.NativeName}, self, value);")}}
                     }
                     """);
             }
@@ -1814,6 +1965,22 @@ public static partial class BindingOutputRenderer
         }
 
         return ShouldUseNewModifier(compilation, record, function.ManagedName) ? "new " : string.Empty;
+    }
+
+    private static string GetManagedVisibility(BindingAccessModifier accessModifier)
+    {
+        return accessModifier == BindingAccessModifier.Protected ? "protected" : "public";
+    }
+
+    private static BindingAccessModifier GetAccessorPropertyAccessModifier(AccessorProperty property)
+    {
+        if (property.Getter?.AccessModifier == BindingAccessModifier.Protected ||
+            property.Setter?.AccessModifier == BindingAccessModifier.Protected)
+        {
+            return BindingAccessModifier.Protected;
+        }
+
+        return BindingAccessModifier.Public;
     }
 
     private static FunctionBinding? FindPrimaryBaseVirtualMatch(BindingCompilation compilation, RecordBinding record, FunctionBinding function)

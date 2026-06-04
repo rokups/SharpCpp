@@ -33,4 +33,6 @@ public sealed class FieldBinding : BindingNamedNode
     public string OwningRecordCppTypeName { get; set; }
 
     public bool IsReadOnly { get; set; }
+
+    public BindingAccessModifier AccessModifier { get; set; } = BindingAccessModifier.Public;
 }

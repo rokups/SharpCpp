@@ -302,8 +302,7 @@ public sealed class ClangSharpHeaderParser
                     return CXChildVisitResult.CXChildVisit_Continue;
                 }
 
-                if (child.CXXAccessSpecifier == CX_CXXAccessSpecifier.CX_CXXPrivate ||
-                    child.CXXAccessSpecifier == CX_CXXAccessSpecifier.CX_CXXProtected)
+                if (!ShouldParseRecordMember(record, child.CXXAccessSpecifier))
                 {
                     return CXChildVisitResult.CXChildVisit_Continue;
                 }
@@ -324,8 +323,7 @@ public sealed class ClangSharpHeaderParser
                     return CXChildVisitResult.CXChildVisit_Continue;
                 }
 
-                if (child.CXXAccessSpecifier == CX_CXXAccessSpecifier.CX_CXXPrivate ||
-                    child.CXXAccessSpecifier == CX_CXXAccessSpecifier.CX_CXXProtected)
+                if (!ShouldParseRecordMember(record, child.CXXAccessSpecifier))
                 {
                     return CXChildVisitResult.CXChildVisit_Continue;
                 }
@@ -346,8 +344,7 @@ public sealed class ClangSharpHeaderParser
                     return CXChildVisitResult.CXChildVisit_Continue;
                 }
 
-                if (child.CXXAccessSpecifier == CX_CXXAccessSpecifier.CX_CXXPrivate ||
-                    child.CXXAccessSpecifier == CX_CXXAccessSpecifier.CX_CXXProtected)
+                if (!ShouldParseRecordMember(record, child.CXXAccessSpecifier))
                 {
                     return CXChildVisitResult.CXChildVisit_Continue;
                 }
@@ -368,8 +365,7 @@ public sealed class ClangSharpHeaderParser
                     return CXChildVisitResult.CXChildVisit_Continue;
                 }
 
-                if (child.CXXAccessSpecifier == CX_CXXAccessSpecifier.CX_CXXPrivate ||
-                    child.CXXAccessSpecifier == CX_CXXAccessSpecifier.CX_CXXProtected)
+                if (!ShouldParseRecordMember(record, child.CXXAccessSpecifier))
                 {
                     return CXChildVisitResult.CXChildVisit_Continue;
                 }
@@ -403,6 +399,7 @@ public sealed class ClangSharpHeaderParser
             cppQualifiedName: $"{record.CppQualifiedName}::{nativeName}")
         {
             IsStatic = false,
+            AccessModifier = MapAccessModifier(cursor.CXXAccessSpecifier),
             IsVirtual = cursor.CXXMethod_IsVirtual,
             IsPureVirtual = cursor.CXXMethod_IsPureVirtual,
             IsConstMethod = clang.CXXMethod_isConst(cursor) != 0,
@@ -459,6 +456,7 @@ public sealed class ClangSharpHeaderParser
             cppQualifiedName: $"{record.CppQualifiedName}::{nativeName}")
         {
             IsStatic = true,
+            AccessModifier = MapAccessModifier(cursor.CXXAccessSpecifier),
             OwningRecordCppTypeName = record.CppQualifiedName
         };
         ApplyOperatorMetadata(function, cursor);
@@ -510,6 +508,7 @@ public sealed class ClangSharpHeaderParser
             cppQualifiedName: $"{record.CppQualifiedName}::{record.NativeName}")
         {
             IsStatic = false,
+            AccessModifier = MapAccessModifier(cursor.CXXAccessSpecifier),
             IsConstructor = true,
             OwningRecordCppTypeName = record.CppQualifiedName
         };
@@ -559,7 +558,10 @@ public sealed class ClangSharpHeaderParser
             MapType(cursor.Type, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
             NormalizeTypeName(cursor.Type.Spelling.ToString()),
             record.CppQualifiedName,
-            isReadOnly: cursor.Type.IsConstQualified);
+            isReadOnly: cursor.Type.IsConstQualified)
+        {
+            AccessModifier = MapAccessModifier(cursor.CXXAccessSpecifier)
+        };
     }
 
     private static FunctionBinding CreateFunction(
@@ -921,6 +923,26 @@ public sealed class ClangSharpHeaderParser
         }
 
         return spelling;
+    }
+
+    private static bool ShouldParseRecordMember(RecordBinding record, CX_CXXAccessSpecifier accessSpecifier)
+    {
+        return accessSpecifier switch
+        {
+            CX_CXXAccessSpecifier.CX_CXXPrivate => false,
+            CX_CXXAccessSpecifier.CX_CXXProtected => record.IsDirector,
+            _ => true
+        };
+    }
+
+    private static BindingAccessModifier MapAccessModifier(CX_CXXAccessSpecifier accessSpecifier)
+    {
+        return accessSpecifier switch
+        {
+            CX_CXXAccessSpecifier.CX_CXXProtected => BindingAccessModifier.Protected,
+            CX_CXXAccessSpecifier.CX_CXXPrivate => BindingAccessModifier.Private,
+            _ => BindingAccessModifier.Public
+        };
     }
 
     private static void UpdatePolymorphism(RecordBinding record, IDictionary<string, RecordBinding> recordsByName)
