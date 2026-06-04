@@ -666,8 +666,10 @@ public static partial class BindingOutputRenderer
             internal {{record.ManagedName}}(nint handle, bool ownsHandle = false)
                 : base(handle, ownsHandle)
             {
-            if (!IsInvalid)
-                s_instanceCache.Register(this);
+                if (!IsInvalid)
+                {
+                    s_instanceCache.Register(this);
+                }
             }
 
             {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "public nint Handle => DangerousGetHandle();" : string.Empty)}}
@@ -1029,10 +1031,13 @@ public static partial class BindingOutputRenderer
             var setterArgument = property.Setter.Parameters[0].Type.Kind == BindingTypeKind.Handle
                 ? "global::SharpCpp.Support.NativeObject.GetHandle(value)"
                 : "value";
+            var setterKeepAlive = property.Setter.Parameters[0].Type.Kind == BindingTypeKind.Handle
+                ? "\n            global::System.GC.KeepAlive(value);"
+                : string.Empty;
             writer.Write($$"""
                 set
                 {
-                __PInvoke.{{GetManagedImportMethodName(property.Setter)}}(this, {{setterArgument}});
+                __PInvoke.{{GetManagedImportMethodName(property.Setter)}}(this, {{setterArgument}});{{setterKeepAlive}}
                 }
                 """);
         }
@@ -1088,14 +1093,42 @@ public static partial class BindingOutputRenderer
             ? owningRecord.ManagedName
             : NormalizeEnumManagedTypeName(function.ManagedName);
         var importMethodName = GetManagedImportMethodName(function);
+        var hasHandleParams = function.Parameters.Any(static parameter => parameter.Type.Kind == BindingTypeKind.Handle);
 
-        writer.Write($$"""
-            {{GetManagedVisibility(function.AccessModifier)}} {{constructorName}}({{parameterList}})
-                : this(__PInvoke.{{importMethodName}}({{invokeArguments}}), true)
-            {
-            {{(requiresDirector ? "ConnectDirector();" : string.Empty)}}
-            }
-            """);
+        if (hasHandleParams)
+        {
+            var factoryName = $"__CreateHandle_{importMethodName}";
+            var handleParams = function.Parameters.Where(static parameter => parameter.Type.Kind == BindingTypeKind.Handle).ToArray();
+            var keepAliveStatements = string.Join(
+                "\n        ",
+                handleParams.Select(static parameter => $"global::System.GC.KeepAlive({parameter.ManagedName});"));
+
+            writer.Write($$"""
+                {{GetManagedVisibility(function.AccessModifier)}} {{constructorName}}({{parameterList}})
+                    : this({{factoryName}}({{string.Join(", ", function.Parameters.Select(static parameter => parameter.ManagedName))}}), true)
+                {
+                {{(requiresDirector ? "ConnectDirector();" : string.Empty)}}
+                }
+
+                private static nint {{factoryName}}({{parameterList}})
+                {
+                var __handle = __PInvoke.{{importMethodName}}({{invokeArguments}});
+                {{keepAliveStatements}}
+                return __handle;
+                }
+                """);
+        }
+        else
+        {
+            writer.Write($$"""
+                {{GetManagedVisibility(function.AccessModifier)}} {{constructorName}}({{parameterList}})
+                    : this(__PInvoke.{{importMethodName}}({{invokeArguments}}), true)
+                {
+                {{(requiresDirector ? "ConnectDirector();" : string.Empty)}}
+                }
+                """);
+        }
+
         return writer.ToString();
     }
 
@@ -1532,10 +1565,13 @@ public static partial class BindingOutputRenderer
             var setterArgument = field.Type.Kind == BindingTypeKind.Handle
                 ? "global::SharpCpp.Support.NativeObject.GetHandle(value)"
                 : "value";
+            var setterKeepAlive = field.Type.Kind == BindingTypeKind.Handle
+                ? "\n            global::System.GC.KeepAlive(value);"
+                : string.Empty;
             writer.Write($$"""
                 set
                 {
-                __PInvoke.Set_{{field.ManagedName}}(this, {{setterArgument}});
+                __PInvoke.Set_{{field.ManagedName}}(this, {{setterArgument}});{{setterKeepAlive}}
                 }
                 """);
         }
@@ -1987,6 +2023,11 @@ public static partial class BindingOutputRenderer
                     {{parameter.ManagedName}} = {{BuildManagedHandleWrap(compilation, parameter.Type, abiVariableName, ownsHandle: false)}};
                     """);
                 continue;
+            }
+
+            if (parameter.Type.Kind == BindingTypeKind.Handle)
+            {
+                postCallStatements.Add($"global::System.GC.KeepAlive({parameter.ManagedName});");
             }
 
             arguments.Add(RenderManagedInvocationArgument(parameter));

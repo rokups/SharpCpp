@@ -28,8 +28,10 @@ public static partial class BindingOutputRenderer
             internal {{record.ManagedName}}(nint handle, bool ownsHandle = false)
                 : base(handle, ownsHandle)
             {
-            if (!IsInvalid)
-                s_instanceCache.Register(this);
+                if (!IsInvalid)
+                {
+                    s_instanceCache.Register(this);
+                }
             }
 
             public nint Handle => DangerousGetHandle();
