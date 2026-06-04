@@ -1,3 +1,4 @@
+using E2e.Records;
 using SharpCpp.Tests.E2E.Generated;
 
 using Xunit;

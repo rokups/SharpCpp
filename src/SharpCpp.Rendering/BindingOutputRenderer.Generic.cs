@@ -296,7 +296,9 @@ public static partial class BindingOutputRenderer
             protected override bool ReleaseNativeHandle(nint handle)
             {
             if (OwnsNativeHandle)
+            {
                 DeleteHandle(handle);
+            }
             return true;
             }
             """);

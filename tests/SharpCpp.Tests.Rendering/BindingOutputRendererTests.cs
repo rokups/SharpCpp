@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 using SharpCpp.Model.Ast;
 using SharpCpp.Pipeline;
 using SharpCpp.Rendering;
@@ -696,5 +698,149 @@ public sealed class BindingOutputRendererTests
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
         Assert.Contains("/// <summary>Handles &lt;tag&gt; escaping &amp; special chars.</summary>", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Managed_output_renders_record_in_assigned_namespace()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings",
+            "SharpCpp.Sample.Native", new[] { "Namespace/Namespace.hpp" });
+        var record = new RecordBinding("record:ns_type", "ns_type", "NsType", "outer::inner::ns_type");
+        record.ManagedNamespace = "Outer.Inner";
+        compilation.Members.Add(record);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("namespace Outer.Inner", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public partial class NsType", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Managed_output_renders_global_scope_record_in_default_namespace()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings",
+            "SharpCpp.Sample.Native", new[] { "Records/Field.hpp" });
+        var record = new RecordBinding("record:global_type", "global_type", "GlobalType");
+        record.ManagedNamespace = "SharpCpp.Sample";
+        compilation.Members.Add(record);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("namespace SharpCpp.Sample", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public partial class GlobalType", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Managed_output_groups_multiple_records_by_namespace()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings",
+            "SharpCpp.Sample.Native", new[] { "Namespace/Namespace.hpp" });
+        var recordA = new RecordBinding("record:a", "a", "A");
+        var recordB = new RecordBinding("record:b", "b", "B", "ns1::b");
+        var recordC = new RecordBinding("record:c", "c", "C", "ns1::c");
+        compilation.Members.Add(recordA);
+        compilation.Members.Add(recordB);
+        compilation.Members.Add(recordC);
+
+        NormalizeManagedNamespacesPass.Apply(compilation);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("namespace Ns1", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public partial class B", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public partial class C", managedOutput, StringComparison.Ordinal);
+
+        var defaultNsIndex = managedOutput.IndexOf("namespace SharpCpp.Sample", StringComparison.Ordinal);
+        var ns1Index = managedOutput.IndexOf("namespace Ns1", StringComparison.Ordinal);
+        Assert.True(ns1Index < defaultNsIndex, "Non-default namespaces should appear before the default namespace.");
+    }
+
+    [Fact]
+    public void Managed_output_renders_enum_in_assigned_namespace()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings",
+            "SharpCpp.Sample.Native", new[] { "Enum/Enum.hpp" });
+        var @enum = new EnumBinding("enum:color", "color", "Color", "int", "palette::color");
+        @enum.ManagedNamespace = "Palette";
+        @enum.Values.Add(new EnumValueBinding("red", "Red", "0"));
+        @enum.Values.Add(new EnumValueBinding("green", "Green", "1"));
+        compilation.Members.Add(@enum);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("namespace Palette", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public enum Color", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Managed_output_uses_default_namespace_for_static_free_function_class()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings",
+            "SharpCpp.Sample.Native", new[] { "Builtin/Builtin.hpp" });
+        var function = new FunctionBinding("function:free_func", "free_func", "FreeFunc", BindingType.Void, "entry_free_func");
+        compilation.Members.Add(function);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("namespace SharpCpp.Sample", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public static partial class SampleBindings", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NormalizeManagedNamespacesPass_assigns_identity_namespace()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings",
+            "SharpCpp.Sample.Native", new[] { "Namespace/Namespace.hpp" });
+        var record = new RecordBinding("record:ns_rec", "ns_rec", "NsRec", "myapp::utils::ns_rec");
+        compilation.Members.Add(record);
+
+        NormalizeManagedNamespacesPass.Apply(compilation);
+
+        Assert.Equal("Myapp.Utils", record.ManagedNamespace);
+    }
+
+    [Fact]
+    public void NormalizeManagedNamespacesPass_uses_default_namespace_for_global_scope()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings",
+            "SharpCpp.Sample.Native", new[] { "Records/Field.hpp" });
+        var record = new RecordBinding("record:global_rec", "global_rec", "GlobalRec", "global_rec");
+        compilation.Members.Add(record);
+
+        NormalizeManagedNamespacesPass.Apply(compilation);
+
+        Assert.Equal("SharpCpp.Sample", record.ManagedNamespace);
+    }
+
+    [Fact]
+    public void NormalizeManagedNamespacesPass_respects_namespace_mappings()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings",
+            "SharpCpp.Sample.Native", new[] { "Namespace/Namespace.hpp" })
+        {
+            NamespaceMappings = new Dictionary<string, string>
+            {
+                { "myapp::utils", "SharpCpp.Generated.Utils" }
+            }
+        };
+        var record = new RecordBinding("record:ns_rec", "ns_rec", "NsRec", "myapp::utils::ns_rec");
+        compilation.Members.Add(record);
+
+        NormalizeManagedNamespacesPass.Apply(compilation);
+
+        Assert.Equal("SharpCpp.Generated.Utils", record.ManagedNamespace);
     }
 }

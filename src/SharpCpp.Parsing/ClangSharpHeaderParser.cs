@@ -1421,7 +1421,8 @@ public sealed class ClangSharpHeaderParser
             $"enum:{nativeName}",
             nativeName,
             ToPascalCase(nativeName),
-            NormalizeTypeName(cursor.EnumDecl_IntegerType.Spelling.ToString()))
+            NormalizeTypeName(cursor.EnumDecl_IntegerType.Spelling.ToString()),
+            GetCppQualifiedName(cursor))
         {
             IsFlags = FlagsAttributeExpression.IsMatch(GetSourceText(cursor.TranslationUnit, cursor.Extent))
         };

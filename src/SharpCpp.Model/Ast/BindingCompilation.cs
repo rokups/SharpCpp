@@ -34,6 +34,8 @@ public sealed class BindingCompilation : BindingContainerNode
 
     public IList<string> HeaderFiles { get; }
 
+    public IReadOnlyDictionary<string, string> NamespaceMappings { get; set; } = new Dictionary<string, string>();
+
     public IReadOnlyList<RecordBinding> Records => Descendants<RecordBinding>().ToArray();
 
     public IReadOnlyList<EnumBinding> Enums => Descendants<EnumBinding>().ToArray();

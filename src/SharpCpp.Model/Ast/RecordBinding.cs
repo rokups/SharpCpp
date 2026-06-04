@@ -42,6 +42,8 @@ public sealed class RecordBinding : BindingNamedContainerNode
 
     public string? ManagedTypeFormat { get; set; }
 
+    public string? ManagedNamespace { get; set; }
+
     public string CppQualifiedName { get; set; }
 
     public string? HandleMarshallerTypeName { get; set; }

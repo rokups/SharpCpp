@@ -26,6 +26,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - [x] Test coverage extended against v1 for already implemented features: default-parameter reflection, operator reflection, director fallback/reuse/modifier checks, MI create-helper reuse, and generated documentation verification are now covered in v3 E2E/tests
 - [x] Bootstrap cleanup landed to keep future work maintainable: generic rendering moved out of the main renderer file into a dedicated partial, and post-parse phase sequencing moved into a single pipeline entrypoint instead of ad hoc orchestration in `SharpCpp.Tool`
 - [x] First protected-member slice landed for director-capable records: parser/model now preserve protected access, managed wrappers emit `protected` constructors/methods/properties, generated native director helpers legally bridge protected method/field access, and E2E/rendering tests cover protected ctor/method/property shape plus non-director omission
+- [x] Namespace-aware managed wrapper emission landed: `RecordBinding` and `EnumBinding` now carry per-type `ManagedNamespace`, `NormalizeManagedNamespacesPass` maps C++ namespaces (from `CppQualifiedName`) to managed namespaces (identity by default, configurable via `BindingCompilation.NamespaceMappings`), the renderer groups types by namespace into block-scoped `namespace` declarations, and global-scope types fall back to `compilation.ManagedNamespace`. Rendering tests cover per-type placement, grouping, enum namespacing, default-namespace fallback, and configurable mappings.
 
 ## Current Focus
 

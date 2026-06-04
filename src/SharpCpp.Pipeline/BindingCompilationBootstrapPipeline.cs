@@ -10,6 +10,7 @@ public static class BindingCompilationBootstrapPipeline
         ArgumentNullException.ThrowIfNull(compilation);
         ArgumentNullException.ThrowIfNull(metadataFiles);
 
+        NormalizeManagedNamespacesPass.Apply(compilation);
         MarshallerMetadataPhase2.Apply(compilation, metadataFiles);
         BindingCompilationGenericInstantiationPass.Apply(compilation);
         BindingCompilationInheritancePass.Apply(compilation);
