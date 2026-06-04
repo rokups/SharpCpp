@@ -889,8 +889,16 @@ public static partial class BindingOutputRenderer
         var importMethodName = GetManagedImportMethodName(function);
         var memberModifier = GetManagedInstanceMethodModifier(compilation, record, function);
 
+        if (string.Equals(memberModifier, "abstract ", StringComparison.Ordinal))
+        {
+            writer.Write($$"""
+                {{GetManagedVisibilityNormalized(compilation, record, function)}} {{memberModifier}}{{returnTypeName}} {{function.ManagedName}}({{parameterList}});
+                """);
+            return writer.ToString();
+        }
+
         writer.Write($$"""
-            {{GetManagedVisibility(function.AccessModifier)}} {{memberModifier}}{{returnTypeName}} {{function.ManagedName}}({{parameterList}})
+            {{GetManagedVisibilityNormalized(compilation, record, function)}} {{memberModifier}}{{returnTypeName}} {{function.ManagedName}}({{parameterList}})
             {
             """);
 
@@ -1621,13 +1629,13 @@ public static partial class BindingOutputRenderer
                     writer.Write(RenderNativeGenericConstructor(record, constructor, instantiation));
                 }
 
-                foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && !function.IsStatic && function.OperatorToken is null && !function.IsConversionOperator).OrderBy(static function => function.ManagedName, StringComparer.Ordinal))
+                foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && !function.IsStatic && !function.IsGeneric && function.OperatorToken is null && !function.IsConversionOperator).OrderBy(static function => function.ManagedName, StringComparer.Ordinal))
                 {
                     writer.WriteLine();
                     writer.Write(RenderNativeGenericInstanceMethod(record, method, instantiation));
                 }
 
-                foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic && function.OperatorToken is null && !function.IsConversionOperator).OrderBy(static function => function.ManagedName, StringComparer.Ordinal))
+                foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic && !function.IsGeneric && function.OperatorToken is null && !function.IsConversionOperator).OrderBy(static function => function.ManagedName, StringComparer.Ordinal))
                 {
                     writer.WriteLine();
                     writer.Write(RenderNativeGenericStaticMethod(record, method, instantiation));
@@ -1994,11 +2002,23 @@ public static partial class BindingOutputRenderer
 
     private static string GetManagedInstanceMethodModifier(BindingCompilation compilation, RecordBinding record, FunctionBinding function)
     {
+        if (function.IsPureVirtual && FindPrimaryBaseVirtualMatch(compilation, record, function) is null)
+        {
+            return "abstract ";
+        }
+
         if (function.IsVirtual)
         {
-            return FindPrimaryBaseVirtualMatch(compilation, record, function) is null
+            var modifier = FindPrimaryBaseVirtualMatch(compilation, record, function) is null
                 ? "virtual "
                 : "override ";
+
+            if (function.IsFinal)
+            {
+                modifier += "sealed ";
+            }
+
+            return modifier;
         }
 
         return ShouldUseNewModifier(compilation, record, function.ManagedName) ? "new " : string.Empty;
@@ -2007,6 +2027,60 @@ public static partial class BindingOutputRenderer
     private static string GetManagedVisibility(BindingAccessModifier accessModifier)
     {
         return accessModifier == BindingAccessModifier.Protected ? "protected" : "public";
+    }
+
+    private static string GetManagedVisibilityNormalized(BindingCompilation compilation, RecordBinding record, FunctionBinding function)
+    {
+        if (!function.IsVirtual)
+        {
+            return GetManagedVisibility(function.AccessModifier);
+        }
+
+        var mostRestrictiveBaseAccess = FindMostRestrictiveBaseAccess(compilation, record, function);
+        if (mostRestrictiveBaseAccess == BindingAccessModifier.Protected)
+        {
+            return "protected";
+        }
+
+        return "public";
+    }
+
+    private static BindingAccessModifier FindMostRestrictiveBaseAccess(BindingCompilation compilation, RecordBinding record, FunctionBinding function)
+    {
+        var foundBaseMatch = false;
+        var mostRestrictive = BindingAccessModifier.Public;
+
+        foreach (var @base in record.Bases)
+        {
+            var baseRecord = compilation.Records.FirstOrDefault(candidate => string.Equals(candidate.SymbolId, @base.RecordId, StringComparison.Ordinal));
+            if (baseRecord is null)
+            {
+                continue;
+            }
+
+            var match = baseRecord.Members
+                .OfType<FunctionBinding>()
+                .FirstOrDefault(bm => bm.IsVirtual && bm.ManagedName == function.ManagedName && bm.Parameters.Count == function.Parameters.Count);
+
+            if (match is not null)
+            {
+                foundBaseMatch = true;
+                if (match.AccessModifier == BindingAccessModifier.Protected)
+                {
+                    mostRestrictive = BindingAccessModifier.Protected;
+                }
+                else
+                {
+                    var inheritedRestrictive = FindMostRestrictiveBaseAccess(compilation, baseRecord, match);
+                    if (inheritedRestrictive == BindingAccessModifier.Protected)
+                    {
+                        mostRestrictive = BindingAccessModifier.Protected;
+                    }
+                }
+            }
+        }
+
+        return foundBaseMatch ? mostRestrictive : function.AccessModifier;
     }
 
     private static BindingAccessModifier GetAccessorPropertyAccessModifier(AccessorProperty property)

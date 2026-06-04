@@ -23,6 +23,12 @@ struct [[sharpcpp::rename("BoxOf<{0}>")]] value_box
         return new value_box<T>(value);
     }
 
+    template <typename U>
+    U project(U scale) const
+    {
+        return static_cast<U>(value_) * scale;
+    }
+
 private:
     T value_{};
 };

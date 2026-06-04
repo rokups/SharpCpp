@@ -318,6 +318,7 @@ public sealed class ClangSharpHeaderParser
                 CheckAndApplyIgnoreAttribute(child, method);
                 TryApplyRename(child, method);
                 ExtractAndApplyDocumentation(child, method);
+                ApplyVirtualSpecifiers(child, method);
                 record.Members.Add(method);
                 return CXChildVisitResult.CXChildVisit_Continue;
             },
@@ -362,6 +363,28 @@ public sealed class ClangSharpHeaderParser
                 CheckAndApplyIgnoreAttribute(child, ctor);
                 ExtractAndApplyDocumentation(child, ctor);
                 record.Members.Add(ctor);
+                return CXChildVisitResult.CXChildVisit_Continue;
+            },
+            new CXClientData(IntPtr.Zero));
+
+        cursor.VisitChildren(
+            (child, _, _) =>
+            {
+                if (child.Kind != CXCursorKind.CXCursor_FunctionTemplate)
+                {
+                    return CXChildVisitResult.CXChildVisit_Continue;
+                }
+
+                var templateMethod = CreateTemplateMethod(record, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+                if (templateMethod is null)
+                {
+                    return CXChildVisitResult.CXChildVisit_Continue;
+                }
+
+                CheckAndApplyIgnoreAttribute(child, templateMethod);
+                TryApplyRename(child, templateMethod);
+                ExtractAndApplyDocumentation(child, templateMethod);
+                record.Members.Add(templateMethod);
                 return CXChildVisitResult.CXChildVisit_Continue;
             },
             new CXClientData(IntPtr.Zero));
@@ -443,6 +466,91 @@ public sealed class ClangSharpHeaderParser
 
         function.EntryPointName = BuildEntrypointName("sharpcpp_e2e", $"{record.NativeName}_{GetEntrypointSuffix(cursor, nativeName)}", function.Parameters);
 
+        return function;
+    }
+
+    private static unsafe FunctionBinding? CreateTemplateMethod(
+        RecordBinding record,
+        CXCursor templateCursor,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        IReadOnlyDictionary<string, BindingType> genericParameters)
+    {
+        if (!TryExtractTemplateParameters(templateCursor, out var methodTemplateParameters))
+        {
+            return null;
+        }
+
+        if (!ShouldParseRecordMember(record, templateCursor.CXXAccessSpecifier))
+        {
+            return null;
+        }
+
+        var combinedGenericParameters = new Dictionary<string, BindingType>(genericParameters, StringComparer.Ordinal);
+        foreach (var templateParameter in methodTemplateParameters)
+        {
+            combinedGenericParameters[templateParameter.Name] = BindingType.CreateGenericParameter(templateParameter.Name);
+        }
+
+        var nativeName = templateCursor.Spelling.ToString();
+        var returnType = MapType(templateCursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, combinedGenericParameters);
+        var function = new FunctionBinding(
+            $"method:{record.NativeName}:{nativeName}",
+            nativeName,
+            GetManagedMethodName(templateCursor, nativeName),
+            returnType,
+            cppReturnTypeName: returnType.CppTypeName,
+            cppQualifiedName: $"{record.CppQualifiedName}::{nativeName}")
+        {
+            IsStatic = false,
+            AccessModifier = MapAccessModifier(templateCursor.CXXAccessSpecifier),
+            IsVirtual = templateCursor.CXXMethod_IsVirtual,
+            IsPureVirtual = templateCursor.CXXMethod_IsPureVirtual,
+            IsConstMethod = clang.CXXMethod_isConst(templateCursor) != 0,
+            OwningRecordCppTypeName = record.CppQualifiedName
+        };
+
+        foreach (var templateParameter in methodTemplateParameters)
+        {
+            function.GenericParameters.Add(templateParameter);
+        }
+
+        templateCursor.VisitChildren(
+            (child, _, _) =>
+            {
+                if (child.Kind != CXCursorKind.CXCursor_ParmDecl)
+                {
+                    return CXChildVisitResult.CXChildVisit_Continue;
+                }
+
+                var parameterName = child.Spelling.ToString();
+                if (string.IsNullOrWhiteSpace(parameterName))
+                {
+                    parameterName = $"arg{function.Parameters.Count}";
+                }
+
+                var (parameterType, direction, abiKind) = MapParameter(templateCursor, child, recordsByName, enumsByName, managedTypeOverrides, combinedGenericParameters);
+                function.Parameters.Add(
+                    new ParameterBinding(
+                        $"parameter:{record.NativeName}:{nativeName}:{parameterName}",
+                        parameterName,
+                        parameterName,
+                        parameterType,
+                        direction,
+                        abiKind,
+                        ResolveQualifiedTypeName(child.Type, recordsByName))
+                    {
+                        ManagedDefaultValueExpression = GetManagedDefaultValueExpression(child, parameterType)
+                    });
+
+                return CXChildVisitResult.CXChildVisit_Continue;
+            },
+            new CXClientData(IntPtr.Zero));
+
+        function.EntryPointName = BuildEntrypointName("sharpcpp_e2e", $"{record.NativeName}_{GetEntrypointSuffix(templateCursor, nativeName)}", function.Parameters);
+
+        ApplyVirtualSpecifiers(templateCursor, function);
         return function;
     }
 
@@ -739,27 +847,29 @@ public sealed class ClangSharpHeaderParser
 
         if (normalizedType.kind == CXTypeKind.CXType_LValueReference)
         {
-            var pointeeType = normalizedType.PointeeType.CanonicalType;
+            var sourcePointeeType = type.PointeeType;
+            var normalizedPointeeType = normalizedType.PointeeType.CanonicalType;
 
-            if (pointeeType.kind == CXTypeKind.CXType_Record)
+            if (normalizedPointeeType.kind == CXTypeKind.CXType_Record)
             {
                 return (
-                    MapType(pointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
+                    MapType(normalizedPointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
                     explicitDirection ?? BindingParameterDirection.In,
                     BindingParameterAbiKind.Value);
             }
 
             return (
-                MapType(pointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
-                explicitDirection ?? (pointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Ref),
+                MapType(normalizedPointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
+                explicitDirection ?? (sourcePointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Ref),
                 BindingParameterAbiKind.Reference);
         }
 
         if (normalizedType.kind == CXTypeKind.CXType_Pointer)
         {
-            var pointeeType = normalizedType.PointeeType.CanonicalType;
+            var sourcePointeeType = type.PointeeType;
+            var normalizedPointeeType = normalizedType.PointeeType.CanonicalType;
 
-            if (pointeeType.kind is CXTypeKind.CXType_Void or CXTypeKind.CXType_Record)
+            if (normalizedPointeeType.kind is CXTypeKind.CXType_Void or CXTypeKind.CXType_Record)
             {
                 return (
                     MapType(type, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
@@ -768,8 +878,8 @@ public sealed class ClangSharpHeaderParser
             }
 
             return (
-                MapType(pointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
-                explicitDirection ?? (pointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Out),
+                MapType(normalizedPointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
+                explicitDirection ?? (sourcePointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Out),
                 BindingParameterAbiKind.Pointer);
         }
 
@@ -796,6 +906,11 @@ public sealed class ClangSharpHeaderParser
             return BindingType.CreateConfigured(
                 managedTypeOverride.CppTypeName,
                 managedTypeOverride.PublicTypeName);
+        }
+
+        if (normalizedType.kind == CXTypeKind.CXType_LValueReference)
+        {
+            return MapType(normalizedType.PointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
         }
 
         if (normalizedType.kind == CXTypeKind.CXType_Pointer)
@@ -1750,5 +1865,50 @@ public sealed class ClangSharpHeaderParser
         var genericArguments = TryParseGenericArguments(referredTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
         type = BindingType.CreateHandle(handleCppTypeName, record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments);
         return true;
+    }
+
+    private static unsafe void ApplyVirtualSpecifiers(CXCursor cursor, FunctionBinding function)
+    {
+        if (!function.IsVirtual)
+        {
+            return;
+        }
+
+        bool isOverride = false;
+        bool isFinal = false;
+
+        cursor.VisitChildren(
+            (child, _, _) =>
+            {
+                if ((int)child.Kind == 417) // CXCursor_CXXOverrideAttr
+                {
+                    isOverride = true;
+                }
+                else if ((int)child.Kind == 418) // CXCursor_CXXFinalAttr
+                {
+                    isFinal = true;
+                }
+
+                return CXChildVisitResult.CXChildVisit_Continue;
+            },
+            new CXClientData(IntPtr.Zero));
+
+        var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
+        var declarationText = sourceText.IndexOf('{') is var braceIndex and >= 0
+            ? sourceText[..braceIndex]
+            : sourceText;
+
+        if (!isOverride && declarationText.Contains("override", StringComparison.Ordinal))
+        {
+            isOverride = true;
+        }
+
+        if (!isFinal && declarationText.Contains("final", StringComparison.Ordinal))
+        {
+            isFinal = true;
+        }
+
+        function.IsOverride = isOverride;
+        function.IsFinal = isFinal;
     }
 }

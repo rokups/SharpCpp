@@ -79,9 +79,9 @@ public sealed class BindingType
 
     public static BindingType Double { get; } = Primitive(BindingPrimitiveKind.Double, "double", "double");
 
-    public static BindingType NativeInt { get; } = Primitive(BindingPrimitiveKind.NativeInt, "long", "CLong");
+    public static BindingType NativeInt { get; } = Primitive(BindingPrimitiveKind.NativeInt, "long", "nint");
 
-    public static BindingType NativeUInt { get; } = Primitive(BindingPrimitiveKind.NativeUInt, "unsigned long", "CULong");
+    public static BindingType NativeUInt { get; } = Primitive(BindingPrimitiveKind.NativeUInt, "unsigned long", "nuint");
 
     public static BindingType IntPtr { get; } = Primitive(BindingPrimitiveKind.IntPtr, "void*", "global::System.IntPtr");
 

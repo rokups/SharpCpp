@@ -12,6 +12,8 @@ public static partial class BindingOutputRenderer
         var writer = new CodeWriter();
         var constructors = record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor).OrderBy(static function => function.Parameters.Count).ToArray();
         var instanceMethods = record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && !function.IsStatic && function.OperatorToken is null && !function.IsConversionOperator).OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
+        var genericInstanceMethods = instanceMethods.Where(static function => function.IsGeneric).ToArray();
+        var concreteInstanceMethods = instanceMethods.Where(static function => !function.IsGeneric).ToArray();
         var staticMethods = record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic && function.OperatorToken is null && !function.IsConversionOperator).OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
         var instantiations = record.SupportedGenericInstantiations.OrderBy(static instantiation => string.Join("|", instantiation.TypeArguments.Select(static argument => argument.CppTypeName)), StringComparer.Ordinal).ToArray();
 
@@ -52,10 +54,16 @@ public static partial class BindingOutputRenderer
             writer.Write(RenderGenericManagedConstructor(compilation, record, constructor, instantiations));
         }
 
-        foreach (var method in instanceMethods)
+        foreach (var method in concreteInstanceMethods)
         {
             writer.WriteLine();
             writer.Write(RenderGenericManagedInstanceMethod(compilation, record, method, instantiations));
+        }
+
+        foreach (var method in genericInstanceMethods)
+        {
+            writer.WriteLine();
+            writer.Write(RenderGenericManagedGenericMethod(compilation, record, method));
         }
 
         foreach (var method in staticMethods)
@@ -79,6 +87,7 @@ public static partial class BindingOutputRenderer
     {
         var constructors = record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor).OrderBy(static function => function.Parameters.Count).ToArray();
         var instanceMethods = record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && !function.IsStatic && function.OperatorToken is null && !function.IsConversionOperator).OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
+        var concreteInstanceMethods = instanceMethods.Where(static function => !function.IsGeneric).ToArray();
         var staticMethods = record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic && function.OperatorToken is null && !function.IsConversionOperator).OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
         var instantiations = record.SupportedGenericInstantiations.OrderBy(static instantiation => string.Join("|", instantiation.TypeArguments.Select(static argument => argument.CppTypeName)), StringComparer.Ordinal).ToArray();
 
@@ -90,7 +99,7 @@ public static partial class BindingOutputRenderer
             }
         }
 
-        foreach (var method in instanceMethods)
+        foreach (var method in concreteInstanceMethods)
         {
             foreach (var instantiation in instantiations)
             {
@@ -208,6 +217,33 @@ public static partial class BindingOutputRenderer
             }
             """);
         return writer.ToString();
+    }
+
+    private static string RenderGenericManagedGenericMethod(BindingCompilation compilation, RecordBinding record, FunctionBinding function)
+    {
+        var writer = new CodeWriter();
+        WriteDocumentationComment(writer, function);
+        var methodTypeParams = string.Join(", ", function.GenericParameters.Select(static param => param.Name));
+        var returnTypeName = GetGenericManagedReturnType(function.ReturnType);
+        var parameterList = string.Join(", ", function.Parameters.Select(RenderManagedPublicParameter));
+
+        writer.Write($$"""
+            public {{returnTypeName}} {{function.ManagedName}}<{{methodTypeParams}}>({{parameterList}})
+            {
+            throw new NotSupportedException("SharpCpp does not yet support generic methods inside generic records for type argument combination <{{methodTypeParams}}>.");
+            }
+            """);
+        return writer.ToString();
+    }
+
+    private static string GetGenericManagedReturnType(BindingType type)
+    {
+        if (type.IsGenericParameter)
+        {
+            return type.GenericParameterName ?? "object";
+        }
+
+        return GetManagedPublicReturnTypeName(type);
     }
 
     private static string RenderGenericManagedDispatchBranches(BindingCompilation compilation, RecordBinding record, FunctionBinding function, IReadOnlyList<RecordGenericInstantiationBinding> instantiations, bool includeSelf)

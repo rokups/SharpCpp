@@ -313,6 +313,66 @@ public sealed class BuiltinTests
     }
 
     [Fact]
+    public void NativeInt_value_in_ref_and_out_bindings_roundtrip()
+    {
+        Assert.Equal((nint)24681012, E2EBindings.RoundtripNativeInt((nint)24681012));
+
+        nint inValue = 7654321;
+        Assert.Equal((nint)7654321, E2EBindings.EchoInNativeInt(in inValue));
+
+        nint refValue = 41;
+        E2EBindings.IncrementRefNativeInt(ref refValue);
+        Assert.Equal((nint)42, refValue);
+
+        E2EBindings.WriteOutNativeInt(out var outValue);
+        Assert.Equal((nint)24681012, outValue);
+    }
+
+    [Fact]
+    public void NativeInt_marked_pointer_in_ref_and_out_bindings_roundtrip()
+    {
+        nint inValue = 7654321;
+        Assert.Equal((nint)7654321, E2EBindings.EchoMarkedInNativeInt(in inValue));
+
+        nint refValue = 41;
+        E2EBindings.ReplaceMarkedRefNativeInt(ref refValue);
+        Assert.Equal((nint)42, refValue);
+
+        E2EBindings.WriteMarkedOutNativeInt(out var outValue);
+        Assert.Equal((nint)24681012, outValue);
+    }
+
+    [Fact]
+    public void NativeUint_value_in_ref_and_out_bindings_roundtrip()
+    {
+        Assert.Equal((nuint)1357911, E2EBindings.RoundtripNativeUint((nuint)1357911));
+
+        nuint inValue = 24681012;
+        Assert.Equal((nuint)24681012, E2EBindings.EchoInNativeUint(in inValue));
+
+        nuint refValue = 41;
+        E2EBindings.IncrementRefNativeUint(ref refValue);
+        Assert.Equal((nuint)42, refValue);
+
+        E2EBindings.WriteOutNativeUint(out var outValue);
+        Assert.Equal((nuint)1357911, outValue);
+    }
+
+    [Fact]
+    public void NativeUint_marked_pointer_in_ref_and_out_bindings_roundtrip()
+    {
+        nuint inValue = 24681012;
+        Assert.Equal((nuint)24681012, E2EBindings.EchoMarkedInNativeUint(in inValue));
+
+        nuint refValue = 41;
+        E2EBindings.ReplaceMarkedRefNativeUint(ref refValue);
+        Assert.Equal((nuint)42, refValue);
+
+        E2EBindings.WriteMarkedOutNativeUint(out var outValue);
+        Assert.Equal((nuint)1357911, outValue);
+    }
+
+    [Fact]
     public void Single_value_in_ref_and_out_bindings_roundtrip()
     {
         Assert.Equal(3.25f, E2EBindings.RoundtripSingle(3.25f));

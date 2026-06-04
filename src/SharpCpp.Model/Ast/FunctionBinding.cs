@@ -3,6 +3,7 @@ namespace SharpCpp.Model.Ast;
 public sealed class FunctionBinding : BindingNamedNode
 {
     private readonly BindingNodeCollection<ParameterBinding> _parameters;
+    private readonly List<BindingGenericParameter> _genericParameters = new();
 
     public FunctionBinding(
         string symbolId,
@@ -46,6 +47,10 @@ public sealed class FunctionBinding : BindingNamedNode
 
     public bool IsPureVirtual { get; set; }
 
+    public bool IsFinal { get; set; }
+
+    public bool IsOverride { get; set; }
+
     public string? NativeDispatchRecordCppTypeName { get; set; }
 
     public string? OwningRecordCppTypeName { get; set; }
@@ -61,6 +66,12 @@ public sealed class FunctionBinding : BindingNamedNode
     public bool IsExplicitConversionOperator { get; set; }
 
     public bool ReturnsOwnedHandle { get; set; }
+
+    public IList<BindingGenericParameter> GenericParameters => _genericParameters;
+
+    public bool IsGeneric => _genericParameters.Count > 0;
+
+    public IList<RecordGenericInstantiationBinding> SupportedGenericInstantiations { get; } = new List<RecordGenericInstantiationBinding>();
 
     public IList<ParameterBinding> Parameters => _parameters;
 }
