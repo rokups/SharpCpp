@@ -22,11 +22,12 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - [x] Polymorphic wrapping foundation landed: per-record instance caches, runtime type metadata (`typeid(*self)` + normalized handle), registry-backed `CreateManagedWrapper`, and E2E coverage for base-typed returns materializing derived wrappers with stable managed identity
 - [x] Director-backed managed virtual overrides landed for the current primitive/handle slice, including native director class emission, callback hookup through generated delegates, and E2E coverage for native virtual dispatch re-entering managed overrides
 - [x] Multiple-inheritance surface shaping landed for the current slice: the parser/model now carry full base lists, secondary-base public methods project onto the derived wrapper, native thunks adjust complete-object handles with `dynamic_cast`, and E2E coverage proves both projected secondary-base methods and MI virtual overrides
+- [x] First template/generic vertical slice landed: minimal phase-2 marshaller metadata extraction, discovered closed generic instantiations from parsed signatures, and E2E/rendering coverage for a template record surfacing as a managed generic wrapper with per-instantiation dispatch
 
 ## Current Focus
 
-1. Introduce phase-2 marshaller metadata extraction and generic instantiation discovery so template classes can surface as managed generic classes.
-2. Broaden the ClangSharp-backed parser beyond the current builtin/enum/record-method/field/constructor/static-factory/director/MI E2E fixture headers.
+1. Broaden the ClangSharp-backed parser beyond the current builtin/enum/record-method/field/constructor/static-factory/director/MI/generic-record E2E fixture headers.
+2. Extend the first generic slice beyond primitive/enum type arguments into richer type families and more complete metadata extraction.
 3. Keep feature scope narrow until the parse -> render -> runtime path is solid.
 
 ## Decisions So Far
@@ -39,7 +40,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - Bootstrap the first exported artifact through metadata before attempting full parser/renderer breadth.
 - Attribute-driven customization points should also be writable through the C# AST API so custom generators can mark nodes directly.
 - Land runtime identity/cache and base-return polymorphic wrapping before attempting directors or template/generic projection, since both depend on a coherent wrapper materialization path.
-- Land full template/generic projection after the new inheritance/director path is stable, since generic records still need phase-2 instantiation discovery and a deliberate policy for polymorphic-generic combinations.
+- Land fuller template/generic projection incrementally after the new inheritance/director path is stable, since generic records still need richer phase-2 metadata extraction and a deliberate policy for polymorphic-generic combinations.
 
 ## Relevant Doc Anchors
 
@@ -59,7 +60,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 
 ## Pending Work
 
-1. Introduce phase-2 marshaller metadata extraction plus generic instantiation discovery for template-backed managed generic classes.
+1. Extend generic projection past the current template-record/primitive slice: more complete phase-2 metadata extraction, richer type arguments, and additional generic member shapes.
 2. Extend multiple-inheritance shaping from projected secondary-base methods to fuller interface/reference-type policy where it pays off.
 3. Broaden validation/degradation around unsupported virtual/director/generic combinations as more type families come online.
 4. Add more focused rendering and E2E tests as the feature surface grows.
@@ -111,6 +112,12 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - Generated managed wrappers now emit C# `virtual` / `override` for native virtual methods, generate delegate-backed callback pointers for effective virtual slots, and call `ConnectDirector()` after constructing director-capable records so native virtual calls can re-enter managed overrides.
 - Generated native bindings now emit per-record C++ director subclasses, `sharpcpp_e2e_<record>_connect_director` entrypoints, director-aware constructor/delete thunks, and adjusted secondary-base method dispatch through `dynamic_cast<secondary*>(instance)` plus `MarshallerInvoker::invoke_instance(...)`.
 - `tests/SharpCpp.Tests.E2E/Records/Director.hpp` / `Director.cs` now prove single-inheritance director callbacks, and `tests/SharpCpp.Tests.E2E/Records/MultipleInheritance.hpp` / `MultipleInheritance.cs` now prove projected secondary-base methods plus managed overrides across a multiply inherited record.
+- `BindingType` now models generic parameters and generic arguments, `RecordBinding` now tracks generic parameters plus discovered supported instantiations, and `BindingGenericParameter` / `RecordGenericInstantiationBinding` provide the first generic AST facts needed for a narrow template-record slice.
+- `ClangSharpHeaderParser` now recognizes `CXCursor_ClassTemplate`, extracts template parameter scopes, maps generic parameter types inside record members, and resolves concrete template specializations used in the parsed API back to their generic record definition with concrete type arguments.
+- `SharpCpp.Parsing.MarshallerMetadataPhase2` now performs a minimal post-parse metadata sweep over project/marshaller headers: it extracts `[[sharpcpp::managed_type(public_type = ... , marshaller_type = ...)]]` from `Marshaller<...>` exact/partial specializations, applies managed type format overrides to matching records, and rebinds already-parsed handle references to the extracted managed type family name.
+- `SharpCpp.Pipeline.BindingCompilationGenericInstantiationPass` now discovers closed instantiation sets for generic records by walking parsed field/function signatures and collecting concrete `RecordGenericInstantiationBinding` entries per generic record.
+- `BindingOutputRenderer` now has a dedicated generic-record path: it emits open generic wrapper classes (e.g. `BoxOf<T>`), routes constructors/static methods/instance methods through per-instantiation dispatch branches, emits closed-instantiation C ABI thunks for generic record members, and keeps the `LibraryImport` declarations outside the generic type in the module-level import holder.
+- `tests/SharpCpp.Tests.E2E/Records/Generic.hpp` / `Generic.cs` now prove the first generic slice end-to-end: a C++ `value_box<T>` template projects as managed `BoxOf<T>`, closed instantiations are discovered from free-function signature uses, and unsupported type arguments fail at runtime. `BindingOutputRendererTests` now assert the managed/native generic emission shape too.
 - `[[sharpcpp::ignore]]` attribute support: the parser detects `[[sharpcpp::ignore]]` (with optional reason string like `[[sharpcpp::ignore("reason")]]`) on records, enums, free functions, member methods, constructors, and fields using a combination of cursor-extent source text and a pre-scanned annotation index. When detected, `MetadataKeys.IgnoreReason` is set on the binding node. The renderer emits commented-out pseudo-code stubs (e.g. `// class Name; // excluded: reason`) instead of full bindings for any ignored element. Ignored elements are also excluded from C++ native thunk generation.
 - All `[LibraryImport(...)]` attribute lines are now immediately followed by the method signature with no intervening blank line, regardless of whether a `[return: MarshalAs(...)]` attribute is present.
 - C++ documentation comments (`///` line comments and `/** */` block comments) are now carried over to the C# public API. The parser extracts `cursor.BriefCommentText` from libclang at each binding node creation site and stores it via `MetadataKeys.DocumentationComment`. The renderer emits `/// <summary>{escaped_text}</summary>` XML doc comments before managed records, enums, free functions, instance/static methods, constructors, operators, and field properties. XML special characters (`<`, `>`, `&`, `"`) are automatically escaped.

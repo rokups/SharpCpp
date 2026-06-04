@@ -5,7 +5,8 @@ public enum BindingTypeKind
     Unsupported = 0,
     Primitive = 1,
     Handle = 2,
-    Enum = 3
+    Enum = 3,
+    GenericParameter = 4
 }
 
 public enum BindingPrimitiveKind
@@ -35,16 +36,23 @@ public sealed record MarshallerDescriptor(
 
 public sealed class BindingType
 {
+    private readonly IReadOnlyList<BindingType> _genericArguments;
+    private string? _managedTypeFormatOverride;
+
     private BindingType(
         BindingTypeKind kind,
         BindingPrimitiveKind primitiveKind,
         MarshallerDescriptor marshaller,
-        string? recordId = null)
+        string? recordId = null,
+        string? genericParameterName = null,
+        IEnumerable<BindingType>? genericArguments = null)
     {
         Kind = kind;
         PrimitiveKind = primitiveKind;
         Marshaller = marshaller;
         RecordId = recordId;
+        GenericParameterName = genericParameterName;
+        _genericArguments = genericArguments?.ToArray() ?? Array.Empty<BindingType>();
     }
 
     public static BindingType Void { get; } = Primitive(BindingPrimitiveKind.Void, "void", "void");
@@ -85,31 +93,49 @@ public sealed class BindingType
 
     public string? RecordId { get; }
 
+    public string? GenericParameterName { get; }
+
+    public IReadOnlyList<BindingType> GenericArguments => _genericArguments;
+
     public string CppTypeName => Marshaller.CppTypeName;
 
-    public string ManagedTypeName => Marshaller.PublicTypeName;
+    public string ManagedTypeName => Kind == BindingTypeKind.GenericParameter
+        ? GenericParameterName ?? Marshaller.PublicTypeName
+        : FormatManagedTypeName();
 
     public string? MarshallerTypeName => Marshaller.MarshallerTypeName;
+
+    public bool IsGenericParameter => Kind == BindingTypeKind.GenericParameter;
+
+    public bool ContainsGenericParameters => IsGenericParameter || GenericArguments.Any(static argument => argument.ContainsGenericParameters);
+
+    public void SetManagedTypeFormatOverride(string? managedTypeFormatOverride)
+    {
+        _managedTypeFormatOverride = string.IsNullOrWhiteSpace(managedTypeFormatOverride) ? null : managedTypeFormatOverride;
+    }
 
     public static BindingType CreateHandle(
         string cppTypeName,
         string publicTypeName,
         string? recordId = null,
-        string? marshallerTypeName = null)
+        string? marshallerTypeName = null,
+        IEnumerable<BindingType>? genericArguments = null)
     {
         return new BindingType(
             BindingTypeKind.Handle,
             BindingPrimitiveKind.Unsupported,
             new MarshallerDescriptor(cppTypeName, publicTypeName, marshallerTypeName),
-            recordId);
+            recordId,
+            genericArguments: genericArguments);
     }
 
-    public static BindingType CreateEnum(string cppTypeName, string publicTypeName)
+    public static BindingType CreateEnum(string cppTypeName, string publicTypeName, IEnumerable<BindingType>? genericArguments = null)
     {
         return new BindingType(
             BindingTypeKind.Enum,
             BindingPrimitiveKind.Unsupported,
-            new MarshallerDescriptor(cppTypeName, publicTypeName));
+            new MarshallerDescriptor(cppTypeName, publicTypeName),
+            genericArguments: genericArguments);
     }
 
     public static BindingType CreateConfigured(string cppTypeName, string publicTypeName)
@@ -138,5 +164,30 @@ public sealed class BindingType
             BindingTypeKind.Primitive,
             primitiveKind,
             new MarshallerDescriptor(cppTypeName, publicTypeName));
+    }
+
+    public static BindingType CreateGenericParameter(string name)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        return new BindingType(
+            BindingTypeKind.GenericParameter,
+            BindingPrimitiveKind.Unsupported,
+            new MarshallerDescriptor(name, name),
+            genericParameterName: name);
+    }
+
+    private string FormatManagedTypeName()
+    {
+        if (GenericArguments.Count == 0)
+        {
+            return _managedTypeFormatOverride ?? Marshaller.PublicTypeName;
+        }
+
+        var managedTypeFormat = _managedTypeFormatOverride ?? Marshaller.PublicTypeName;
+        var argumentNames = GenericArguments.Select(static argument => argument.ManagedTypeName).Cast<object>().ToArray();
+        return managedTypeFormat.Contains('{', StringComparison.Ordinal)
+            ? string.Format(System.Globalization.CultureInfo.InvariantCulture, managedTypeFormat, argumentNames)
+            : $"{managedTypeFormat}<{string.Join(", ", GenericArguments.Select(static argument => argument.ManagedTypeName))}>";
     }
 }

@@ -438,6 +438,70 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Generic_records_render_as_managed_generic_classes_with_concrete_instantiation_dispatch()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/Generic.hpp" });
+        var record = new RecordBinding("record:value_box", "value_box", "BoxOf", "value_box")
+        {
+            ManagedTypeFormat = "BoxOf<{0}>"
+        };
+        record.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        record.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding(new[] { BindingType.Int32 }));
+        record.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding(new[] { BindingType.Single }));
+
+        var ctor = new FunctionBinding("ctor:value_box:T", "value_box", "BoxOf", record.HandleType, "entry_ctor")
+        {
+            IsConstructor = true,
+            OwningRecordCppTypeName = "value_box"
+        };
+        ctor.Parameters.Add(new ParameterBinding("parameter:value", "value", "value", BindingType.CreateGenericParameter("T"), cppTypeName: "T"));
+
+        var getValue = new FunctionBinding("method:value_box:get_value", "get_value", "GetValue", BindingType.CreateGenericParameter("T"), "entry_get")
+        {
+            IsStatic = false,
+            OwningRecordCppTypeName = "value_box",
+            IsConstMethod = true
+        };
+
+        var setValue = new FunctionBinding("method:value_box:set_value", "set_value", "SetValue", BindingType.Void, "entry_set")
+        {
+            IsStatic = false,
+            OwningRecordCppTypeName = "value_box"
+        };
+        setValue.Parameters.Add(new ParameterBinding("parameter:value", "value", "value", BindingType.CreateGenericParameter("T"), cppTypeName: "T"));
+
+        var create = new FunctionBinding("static:value_box:create", "create", "Create", BindingType.CreateHandle("value_box<T>*", "BoxOf", record.SymbolId, genericArguments: new[] { BindingType.CreateGenericParameter("T") }), "entry_create")
+        {
+            IsStatic = true,
+            OwningRecordCppTypeName = "value_box"
+        };
+        create.Parameters.Add(new ParameterBinding("parameter:value", "value", "value", BindingType.CreateGenericParameter("T"), cppTypeName: "T"));
+
+        record.Members.Add(ctor);
+        record.Members.Add(getValue);
+        record.Members.Add(setValue);
+        record.Members.Add(create);
+        compilation.Members.Add(record);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public partial class BoxOf<T>", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("typeof(T) == typeof(int)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("typeof(T) == typeof(float)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public T GetValue()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("(BoxOf<T>)(object)BoxOf<int>.CreateManagedWrapper", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("entry_get__int", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("entry_get__float", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Managed_output_renders_comment_stub_for_ignored_record()
     {
         var compilation = new BindingCompilation(
