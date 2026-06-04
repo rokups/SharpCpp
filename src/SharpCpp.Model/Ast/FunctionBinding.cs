@@ -40,6 +40,12 @@ public sealed class FunctionBinding : BindingNamedNode
 
     public bool IsStatic { get; set; } = true;
 
+    public bool IsVirtual { get; set; }
+
+    public bool IsPureVirtual { get; set; }
+
+    public string? NativeDispatchRecordCppTypeName { get; set; }
+
     public string? OwningRecordCppTypeName { get; set; }
 
     public bool IsConstructor { get; set; }

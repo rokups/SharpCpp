@@ -218,6 +218,23 @@ struct MarshallerInvoker
             std::forward<TAbiArgs>(abiArguments)...);
     }
 
+    template <typename FT, typename TSelf, typename... TAbiArgs>
+    static decltype(auto) invoke_instance(FT method, TSelf* instance, TAbiArgs&&... abiArguments)
+    {
+        using traits = detail::MemberFunctionTraits<FT>;
+        using result_type = typename traits::return_type;
+        using arg_tuple = typename traits::argument_tuple;
+
+        detail::marshaller_tuple_t<arg_tuple> marshallers;
+
+        return detail::InvokeMemberWithMarshallersImpl<result_type, arg_tuple>(
+            method,
+            *instance,
+            marshallers,
+            std::make_index_sequence<std::tuple_size_v<arg_tuple>>{},
+            std::forward<TAbiArgs>(abiArguments)...);
+    }
+
     template <typename FT, typename TMethod, typename TSelfAbi, typename... TAbiArgs,
         std::enable_if_t<
             std::is_member_function_pointer_v<TMethod> &&

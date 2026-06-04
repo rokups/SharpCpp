@@ -1,4 +1,5 @@
 using SharpCpp.Model.Ast;
+using SharpCpp.Pipeline;
 using SharpCpp.Rendering;
 
 using Xunit;
@@ -69,7 +70,7 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("public static void WritePayload(out PayloadRecord payload)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("internal static partial void WritePayload(out nint payload);", managedOutput, StringComparison.Ordinal);
         Assert.Contains("nint __abi_payload;", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("payload = new PayloadRecord(__abi_payload);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("payload = PayloadRecord.CreateManagedWrapper(__abi_payload, ownsHandle: false);", managedOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -283,7 +284,157 @@ public sealed class BindingOutputRendererTests
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("return new Widget(__result, true);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("return Widget.CreateManagedWrapper(__result, ownsHandle: true);", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Managed_output_emits_polymorphic_wrapper_factory_and_registry_hooks()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/Inheritance.hpp" });
+        var baseRecord = new RecordBinding("record:base_counter", "base_counter", "BaseCounter")
+        {
+            IsPolymorphic = true
+        };
+        var derivedRecord = new RecordBinding("record:derived_counter", "derived_counter", "DerivedCounter")
+        {
+            ManagedBaseTypeName = "BaseCounter",
+            IsPolymorphic = true
+        };
+        compilation.Members.Add(baseRecord);
+        compilation.Members.Add(derivedRecord);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("internal static readonly global::SharpCpp.Support.DefaultNativeInstanceCache s_instanceCache = new();", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("global::SharpCpp.Support.NativeObjectRegistry.Create<BaseCounter>(handle, ownsHandle)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("global::SharpCpp.Support.NativeObjectRegistry.RegisterType<BaseCounter>();", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("global::SharpCpp.Support.NativeObjectRegistry.RegisterType<DerivedCounter>();", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("INativeObjectRegistration<BaseCounter>", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("sharpcpp_e2e_base_counter_type_id", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("sharpcpp_e2e_base_counter_metadata", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Director_records_emit_virtual_managed_methods_and_native_director_hooks()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/Director.hpp" });
+        var record = new RecordBinding("record:callback_counter", "callback_counter", "CallbackCounter")
+        {
+            IsDirector = true
+        };
+        var ctor = new FunctionBinding("ctor:callback_counter:int", "callback_counter", "CallbackCounter", record.HandleType, "entry_ctor")
+        {
+            IsConstructor = true,
+            OwningRecordCppTypeName = "callback_counter"
+        };
+        ctor.Parameters.Add(new ParameterBinding("parameter:seed", "seed", "seed", BindingType.Int32, cppTypeName: "int"));
+        var getValue = new FunctionBinding("method:callback_counter:get_value", "get_value", "GetValue", BindingType.Int32, "entry_get")
+        {
+            IsStatic = false,
+            IsVirtual = true,
+            IsConstMethod = true,
+            OwningRecordCppTypeName = "callback_counter"
+        };
+        var callTwice = new FunctionBinding("method:callback_counter:call_virtual_twice", "call_virtual_twice", "CallVirtualTwice", BindingType.Int32, "entry_call")
+        {
+            IsStatic = false,
+            IsConstMethod = true,
+            OwningRecordCppTypeName = "callback_counter"
+        };
+        record.Members.Add(ctor);
+        record.Members.Add(getValue);
+        record.Members.Add(callTwice);
+        compilation.Members.Add(record);
+
+        BindingCompilationPolymorphismPass.Apply(compilation);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public virtual int GetValue()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("private void ConnectDirector()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("Marshal.GetFunctionPointerForDelegate", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("class __callback_counter_director : public callback_counter", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("sharpcpp_e2e_callback_counter_connect_director", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Secondary_base_methods_are_projected_with_adjusted_native_dispatch()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/MultipleInheritance.hpp" });
+        var left = new RecordBinding("record:mi_left", "mi_left", "MiLeft");
+        var leftValue = new FunctionBinding("method:mi_left:left_value", "left_value", "LeftValue", BindingType.Int32, "entry_left")
+        {
+            IsStatic = false,
+            IsVirtual = true,
+            IsConstMethod = true,
+            OwningRecordCppTypeName = "mi_left"
+        };
+        left.Members.Add(leftValue);
+
+        var right = new RecordBinding("record:mi_right", "mi_right", "MiRight");
+        var rightValue = new FunctionBinding("method:mi_right:right_value", "right_value", "RightValue", BindingType.Int32, "entry_right")
+        {
+            IsStatic = false,
+            IsVirtual = true,
+            IsConstMethod = true,
+            OwningRecordCppTypeName = "mi_right"
+        };
+        var rightOnly = new FunctionBinding("method:mi_right:right_only", "right_only", "RightOnly", BindingType.Int32, "entry_right_only")
+        {
+            IsStatic = false,
+            IsConstMethod = true,
+            OwningRecordCppTypeName = "mi_right"
+        };
+        right.Members.Add(rightValue);
+        right.Members.Add(rightOnly);
+
+        var counter = new RecordBinding("record:mi_counter", "mi_counter", "MiCounter")
+        {
+            ManagedBaseTypeName = "MiLeft",
+            IsDirector = true
+        };
+        counter.Bases.Add(new RecordBaseBinding(left.SymbolId, left.NativeName, left.ManagedName, left.CppQualifiedName, isVirtual: false));
+        counter.Bases.Add(new RecordBaseBinding(right.SymbolId, right.NativeName, right.ManagedName, right.CppQualifiedName, isVirtual: false));
+        var ctor = new FunctionBinding("ctor:mi_counter", "mi_counter", "MiCounter", counter.HandleType, "entry_ctor")
+        {
+            IsConstructor = true,
+            OwningRecordCppTypeName = "mi_counter"
+        };
+        counter.Members.Add(ctor);
+
+        compilation.Members.Add(left);
+        compilation.Members.Add(right);
+        compilation.Members.Add(counter);
+
+        BindingCompilationInheritancePass.Apply(compilation);
+        BindingCompilationPolymorphismPass.Apply(compilation);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public virtual int RightValue()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public int RightOnly()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("dynamic_cast<mi_right*>(instance)", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]

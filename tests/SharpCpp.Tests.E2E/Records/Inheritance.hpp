@@ -79,3 +79,9 @@ inline int read_base_counter_kind(base_counter* value)
 {
     return value->get_kind();
 }
+
+inline base_counter* get_shared_derived_as_base()
+{
+    static derived_counter shared(30, 4);
+    return &shared;
+}

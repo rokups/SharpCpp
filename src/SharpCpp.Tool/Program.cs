@@ -1,6 +1,7 @@
 using SharpCpp.Metadata.Export;
 using SharpCpp.Model.Ast;
 using SharpCpp.Parsing;
+using SharpCpp.Pipeline;
 using SharpCpp.Rendering;
 
 namespace SharpCpp.Tool;
@@ -113,6 +114,9 @@ internal static class Program
                 compilation.Members.Add(member);
             }
         }
+
+        BindingCompilationInheritancePass.Apply(compilation);
+        BindingCompilationPolymorphismPass.Apply(compilation);
 
         var renderedBindings = BindingOutputRenderer.Render(compilation, fileStem);
         var metadataDocument = BindingMetadataExporter.Export(

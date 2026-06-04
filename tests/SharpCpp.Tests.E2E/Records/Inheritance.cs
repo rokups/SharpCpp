@@ -54,7 +54,7 @@ public sealed class InheritanceTests
         var counter = new DerivedCounter(10, 2);
         var result = DerivedCounter.IdentityBase(counter);
 
-        Assert.IsAssignableFrom<BaseCounter>(result);
+        Assert.IsType<DerivedCounter>(result);
         Assert.Equal(10, result.GetValue());
     }
 
@@ -65,7 +65,7 @@ public sealed class InheritanceTests
         var argument = new DerivedCounter(20, 3);
         var result = owner.EchoBase(argument);
 
-        Assert.IsAssignableFrom<BaseCounter>(result);
+        Assert.IsType<DerivedCounter>(result);
         Assert.Equal(20, result.GetValue());
     }
 
@@ -75,12 +75,24 @@ public sealed class InheritanceTests
         var derived = new DerivedCounter(10, 2);
         var holder = E2EBindings.CreateInheritanceHolder(derived);
 
-        Assert.IsAssignableFrom<BaseCounter>(holder.BaseView);
+        Assert.IsType<DerivedCounter>(holder.BaseView);
         Assert.Equal(10, holder.BaseView.GetValue());
 
         holder.BaseView = new DerivedCounter(20, 3);
 
-        Assert.IsAssignableFrom<BaseCounter>(holder.BaseView);
+        Assert.IsType<DerivedCounter>(holder.BaseView);
         Assert.Equal(20, holder.BaseView.GetValue());
+    }
+
+    [Fact]
+    public void Base_typed_free_function_return_uses_derived_wrapper_and_cache_identity()
+    {
+        var first = E2EBindings.GetSharedDerivedAsBase();
+        var second = E2EBindings.GetSharedDerivedAsBase();
+
+        Assert.IsType<DerivedCounter>(first);
+        Assert.Same(first, second);
+        Assert.Equal(30, first.GetValue());
+        Assert.Equal(4, ((DerivedCounter)first).GetBonus());
     }
 }

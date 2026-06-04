@@ -19,11 +19,14 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - [x] Generated output contract wired through tool/CMake
 - [x] E2E generator and runtime tests wired
 - [x] P/Invoke self parameter changed from `nint` to wrapper type (SafeHandle-derived) for instance methods, operators, field accessors — leverages `LibraryImport` source generator's `AddRef`/`Release` to keep `this` alive during native calls
+- [x] Polymorphic wrapping foundation landed: per-record instance caches, runtime type metadata (`typeid(*self)` + normalized handle), registry-backed `CreateManagedWrapper`, and E2E coverage for base-typed returns materializing derived wrappers with stable managed identity
+- [x] Director-backed managed virtual overrides landed for the current primitive/handle slice, including native director class emission, callback hookup through generated delegates, and E2E coverage for native virtual dispatch re-entering managed overrides
+- [x] Multiple-inheritance surface shaping landed for the current slice: the parser/model now carry full base lists, secondary-base public methods project onto the derived wrapper, native thunks adjust complete-object handles with `dynamic_cast`, and E2E coverage proves both projected secondary-base methods and MI virtual overrides
 
 ## Current Focus
 
-1. Broaden the ClangSharp-backed parser beyond the current builtin/enum/record-method/field/constructor/static-factory E2E fixture headers.
-2. Expand the first slice beyond builtin primitives, enums, record methods, fields, constructors, and static factories into more native surface categories.
+1. Introduce phase-2 marshaller metadata extraction and generic instantiation discovery so template classes can surface as managed generic classes.
+2. Broaden the ClangSharp-backed parser beyond the current builtin/enum/record-method/field/constructor/static-factory/director/MI E2E fixture headers.
 3. Keep feature scope narrow until the parse -> render -> runtime path is solid.
 
 ## Decisions So Far
@@ -35,6 +38,8 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - The first E2E slice must go through ClangSharp rather than a permanently hardcoded binding model.
 - Bootstrap the first exported artifact through metadata before attempting full parser/renderer breadth.
 - Attribute-driven customization points should also be writable through the C# AST API so custom generators can mark nodes directly.
+- Land runtime identity/cache and base-return polymorphic wrapping before attempting directors or template/generic projection, since both depend on a coherent wrapper materialization path.
+- Land full template/generic projection after the new inheritance/director path is stable, since generic records still need phase-2 instantiation discovery and a deliberate policy for polymorphic-generic combinations.
 
 ## Relevant Doc Anchors
 
@@ -54,10 +59,10 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 
 ## Pending Work
 
-1. Expand the ClangSharp parser from the narrow E2E header to more declarations and type kinds.
-2. Introduce phase-2 marshaller metadata extraction contracts in `SharpCpp.Parsing`.
-3. Grow the generated managed/native surface beyond the current primitive `int` + simple handle case.
-4. Add more focused rendering and parsing tests as the feature surface grows.
+1. Introduce phase-2 marshaller metadata extraction plus generic instantiation discovery for template-backed managed generic classes.
+2. Extend multiple-inheritance shaping from projected secondary-base methods to fuller interface/reference-type policy where it pays off.
+3. Broaden validation/degradation around unsupported virtual/director/generic combinations as more type families come online.
+4. Add more focused rendering and E2E tests as the feature surface grows.
 
 ## Current Bootstrap Slice
 
@@ -96,6 +101,16 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - `SharpCpp.Support` now contains `NativeObject : SafeHandle` — the base class for all generated wrapper classes. Ported from `../SharpCpp`, it provides GC-safe critical finalization, handle lifecycle management (`OwnsNativeHandle`, `ReleaseNativeHandle`, `DisposeFromNativeRuntimeCore`), `GCHandle`-backed managed keep-alive for shared ownership, virtual method override detection (`HasManagedOverride`), and static handle-extraction helpers (`GetObject`, `RequireObject`, `GetHandle`, `RequireHandle`).
 - `INativeInstanceCache` interface was ported alongside `NativeObject` since the base class references it as the return type of its virtual `InstanceCache` property. The interface itself is minimal (3 methods); full instance cache implementations will land in a later slice.
 - Wrapper class rendering now inherits from `global::SharpCpp.Support.NativeObject` instead of `global::System.IDisposable` directly. Root wrapper constructors chain to `base(handle, ownsHandle)` and surface `Handle`, `OwnsHandle`, and `IsNull` as forwarding properties to the base class. The previous `Dispose()` / `DisposeCore()` boilerplate is replaced by a `ReleaseNativeHandle` override that conditionally calls the native delete thunk only when `OwnsNativeHandle` is true.
+- `SharpCpp.Support` now also contains `DefaultNativeInstanceCache`, `NativeObjectMetadata`, `INativeObjectRegistration<T>`, and `NativeObjectRegistry`, ported/adapted from v1 as the minimal runtime identity layer for polymorphic wrapping.
+- `RecordBinding` and `FunctionBinding` now carry the first polymorphism facts needed by the pipeline (`IsAbstract`, `IsPolymorphic`, `IsVirtual`, `IsPureVirtual`). `ClangSharpHeaderParser` populates the native facts, and `SharpCpp.Pipeline.BindingCompilationPolymorphismPass` recomputes transitive record polymorphism after the per-header ASTs are merged.
+- Generated wrapper classes now declare per-record `DefaultNativeInstanceCache` fields plus `CreateManagedWrapper(handle, ownsHandle)` factories. All managed handle materialization sites now route through those factories instead of directly constructing wrappers, so borrowed/owned returns, handle fields/properties, and handle `ref`/`out` flows all participate in cache-backed identity.
+- Polymorphic records now emit native `sharpcpp_e2e_<record>_type_id` and `sharpcpp_e2e_<record>_metadata` thunks using `typeid(*self).hash_code()` and `dynamic_cast<void*>(self)`, and managed wrappers implement `INativeObjectRegistration<T>` so base-typed returns can resolve to derived wrapper types at runtime.
+- `tests/SharpCpp.Tests.E2E/Records/Inheritance.hpp` and `Inheritance.cs` now prove the first polymorphic wrapping slice end-to-end: base-typed static/instance/field/free-function returns materialize `DerivedCounter` wrappers, and repeated wrapping of the same native base pointer returns the same managed object identity from the cache.
+- `RecordBinding` now carries full base-edge information (`Bases`) and `IsDirector`, while `FunctionBinding` now carries `NativeDispatchRecordCppTypeName` for projected secondary-base dispatch. `ClangSharpHeaderParser` records all direct bases, marks `[[sharpcpp::director]]` records, and preserves virtual/pure-virtual facts.
+- `SharpCpp.Pipeline.BindingCompilationInheritancePass` now projects secondary-base public methods onto the derived wrapper surface before rendering, while `RecordBindingExtensions` computes primary/secondary base chains plus effective virtual slots for director hookup.
+- Generated managed wrappers now emit C# `virtual` / `override` for native virtual methods, generate delegate-backed callback pointers for effective virtual slots, and call `ConnectDirector()` after constructing director-capable records so native virtual calls can re-enter managed overrides.
+- Generated native bindings now emit per-record C++ director subclasses, `sharpcpp_e2e_<record>_connect_director` entrypoints, director-aware constructor/delete thunks, and adjusted secondary-base method dispatch through `dynamic_cast<secondary*>(instance)` plus `MarshallerInvoker::invoke_instance(...)`.
+- `tests/SharpCpp.Tests.E2E/Records/Director.hpp` / `Director.cs` now prove single-inheritance director callbacks, and `tests/SharpCpp.Tests.E2E/Records/MultipleInheritance.hpp` / `MultipleInheritance.cs` now prove projected secondary-base methods plus managed overrides across a multiply inherited record.
 - `[[sharpcpp::ignore]]` attribute support: the parser detects `[[sharpcpp::ignore]]` (with optional reason string like `[[sharpcpp::ignore("reason")]]`) on records, enums, free functions, member methods, constructors, and fields using a combination of cursor-extent source text and a pre-scanned annotation index. When detected, `MetadataKeys.IgnoreReason` is set on the binding node. The renderer emits commented-out pseudo-code stubs (e.g. `// class Name; // excluded: reason`) instead of full bindings for any ignored element. Ignored elements are also excluded from C++ native thunk generation.
 - All `[LibraryImport(...)]` attribute lines are now immediately followed by the method signature with no intervening blank line, regardless of whether a `[return: MarshalAs(...)]` attribute is present.
 - C++ documentation comments (`///` line comments and `/** */` block comments) are now carried over to the C# public API. The parser extracts `cursor.BriefCommentText` from libclang at each binding node creation site and stores it via `MetadataKeys.DocumentationComment`. The renderer emits `/// <summary>{escaped_text}</summary>` XML doc comments before managed records, enums, free functions, instance/static methods, constructors, operators, and field properties. XML special characters (`<`, `>`, `&`, `"`) are automatically escaped.

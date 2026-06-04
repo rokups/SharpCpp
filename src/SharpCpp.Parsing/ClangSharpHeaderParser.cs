@@ -24,6 +24,9 @@ public sealed class ClangSharpHeaderParser
     private static readonly Regex IgnoreAttributeExpression = new(
         @"\[\[\s*sharpcpp::ignore(?:\s*\(\s*""(?<reason>[^""]*)""\s*\))?\s*\]\]",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex DirectorAttributeExpression = new(
+        @"\[\[\s*sharpcpp::director\s*\]\]",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     public unsafe BindingCompilation Parse(ClangSharpParseRequest request)
     {
@@ -89,7 +92,7 @@ public sealed class ClangSharpHeaderParser
                     {
                         var function = CreateFunction(child, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
                         CheckAndApplyIgnoreAttribute(child, function);
-        ExtractAndApplyDocumentation(child, function);
+                        ExtractAndApplyDocumentation(child, function);
                         compilation.Members.Add(function);
                         break;
                     }
@@ -177,7 +180,15 @@ public sealed class ClangSharpHeaderParser
         }
 
         var cppQualifiedName = GetCppQualifiedName(cursor);
-        var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(nativeName), cppQualifiedName);
+        var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
+        var declarationText = sourceText.IndexOf('{') is var braceIndex and >= 0
+            ? sourceText[..braceIndex]
+            : sourceText;
+        var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(nativeName), cppQualifiedName)
+        {
+            IsAbstract = cursor.CXXRecord_IsAbstract,
+            IsDirector = DirectorAttributeExpression.IsMatch(declarationText)
+        };
         CheckAndApplyIgnoreAttribute(cursor, record);
         ExtractAndApplyDocumentation(cursor, record);
         recordsByName.Add(nativeName, record);
@@ -191,13 +202,16 @@ public sealed class ClangSharpHeaderParser
                     return CXChildVisitResult.CXChildVisit_Continue;
                 }
 
-                if (record.ManagedBaseTypeName is not null)
+                var baseTypeName = GetRecordQualifiedName(child.Type, recordsByName);
+                if (!recordsByName.TryGetValue(baseTypeName, out var baseRecord))
                 {
-                    return CXChildVisitResult.CXChildVisit_Continue;
+                    baseRecord = new RecordBinding($"record:{baseTypeName}", baseTypeName, ToPascalCase(baseTypeName));
+                    recordsByName.Add(baseTypeName, baseRecord);
                 }
 
-                var baseTypeName = NormalizeNamedTypeName(child.Type.Spelling.ToString());
-                if (recordsByName.TryGetValue(baseTypeName, out var baseRecord))
+                record.Bases.Add(new RecordBaseBinding(baseRecord.SymbolId, baseRecord.NativeName, baseRecord.ManagedName, baseRecord.CppQualifiedName, child.IsVirtualBase));
+
+                if (record.ManagedBaseTypeName is null && !child.IsVirtualBase)
                 {
                     record.ManagedBaseTypeName = baseRecord.ManagedName;
                 }
@@ -223,7 +237,7 @@ public sealed class ClangSharpHeaderParser
 
                 var method = CreateMethod(record, child, recordsByName, enumsByName, managedTypeOverrides);
                 CheckAndApplyIgnoreAttribute(child, method);
-        ExtractAndApplyDocumentation(child, method);
+                ExtractAndApplyDocumentation(child, method);
                 record.Members.Add(method);
                 return CXChildVisitResult.CXChildVisit_Continue;
             },
@@ -245,7 +259,7 @@ public sealed class ClangSharpHeaderParser
 
                 var staticMethod = CreateStaticMethod(record, child, recordsByName, enumsByName, managedTypeOverrides);
                 CheckAndApplyIgnoreAttribute(child, staticMethod);
-        ExtractAndApplyDocumentation(child, staticMethod);
+                ExtractAndApplyDocumentation(child, staticMethod);
                 record.Members.Add(staticMethod);
                 return CXChildVisitResult.CXChildVisit_Continue;
             },
@@ -267,7 +281,7 @@ public sealed class ClangSharpHeaderParser
 
                 var ctor = CreateConstructor(record, child, recordsByName, enumsByName, managedTypeOverrides);
                 CheckAndApplyIgnoreAttribute(child, ctor);
-        ExtractAndApplyDocumentation(child, ctor);
+                ExtractAndApplyDocumentation(child, ctor);
                 record.Members.Add(ctor);
                 return CXChildVisitResult.CXChildVisit_Continue;
             },
@@ -289,11 +303,13 @@ public sealed class ClangSharpHeaderParser
 
                 var field = CreateField(record, child, recordsByName, enumsByName, managedTypeOverrides);
                 CheckAndApplyIgnoreAttribute(child, field);
-        ExtractAndApplyDocumentation(child, field);
+                ExtractAndApplyDocumentation(child, field);
                 record.Members.Add(field);
                 return CXChildVisitResult.CXChildVisit_Continue;
             },
             new CXClientData(IntPtr.Zero));
+
+        UpdatePolymorphism(record, recordsByName);
     }
 
     private static FunctionBinding CreateMethod(
@@ -315,6 +331,8 @@ public sealed class ClangSharpHeaderParser
             cppQualifiedName: $"{record.CppQualifiedName}::{nativeName}")
         {
             IsStatic = false,
+            IsVirtual = cursor.CXXMethod_IsVirtual,
+            IsPureVirtual = cursor.CXXMethod_IsPureVirtual,
             IsConstMethod = clang.CXXMethod_isConst(cursor) != 0,
             OwningRecordCppTypeName = record.CppQualifiedName
         };
@@ -792,6 +810,27 @@ public sealed class ClangSharpHeaderParser
         return spelling;
     }
 
+    private static void UpdatePolymorphism(RecordBinding record, IDictionary<string, RecordBinding> recordsByName)
+    {
+        if (record.Members.OfType<FunctionBinding>().Any(static function => function.IsVirtual))
+        {
+            record.IsPolymorphic = true;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(record.ManagedBaseTypeName))
+        {
+            return;
+        }
+
+        if (recordsByName.Values.Any(candidate =>
+                string.Equals(candidate.ManagedName, record.ManagedBaseTypeName, StringComparison.Ordinal) &&
+                candidate.IsPolymorphic))
+        {
+            record.IsPolymorphic = true;
+        }
+    }
+
     private static string GetCppQualifiedName(CXCursor cursor)
     {
         var names = new List<string>();
@@ -1250,7 +1289,7 @@ public sealed class ClangSharpHeaderParser
                     {
                         var function = CreateFunction(child, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
                         CheckAndApplyIgnoreAttribute(child, function);
-        ExtractAndApplyDocumentation(child, function);
+                        ExtractAndApplyDocumentation(child, function);
                         compilation.Members.Add(function);
                         break;
                     }
