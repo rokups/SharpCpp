@@ -1811,6 +1811,27 @@ public static partial class BindingOutputRenderer
                 writer.WriteLine();
                 writer.Write(RenderNativeGenericDelete(record, instantiation));
             }
+
+            var genericInstanceMethods = record.Members.OfType<FunctionBinding>()
+                .Where(static function => !function.IsConstructor && !function.IsStatic && function.IsGeneric && function.OperatorToken is null && !function.IsConversionOperator)
+                .OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
+            foreach (var method in genericInstanceMethods)
+            {
+                var methodInstantiations = method.SupportedGenericInstantiations.ToArray();
+                if (methodInstantiations.Length == 0)
+                {
+                    continue;
+                }
+
+                foreach (var instantiation in record.SupportedGenericInstantiations)
+                {
+                    foreach (var methodInstantiation in methodInstantiations)
+                    {
+                        writer.WriteLine();
+                        writer.Write(RenderNativeGenericMethodInstanceMethod(record, method, instantiation, methodInstantiation));
+                    }
+                }
+            }
         }
 
         foreach (var function in functions)

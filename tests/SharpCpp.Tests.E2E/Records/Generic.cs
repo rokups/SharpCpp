@@ -64,12 +64,22 @@ public sealed class GenericTests
     }
 
     [Fact]
-    public void Generic_method_inside_generic_record_throws_until_concrete_dispatch_lands()
+    public void Generic_method_inside_generic_record_dispatches_to_concrete_instantiation()
     {
         var box = new BoxOf<int>(12);
 
-        var exception = Assert.Throws<NotSupportedException>(() => box.Project(2));
+        var result = box.Project(2);
 
-        Assert.Contains("generic methods inside generic records", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(24, result);
+    }
+
+    [Fact]
+    public void Unsupported_generic_method_instantiation_throws()
+    {
+        var box = new BoxOf<int>(12);
+
+        var exception = Assert.Throws<NotSupportedException>(() => box.Project(2.5f));
+
+        Assert.Contains("generic argument combination", exception.Message, StringComparison.Ordinal);
     }
 }
