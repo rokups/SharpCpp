@@ -1,3 +1,5 @@
+using System.Reflection;
+
 using SharpCpp.Tests.E2E.Generated;
 
 using Xunit;
@@ -6,6 +8,21 @@ namespace SharpCpp.Tests.E2E.Records;
 
 public sealed class OperatorTests
 {
+    [Fact]
+    public void Managed_surface_exposes_expected_operator_methods()
+    {
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.Static;
+
+        Assert.NotNull(typeof(OperatorBox).GetMethod("op_Addition", flags, [typeof(OperatorBox), typeof(int)]));
+        Assert.NotNull(typeof(OperatorBox).GetMethod("op_UnaryNegation", flags, [typeof(OperatorBox)]));
+        Assert.NotNull(typeof(OperatorBox).GetMethod("op_Implicit", flags, [typeof(OperatorBox)]));
+        Assert.NotNull(typeof(OperatorBox).GetMethod("op_Explicit", flags, [typeof(OperatorBox)]));
+        Assert.NotNull(typeof(OperatorBox).GetMethod("op_Equality", flags, [typeof(OperatorBox), typeof(OperatorBox)]));
+        Assert.NotNull(typeof(OperatorBox).GetMethod("op_Inequality", flags, [typeof(OperatorBox), typeof(OperatorBox)]));
+        Assert.NotNull(typeof(OperatorBox).GetMethod("op_LessThan", flags, [typeof(OperatorBox), typeof(OperatorBox)]));
+        Assert.NotNull(typeof(OperatorBox).GetMethod("op_GreaterThan", flags, [typeof(OperatorBox), typeof(OperatorBox)]));
+    }
+
     [Fact]
     public void Managed_surface_exposes_member_operator_wrappers()
     {

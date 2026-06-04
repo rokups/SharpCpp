@@ -115,10 +115,7 @@ internal static class Program
             }
         }
 
-        MarshallerMetadataPhase2.Apply(compilation, headerFiles.Concat(marshallerConfigurationFiles));
-        BindingCompilationGenericInstantiationPass.Apply(compilation);
-        BindingCompilationInheritancePass.Apply(compilation);
-        BindingCompilationPolymorphismPass.Apply(compilation);
+        BindingCompilationBootstrapPipeline.Apply(compilation, headerFiles.Concat(marshallerConfigurationFiles));
 
         var renderedBindings = BindingOutputRenderer.Render(compilation, fileStem);
         var metadataDocument = BindingMetadataExporter.Export(

@@ -39,8 +39,8 @@ public sealed class GenericTests
     [Fact]
     public void Unsupported_generic_instantiation_throws_at_runtime()
     {
-        var exception = Assert.Throws<NotSupportedException>(() => new BoxOf<long>(1L));
+        var exception = Assert.Throws<NotSupportedException>(() => BoxOf<long>.Create(1L));
 
-        Assert.Contains("BoxOf", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("generic argument combination", exception.Message, StringComparison.Ordinal);
     }
 }

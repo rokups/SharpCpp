@@ -1,3 +1,5 @@
+using SharpCpp.Support;
+
 using SharpCpp.Tests.E2E.Generated;
 
 using Xunit;
@@ -36,5 +38,14 @@ public sealed class MultipleInheritanceTests
 
         Assert.Equal(12, counter.SumVirtuals());
         Assert.Equal(6, counter.RightOnly());
+    }
+
+    [Fact]
+    public void Managed_multiple_inheritance_director_instances_are_reused_by_create_helper()
+    {
+        using var counter = new ManagedMiCounter();
+        var handle = NativeObject.GetHandle(counter);
+
+        Assert.Same(counter, MiCounter.CreateManagedWrapper(handle, ownsHandle: false));
     }
 }
