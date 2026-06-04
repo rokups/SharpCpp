@@ -174,4 +174,53 @@ public sealed class VirtualAdvancedTests
         Assert.Equal(25, E2EBindings.InvokeAdvFinalRootMode(leaf));
         Assert.Equal(35, E2EBindings.InvokeAdvFinalMidValue(leaf));
     }
+
+    private sealed class ManagedAdvVirtualCounterCallingBase : AdvVirtualCounter
+    {
+        public ManagedAdvVirtualCounterCallingBase(int seed)
+            : base(seed)
+        {
+        }
+
+        public int GetValueCallbackCount { get; private set; }
+
+        public int AddCallbackCount { get; private set; }
+
+        public override int GetValue()
+        {
+            GetValueCallbackCount++;
+            return 100 + base.GetValue();
+        }
+
+        public override int Add(int amount)
+        {
+            AddCallbackCount++;
+            return 1000 + base.Add(amount);
+        }
+    }
+
+    [Fact]
+    public void Managed_virtual_overrides_can_delegate_to_base_implementation()
+    {
+        using var counter = new ManagedAdvVirtualCounterCallingBase(10);
+        AdvVirtualCounter baseView = counter;
+
+        Assert.Equal(110, counter.GetValue());
+        Assert.Equal(1, counter.GetValueCallbackCount);
+
+        Assert.Equal(110, baseView.GetValue());
+        Assert.Equal(2, counter.GetValueCallbackCount);
+
+        Assert.Equal(1015, counter.Add(5));
+        Assert.Equal(1, counter.AddCallbackCount);
+
+        Assert.Equal(1020, baseView.Add(5));
+        Assert.Equal(2, counter.AddCallbackCount);
+
+        Assert.Equal(120, E2EBindings.InvokeAdvVirtualCounterGetValue(counter));
+        Assert.Equal(3, counter.GetValueCallbackCount);
+
+        Assert.Equal(1025, E2EBindings.InvokeAdvVirtualCounterAdd(counter, 5));
+        Assert.Equal(3, counter.AddCallbackCount);
+    }
 }

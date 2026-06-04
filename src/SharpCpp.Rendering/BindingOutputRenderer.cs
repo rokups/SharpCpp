@@ -223,6 +223,18 @@ public static partial class BindingOutputRenderer
             writer.Write(RenderNativeProtectedFieldHelpers(record, field));
         }
 
+        var callbaseSlots = record.GetEffectiveVirtualMethodSlots(compilation)
+            .Where(static slot => !slot.Method.IsPureVirtual)
+            .ToArray();
+        if (callbaseSlots.Length > 0)
+        {
+            writer.WriteLine();
+            foreach (var slot in callbaseSlots)
+            {
+                writer.Write(RenderNativeCallbaseHelper(record, slot));
+            }
+        }
+
         writer.Write($$"""
             void connect_director({{string.Join(", ", slots.Select((_, index) => $"void* slot{index}"))}})
             {
@@ -527,6 +539,51 @@ public static partial class BindingOutputRenderer
         }
     }
 
+    private static string RenderNativeCallbaseHelper(RecordBinding record, VirtualMethodSlotBinding slot)
+    {
+        var method = slot.Method;
+        var parameterList = string.Join(", ", method.Parameters.Select(parameter => $"{parameter.CppTypeName} {parameter.NativeName}"));
+        var arguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
+        var directorName = GetNativeDirectorClassName(record);
+        var writer = new CodeWriter();
+
+        writer.Write($$"""
+            static {{method.CppReturnTypeName}} {{GetNativeCallbaseHelperName(method)}}({{record.CppQualifiedName}}* self{{(method.Parameters.Count > 0 ? $", {parameterList}" : string.Empty)}})
+            {
+            auto* director = static_cast<{{directorName}}*>(self);
+            """);
+
+        if (method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+        {
+            writer.WriteLine($"    director->{slot.NativeImplementationRecord.CppQualifiedName}::{method.NativeName}({arguments});");
+        }
+        else
+        {
+            writer.WriteLine($"    return director->{slot.NativeImplementationRecord.CppQualifiedName}::{method.NativeName}({arguments});");
+        }
+
+        writer.Write(
+            """
+            }
+            """);
+        return writer.ToString();
+    }
+
+    private static string GetNativeCallbaseHelperName(FunctionBinding method)
+    {
+        return $"__callbase_{SanitizeManagedToken(method.ManagedName)}";
+    }
+
+    private static string GetNativeCallbaseEntrypointName(RecordBinding record, FunctionBinding method)
+    {
+        return $"sharpcpp_e2e_{record.NativeName}_callbase_{method.NativeName}";
+    }
+
+    private static string GetManagedCallbaseImportMethodName(FunctionBinding function)
+    {
+        return $"__CallBase_{function.ImportMethodName}";
+    }
+
 
     private static string RenderManagedWrapperMethod(BindingCompilation compilation, FunctionBinding function)
     {
@@ -755,8 +812,16 @@ public static partial class BindingOutputRenderer
             }
             else
             {
-                writer.Write(RenderManagedInstanceMethod(compilation, record, method));
-                pinvokeDeclarations.Add(RenderManagedInstanceImportDeclaration(compilation, method, record.ManagedName));
+                var isDirectorVirtual = requiresDirector && method.IsVirtual;
+                writer.Write(RenderManagedInstanceMethod(compilation, record, method, isDirectorVirtual));
+                if (isDirectorVirtual)
+                {
+                    pinvokeDeclarations.Add(RenderManagedCallbaseImportDeclaration(compilation, method, record.ManagedName));
+                }
+                else
+                {
+                    pinvokeDeclarations.Add(RenderManagedInstanceImportDeclaration(compilation, method, record.ManagedName));
+                }
             }
         }
 
@@ -878,7 +943,7 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string RenderManagedInstanceMethod(BindingCompilation compilation, RecordBinding record, FunctionBinding function)
+    private static string RenderManagedInstanceMethod(BindingCompilation compilation, RecordBinding record, FunctionBinding function, bool useCallbase = false)
     {
         var writer = new CodeWriter();
         WriteDocumentationComment(writer, function);
@@ -888,7 +953,9 @@ public static partial class BindingOutputRenderer
         var invocationPlan = BuildManagedInvocationPlan(compilation, function.Parameters);
         var invokeArguments = string.Join(", ", new[] { "this" }.Concat(invocationPlan.Arguments));
         var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType);
-        var importMethodName = GetManagedImportMethodName(function);
+        var importMethodName = useCallbase
+            ? GetManagedCallbaseImportMethodName(function)
+            : GetManagedImportMethodName(function);
         var memberModifier = GetManagedInstanceMethodModifier(compilation, record, function);
 
         if (string.Equals(memberModifier, "abstract ", StringComparison.Ordinal))
@@ -1501,6 +1568,31 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
+    private static string RenderManagedCallbaseImportDeclaration(BindingCompilation compilation, FunctionBinding function, string recordManagedName)
+    {
+        var writer = new CodeWriter();
+        var parameterList = string.Join(
+            ", ",
+            new[] { $"{recordManagedName} self" }.Concat(function.Parameters.Select(RenderManagedParameter)));
+        var returnTypeName = GetManagedImportTypeName(function.ReturnType);
+        var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
+        var importMethodName = GetManagedCallbaseImportMethodName(function);
+        var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
+            ? $"internal static partial {returnTypeName} {importMethodName}({parameterList});"
+            : $"{returnAttribute}\ninternal static partial {returnTypeName} {importMethodName}({parameterList});";
+        var owningRecord = function.FindOwningRecord();
+        var entryPointName = owningRecord is not null
+            ? GetNativeCallbaseEntrypointName(owningRecord, function)
+            : function.EntryPointName;
+
+        writer.Write(
+            $$"""
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{entryPointName}}")]
+            {{importMethodLine}}
+            """);
+        return writer.ToString();
+    }
+
     private static string RenderEnum(EnumBinding @enum)
     {
         var writer = new CodeWriter();
@@ -1652,6 +1744,46 @@ public static partial class BindingOutputRenderer
         {
             writer.WriteLine();
             writer.Write(RenderNativeDirectorClass(compilation, record));
+        }
+
+        var directorRecords = compilation.Records.Where(record => record.RequiresDirector(compilation)).ToArray();
+        foreach (var record in directorRecords)
+        {
+            var callbaseMethods = record.GetEffectiveVirtualMethodSlots(compilation)
+                .Select(static slot => slot.Method)
+                .Where(static method => !method.IsPureVirtual)
+                .ToArray();
+            foreach (var method in callbaseMethods)
+            {
+                var parameterList = string.Join(", ", new[] { $"arg_t<{record.CppQualifiedName}*> self" }.Concat(method.Parameters.Select(RenderNativeParameter)));
+                var abiArguments = string.Join(", ", method.Parameters.Select(static p => p.NativeName));
+                var parameterCppList = string.Join(", ", method.Parameters.Select(static p => p.CppTypeName));
+                var callbaseArguments = string.Join(", ", method.Parameters.Select(static p => p.NativeName));
+                var directorName = GetNativeDirectorClassName(record);
+                var helperName = GetNativeCallbaseHelperName(method);
+
+                writer.WriteLine();
+                if (method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+                {
+                    writer.Write($$"""
+                        SHARPCPP_EXPORT ret_t<void> {{GetNativeCallbaseEntrypointName(record, method)}}({{parameterList}})
+                        {
+                        using FT = void({{record.CppQualifiedName}}*{{(parameterCppList.Length > 0 ? $", {parameterCppList}" : string.Empty)}});
+                        MarshallerInvoker::invoke_as<FT>(&{{directorName}}::{{helperName}}, self{{(callbaseArguments.Length > 0 ? $", {callbaseArguments}" : string.Empty)}});
+                        }
+                        """);
+                }
+                else
+                {
+                    writer.Write($$"""
+                        SHARPCPP_EXPORT ret_t<{{method.CppReturnTypeName}}> {{GetNativeCallbaseEntrypointName(record, method)}}({{parameterList}})
+                        {
+                        using FT = {{method.CppReturnTypeName}}({{record.CppQualifiedName}}*{{(parameterCppList.Length > 0 ? $", {parameterCppList}" : string.Empty)}});
+                        return MarshallerInvoker::invoke_as<FT>(&{{directorName}}::{{helperName}}, self{{(callbaseArguments.Length > 0 ? $", {callbaseArguments}" : string.Empty)}});
+                        }
+                        """);
+                }
+            }
         }
 
         foreach (var record in compilation.Records.Where(static record => record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static record => record.ManagedName, StringComparer.Ordinal))
