@@ -32,6 +32,18 @@ public sealed class MultipleInheritanceTests
     }
 
     [Fact]
+    public void Secondary_base_surfaces_are_exposed_as_interfaces()
+    {
+        var counter = new MiCounter();
+
+        Assert.Contains(typeof(IMiRight), typeof(MiCounter).GetInterfaces());
+
+        IMiRight rightView = counter;
+        Assert.Equal(200, rightView.RightValue());
+        Assert.Equal(201, rightView.RightOnly());
+    }
+
+    [Fact]
     public void Secondary_base_virtuals_can_dispatch_to_managed_overrides_through_director()
     {
         var counter = new ManagedMiCounter();

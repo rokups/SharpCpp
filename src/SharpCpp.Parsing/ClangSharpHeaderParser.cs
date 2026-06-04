@@ -115,6 +115,19 @@ public sealed class ClangSharpHeaderParser
                         compilation.Members.Add(function);
                         break;
                     }
+
+                    case CXCursorKind.CXCursor_FunctionTemplate:
+                    {
+                        var function = CreateTemplateFunction(child, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
+                        if (function is not null)
+                        {
+                            CheckAndApplyIgnoreAttribute(child, function);
+                            TryApplyRename(child, function);
+                            ExtractAndApplyDocumentation(child, function);
+                            compilation.Members.Add(function);
+                        }
+                        break;
+                    }
                 }
 
                 return CXChildVisitResult.CXChildVisit_Continue;
@@ -736,6 +749,77 @@ public sealed class ClangSharpHeaderParser
 
         function.EntryPointName = BuildEntrypointName(entryPointPrefix, nativeName, function.Parameters);
 
+        return function;
+    }
+
+    private static unsafe FunctionBinding? CreateTemplateFunction(
+        CXCursor templateCursor,
+        string entryPointPrefix,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
+    {
+        if (!TryExtractTemplateParameters(templateCursor, out var templateParameters))
+        {
+            return null;
+        }
+
+        var genericParameters = CreateGenericParameterScope(templateParameters);
+        var nativeName = templateCursor.Spelling.ToString();
+        if (string.IsNullOrWhiteSpace(nativeName))
+        {
+            return null;
+        }
+
+        var returnType = MapType(templateCursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        var function = new FunctionBinding(
+            $"function:{nativeName}",
+            nativeName,
+            ToPascalCase(nativeName),
+            returnType,
+            cppReturnTypeName: returnType.CppTypeName,
+            cppQualifiedName: nativeName);
+
+        foreach (var templateParameter in templateParameters)
+        {
+            function.GenericParameters.Add(templateParameter);
+        }
+
+        ApplyExplicitGenericInstantiations(templateCursor, function, recordsByName, enumsByName, managedTypeOverrides);
+
+        templateCursor.VisitChildren(
+            (child, _, _) =>
+            {
+                if (child.Kind != CXCursorKind.CXCursor_ParmDecl)
+                {
+                    return CXChildVisitResult.CXChildVisit_Continue;
+                }
+
+                var parameterName = child.Spelling.ToString();
+                if (string.IsNullOrWhiteSpace(parameterName))
+                {
+                    parameterName = $"arg{function.Parameters.Count}";
+                }
+
+                var (parameterType, direction, abiKind) = MapParameter(templateCursor, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+                function.Parameters.Add(
+                    new ParameterBinding(
+                        $"parameter:{nativeName}:{parameterName}",
+                        parameterName,
+                        parameterName,
+                        parameterType,
+                        direction,
+                        abiKind,
+                        ResolveQualifiedTypeName(child.Type, recordsByName))
+                    {
+                        ManagedDefaultValueExpression = GetManagedDefaultValueExpression(child, parameterType)
+                    });
+
+                return CXChildVisitResult.CXChildVisit_Continue;
+            },
+            new CXClientData(IntPtr.Zero));
+
+        function.EntryPointName = BuildEntrypointName(entryPointPrefix, nativeName, function.Parameters);
         return function;
     }
 
@@ -1733,6 +1817,19 @@ public sealed class ClangSharpHeaderParser
                         compilation.Members.Add(function);
                         break;
                     }
+
+                    case CXCursorKind.CXCursor_FunctionTemplate:
+                    {
+                        var function = CreateTemplateFunction(child, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
+                        if (function is not null)
+                        {
+                            CheckAndApplyIgnoreAttribute(child, function);
+                            TryApplyRename(child, function);
+                            ExtractAndApplyDocumentation(child, function);
+                            compilation.Members.Add(function);
+                        }
+                        break;
+                    }
                 }
 
                 return CXChildVisitResult.CXChildVisit_Continue;
@@ -1820,6 +1917,21 @@ public sealed class ClangSharpHeaderParser
         if (TryMapGenericParameterType(normalized, genericParameters, out var genericParameterType))
         {
             return genericParameterType;
+        }
+
+        if (normalized.EndsWith("*", StringComparison.Ordinal))
+        {
+            var referredTypeName = NormalizeTypeName(normalized[..^1]);
+            if (TryCreateSpecializedRecordHandleType(normalized, referredTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters, out var specializedHandleType))
+            {
+                return specializedHandleType;
+            }
+
+            var pointeeName = NormalizeNamedTypeName(referredTypeName);
+            if (recordsByName.TryGetValue(pointeeName, out var record))
+            {
+                return BindingType.CreateHandle(normalized, record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName);
+            }
         }
 
         if (managedTypeOverrides.TryGetValue(normalized, out var managedTypeOverride))

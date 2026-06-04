@@ -27,13 +27,19 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - [x] Bootstrap cleanup landed to keep future work maintainable: generic rendering moved out of the main renderer file into a dedicated partial, and post-parse phase sequencing moved into a single pipeline entrypoint instead of ad hoc orchestration in `SharpCpp.Tool`
 - [x] First protected-member slice landed for director-capable records: parser/model now preserve protected access, managed wrappers emit `protected` constructors/methods/properties, generated native director helpers legally bridge protected method/field access, and E2E/rendering tests cover protected ctor/method/property shape plus non-director omission
 - [x] Namespace-aware managed wrapper emission landed: `RecordBinding` and `EnumBinding` now carry per-type `ManagedNamespace`, `NormalizeManagedNamespacesPass` maps C++ namespaces (from `CppQualifiedName`) to managed namespaces (identity by default, configurable via `BindingCompilation.NamespaceMappings`), the renderer groups types by namespace into block-scoped `namespace` declarations, and global-scope types fall back to `compilation.ManagedNamespace`. Rendering tests cover per-type placement, grouping, enum namespacing, default-namespace fallback, and configurable mappings.
-- [x] v1-aligned surface growth landed for currently-supported areas: builtin `long` / `unsigned long` now project as `nint` / `nuint` with E2E coverage in the builtin slice, richer virtual/director coverage now exercises pure-virtual managed overrides plus protected/public override visibility normalization and final-slot reflection, and template member methods inside generic records now surface as managed generic methods with an explicit `NotSupportedException` stub until concrete dispatch is implemented.
+- [x] v1-aligned surface growth landed for currently-supported areas: builtin `long` / `unsigned long` now project as `nint` / `nuint` with E2E coverage in the builtin slice, richer virtual/director coverage now exercises pure-virtual managed overrides plus protected/public override visibility normalization and final-slot reflection, and template member methods inside generic records now dispatch through concrete instantiations.
+- [x] Base-call delegation landed for director virtual overrides: generated wrappers now call native `callbase_*` entrypoints for virtual methods on director-capable records, so managed overrides can safely use `base.SomeVirtual()` without recursing back through the director callback path.
+- [x] Generic surface breadth expanded beyond the first primitive-only slice: top-level generic free functions now parse and dispatch through explicit instantiations, generic records can now instantiate over handle-type arguments, and explicit generic instantiation metadata composes with discovery rather than replacing it.
+- [x] First multiple-inheritance interface slice landed: secondary bases now render as managed `I*` interfaces alongside the projected method surface, and derived wrappers implement those interfaces automatically.
+- [x] Early bootstrap validation landed: unsupported virtual-base inheritance and unsupported generic bootstrap combinations now fail in the pipeline before rendering instead of surfacing later as renderer/native compile failures.
 
 ## Current Focus
 
-1. Broaden the ClangSharp-backed parser beyond the current builtin/enum/record-method/field/constructor/static-factory/director/protected/MI/generic-record E2E fixture headers.
-2. Extend the first protected/virtual slice toward the richer v1 override semantics that are still missing after the latest parity pass: base-call delegation from managed overrides and fuller MI virtual edge cases.
-3. Extend the first generic slice beyond primitive/enum type arguments into richer type families, concrete dispatch for generic member templates, and more complete metadata extraction.
+1. Broaden the ClangSharp-backed parser beyond the current fixture-driven set: more top-level template shapes, richer default-argument forms, more attribute-placement variants, and additional real-world header patterns.
+2. Extend the generic slice beyond the current free-function / record / member-template support: richer type families, more complete phase-2 metadata extraction, and additional generic member shapes.
+3. Extend the multiple-inheritance policy from projected methods plus first-pass interfaces toward fuller interface inheritance / reference-type policy and more secondary-base virtual edge cases.
+4. Broaden validation/degradation around unsupported virtual/director/generic combinations as more type families come online.
+5. Prepare the next architectural milestone: cross-module composition via imported metadata and duplicate-emission suppression.
 
 ## Decisions So Far
 
@@ -65,10 +71,25 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 
 ## Pending Work
 
-1. Extend generic projection past the current template-record/primitive slice: more complete phase-2 metadata extraction, richer type arguments, and additional generic member shapes.
-2. Extend multiple-inheritance shaping from projected secondary-base methods to fuller interface/reference-type policy where it pays off.
-3. Broaden validation/degradation around unsupported virtual/director/generic combinations as more type families come online.
-4. Add more focused rendering and E2E tests as the feature surface grows.
+1. Parser breadth
+   - [ ] top-level template edge cases beyond the current `FunctionTemplate` / `ClassTemplate` fixture shapes
+   - [ ] richer default-argument forms and placement variants
+   - [ ] more real-world header patterns outside the current synthetic E2E fixtures
+2. Generic breadth
+   - [ ] additional generic member shapes beyond current single-parameter method templates
+   - [ ] richer generic argument families where marshalling policy remains coherent
+   - [ ] more complete phase-2 metadata extraction for generic surfaces
+3. Multiple inheritance policy
+   - [ ] fuller interface inheritance policy for secondary bases
+   - [ ] clearer reference-type policy for projected secondary-base surfaces
+   - [ ] more edge-case coverage around protected / virtual / secondary-base interactions
+4. Validation / degradation
+   - [ ] explicit early diagnostics for unsupported generic+director / generic+MI / virtual-base combinations
+   - [ ] fail-fast gates before render/native compile for unsupported bootstrap surfaces
+5. Composition and adoption
+   - [ ] import upstream metadata and suppress duplicate emission
+   - [ ] validate downstream native support requirements for imported surfaces
+   - [ ] begin testing cross-module composition against a real consumer slice
 
 ## Current Bootstrap Slice
 
@@ -141,10 +162,15 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - `FunctionBinding` now carries `IsFinal`, `IsOverride`, and method-level `GenericParameters`. The parser sets final/override using libclang children plus a declaration-text fallback, and the renderer uses those facts to emit `sealed override` where the current managed surface can represent it.
 - Managed instance-method visibility is now normalized at render time rather than by mutating the AST: overrides of protected base slots stay `protected`, while protected C++ overrides of public base slots render as public managed methods without breaking native protected-member thunk generation.
 - Abstract pure-virtual record methods now render as C# `abstract` members instead of virtual P/Invoke bodies, while still participating in director callback hookup for native-to-managed dispatch.
-- Template member methods inside generic records are now parsed into the AST and emitted on the managed generic wrapper surface. The current bootstrap policy deliberately keeps them surface-only: they throw `NotSupportedException` until we land concrete method-template dispatch.
+- Template member methods inside generic records are now parsed into the AST, carry explicit method-level generic instantiations, and emit concrete managed/native dispatch for the supported `(record generic args) × (method generic args)` combinations.
 - `tests/SharpCpp.Tests.E2E/VirtualAdvanced/` now adds deeper v1-inspired parity coverage for managed virtual overrides, pure-virtual director dispatch, visibility normalization across protected/public overrides, and final-slot reflection on non-director inheritance chains.
 - Explicit generic instantiation metadata is now available through `[[sharpcpp::instantiate("...")]]` attributes on generic records and generic member templates. The parser resolves those type tokens into `GenericInstantiationMetadata`, and the generic instantiation pass now treats explicit record instantiations as authoritative while leaving discovery as fallback only when no explicit contract is present.
 - The remaining inline `value is null ? 0 : value.Handle` callsites in generated managed code were collapsed to `NativeObject.GetHandle(...)` so null-handle flows stay intact without open-coded handle ternaries. We deliberately did **not** switch every handle-valued import parameter to direct `LibraryImport` wrapper marshalling because the current runtime contract still depends on null wrappers mapping to zero handles.
+- Top-level generic free functions now parse through `FunctionTemplate` cursors, honor explicit instantiations, and emit managed generic methods plus native/PInvoke dispatch per concrete instantiation.
+- Generic record discovery now handles handle-typed generic arguments (e.g. `handle_box<record*>`) and the generic renderer now preserves wrapper-shaped public signatures for those concrete substitutions while still marshalling through raw handles internally.
+- Secondary bases that participate in MI now also render as managed `I*` interfaces, and derived wrappers automatically implement those interfaces while still exposing the projected method surface directly.
+- `ValidateBootstrapSurfacePass` now fails fast on unsupported bootstrap combinations like virtual-base inheritance or generic records that exceed the current slice, moving these failures out of the renderer/native compile stage.
+- Director-capable wrappers now emit native `callbase_*` entrypoints plus managed `__CallBase_*` imports so managed overrides can safely delegate to base implementations.
 
 ## Verification Commands
 

@@ -15,5 +15,6 @@ public static class BindingCompilationBootstrapPipeline
         BindingCompilationGenericInstantiationPass.Apply(compilation);
         BindingCompilationInheritancePass.Apply(compilation);
         BindingCompilationPolymorphismPass.Apply(compilation);
+        ValidateBootstrapSurfacePass.Apply(compilation);
     }
 }

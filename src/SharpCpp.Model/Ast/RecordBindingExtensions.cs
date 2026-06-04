@@ -141,6 +141,42 @@ public static class RecordBindingExtensions
         return compilation.Records.FirstOrDefault(candidate => string.Equals(candidate.CppQualifiedName, function.NativeDispatchRecordCppTypeName, StringComparison.Ordinal));
     }
 
+    public static string GetManagedInterfaceName(this RecordBinding record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        return $"I{record.ManagedName}";
+    }
+
+    public static IReadOnlyList<RecordBinding> GetManagedInterfaceBaseRecords(this RecordBinding record, BindingCompilation compilation)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentNullException.ThrowIfNull(compilation);
+
+        return record.GetSecondaryBaseRecords(compilation);
+    }
+
+    public static IReadOnlyList<FunctionBinding> GetRenderableInterfaceMethods(this RecordBinding record, BindingCompilation compilation)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentNullException.ThrowIfNull(compilation);
+
+        var methods = new List<FunctionBinding>();
+        foreach (var candidateRecord in record.EnumerateAllBaseRecords(compilation).Reverse().Append(record))
+        {
+            foreach (var method in candidateRecord.Members.OfType<FunctionBinding>())
+            {
+                if (method.IsConstructor || method.IsStatic || method.AccessModifier != BindingAccessModifier.Public)
+                {
+                    continue;
+                }
+
+                AddOrReplaceMethod(methods, method);
+            }
+        }
+
+        return methods;
+    }
+
     private static IReadOnlyList<RecordBinding> EnumeratePrimaryBaseChain(this RecordBinding record, BindingCompilation compilation)
     {
         var baseChain = new List<RecordBinding>();

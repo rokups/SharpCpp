@@ -1,6 +1,68 @@
 #pragma once
 
 template <typename T>
+[[sharpcpp::instantiate("int")]]
+[[sharpcpp::instantiate("float")]]
+[[sharpcpp::instantiate("double")]]
+T generic_add(T left, T right)
+{
+    return left + right;
+}
+
+struct generic_payload
+{
+    explicit generic_payload(int value)
+        : value_(value)
+    {
+    }
+
+    int get_value() const
+    {
+        return value_;
+    }
+
+    void set_value(int value)
+    {
+        value_ = value;
+    }
+
+private:
+    int value_{};
+};
+
+template <typename T>
+struct [[sharpcpp::rename("HandleBoxOf<{0}>")]] handle_box
+{
+    explicit handle_box(T value)
+        : value_(value)
+    {
+    }
+
+    T get_value() const
+    {
+        return value_;
+    }
+
+    void set_value(T value)
+    {
+        value_ = value;
+    }
+
+    static handle_box<T>* create(T value)
+    {
+        return new handle_box<T>(value);
+    }
+
+private:
+    T value_{};
+};
+
+inline handle_box<generic_payload*>* create_generic_payload_box(generic_payload* value)
+{
+    return handle_box<generic_payload*>::create(value);
+}
+
+template <typename T>
 struct
 [[sharpcpp::rename("BoxOf<{0}>")]]
 [[sharpcpp::instantiate("double")]]

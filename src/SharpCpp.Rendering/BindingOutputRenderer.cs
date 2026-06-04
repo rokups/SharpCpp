@@ -29,6 +29,12 @@ public static partial class BindingOutputRenderer
         var records = compilation.Records.OrderBy(static record => record.ManagedName, StringComparer.Ordinal).ToArray();
         var enums = compilation.Enums.OrderBy(static item => item.ManagedName, StringComparer.Ordinal).ToArray();
         var functions = compilation.Functions.OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
+        var interfaceRecords = records
+            .SelectMany(record => record.GetSecondaryBaseRecords(compilation))
+            .GroupBy(static record => record.SymbolId, StringComparer.Ordinal)
+            .Select(static group => group.First())
+            .OrderBy(static record => record.ManagedName, StringComparer.Ordinal)
+            .ToArray();
         var polymorphicConcreteRecords = records
             .Where(static record => record.IsPolymorphic && !record.IsAbstract && !record.HasMetadata(MetadataKeys.IgnoreReason))
             .ToArray();
@@ -51,6 +57,7 @@ public static partial class BindingOutputRenderer
         foreach (var ns in allNamespaces)
         {
             var nsRecords = records.Where(record => (record.ManagedNamespace ?? compilation.ManagedNamespace) == ns).ToArray();
+            var nsInterfaces = interfaceRecords.Where(record => (record.ManagedNamespace ?? compilation.ManagedNamespace) == ns).ToArray();
             var nsEnums = enums.Where(@enum => (@enum.ManagedNamespace ?? compilation.ManagedNamespace) == ns).ToArray();
 
             writer.WriteLine();
@@ -59,6 +66,12 @@ public static partial class BindingOutputRenderer
                 namespace {{ns}}
                 {
                 """);
+
+            foreach (var interfaceRecord in nsInterfaces)
+            {
+                writer.WriteLine();
+                writer.Write(RenderInterface(compilation, interfaceRecord));
+            }
 
             foreach (var record in nsRecords)
             {
@@ -120,8 +133,16 @@ public static partial class BindingOutputRenderer
             }
             else
             {
-                writer.Write(RenderManagedWrapperMethod(compilation, function));
-                freeFunctionDeclarations.Add(RenderManagedImportDeclaration(compilation, function));
+                if (function.IsGeneric)
+                {
+                    writer.Write(RenderManagedGenericFreeFunction(compilation, function));
+                    freeFunctionDeclarations.AddRange(CollectGenericFreeFunctionImportDeclarations(compilation, function));
+                }
+                else
+                {
+                    writer.Write(RenderManagedWrapperMethod(compilation, function));
+                    freeFunctionDeclarations.Add(RenderManagedImportDeclaration(compilation, function));
+                }
             }
         }
 
@@ -709,9 +730,18 @@ public static partial class BindingOutputRenderer
         var hidesStaticHelpers = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName);
         var staticHelperModifier = hidesStaticHelpers ? "new " : string.Empty;
         var cacheFieldModifier = hidesStaticHelpers ? "new " : string.Empty;
-        var baseClause = string.IsNullOrWhiteSpace(record.ManagedBaseTypeName)
-            ? " : global::SharpCpp.Support.NativeObject"
-            : $" : {record.ManagedBaseTypeName}";
+        var interfaceNames = record.GetSecondaryBaseRecords(compilation)
+            .Select(static baseRecord => baseRecord.GetManagedInterfaceName())
+            .Cast<string>()
+            .ToArray();
+        var baseTypes = new List<string>
+        {
+            string.IsNullOrWhiteSpace(record.ManagedBaseTypeName)
+                ? "global::SharpCpp.Support.NativeObject"
+                : record.ManagedBaseTypeName
+        };
+        baseTypes.AddRange(interfaceNames);
+        var baseClause = $" : {string.Join(", ", baseTypes)}";
         writer.Write(
             $$"""
             public {{classModifier}}partial class {{record.ManagedName}}{{baseClause}}{{(record.IsPolymorphic ? $", global::SharpCpp.Support.INativeObjectRegistration<{record.ManagedName}>" : string.Empty)}}
@@ -1593,6 +1623,39 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
+    private static string RenderInterface(BindingCompilation compilation, RecordBinding record)
+    {
+        var writer = new CodeWriter();
+        var interfaceBaseNames = record.GetManagedInterfaceBaseRecords(compilation)
+            .Select(static baseRecord => baseRecord.GetManagedInterfaceName())
+            .ToArray();
+        var baseClause = interfaceBaseNames.Length == 0
+            ? string.Empty
+            : $" : {string.Join(", ", interfaceBaseNames)}";
+
+        writer.Write($$"""
+            public partial interface {{record.GetManagedInterfaceName()}}{{baseClause}}
+            {
+            """);
+
+        foreach (var method in record.GetRenderableInterfaceMethods(compilation).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        {
+            writer.WriteLine();
+            var parameterList = string.Join(", ", method.Parameters.Select(RenderManagedPublicParameter));
+            var returnTypeName = GetManagedPublicReturnTypeName(method.ReturnType);
+            WriteDocumentationComment(writer, method);
+            writer.Write($$"""
+                {{returnTypeName}} {{method.ManagedName}}({{parameterList}});
+                """);
+        }
+
+        writer.Write(
+            """
+            }
+            """);
+        return writer.ToString();
+    }
+
     private static string RenderEnum(EnumBinding @enum)
     {
         var writer = new CodeWriter();
@@ -1838,6 +1901,17 @@ public static partial class BindingOutputRenderer
         {
             if (function.Parent is RecordBinding || function.IsConstructor || function.HasMetadata(MetadataKeys.IgnoreReason))
             {
+                continue;
+            }
+
+            if (function.IsGeneric)
+            {
+                foreach (var instantiation in function.SupportedGenericInstantiations)
+                {
+                    writer.WriteLine();
+                    writer.Write(RenderNativeGenericFreeFunction(function, instantiation));
+                }
+
                 continue;
             }
 
