@@ -435,7 +435,7 @@ public static partial class BindingOutputRenderer
 
     private static string GetGenericDeleteImportMethodName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        return $"Delete{GetGenericInstantiationSuffix(instantiation)}";
+        return $"Delete_{SanitizeManagedToken(record.ManagedName)}{GetGenericInstantiationSuffix(instantiation)}";
     }
 
     private static string GetGenericEntryPointName(FunctionBinding function, RecordGenericInstantiationBinding instantiation)

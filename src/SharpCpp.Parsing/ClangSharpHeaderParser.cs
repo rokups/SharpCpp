@@ -30,6 +30,9 @@ public sealed class ClangSharpHeaderParser
     private static readonly Regex DirectorAttributeExpression = new(
         @"\[\[\s*sharpcpp::director\s*\]\]",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex RenameAttributeExpression = new(
+        @"\[\[\s*sharpcpp::rename\s*\(\s*""(?<value>[^""]*)""\s*\)\s*\]\]",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     public unsafe BindingCompilation Parse(ClangSharpParseRequest request)
     {
@@ -48,6 +51,7 @@ public sealed class ClangSharpHeaderParser
         }
 
         PreScanIgnoreAnnotations(new[] { headerFilePath });
+        PreScanRenameAnnotations(new[] { headerFilePath });
 
         using var index = CXIndex.Create();
         using var translationUnit = CXTranslationUnit.Parse(
@@ -99,6 +103,7 @@ public sealed class ClangSharpHeaderParser
                     {
                         var function = CreateFunction(child, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
                         CheckAndApplyIgnoreAttribute(child, function);
+                        TryApplyRename(child, function);
                         ExtractAndApplyDocumentation(child, function);
                         compilation.Members.Add(function);
                         break;
@@ -197,6 +202,7 @@ public sealed class ClangSharpHeaderParser
             IsDirector = DirectorAttributeExpression.IsMatch(declarationText)
         };
         CheckAndApplyIgnoreAttribute(cursor, record);
+        TryApplyRename(cursor, record);
         ExtractAndApplyDocumentation(cursor, record);
         recordsByName.Add(nativeName, record);
         compilation.Members.Add(record);
@@ -242,6 +248,7 @@ public sealed class ClangSharpHeaderParser
         }
 
         CheckAndApplyIgnoreAttribute(cursor, record);
+        TryApplyRename(cursor, record);
         ExtractAndApplyDocumentation(cursor, record);
         recordsByName.Add(nativeName, record);
         compilation.Members.Add(record);
@@ -309,6 +316,7 @@ public sealed class ClangSharpHeaderParser
 
                 var method = CreateMethod(record, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
                 CheckAndApplyIgnoreAttribute(child, method);
+                TryApplyRename(child, method);
                 ExtractAndApplyDocumentation(child, method);
                 record.Members.Add(method);
                 return CXChildVisitResult.CXChildVisit_Continue;
@@ -330,6 +338,7 @@ public sealed class ClangSharpHeaderParser
 
                 var staticMethod = CreateStaticMethod(record, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
                 CheckAndApplyIgnoreAttribute(child, staticMethod);
+                TryApplyRename(child, staticMethod);
                 ExtractAndApplyDocumentation(child, staticMethod);
                 record.Members.Add(staticMethod);
                 return CXChildVisitResult.CXChildVisit_Continue;
@@ -372,6 +381,7 @@ public sealed class ClangSharpHeaderParser
 
                 var field = CreateField(record, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
                 CheckAndApplyIgnoreAttribute(child, field);
+                TryApplyRename(child, field);
                 ExtractAndApplyDocumentation(child, field);
                 record.Members.Add(field);
                 return CXChildVisitResult.CXChildVisit_Continue;
@@ -1219,6 +1229,169 @@ public sealed class ClangSharpHeaderParser
         }
     }
 
+    private static readonly Dictionary<string, List<RenameAnnotation>> s_renameAnnotations = new(StringComparer.Ordinal);
+
+    private sealed record RenameAnnotation(int Line, int Column, string RenameValue);
+
+    private static void PreScanRenameAnnotations(IReadOnlyList<string> headerFiles)
+    {
+        foreach (var headerFile in headerFiles)
+        {
+            var path = Path.GetFullPath(headerFile);
+            if (!File.Exists(path) || s_renameAnnotations.ContainsKey(path))
+            {
+                continue;
+            }
+
+            var content = File.ReadAllText(path);
+            var lines = content.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+            var annotations = new List<RenameAnnotation>();
+
+            for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
+            {
+                var lineText = lines[lineIndex];
+                foreach (Match match in RenameAttributeExpression.Matches(lineText))
+                {
+                    var column = match.Index + 1;
+                    annotations.Add(new RenameAnnotation(lineIndex + 1, column, match.Groups["value"].Value));
+                }
+            }
+
+            if (annotations.Count > 0)
+            {
+                s_renameAnnotations[path] = annotations;
+            }
+        }
+    }
+
+    private static void TryApplyRename(CXCursor cursor, BindingNode node)
+    {
+        if (node is RecordBinding or EnumBinding)
+        {
+            var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
+            var braceIndex = FindStructBodyBraceIndex(sourceText);
+            if (braceIndex >= 0)
+            {
+                sourceText = sourceText[..braceIndex];
+            }
+
+            ApplyRenameFromSource(node, sourceText);
+            return;
+        }
+
+        if (node is FunctionBinding or FieldBinding)
+        {
+            var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
+            var braceIndex = FindStructBodyBraceIndex(sourceText);
+            if (braceIndex >= 0)
+            {
+                sourceText = sourceText[..braceIndex];
+            }
+            else
+            {
+                var semiIndex = sourceText.IndexOf(';');
+                if (semiIndex >= 0)
+                {
+                    sourceText = sourceText[..semiIndex];
+                }
+            }
+
+            if (RenameAttributeExpression.Match(sourceText) is { Success: true })
+            {
+                ApplyRenameFromSource(node, sourceText);
+            }
+            else
+            {
+                ApplyRenameFromPreScan(cursor, node);
+            }
+        }
+    }
+
+    private static int FindStructBodyBraceIndex(string sourceText)
+    {
+        var inString = false;
+        for (var i = 0; i < sourceText.Length; i++)
+        {
+            if (sourceText[i] == '"')
+            {
+                inString = !inString;
+            }
+            else if (sourceText[i] == '{' && !inString)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private static void ApplyRenameFromSource(BindingNode node, string sourceText)
+    {
+        var match = RenameAttributeExpression.Match(sourceText);
+        if (!match.Success)
+        {
+            return;
+        }
+
+        ApplyRename(node, match.Groups["value"].Value);
+    }
+
+    private static void ApplyRenameFromPreScan(CXCursor cursor, BindingNode node)
+    {
+        cursor.Location.GetFileLocation(out var file, out var line, out var column, out _);
+        var filePath = Path.GetFullPath(file.Name.CString);
+
+        if (string.IsNullOrWhiteSpace(filePath) || !s_renameAnnotations.TryGetValue(filePath, out var annotations))
+        {
+            return;
+        }
+
+        var oneBasedCursorLine = (int)line;
+        var matchingAnnotation = annotations
+            .Where(annotation => annotation.Line == oneBasedCursorLine - 1)
+            .OrderBy(annotation => annotation.Line)
+            .LastOrDefault();
+
+        if (matchingAnnotation is not null)
+        {
+            ApplyRename(node, matchingAnnotation.RenameValue);
+        }
+    }
+
+    private static void ApplyRename(BindingNode node, string renameValue)
+    {
+        var pascalName = ToPascalCase(
+            node is BindingNamedContainerNode containerNode
+                ? containerNode.NativeName
+                : ((BindingNamedNode)node).NativeName);
+
+        renameValue = renameValue.Replace("{Name}", pascalName, StringComparison.Ordinal);
+
+        switch (node)
+        {
+            case RecordBinding record:
+                var head = GetManagedTypeHead(renameValue);
+                record.ManagedName = head;
+                record.ManagedTypeFormat = renameValue;
+                break;
+            case EnumBinding @enum:
+                @enum.ManagedName = renameValue;
+                break;
+            case FunctionBinding function:
+                function.ManagedName = GetManagedTypeHead(renameValue);
+                break;
+            case FieldBinding field:
+                field.ManagedName = renameValue;
+                break;
+        }
+    }
+
+    private static string GetManagedTypeHead(string managedTypeFormat)
+    {
+        var genericStart = managedTypeFormat.IndexOf('<');
+        return genericStart >= 0 ? managedTypeFormat[..genericStart].Trim() : managedTypeFormat;
+    }
+
     private static void ExtractAndApplyDocumentation(CXCursor cursor, BindingNode node)
     {
         var briefComment = cursor.BriefCommentText;
@@ -1254,6 +1427,7 @@ public sealed class ClangSharpHeaderParser
         };
 
         CheckAndApplyIgnoreAttribute(cursor, @enum);
+        TryApplyRename(cursor, @enum);
         ExtractAndApplyDocumentation(cursor, @enum);
 
         cursor.VisitChildren(
@@ -1428,6 +1602,7 @@ public sealed class ClangSharpHeaderParser
                     {
                         var function = CreateFunction(child, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
                         CheckAndApplyIgnoreAttribute(child, function);
+                        TryApplyRename(child, function);
                         ExtractAndApplyDocumentation(child, function);
                         compilation.Members.Add(function);
                         break;

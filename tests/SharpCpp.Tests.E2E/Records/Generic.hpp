@@ -1,9 +1,7 @@
 #pragma once
 
-#include <SharpCpp/Marshaller.hpp>
-
 template <typename T>
-struct value_box
+struct [[sharpcpp::rename("BoxOf<{0}>")]] value_box
 {
     explicit value_box(T value)
         : value_(value)
@@ -28,26 +26,6 @@ struct value_box
 private:
     T value_{};
 };
-
-namespace SharpCpp
-{
-template <typename T>
-struct [[sharpcpp::managed_type(public_type = "BoxOf<{0}>")]] Marshaller<value_box<T>*>
-{
-    using cpp_type = value_box<T>*;
-    using abi_type = value_box<T>*;
-
-    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
-    {
-        return value;
-    }
-
-    constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
-    {
-        return value;
-    }
-};
-}
 
 inline value_box<int>* create_int_box(int value)
 {

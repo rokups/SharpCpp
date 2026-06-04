@@ -64,8 +64,18 @@ public static class MarshallerMetadataPhase2
             if (PublicTypeExpression.Match(body) is { Success: true } publicTypeMatch)
             {
                 var publicType = publicTypeMatch.Groups["value"].Value;
-                record.ManagedTypeFormat = publicType;
-                record.ManagedName = GetManagedTypeHead(publicType);
+                if (record.ManagedTypeFormat is not null && !string.Equals(record.ManagedTypeFormat, publicType, StringComparison.Ordinal))
+                {
+                    Console.Error.WriteLine(
+                        $"SharpCpp warning: record '{record.NativeName}' has [[sharpcpp::rename(\"{record.ManagedTypeFormat}\")]] " +
+                        $"but marshaller declares managed_type(public_type = \"{publicType}\"). " +
+                        $"The rename attribute takes precedence.");
+                }
+                else if (record.ManagedTypeFormat is null)
+                {
+                    record.ManagedTypeFormat = publicType;
+                    record.ManagedName = GetManagedTypeHead(publicType);
+                }
             }
 
             if (MarshallerTypeExpression.Match(body) is { Success: true } marshallerTypeMatch)

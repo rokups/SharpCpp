@@ -2,9 +2,59 @@
 
 C++ attributes are the single source of truth for generator configuration. No separate C# configuration objects.
 
+## `[[sharpcpp::rename(...)]]`
+
+Applied to C++ declarations to override the managed name. The single argument is a format string.
+
+| Field | Type | Description |
+|---|---|---|
+| (value) | string | The desired managed name. Supports `{Name}` placeholder for the PascalCase native name and `{0}`, `{1}` placeholders for generic type arguments |
+
+### Supported element types
+
+- **Struct / class** — renames the managed class name. For generic records, the format string also sets `ManagedTypeFormat` for instantiation naming.
+- **Enum** — renames the managed enum name.
+- **Free function** — renames the managed method name.
+- **Instance method** — renames the managed method name.
+- **Static method** — renames the managed method name.
+- **Field** — renames the managed property name.
+
+Constructors follow the class name and are not independently renamable. Parameters are not renamable in this slice.
+
+### `{Name}` placeholder
+
+Resolves to the PascalCase version of the element's native C++ name. Useful for suffix/prefix transformations:
+
+```cpp
+// value_box → ValueBoxWrapper
+struct [[sharpcpp::rename("{Name}Wrapper")]] value_box { ... };
+
+// do_calc → DoCalcAsync
+[[sharpcpp::rename("{Name}Async")]]
+int do_calc(int a, int b);
+```
+
+### Generic placeholder
+
+Placeholders `{0}`, `{1}`, etc. refer to generic type arguments — same semantics as `public_type` in `managed_type`. `{Name}` is resolved at parse time; `{0}`/`{1}` at format time.
+
+```cpp
+// value_box<T> → BoxOf<T>
+template <typename T>
+struct [[sharpcpp::rename("BoxOf<{0}>")]] value_box { ... };
+
+// item_holder<T> → ItemHolderCollection<T>
+template <typename T>
+struct [[sharpcpp::rename("{Name}Collection<{0}>")]] item_holder { ... };
+```
+
+### Precedence
+
+When `[[sharpcpp::rename(...)]]` and a `[[sharpcpp::managed_type(public_type = ...)]]` on a `Marshaller<T>` both exist for the same record and disagree, rename takes precedence with a warning emitted to stderr.
+
 ## `[[sharpcpp::managed_type(...)]]`
 
-Applied to `Marshaller<T>` specializations. Declares how the C++ type maps to managed code.
+Applied to `Marshaller<T>` specializations. Declares how the C++ type maps to managed code. For simple type renames, prefer `[[sharpcpp::rename(...)]]` instead.
 
 ### Attribute fields
 
