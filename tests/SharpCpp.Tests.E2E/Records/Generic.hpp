@@ -1,7 +1,10 @@
 #pragma once
 
 template <typename T>
-struct [[sharpcpp::rename("BoxOf<{0}>")]] value_box
+struct
+[[sharpcpp::rename("BoxOf<{0}>")]]
+[[sharpcpp::instantiate("double")]]
+value_box
 {
     explicit value_box(T value)
         : value_(value)
@@ -24,6 +27,7 @@ struct [[sharpcpp::rename("BoxOf<{0}>")]] value_box
     }
 
     template <typename U>
+    [[sharpcpp::instantiate("int")]]
     U project(U scale) const
     {
         return static_cast<U>(value_) * scale;

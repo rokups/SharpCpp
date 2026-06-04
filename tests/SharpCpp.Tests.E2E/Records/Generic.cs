@@ -37,6 +37,16 @@ public sealed class GenericTests
     }
 
     [Fact]
+    public void Explicit_instantiation_metadata_can_expand_generic_record_surface()
+    {
+        var constructed = new BoxOf<double>(2.5);
+        var created = BoxOf<double>.Create(4.5);
+
+        Assert.Equal(2.5, constructed.GetValue());
+        Assert.Equal(4.5, created.GetValue());
+    }
+
+    [Fact]
     public void Unsupported_generic_instantiation_throws_at_runtime()
     {
         var exception = Assert.Throws<NotSupportedException>(() => BoxOf<long>.Create(1L));

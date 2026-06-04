@@ -1027,7 +1027,7 @@ public static partial class BindingOutputRenderer
         if (property.Setter is not null)
         {
             var setterArgument = property.Setter.Parameters[0].Type.Kind == BindingTypeKind.Handle
-                ? "value is null ? 0 : value.Handle"
+                ? "global::SharpCpp.Support.NativeObject.GetHandle(value)"
                 : "value";
             writer.Write($$"""
                 set
@@ -1530,9 +1530,8 @@ public static partial class BindingOutputRenderer
         if (!field.IsReadOnly)
         {
             var setterArgument = field.Type.Kind == BindingTypeKind.Handle
-                ? "value is null ? 0 : value.Handle"
+                ? "global::SharpCpp.Support.NativeObject.GetHandle(value)"
                 : "value";
-
             writer.Write($$"""
                 set
                 {
@@ -1867,8 +1866,11 @@ public static partial class BindingOutputRenderer
             _ => string.Empty
         };
         var attribute = GetManagedParameterAttribute(parameter.Type);
+        var typeName = parameter.Type.Kind == BindingTypeKind.Handle
+            ? $"{GetManagedWrapperTypeName(parameter.Type)}?"
+            : GetManagedWrapperTypeName(parameter.Type);
 
-        return $"{attribute}{modifier}{GetManagedWrapperTypeName(parameter.Type)} {parameter.ManagedName}";
+        return $"{attribute}{modifier}{typeName} {parameter.ManagedName}";
     }
 
     private static string RenderManagedParameter(ParameterBinding parameter)
@@ -1931,7 +1933,7 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedInvocationArgument(ParameterBinding parameter)
     {
         var valueExpression = parameter.Type.Kind == BindingTypeKind.Handle
-            ? $"{parameter.ManagedName} is null ? 0 : {parameter.ManagedName}.Handle"
+            ? $"global::SharpCpp.Support.NativeObject.GetHandle({parameter.ManagedName})"
             : parameter.ManagedName;
 
         return parameter.Direction switch
@@ -1969,7 +1971,7 @@ public static partial class BindingOutputRenderer
                 if (parameter.Direction == BindingParameterDirection.Ref)
                 {
                     preCallStatements.Add($$"""
-                        var {{abiVariableName}} = {{parameter.ManagedName}} is null ? 0 : {{parameter.ManagedName}}.Handle;
+                        var {{abiVariableName}} = global::SharpCpp.Support.NativeObject.GetHandle({{parameter.ManagedName}});
                         """);
                     arguments.Add($"ref {abiVariableName}");
                 }

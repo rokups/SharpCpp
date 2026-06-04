@@ -143,6 +143,8 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - Abstract pure-virtual record methods now render as C# `abstract` members instead of virtual P/Invoke bodies, while still participating in director callback hookup for native-to-managed dispatch.
 - Template member methods inside generic records are now parsed into the AST and emitted on the managed generic wrapper surface. The current bootstrap policy deliberately keeps them surface-only: they throw `NotSupportedException` until we land concrete method-template dispatch.
 - `tests/SharpCpp.Tests.E2E/VirtualAdvanced/` now adds deeper v1-inspired parity coverage for managed virtual overrides, pure-virtual director dispatch, visibility normalization across protected/public overrides, and final-slot reflection on non-director inheritance chains.
+- Explicit generic instantiation metadata is now available through `[[sharpcpp::instantiate("...")]]` attributes on generic records and generic member templates. The parser resolves those type tokens into `GenericInstantiationMetadata`, and the generic instantiation pass now treats explicit record instantiations as authoritative while leaving discovery as fallback only when no explicit contract is present.
+- The remaining inline `value is null ? 0 : value.Handle` callsites in generated managed code were collapsed to `NativeObject.GetHandle(...)` so null-handle flows stay intact without open-coded handle ternaries. We deliberately did **not** switch every handle-valued import parameter to direct `LibraryImport` wrapper marshalling because the current runtime contract still depends on null wrappers mapping to zero handles.
 
 ## Verification Commands
 

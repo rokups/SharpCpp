@@ -11,6 +11,27 @@ public static class BindingCompilationGenericInstantiationPass
         foreach (var record in compilation.Records)
         {
             record.SupportedGenericInstantiations.Clear();
+
+            if (record.TryGetMetadata(MetadataKeys.ExplicitGenericInstantiations, out GenericInstantiationMetadata? explicitInstantiations))
+            {
+                foreach (var instantiation in explicitInstantiations!.Instantiations)
+                {
+                    record.SupportedGenericInstantiations.Add(instantiation);
+                }
+            }
+        }
+
+        foreach (var function in compilation.Functions)
+        {
+            function.SupportedGenericInstantiations.Clear();
+
+            if (function.TryGetMetadata(MetadataKeys.ExplicitGenericInstantiations, out GenericInstantiationMetadata? explicitInstantiations))
+            {
+                foreach (var instantiation in explicitInstantiations!.Instantiations)
+                {
+                    function.SupportedGenericInstantiations.Add(instantiation);
+                }
+            }
         }
 
         foreach (var function in compilation.Functions)

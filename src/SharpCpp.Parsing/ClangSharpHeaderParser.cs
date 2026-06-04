@@ -33,6 +33,12 @@ public sealed class ClangSharpHeaderParser
     private static readonly Regex RenameAttributeExpression = new(
         @"\[\[\s*sharpcpp::rename\s*\(\s*""(?<value>[^""]*)""\s*\)\s*\]\]",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex InstantiateAttributeExpression = new(
+        @"\[\[\s*sharpcpp::instantiate\s*\((?<body>.*?)\)\s*\]\]",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled | RegexOptions.Singleline);
+    private static readonly Regex InstantiateArgumentExpression = new(
+        @"""(?<value>[^""\\]*(?:\\.[^""\\]*)*)""",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     public unsafe BindingCompilation Parse(ClangSharpParseRequest request)
     {
@@ -52,6 +58,7 @@ public sealed class ClangSharpHeaderParser
 
         PreScanIgnoreAnnotations(new[] { headerFilePath });
         PreScanRenameAnnotations(new[] { headerFilePath });
+        PreScanInstantiateAnnotations(new[] { headerFilePath });
 
         using var index = CXIndex.Create();
         using var translationUnit = CXTranslationUnit.Parse(
@@ -247,6 +254,7 @@ public sealed class ClangSharpHeaderParser
             record.GenericParameters.Add(templateParameter);
         }
 
+        ApplyExplicitGenericInstantiations(cursor, record, recordsByName, enumsByName, managedTypeOverrides);
         CheckAndApplyIgnoreAttribute(cursor, record);
         TryApplyRename(cursor, record);
         ExtractAndApplyDocumentation(cursor, record);
@@ -515,6 +523,8 @@ public sealed class ClangSharpHeaderParser
         {
             function.GenericParameters.Add(templateParameter);
         }
+
+        ApplyExplicitGenericInstantiations(templateCursor, function, recordsByName, enumsByName, managedTypeOverrides);
 
         templateCursor.VisitChildren(
             (child, _, _) =>
@@ -1864,6 +1874,133 @@ public sealed class ClangSharpHeaderParser
 
         var genericArguments = TryParseGenericArguments(referredTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
         type = BindingType.CreateHandle(handleCppTypeName, record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments);
+        return true;
+    }
+
+    private static void ApplyExplicitGenericInstantiations(
+        CXCursor cursor,
+        BindingNode node,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
+    {
+        if (node is not RecordBinding and not FunctionBinding)
+        {
+            return;
+        }
+
+        var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
+        if (node is RecordBinding)
+        {
+            var braceIndex = sourceText.IndexOf('{');
+            if (braceIndex >= 0)
+            {
+                sourceText = sourceText[..braceIndex];
+            }
+        }
+
+        var instantiations = ParseInstantiationMatches(InstantiateAttributeExpression.Matches(sourceText), recordsByName, enumsByName, managedTypeOverrides);
+
+        if (instantiations.Count == 0)
+        {
+            cursor.Location.GetFileLocation(out var file, out var line, out _, out _);
+            var filePath = Path.GetFullPath(file.Name.CString);
+            if (!string.IsNullOrWhiteSpace(filePath) && s_instantiateAnnotations.TryGetValue(filePath, out var annotations))
+            {
+                var oneBasedCursorLine = (int)line;
+                foreach (var annotation in annotations.Where(annotation => annotation.Line == oneBasedCursorLine || annotation.Line == oneBasedCursorLine - 1))
+                {
+                    foreach (var instantiation in annotation.Instantiations)
+                    {
+                        if (!instantiations.Any(existing => InstantiationsEqual(existing.TypeArguments, instantiation.TypeArguments)))
+                        {
+                            instantiations.Add(instantiation);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (instantiations.Count > 0)
+        {
+            node.SetMetadata(MetadataKeys.ExplicitGenericInstantiations, new GenericInstantiationMetadata(instantiations));
+        }
+    }
+
+    private static readonly Dictionary<string, List<InstantiateAnnotation>> s_instantiateAnnotations = new(StringComparer.Ordinal);
+
+    private sealed record InstantiateAnnotation(int Line, IReadOnlyList<RecordGenericInstantiationBinding> Instantiations);
+
+    private static void PreScanInstantiateAnnotations(IReadOnlyList<string> headerFiles)
+    {
+        foreach (var headerFile in headerFiles)
+        {
+            var path = Path.GetFullPath(headerFile);
+            if (!File.Exists(path) || s_instantiateAnnotations.ContainsKey(path))
+            {
+                continue;
+            }
+
+            var content = File.ReadAllText(path);
+            var lines = content.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+            var annotations = new List<InstantiateAnnotation>();
+
+            for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
+            {
+                var instantiations = ParseInstantiationMatches(InstantiateAttributeExpression.Matches(lines[lineIndex]), new Dictionary<string, RecordBinding>(StringComparer.Ordinal), new Dictionary<string, EnumBinding>(StringComparer.Ordinal), new Dictionary<string, ManagedTypeOverride>(StringComparer.Ordinal));
+                if (instantiations.Count == 0)
+                {
+                    continue;
+                }
+
+                annotations.Add(new InstantiateAnnotation(lineIndex + 1, instantiations));
+            }
+
+            s_instantiateAnnotations[path] = annotations;
+        }
+    }
+
+    private static List<RecordGenericInstantiationBinding> ParseInstantiationMatches(
+        MatchCollection matches,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
+    {
+        var instantiations = new List<RecordGenericInstantiationBinding>();
+
+        foreach (Match match in matches)
+        {
+            var arguments = InstantiateArgumentExpression.Matches(match.Groups["body"].Value)
+                .Select(argumentMatch => ParseTypeToken(argumentMatch.Groups["value"].Value, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters))
+                .ToArray();
+
+            if (arguments.Length == 0)
+            {
+                continue;
+            }
+
+            instantiations.Add(new RecordGenericInstantiationBinding(arguments));
+        }
+
+        return instantiations;
+    }
+
+    private static bool InstantiationsEqual(IReadOnlyList<BindingType> left, IReadOnlyList<BindingType> right)
+    {
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < left.Count; index++)
+        {
+            if (!string.Equals(left[index].CppTypeName, right[index].CppTypeName, StringComparison.Ordinal) ||
+                left[index].Kind != right[index].Kind)
+            {
+                return false;
+            }
+        }
+
         return true;
     }
 
