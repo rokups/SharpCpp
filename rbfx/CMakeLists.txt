@@ -74,6 +74,35 @@ set(RBFX_GENERATED_STAMP "${RBFX_GENERATED_ROOT}/generate.stamp")
 set(RBFX_METADATA_FILE "${RBFX_GENERATED_ROOT}/${RBFX_FILE_STEM}.Bindings.json")
 set(RBFX_SDK_FLAGS_FILE "${CMAKE_BINARY_DIR}/rbfx-sdk-flags/$<CONFIG>/urho3d-sdk-flags.txt")
 set(RBFX_GENERATOR_LOG_FILE "${RBFX_GENERATED_ROOT}/generator.log")
+set(RBFX_RUNTIME_DEPENDENCIES_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/CopyRbfxRuntimeDependencies.cmake")
+set(RBFX_TEST_RUNSETTINGS_FILE "${CMAKE_BINARY_DIR}/bin/$<CONFIG>/SharpCpp.Rbfx.Tests.runsettings")
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  string(CONCAT _rbfx_test_runsettings_content
+    "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+    "<RunSettings>\n"
+    "  <RunConfiguration>\n"
+    "    <EnvironmentVariables>\n"
+    "      <LD_LIBRARY_PATH>${CMAKE_BINARY_DIR}/bin/$<CONFIG>/</LD_LIBRARY_PATH>\n"
+    "      <LD_PRELOAD>${CMAKE_BINARY_DIR}/bin/$<CONFIG>/libUrho3D.so</LD_PRELOAD>\n"
+    "    </EnvironmentVariables>\n"
+    "  </RunConfiguration>\n"
+    "</RunSettings>\n")
+else()
+  string(CONCAT _rbfx_test_runsettings_content
+    "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+    "<RunSettings>\n"
+    "</RunSettings>\n")
+endif()
+
+file(GENERATE
+  OUTPUT "${RBFX_TEST_RUNSETTINGS_FILE}"
+  CONTENT "${_rbfx_test_runsettings_content}")
+
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/CopyRbfxRuntimeDependencies.cmake.in"
+  "${RBFX_RUNTIME_DEPENDENCIES_SCRIPT}"
+  @ONLY)
 
 string(CONCAT _rbfx_sdk_flags_content
   "compiler_path=${CMAKE_CXX_COMPILER}\n"
@@ -99,6 +128,9 @@ file(GENERATE OUTPUT "${RBFX_SDK_FLAGS_FILE}" CONTENT "${_rbfx_sdk_flags_content
 file(GLOB_RECURSE RBFX_SDK_INPUT_HEADERS CONFIGURE_DEPENDS
   "${RBFX_SDK_ROOT}/include/Urho3D/*.h"
   "${RBFX_SDK_ROOT}/include/Urho3D/*.hpp")
+
+set_property(GLOBAL PROPERTY SHARPCPP_RBFX_GENERATED_DIR "${RBFX_GENERATED_ROOT}")
+set_property(GLOBAL PROPERTY SHARPCPP_RBFX_TESTS_E2E_GENERATED_DIR "${RBFX_GENERATED_ROOT}")
 
 sharpcpp_add_dotnet_build_target(
   sharpcpp-rbfx-generator
@@ -142,6 +174,32 @@ target_include_directories(SharpCppRbfx_Native PRIVATE "${RBFX_GENERATED_ROOT}")
 target_link_libraries(SharpCppRbfx_Native PRIVATE sharpcpp-native-support ${RBFX_URHO3D_TARGET})
 target_compile_options(SharpCppRbfx_Native PRIVATE $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-Wno-attributes>)
 sharpcpp_set_binary_output(SharpCppRbfx_Native)
+set_target_properties(
+  SharpCppRbfx_Native
+  PROPERTIES
+    BUILD_RPATH "$ORIGIN"
+    INSTALL_RPATH "$ORIGIN")
+
+set(RBFX_RUNTIME_COPY_COMMAND
+  "${CMAKE_COMMAND}"
+  -Dtarget_file=$<SHELL_PATH:$<TARGET_FILE:SharpCppRbfx_Native>>
+  -Doutput_dir=$<SHELL_PATH:$<TARGET_FILE_DIR:SharpCppRbfx_Native>>
+  -Durho_dir=$<SHELL_PATH:$<TARGET_FILE_DIR:${RBFX_URHO3D_TARGET}>>
+  -Durho_library_file=$<SHELL_PATH:$<TARGET_FILE:${RBFX_URHO3D_TARGET}>>
+  -Dconfig=$<CONFIG>
+  -P "$<SHELL_PATH:${RBFX_RUNTIME_DEPENDENCIES_SCRIPT}>")
+
+add_custom_command(
+  TARGET SharpCppRbfx_Native
+  POST_BUILD
+  COMMAND ${RBFX_RUNTIME_COPY_COMMAND}
+  VERBATIM)
+
+add_custom_target(
+  sharpcpp-rbfx-runtime
+  COMMAND ${RBFX_RUNTIME_COPY_COMMAND}
+  DEPENDS SharpCppRbfx_Native
+  VERBATIM)
 
 file(GLOB_RECURSE RBFX_GENERATED_CS_FILES CONFIGURE_DEPENDS "${RBFX_GENERATED_ROOT}/*.g.cs")
 
@@ -157,17 +215,18 @@ sharpcpp_add_dotnet_build_target(
   DEPENDS sharpcpp-rbfx-managed
   PROPERTIES "-p:SharpCppGeneratedDir=${RBFX_GENERATED_ROOT}")
 
-add_custom_target(sharpcpp-rbfx-native DEPENDS sharpcpp-generate-rbfx SharpCppRbfx_Native)
+add_dependencies(sharpcpp-rbfx-managed sharpcpp-rbfx-runtime)
+add_dependencies(sharpcpp-rbfx-tests-e2e-managed sharpcpp-rbfx-runtime)
+
+add_custom_target(sharpcpp-rbfx-native DEPENDS sharpcpp-generate-rbfx SharpCppRbfx_Native sharpcpp-rbfx-runtime)
 
 if(BUILD_TESTING)
   add_test(
     NAME sharpcpp.rbfx.e2e
-    COMMAND "${CMAKE_COMMAND}" -E env
-            "LD_LIBRARY_PATH=$<SHELL_PATH:${SHARPCPP_BIN_DIR}>:$ENV{LD_LIBRARY_PATH}"
-            "LD_PRELOAD=$<SHELL_PATH:$<TARGET_FILE:${RBFX_URHO3D_TARGET}>>"
-            "${DOTNET_EXECUTABLE}" test "${RBFX_E2E_TESTS_PROJECT}"
+    COMMAND "${DOTNET_EXECUTABLE}" test "${RBFX_E2E_TESTS_PROJECT}"
             --configuration $<CONFIG>
             --no-build
             --no-restore
+            --settings "$<SHELL_PATH:${RBFX_TEST_RUNSETTINGS_FILE}>"
             --logger "console;verbosity=minimal")
 endif()

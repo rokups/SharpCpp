@@ -123,6 +123,8 @@ function(sharpcpp_write_last_props)
   get_property(build_props_file GLOBAL PROPERTY SHARPCPP_BUILD_PROPS_FILE)
   get_property(compat_props_file GLOBAL PROPERTY SHARPCPP_COMPAT_PROPS_FILE)
   get_property(e2e_generated_dir GLOBAL PROPERTY SHARPCPP_E2E_GENERATED_DIR)
+  get_property(rbfx_generated_dir GLOBAL PROPERTY SHARPCPP_RBFX_GENERATED_DIR)
+  get_property(rbfx_tests_e2e_generated_dir GLOBAL PROPERTY SHARPCPP_RBFX_TESTS_E2E_GENERATED_DIR)
 
   string(REPLACE "\\" "/" output_root "${output_root}")
   string(REPLACE "\\" "/" intermediate_root "${intermediate_root}")
@@ -147,6 +149,22 @@ function(sharpcpp_write_last_props)
     string(APPEND content
       "  <PropertyGroup Condition=\"'$(MSBuildProjectName)' == 'SharpCpp.Tests.E2E'\">\n"
       "    <SharpCppGeneratedDir>${e2e_generated_dir}</SharpCppGeneratedDir>\n"
+      "  </PropertyGroup>\n")
+  endif()
+
+  if(NOT rbfx_generated_dir STREQUAL "")
+    string(REPLACE "\\" "/" rbfx_generated_dir "${rbfx_generated_dir}")
+    string(APPEND content
+      "  <PropertyGroup Condition=\"'$(MSBuildProjectName)' == 'SharpCpp.Rbfx.Bindings'\">\n"
+      "    <SharpCppGeneratedDir>${rbfx_generated_dir}</SharpCppGeneratedDir>\n"
+      "  </PropertyGroup>\n")
+  endif()
+
+  if(NOT rbfx_tests_e2e_generated_dir STREQUAL "")
+    string(REPLACE "\\" "/" rbfx_tests_e2e_generated_dir "${rbfx_tests_e2e_generated_dir}")
+    string(APPEND content
+      "  <PropertyGroup Condition=\"'$(MSBuildProjectName)' == 'SharpCpp.Rbfx.Tests.E2E'\">\n"
+      "    <SharpCppGeneratedDir>${rbfx_tests_e2e_generated_dir}</SharpCppGeneratedDir>\n"
       "  </PropertyGroup>\n")
   endif()
 

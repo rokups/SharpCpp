@@ -1,4 +1,5 @@
 {
+    "dotnet.unitTests.runSettingsPath": "out/build/dev/bin/Debug/SharpCpp.Rbfx.Tests.runsettings",
     "cmake.mergedCompileCommands": "${workspaceFolder}/compile_commands.json",
     "chat.tools.terminal.autoApprove": {
         "dotnet": true,

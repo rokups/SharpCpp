@@ -4,6 +4,7 @@
     <AssemblyName>SharpCpp.Rbfx.Tests.E2E</AssemblyName>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <RunSettingsFilePath>$(OutputPath)SharpCpp.Rbfx.Tests.runsettings</RunSettingsFilePath>
   </PropertyGroup>
 
   <ItemGroup>
