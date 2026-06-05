@@ -129,10 +129,10 @@ add_custom_target(
     "${RBFX_GENERATED_STAMP}")
 
 file(MAKE_DIRECTORY "${RBFX_GENERATED_ROOT}")
-file(GLOB RBFX_GENERATED_CPP_FILES "${RBFX_GENERATED_ROOT}/*.g.cpp")
+file(GLOB RBFX_GENERATED_CPP_FILES CONFIGURE_DEPENDS "${RBFX_GENERATED_ROOT}/*.g.cpp")
 if(NOT RBFX_GENERATED_CPP_FILES)
-  file(TOUCH "${RBFX_GENERATED_STAMP}")
-  set(RBFX_GENERATED_CPP_FILES "${RBFX_GENERATED_STAMP}")
+  file(WRITE "${RBFX_GENERATED_ROOT}/.stub.cpp" "// stub — replaced by generator\n")
+  set(RBFX_GENERATED_CPP_FILES "${RBFX_GENERATED_ROOT}/.stub.cpp")
 endif()
 add_library(SharpCppRbfx_Native SHARED ${RBFX_GENERATED_CPP_FILES})
 add_dependencies(SharpCppRbfx_Native sharpcpp-generate-rbfx)
