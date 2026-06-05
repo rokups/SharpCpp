@@ -24,7 +24,7 @@ public static class BindingMetadataExporter
             .ToArray();
 
         var functions = compilation.Functions
-            .Where(static function => !function.IsIgnored())
+            .Where(static function => function.Parent is not RecordBinding && !function.IsIgnored())
             .OrderBy(static function => function.ManagedName, StringComparer.Ordinal)
             .ThenBy(static function => function.SymbolId, StringComparer.Ordinal)
             .Select(CreateFunction)
