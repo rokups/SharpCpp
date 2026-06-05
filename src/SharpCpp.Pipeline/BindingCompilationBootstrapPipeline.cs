@@ -12,6 +12,7 @@ public static class BindingCompilationBootstrapPipeline
 
         NormalizeManagedNamespacesPass.Apply(compilation);
         MarshallerMetadataPhase2.Apply(compilation, metadataFiles);
+        DegradeUnsupportedSurfacePass.Apply(compilation);
         BindingCompilationGenericInstantiationPass.Apply(compilation);
         BindingCompilationInheritancePass.Apply(compilation);
         BindingCompilationPolymorphismPass.Apply(compilation);

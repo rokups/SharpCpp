@@ -10,6 +10,11 @@ public static class BindingCompilationInheritancePass
 
         foreach (var record in compilation.Records.ToArray())
         {
+            if (record.IsIgnored())
+            {
+                continue;
+            }
+
             ProjectSecondaryBaseMethods(compilation, record);
         }
     }
@@ -18,8 +23,18 @@ public static class BindingCompilationInheritancePass
     {
         foreach (var secondaryBase in record.GetSecondaryBaseRecords(compilation))
         {
+            if (secondaryBase.IsIgnored())
+            {
+                continue;
+            }
+
             foreach (var method in EnumerateProjectableMethods(compilation, secondaryBase))
             {
+                if (method.IsIgnored())
+                {
+                    continue;
+                }
+
                 if (record.Members.OfType<FunctionBinding>().Any(existing => RecordBindingExtensions.SignaturesMatch(existing, method)))
                 {
                     continue;
@@ -34,9 +49,14 @@ public static class BindingCompilationInheritancePass
     {
         foreach (var baseRecord in record.EnumerateAllBaseRecords(compilation).Reverse().Append(record))
         {
+            if (baseRecord.IsIgnored())
+            {
+                continue;
+            }
+
             foreach (var method in baseRecord.Members.OfType<FunctionBinding>())
             {
-                if (method.IsConstructor || method.IsStatic)
+                if (method.IsConstructor || method.IsStatic || method.OperatorToken is not null || method.IsConversionOperator)
                 {
                     continue;
                 }

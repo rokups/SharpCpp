@@ -6,6 +6,7 @@ namespace SharpCpp.Model.Ast;
 
 public abstract class BindingNode
 {
+    private static readonly IReadOnlyDictionary<string, object?> EmptyMetadata = new Dictionary<string, object?>(StringComparer.Ordinal);
     private IBindingNodeCollection? _parentCollection;
     private Dictionary<string, object?>? _metadata;
 
@@ -16,6 +17,8 @@ public abstract class BindingNode
     public abstract BindingNodeKind Kind { get; }
 
     public abstract IEnumerable<BindingNode> Children { get; }
+
+    public IReadOnlyDictionary<string, object?> Metadata => _metadata ?? EmptyMetadata;
 
     public IEnumerable<BindingNode> Ancestors()
     {
@@ -92,6 +95,21 @@ public abstract class BindingNode
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         return _metadata is not null && _metadata.ContainsKey(key);
+    }
+
+    public void CopyMetadataFrom(BindingNode other, bool overwriteExisting = false)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+
+        foreach (var pair in other.Metadata)
+        {
+            if (!overwriteExisting && HasMetadata(pair.Key))
+            {
+                continue;
+            }
+
+            SetMetadata(pair.Key, pair.Value);
+        }
     }
 
     internal virtual void NotifyStructureChanged()

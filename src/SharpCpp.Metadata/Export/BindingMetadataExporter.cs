@@ -11,17 +11,20 @@ public static class BindingMetadataExporter
         options ??= new BindingMetadataExportOptions(compilation.ProjectName);
 
         var types = compilation.Records
+            .Where(static record => !record.IsIgnored())
             .OrderBy(static record => record.ManagedName, StringComparer.Ordinal)
             .ThenBy(static record => record.SymbolId, StringComparer.Ordinal)
             .Select(CreateRecordType)
             .Concat(
                 compilation.Enums
+                    .Where(static @enum => !@enum.IsIgnored())
                     .OrderBy(static @enum => @enum.ManagedName, StringComparer.Ordinal)
                     .ThenBy(static @enum => @enum.SymbolId, StringComparer.Ordinal)
                     .Select(CreateEnumType))
             .ToArray();
 
         var functions = compilation.Functions
+            .Where(static function => !function.IsIgnored())
             .OrderBy(static function => function.ManagedName, StringComparer.Ordinal)
             .ThenBy(static function => function.SymbolId, StringComparer.Ordinal)
             .Select(CreateFunction)
@@ -60,6 +63,7 @@ public static class BindingMetadataExporter
             record.ManagedBaseTypeName,
             CreateTypeReference(record.HandleType),
             Members: record.Members
+                .Where(static member => !member.IsIgnored())
                 .Select(CreateRecordMember)
                 .OrderBy(static member => member.ManagedName, StringComparer.Ordinal)
                 .ToArray());

@@ -1153,6 +1153,11 @@ public static partial class BindingOutputRenderer
 
         foreach (var method in record.Members.OfType<FunctionBinding>())
         {
+            if (method.HasMetadata(MetadataKeys.IgnoreReason))
+            {
+                continue;
+            }
+
             if (!method.TryGetMetadata<AccessorPropertyAnnotation>(MetadataKeys.AccessorProperty, out var accessor) || accessor is null)
             {
                 continue;
@@ -1929,13 +1934,13 @@ public static partial class BindingOutputRenderer
             if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
             {
                 writer.Write($$"""
-                    MarshallerInvoker::invoke_as<FT>(&{{function.NativeName}}{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                    MarshallerInvoker::invoke_as<FT>(&{{function.CppQualifiedName}}{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
                     """);
             }
             else
             {
                 writer.Write($$"""
-                    return MarshallerInvoker::invoke_as<FT>(&{{function.NativeName}}{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                    return MarshallerInvoker::invoke_as<FT>(&{{function.CppQualifiedName}}{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
                     """);
             }
 
@@ -1944,7 +1949,7 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
-        foreach (var method in compilation.Records.SelectMany(static record => record.IsGeneric ? Array.Empty<FunctionBinding>() : record.Members.OfType<FunctionBinding>()).Where(static function => !function.IsConstructor && !function.IsStatic && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        foreach (var method in compilation.Records.Where(static record => !record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => !function.IsConstructor && !function.IsStatic && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             var parameterList = string.Join(", ", new[] { $"arg_t<{method.OwningRecordCppTypeName}*> self" }.Concat(method.Parameters.Select(RenderNativeParameter)));
             var abiArguments = string.Join(", ", method.Parameters.Select(static p => p.NativeName));
@@ -1966,7 +1971,7 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
-        foreach (var method in compilation.Records.SelectMany(static record => record.IsGeneric ? Array.Empty<FunctionBinding>() : record.Members.OfType<FunctionBinding>()).Where(static function => function.IsStatic && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        foreach (var method in compilation.Records.Where(static record => !record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => function.IsStatic && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             var parameterList = string.Join(", ", method.Parameters.Select(RenderNativeParameter));
             var abiArguments = string.Join(", ", method.Parameters.Select(static p => p.NativeName));
@@ -1997,7 +2002,7 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
-        foreach (var constructor in compilation.Records.SelectMany(static record => record.IsGeneric ? Array.Empty<FunctionBinding>() : record.Members.OfType<FunctionBinding>()).Where(static function => function.IsConstructor && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.ManagedName, StringComparer.Ordinal))
+        foreach (var constructor in compilation.Records.Where(static record => !record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => function.IsConstructor && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.ManagedName, StringComparer.Ordinal))
         {
             var parameterList = string.Join(", ", constructor.Parameters.Select(RenderNativeParameter));
             var abiArguments = string.Join(", ", constructor.Parameters.Select(static p => p.NativeName));
@@ -2015,7 +2020,7 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
-        foreach (var field in compilation.Records.SelectMany(static record => record.Members.OfType<FieldBinding>()).Where(static field => !field.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static field => field.ManagedName, StringComparer.Ordinal))
+        foreach (var field in compilation.Records.Where(static record => !record.HasMetadata(MetadataKeys.IgnoreReason)).SelectMany(static record => record.Members.OfType<FieldBinding>()).Where(static field => !field.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static field => field.ManagedName, StringComparer.Ordinal))
         {
             writer.WriteLine();
             writer.Write($$"""

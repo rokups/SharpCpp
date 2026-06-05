@@ -32,6 +32,7 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - [x] Generic surface breadth expanded beyond the first primitive-only slice: top-level generic free functions now parse and dispatch through explicit instantiations, generic records can now instantiate over handle-type arguments, and explicit generic instantiation metadata composes with discovery rather than replacing it.
 - [x] First multiple-inheritance interface slice landed: secondary bases now render as managed `I*` interfaces alongside the projected method surface, and derived wrappers implement those interfaces automatically.
 - [x] Early bootstrap validation landed: unsupported virtual-base inheritance and unsupported generic bootstrap combinations now fail in the pipeline before rendering instead of surfacing later as renderer/native compile failures.
+- [x] First rbfx consumer slice landed: a dedicated `rbfx/SharpCpp.Rbfx.Generator` now parses `Urho3D/Urho3DAll.h` against the SDK CMake flag surface, core degradation now ignores non-renderable / non-linkable API shapes with descriptive reasons instead of hard failing, the generated rbfx wrapper library compiles, and `rbfx/SharpCpp.Rbfx.Tests.E2E` proves a generated wrapper can be constructed and invoked at runtime.
 
 ## Current Focus
 
@@ -98,7 +99,9 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 - `SharpCpp.Parsing` now contains a minimal ClangSharp-backed header parser for multiple E2E fixture headers, including explicit `[[sharpcpp::in|ref|out]]` parameter overrides and `[[sharpcpp::flags]]` enums.
 - `SharpCpp.Rendering` owns the first generated `.Bindings.g.cs`, `.Bindings.Aliases.g.cs`, and `.Bindings.g.cpp` emitters.
 - `SharpCpp.Tool` now drives both metadata-only output and the first generated binding pipeline.
+- `rbfx/SharpCpp.Rbfx.Generator` now drives a second consumer-specific pipeline over the real rbfx SDK by ingesting `Urho3DAll.h`, flattening managed namespaces to the `Urho3D` root for the bootstrap slice, and filtering non-exported SDK callables against the linked `libUrho3D.so` surface.
 - `tests/SharpCpp.Tests.E2E` now proves builtin primitive value/in/ref/out, explicit attribute-driven pointer pass kinds, enum/flags emission, and a simple handle return end-to-end.
+- `rbfx/SharpCpp.Rbfx.Bindings` now compiles the generated rbfx wrapper assembly and native thunk library under the standard Debug build, while `rbfx/SharpCpp.Rbfx.Tests.E2E` proves a generated `Urho3D.BiasParameters` wrapper can be constructed, mutated, and invoked end-to-end against the SDK runtime.
 - The same customization points are available through the binding model API today via `ParameterBinding.Direction`, `ParameterBinding.AbiKind`, `EnumBinding.IsFlags`, and `EnumBinding.Values`.
 - Record instance methods now parse from C++ records, emit native self thunks, and surface as instance methods on managed handle wrappers.
 - Public record fields now parse from C++ records, emit getter/setter thunks, and surface as managed properties on handle wrappers.

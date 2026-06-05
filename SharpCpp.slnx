@@ -14,4 +14,9 @@
     <Project Path="tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj" />
     <Project Path="tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj" />
   </Folder>
+  <Folder Name="/rbfx/">
+    <Project Path="rbfx/SharpCpp.Rbfx.Bindings/SharpCpp.Rbfx.Bindings.csproj" />
+    <Project Path="rbfx/SharpCpp.Rbfx.Generator/SharpCpp.Rbfx.Generator.csproj" />
+    <Project Path="rbfx/SharpCpp.Rbfx.Tests.E2E/SharpCpp.Rbfx.Tests.E2E.csproj" />
+  </Folder>
 </Solution>

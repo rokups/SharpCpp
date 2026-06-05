@@ -373,6 +373,8 @@ sharpcpp_add_dotnet_build_target(
   DEPENDS sharpcpp-generate-e2e SharpCppTestsE2E_Native
   PROPERTIES "-p:SharpCppGeneratedDir=${SHARPCPP_E2E_GENERATED_ROOT}")
 
+add_subdirectory(rbfx)
+
 add_custom_target(sharpcpp-native DEPENDS SharpCppTestsE2E_Native)
 
 add_custom_target(
@@ -385,15 +387,19 @@ add_custom_target(
     sharpcpp-rendering
     sharpcpp-support
     sharpcpp-generator
-    sharpcpp-e2e-managed)
+    sharpcpp-e2e-managed
+    sharpcpp-rbfx-managed
+    sharpcpp-rbfx-tests-e2e-managed)
 
 add_custom_target(
   sharpcpp-tests
   DEPENDS
     sharpcpp-managed
+    sharpcpp-rbfx-tests-e2e-managed
     sharpcpp-tests-model
     sharpcpp-tests-metadata
     sharpcpp-tests-rendering)
+add_dependencies(sharpcpp-native sharpcpp-rbfx-native)
 add_custom_target(sharpcpp-all ALL DEPENDS sharpcpp-managed sharpcpp-native)
 
 if(BUILD_TESTING)

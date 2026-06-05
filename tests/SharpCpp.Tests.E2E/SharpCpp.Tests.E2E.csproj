@@ -27,4 +27,8 @@
   <ItemGroup Condition="'$(SharpCppGeneratedDir)' != '' and Exists('$(SharpCppGeneratedDir)')">
     <Compile Include="$(SharpCppGeneratedDir)/*.cs" LinkBase="Generated" Visible="false" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

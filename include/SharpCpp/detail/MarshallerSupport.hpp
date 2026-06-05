@@ -150,6 +150,13 @@ struct FunctionTraits<TResult(TArgs...)>
     using argument_tuple = std::tuple<TArgs...>;
 };
 
+template <typename TResult, typename... TArgs>
+struct FunctionTraits<TResult(TArgs...) noexcept>
+{
+    using return_type = TResult;
+    using argument_tuple = std::tuple<TArgs...>;
+};
+
 template <typename FT>
 struct MemberFunctionTraits;
 
@@ -163,6 +170,22 @@ struct MemberFunctionTraits<TResult (TSelf::*)(TArgs...)>
 
 template <typename TResult, typename TSelf, typename... TArgs>
 struct MemberFunctionTraits<TResult (TSelf::*)(TArgs...) const>
+{
+    using return_type = TResult;
+    using class_type = TSelf;
+    using argument_tuple = std::tuple<TArgs...>;
+};
+
+template <typename TResult, typename TSelf, typename... TArgs>
+struct MemberFunctionTraits<TResult (TSelf::*)(TArgs...) noexcept>
+{
+    using return_type = TResult;
+    using class_type = TSelf;
+    using argument_tuple = std::tuple<TArgs...>;
+};
+
+template <typename TResult, typename TSelf, typename... TArgs>
+struct MemberFunctionTraits<TResult (TSelf::*)(TArgs...) const noexcept>
 {
     using return_type = TResult;
     using class_type = TSelf;

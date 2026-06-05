@@ -9,6 +9,17 @@ namespace SharpCpp.Parsing;
 
 public sealed class ClangSharpHeaderParser
 {
+    private static readonly HashSet<string> CSharpKeywords = new(StringComparer.Ordinal)
+    {
+        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked", "class", "const", "continue",
+        "decimal", "default", "delegate", "do", "double", "else", "enum", "event", "explicit", "extern", "false", "finally",
+        "fixed", "float", "for", "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock",
+        "long", "namespace", "new", "null", "object", "operator", "out", "override", "params", "private", "protected", "public",
+        "readonly", "ref", "return", "sbyte", "sealed", "short", "sizeof", "stackalloc", "static", "string", "struct", "switch",
+        "this", "throw", "true", "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual", "void",
+        "volatile", "while"
+    };
+
     private static readonly IReadOnlyDictionary<string, BindingType> EmptyGenericParameters =
         new Dictionary<string, BindingType>(StringComparer.Ordinal);
 
@@ -56,9 +67,12 @@ public sealed class ClangSharpHeaderParser
             throw new FileNotFoundException($"Header file '{headerFilePath}' was not found.", headerFilePath);
         }
 
-        PreScanIgnoreAnnotations(new[] { headerFilePath });
-        PreScanRenameAnnotations(new[] { headerFilePath });
-        PreScanInstantiateAnnotations(new[] { headerFilePath });
+        var ownedFileRoots = NormalizeOwnedFileRoots(headerFilePath, request.OwnedFileRoots);
+        var annotationFiles = EnumerateOwnedHeaderFiles(headerFilePath, ownedFileRoots);
+
+        PreScanIgnoreAnnotations(annotationFiles);
+        PreScanRenameAnnotations(annotationFiles);
+        PreScanInstantiateAnnotations(annotationFiles);
 
         using var index = CXIndex.Create();
         using var translationUnit = CXTranslationUnit.Parse(
@@ -83,7 +97,7 @@ public sealed class ClangSharpHeaderParser
         translationUnit.Cursor.VisitChildren(
             (child, _, _) =>
             {
-                if (!IsOwnedCursor(child, headerFilePath))
+                if (!IsOwnedCursor(child, ownedFileRoots))
                 {
                     return CXChildVisitResult.CXChildVisit_Continue;
                 }
@@ -91,15 +105,15 @@ public sealed class ClangSharpHeaderParser
                 switch (child.Kind)
                 {
                     case CXCursorKind.CXCursor_Namespace:
-                        VisitNamespace(child, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix);
+                        VisitNamespace(child, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix, ownedFileRoots);
                         break;
 
                     case CXCursorKind.CXCursor_StructDecl:
-                        RegisterRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides);
+                        RegisterRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix);
                         break;
 
                     case CXCursorKind.CXCursor_ClassTemplate:
-                        RegisterTemplateRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides);
+                        RegisterTemplateRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix);
                         break;
 
                     case CXCursorKind.CXCursor_EnumDecl:
@@ -191,11 +205,73 @@ public sealed class ClangSharpHeaderParser
         }
     }
 
-    private static bool IsOwnedCursor(CXCursor cursor, string headerFilePath)
+    private static IReadOnlyList<string> NormalizeOwnedFileRoots(string headerFilePath, IReadOnlyList<string>? ownedFileRoots)
+    {
+        var normalizedRoots = new List<string> { Path.GetFullPath(headerFilePath) };
+        if (ownedFileRoots is not null)
+        {
+            foreach (var root in ownedFileRoots)
+            {
+                if (string.IsNullOrWhiteSpace(root))
+                {
+                    continue;
+                }
+
+                normalizedRoots.Add(Path.GetFullPath(root));
+            }
+        }
+
+        return normalizedRoots.Distinct(StringComparer.Ordinal).ToArray();
+    }
+
+    private static IReadOnlyList<string> EnumerateOwnedHeaderFiles(string headerFilePath, IReadOnlyList<string> ownedFileRoots)
+    {
+        var files = new HashSet<string>(StringComparer.Ordinal)
+        {
+            Path.GetFullPath(headerFilePath)
+        };
+
+        foreach (var root in ownedFileRoots)
+        {
+            if (!Directory.Exists(root))
+            {
+                continue;
+            }
+
+            foreach (var file in Directory.EnumerateFiles(root, "*.h", SearchOption.AllDirectories))
+            {
+                files.Add(Path.GetFullPath(file));
+            }
+
+            foreach (var file in Directory.EnumerateFiles(root, "*.hpp", SearchOption.AllDirectories))
+            {
+                files.Add(Path.GetFullPath(file));
+            }
+        }
+
+        return files.OrderBy(static path => path, StringComparer.Ordinal).ToArray();
+    }
+
+    private static bool IsOwnedCursor(CXCursor cursor, IReadOnlyList<string> ownedFileRoots)
     {
         cursor.Location.GetFileLocation(out var file, out _, out _, out _);
-        var filePath = file.Name.CString;
-        return string.Equals(Path.GetFullPath(filePath), headerFilePath, StringComparison.Ordinal);
+        var filePath = Path.GetFullPath(file.Name.CString);
+
+        foreach (var ownedFileRoot in ownedFileRoots)
+        {
+            if (File.Exists(ownedFileRoot) && string.Equals(filePath, ownedFileRoot, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (Directory.Exists(ownedFileRoot) &&
+                filePath.StartsWith(ownedFileRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static unsafe void RegisterRecord(
@@ -203,7 +279,8 @@ public sealed class ClangSharpHeaderParser
         BindingCompilation compilation,
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
-        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        string entryPointPrefix)
     {
         var nativeName = cursor.Spelling.ToString();
         if (string.IsNullOrWhiteSpace(nativeName) || recordsByName.ContainsKey(nativeName))
@@ -213,14 +290,20 @@ public sealed class ClangSharpHeaderParser
 
         var cppQualifiedName = GetCppQualifiedName(cursor);
         var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
-        var declarationText = sourceText.IndexOf('{') is var braceIndex and >= 0
+        var braceIndex = sourceText.IndexOf('{');
+        var declarationText = braceIndex >= 0
             ? sourceText[..braceIndex]
             : sourceText;
+        var isForwardDeclaration = braceIndex < 0;
         var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(nativeName), cppQualifiedName)
         {
             IsAbstract = cursor.CXXRecord_IsAbstract,
             IsDirector = DirectorAttributeExpression.IsMatch(declarationText)
         };
+        if (isForwardDeclaration)
+        {
+            record.SetMetadata(MetadataKeys.ForwardDeclaration, true);
+        }
         CheckAndApplyIgnoreAttribute(cursor, record);
         TryApplyRename(cursor, record);
         ExtractAndApplyDocumentation(cursor, record);
@@ -228,7 +311,7 @@ public sealed class ClangSharpHeaderParser
         compilation.Members.Add(record);
 
         PopulateRecordBases(cursor, record, recordsByName);
-        PopulateRecordMembers(cursor, record, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
+        PopulateRecordMembers(cursor, record, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters, entryPointPrefix);
 
         UpdatePolymorphism(record, recordsByName);
     }
@@ -238,7 +321,8 @@ public sealed class ClangSharpHeaderParser
         BindingCompilation compilation,
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
-        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        string entryPointPrefix)
     {
         var nativeName = cursor.Spelling.ToString();
         if (string.IsNullOrWhiteSpace(nativeName) || recordsByName.ContainsKey(nativeName))
@@ -253,14 +337,20 @@ public sealed class ClangSharpHeaderParser
 
         var cppQualifiedName = GetCppQualifiedName(cursor);
         var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
-        var declarationText = sourceText.IndexOf('{') is var braceIndex and >= 0
+        var braceIndex = sourceText.IndexOf('{');
+        var declarationText = braceIndex >= 0
             ? sourceText[..braceIndex]
             : sourceText;
+        var isForwardDeclaration = braceIndex < 0;
         var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(nativeName), cppQualifiedName)
         {
             IsAbstract = cursor.CXXRecord_IsAbstract,
             IsDirector = DirectorAttributeExpression.IsMatch(declarationText)
         };
+        if (isForwardDeclaration)
+        {
+            record.SetMetadata(MetadataKeys.ForwardDeclaration, true);
+        }
 
         foreach (var templateParameter in templateParameters)
         {
@@ -276,7 +366,7 @@ public sealed class ClangSharpHeaderParser
 
         var genericParameters = CreateGenericParameterScope(templateParameters);
         PopulateRecordBases(cursor, record, recordsByName);
-        PopulateRecordMembers(cursor, record, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        PopulateRecordMembers(cursor, record, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
 
         UpdatePolymorphism(record, recordsByName);
     }
@@ -319,7 +409,8 @@ public sealed class ClangSharpHeaderParser
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
-        IReadOnlyDictionary<string, BindingType> genericParameters)
+        IReadOnlyDictionary<string, BindingType> genericParameters,
+        string entryPointPrefix)
     {
         cursor.VisitChildren(
             (child, _, _) =>
@@ -335,7 +426,7 @@ public sealed class ClangSharpHeaderParser
                     return CXChildVisitResult.CXChildVisit_Continue;
                 }
 
-                var method = CreateMethod(record, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+                var method = CreateMethod(record, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
                 CheckAndApplyIgnoreAttribute(child, method);
                 TryApplyRename(child, method);
                 ExtractAndApplyDocumentation(child, method);
@@ -358,7 +449,7 @@ public sealed class ClangSharpHeaderParser
                     return CXChildVisitResult.CXChildVisit_Continue;
                 }
 
-                var staticMethod = CreateStaticMethod(record, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+                var staticMethod = CreateStaticMethod(record, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
                 CheckAndApplyIgnoreAttribute(child, staticMethod);
                 TryApplyRename(child, staticMethod);
                 ExtractAndApplyDocumentation(child, staticMethod);
@@ -380,7 +471,7 @@ public sealed class ClangSharpHeaderParser
                     return CXChildVisitResult.CXChildVisit_Continue;
                 }
 
-                var ctor = CreateConstructor(record, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+                var ctor = CreateConstructor(record, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
                 CheckAndApplyIgnoreAttribute(child, ctor);
                 ExtractAndApplyDocumentation(child, ctor);
                 record.Members.Add(ctor);
@@ -396,7 +487,7 @@ public sealed class ClangSharpHeaderParser
                     return CXChildVisitResult.CXChildVisit_Continue;
                 }
 
-                var templateMethod = CreateTemplateMethod(record, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+                var templateMethod = CreateTemplateMethod(record, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
                 if (templateMethod is null)
                 {
                     return CXChildVisitResult.CXChildVisit_Continue;
@@ -439,17 +530,19 @@ public sealed class ClangSharpHeaderParser
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
-        IReadOnlyDictionary<string, BindingType> genericParameters)
+        IReadOnlyDictionary<string, BindingType> genericParameters,
+        string entryPointPrefix)
     {
         var nativeName = cursor.Spelling.ToString();
-        var returnType = MapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        var (returnType, ignoreReason) = TryMapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        var cppReturnTypeName = ResolveQualifiedTypeName(cursor.ResultType, recordsByName);
         var function = new FunctionBinding(
             $"method:{record.NativeName}:{nativeName}",
             nativeName,
             GetManagedMethodName(cursor, nativeName),
             returnType,
-            entryPointName: $"sharpcpp_e2e_{record.NativeName}_{GetEntrypointSuffix(cursor, nativeName)}",
-            cppReturnTypeName: returnType.CppTypeName,
+            entryPointName: $"{entryPointPrefix}_{record.NativeName}_{GetEntrypointSuffix(cursor, nativeName)}",
+            cppReturnTypeName: cppReturnTypeName,
             cppQualifiedName: $"{record.CppQualifiedName}::{nativeName}")
         {
             IsStatic = false,
@@ -469,13 +562,15 @@ public sealed class ClangSharpHeaderParser
             {
                 parameterName = $"arg{parameterIndex}";
             }
+            var managedParameterName = EscapeManagedIdentifier(parameterName);
 
-            var (parameterType, direction, abiKind) = MapParameter(cursor, parameterCursor, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+            var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(cursor, parameterCursor, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+            ignoreReason ??= parameterIgnoreReason;
             function.Parameters.Add(
                 new ParameterBinding(
                     $"parameter:{record.NativeName}:{nativeName}:{parameterName}",
                     parameterName,
-                    parameterName,
+                    managedParameterName,
                     parameterType,
                     direction,
                     abiKind,
@@ -485,7 +580,12 @@ public sealed class ClangSharpHeaderParser
                 });
         }
 
-        function.EntryPointName = BuildEntrypointName("sharpcpp_e2e", $"{record.NativeName}_{GetEntrypointSuffix(cursor, nativeName)}", function.Parameters);
+        function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(cursor, nativeName)}", function.Parameters);
+
+        if (ignoreReason is not null)
+        {
+            function.SetIgnoreReason(ignoreReason);
+        }
 
         return function;
     }
@@ -496,7 +596,8 @@ public sealed class ClangSharpHeaderParser
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
-        IReadOnlyDictionary<string, BindingType> genericParameters)
+        IReadOnlyDictionary<string, BindingType> genericParameters,
+        string entryPointPrefix)
     {
         if (!TryExtractTemplateParameters(templateCursor, out var methodTemplateParameters))
         {
@@ -515,13 +616,14 @@ public sealed class ClangSharpHeaderParser
         }
 
         var nativeName = templateCursor.Spelling.ToString();
-        var returnType = MapType(templateCursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, combinedGenericParameters);
+        var (returnType, ignoreReason) = TryMapType(templateCursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, combinedGenericParameters);
+        var cppReturnTypeName = ResolveQualifiedTypeName(templateCursor.ResultType, recordsByName);
         var function = new FunctionBinding(
             $"method:{record.NativeName}:{nativeName}",
             nativeName,
             GetManagedMethodName(templateCursor, nativeName),
             returnType,
-            cppReturnTypeName: returnType.CppTypeName,
+            cppReturnTypeName: cppReturnTypeName,
             cppQualifiedName: $"{record.CppQualifiedName}::{nativeName}")
         {
             IsStatic = false,
@@ -552,13 +654,15 @@ public sealed class ClangSharpHeaderParser
                 {
                     parameterName = $"arg{function.Parameters.Count}";
                 }
+                var managedParameterName = EscapeManagedIdentifier(parameterName);
 
-                var (parameterType, direction, abiKind) = MapParameter(templateCursor, child, recordsByName, enumsByName, managedTypeOverrides, combinedGenericParameters);
+                var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(templateCursor, child, recordsByName, enumsByName, managedTypeOverrides, combinedGenericParameters);
+                ignoreReason ??= parameterIgnoreReason;
                 function.Parameters.Add(
                     new ParameterBinding(
                         $"parameter:{record.NativeName}:{nativeName}:{parameterName}",
                         parameterName,
-                        parameterName,
+                        managedParameterName,
                         parameterType,
                         direction,
                         abiKind,
@@ -571,7 +675,12 @@ public sealed class ClangSharpHeaderParser
             },
             new CXClientData(IntPtr.Zero));
 
-        function.EntryPointName = BuildEntrypointName("sharpcpp_e2e", $"{record.NativeName}_{GetEntrypointSuffix(templateCursor, nativeName)}", function.Parameters);
+        function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(templateCursor, nativeName)}", function.Parameters);
+
+        if (ignoreReason is not null)
+        {
+            function.SetIgnoreReason(ignoreReason);
+        }
 
         ApplyVirtualSpecifiers(templateCursor, function);
         return function;
@@ -583,17 +692,19 @@ public sealed class ClangSharpHeaderParser
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
-        IReadOnlyDictionary<string, BindingType> genericParameters)
+        IReadOnlyDictionary<string, BindingType> genericParameters,
+        string entryPointPrefix)
     {
         var nativeName = cursor.Spelling.ToString();
-        var returnType = MapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        var (returnType, ignoreReason) = TryMapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        var cppReturnTypeName = ResolveQualifiedTypeName(cursor.ResultType, recordsByName);
         var function = new FunctionBinding(
             $"static-method:{record.NativeName}:{nativeName}",
             nativeName,
             GetManagedMethodName(cursor, nativeName),
             returnType,
-            entryPointName: $"sharpcpp_e2e_{record.NativeName}_{GetEntrypointSuffix(cursor, nativeName)}",
-            cppReturnTypeName: returnType.CppTypeName,
+            entryPointName: $"{entryPointPrefix}_{record.NativeName}_{GetEntrypointSuffix(cursor, nativeName)}",
+            cppReturnTypeName: cppReturnTypeName,
             cppQualifiedName: $"{record.CppQualifiedName}::{nativeName}")
         {
             IsStatic = true,
@@ -610,13 +721,15 @@ public sealed class ClangSharpHeaderParser
             {
                 parameterName = $"arg{parameterIndex}";
             }
+            var managedParameterName = EscapeManagedIdentifier(parameterName);
 
-            var (parameterType, direction, abiKind) = MapParameter(cursor, parameterCursor, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+            var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(cursor, parameterCursor, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+            ignoreReason ??= parameterIgnoreReason;
             function.Parameters.Add(
                 new ParameterBinding(
                     $"parameter:{record.NativeName}:static:{nativeName}:{parameterName}",
                     parameterName,
-                    parameterName,
+                    managedParameterName,
                     parameterType,
                     direction,
                     abiKind,
@@ -626,7 +739,12 @@ public sealed class ClangSharpHeaderParser
                 });
         }
 
-        function.EntryPointName = BuildEntrypointName("sharpcpp_e2e", $"{record.NativeName}_{GetEntrypointSuffix(cursor, nativeName)}", function.Parameters);
+        function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(cursor, nativeName)}", function.Parameters);
+
+        if (ignoreReason is not null)
+        {
+            function.SetIgnoreReason(ignoreReason);
+        }
 
         return function;
     }
@@ -637,14 +755,15 @@ public sealed class ClangSharpHeaderParser
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
-        IReadOnlyDictionary<string, BindingType> genericParameters)
+        IReadOnlyDictionary<string, BindingType> genericParameters,
+        string entryPointPrefix)
     {
         var function = new FunctionBinding(
             $"ctor:{record.NativeName}:{cursor.Hash}",
             record.NativeName,
             record.ManagedName,
             record.HandleType,
-            entryPointName: $"sharpcpp_e2e_{record.NativeName}_ctor",
+            entryPointName: $"{entryPointPrefix}_{record.NativeName}_ctor",
             cppReturnTypeName: $"{record.CppQualifiedName}*",
             cppQualifiedName: $"{record.CppQualifiedName}::{record.NativeName}")
         {
@@ -654,6 +773,8 @@ public sealed class ClangSharpHeaderParser
             OwningRecordCppTypeName = record.CppQualifiedName
         };
 
+        string? ignoreReason = null;
+
         for (uint parameterIndex = 0; parameterIndex < cursor.NumArguments; parameterIndex++)
         {
             var parameterCursor = cursor.GetArgument(parameterIndex);
@@ -662,13 +783,15 @@ public sealed class ClangSharpHeaderParser
             {
                 parameterName = $"arg{parameterIndex}";
             }
+            var managedParameterName = EscapeManagedIdentifier(parameterName);
 
-            var (parameterType, direction, abiKind) = MapParameter(cursor, parameterCursor, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+            var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(cursor, parameterCursor, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+            ignoreReason ??= parameterIgnoreReason;
             function.Parameters.Add(
                 new ParameterBinding(
                     $"parameter:{record.NativeName}:ctor:{parameterName}",
                     parameterName,
-                    parameterName,
+                    managedParameterName,
                     parameterType,
                     direction,
                     abiKind,
@@ -678,7 +801,12 @@ public sealed class ClangSharpHeaderParser
                 });
         }
 
-        function.EntryPointName = BuildEntrypointName("sharpcpp_e2e", $"{record.NativeName}_ctor", function.Parameters);
+        function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_ctor", function.Parameters);
+
+        if (ignoreReason is not null)
+        {
+            function.SetIgnoreReason(ignoreReason);
+        }
 
         return function;
     }
@@ -692,17 +820,25 @@ public sealed class ClangSharpHeaderParser
         IReadOnlyDictionary<string, BindingType> genericParameters)
     {
         var nativeName = cursor.Spelling.ToString();
-        return new FieldBinding(
+        var (fieldType, ignoreReason) = TryMapType(cursor.Type, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        var field = new FieldBinding(
             $"field:{record.NativeName}:{nativeName}",
             nativeName,
             ToPascalCase(nativeName),
-            MapType(cursor.Type, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
+            fieldType,
             NormalizeTypeName(cursor.Type.Spelling.ToString()),
             record.CppQualifiedName,
             isReadOnly: cursor.Type.IsConstQualified)
         {
             AccessModifier = MapAccessModifier(cursor.CXXAccessSpecifier)
         };
+
+        if (ignoreReason is not null)
+        {
+            field.SetIgnoreReason(ignoreReason);
+        }
+
+        return field;
     }
 
     private static FunctionBinding CreateFunction(
@@ -714,14 +850,16 @@ public sealed class ClangSharpHeaderParser
         IReadOnlyDictionary<string, BindingType> genericParameters)
     {
         var nativeName = cursor.Spelling.ToString();
-        var returnType = MapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        var (returnType, ignoreReason) = TryMapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        var cppReturnTypeName = ResolveQualifiedTypeName(cursor.ResultType, recordsByName);
         var function = new FunctionBinding(
             $"function:{nativeName}",
             nativeName,
             ToPascalCase(nativeName),
             returnType,
             entryPointName: $"{entryPointPrefix}_{nativeName}",
-            cppReturnTypeName: returnType.CppTypeName);
+            cppReturnTypeName: cppReturnTypeName,
+            cppQualifiedName: GetCppQualifiedName(cursor));
 
         for (uint parameterIndex = 0; parameterIndex < cursor.NumArguments; parameterIndex++)
         {
@@ -731,13 +869,15 @@ public sealed class ClangSharpHeaderParser
             {
                 parameterName = $"arg{parameterIndex}";
             }
+            var managedParameterName = EscapeManagedIdentifier(parameterName);
 
-            var (parameterType, direction, abiKind) = MapParameter(cursor, parameterCursor, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+            var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(cursor, parameterCursor, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+            ignoreReason ??= parameterIgnoreReason;
             function.Parameters.Add(
                 new ParameterBinding(
                     $"parameter:{nativeName}:{parameterName}",
                     parameterName,
-                    parameterName,
+                    managedParameterName,
                     parameterType,
                     direction,
                     abiKind,
@@ -747,7 +887,12 @@ public sealed class ClangSharpHeaderParser
                 });
         }
 
-        function.EntryPointName = BuildEntrypointName(entryPointPrefix, nativeName, function.Parameters);
+        function.EntryPointName = BuildEntrypointName(entryPointPrefix, SanitizeEntrypointNamePart(function.CppQualifiedName), function.Parameters);
+
+        if (ignoreReason is not null)
+        {
+            function.SetIgnoreReason(ignoreReason);
+        }
 
         return function;
     }
@@ -771,14 +916,15 @@ public sealed class ClangSharpHeaderParser
             return null;
         }
 
-        var returnType = MapType(templateCursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        var (returnType, ignoreReason) = TryMapType(templateCursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        var cppReturnTypeName = ResolveQualifiedTypeName(templateCursor.ResultType, recordsByName);
         var function = new FunctionBinding(
             $"function:{nativeName}",
             nativeName,
             ToPascalCase(nativeName),
             returnType,
-            cppReturnTypeName: returnType.CppTypeName,
-            cppQualifiedName: nativeName);
+            cppReturnTypeName: cppReturnTypeName,
+            cppQualifiedName: GetCppQualifiedName(templateCursor));
 
         foreach (var templateParameter in templateParameters)
         {
@@ -800,13 +946,15 @@ public sealed class ClangSharpHeaderParser
                 {
                     parameterName = $"arg{function.Parameters.Count}";
                 }
+                var managedParameterName = EscapeManagedIdentifier(parameterName);
 
-                var (parameterType, direction, abiKind) = MapParameter(templateCursor, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+                var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(templateCursor, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+                ignoreReason ??= parameterIgnoreReason;
                 function.Parameters.Add(
                     new ParameterBinding(
                         $"parameter:{nativeName}:{parameterName}",
                         parameterName,
-                        parameterName,
+                        managedParameterName,
                         parameterType,
                         direction,
                         abiKind,
@@ -819,8 +967,107 @@ public sealed class ClangSharpHeaderParser
             },
             new CXClientData(IntPtr.Zero));
 
-        function.EntryPointName = BuildEntrypointName(entryPointPrefix, nativeName, function.Parameters);
+        function.EntryPointName = BuildEntrypointName(entryPointPrefix, SanitizeEntrypointNamePart(function.CppQualifiedName), function.Parameters);
+
+        if (ignoreReason is not null)
+        {
+            function.SetIgnoreReason(ignoreReason);
+        }
+
         return function;
+    }
+
+    private static (BindingType Type, string? IgnoreReason) TryMapType(
+        CXType type,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        IReadOnlyDictionary<string, BindingType> genericParameters)
+    {
+        try
+        {
+            return (MapType(type, recordsByName, enumsByName, managedTypeOverrides, genericParameters), null);
+        }
+        catch (NotSupportedException exception)
+        {
+            return (CreateIgnoredFallbackType(type), exception.Message);
+        }
+    }
+
+    private static (BindingType Type, BindingParameterDirection Direction, BindingParameterAbiKind AbiKind, string? IgnoreReason) TryMapParameter(
+        CXCursor functionCursor,
+        CXCursor parameterCursor,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        IReadOnlyDictionary<string, BindingType> genericParameters)
+    {
+        try
+        {
+            var (type, direction, abiKind) = MapParameter(functionCursor, parameterCursor, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+            return (type, direction, abiKind, null);
+        }
+        catch (NotSupportedException exception)
+        {
+            var (direction, abiKind) = InferFallbackParameterPassing(functionCursor, parameterCursor);
+            return (CreateIgnoredFallbackType(parameterCursor.Type), direction, abiKind, exception.Message);
+        }
+    }
+
+    private static (BindingParameterDirection Direction, BindingParameterAbiKind AbiKind) InferFallbackParameterPassing(CXCursor functionCursor, CXCursor parameterCursor)
+    {
+        var type = parameterCursor.Type;
+        var normalizedType = type.CanonicalType;
+        var explicitDirection = TryGetPassKindOverride(functionCursor, parameterCursor, out var overrideDirection)
+            ? overrideDirection
+            : (BindingParameterDirection?)null;
+
+        if (normalizedType.kind == CXTypeKind.CXType_LValueReference)
+        {
+            var sourcePointeeType = type.PointeeType;
+            var normalizedPointeeType = normalizedType.PointeeType.CanonicalType;
+            return (
+                explicitDirection ?? (sourcePointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Ref),
+                normalizedPointeeType.kind == CXTypeKind.CXType_Record ? BindingParameterAbiKind.Value : BindingParameterAbiKind.Reference);
+        }
+
+        if (normalizedType.kind == CXTypeKind.CXType_Pointer)
+        {
+            var sourcePointeeType = type.PointeeType;
+            var normalizedPointeeType = normalizedType.PointeeType.CanonicalType;
+            return (
+                explicitDirection ?? (sourcePointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Out),
+                normalizedPointeeType.kind is CXTypeKind.CXType_Void or CXTypeKind.CXType_Record ? BindingParameterAbiKind.Value : BindingParameterAbiKind.Pointer);
+        }
+
+        return (explicitDirection ?? BindingParameterDirection.In, BindingParameterAbiKind.Value);
+    }
+
+    private static BindingType CreateIgnoredFallbackType(CXType type)
+    {
+        var normalizedType = type.CanonicalType;
+        var normalizedTypeName = NormalizeTypeName(type.Spelling.ToString());
+
+        return normalizedType.kind switch
+        {
+            CXTypeKind.CXType_Void => BindingType.Void,
+            CXTypeKind.CXType_Bool => BindingType.Boolean,
+            CXTypeKind.CXType_Char_S => BindingType.Int8,
+            CXTypeKind.CXType_SChar => BindingType.Int8,
+            CXTypeKind.CXType_Char_U => BindingType.UInt8,
+            CXTypeKind.CXType_UChar => BindingType.UInt8,
+            CXTypeKind.CXType_Short => BindingType.Int16,
+            CXTypeKind.CXType_UShort => BindingType.UInt16,
+            CXTypeKind.CXType_Int => BindingType.Int32,
+            CXTypeKind.CXType_UInt => BindingType.UInt32,
+            CXTypeKind.CXType_LongLong => BindingType.Int64,
+            CXTypeKind.CXType_ULongLong => BindingType.UInt64,
+            CXTypeKind.CXType_Float => BindingType.Single,
+            CXTypeKind.CXType_Double => BindingType.Double,
+            CXTypeKind.CXType_Long => BindingType.NativeInt,
+            CXTypeKind.CXType_ULong => BindingType.NativeUInt,
+            _ => BindingType.CreateConfigured(normalizedTypeName, "global::System.IntPtr")
+        };
     }
 
     private static void ApplyOperatorMetadata(FunctionBinding function, CXCursor cursor)
@@ -1111,6 +1358,12 @@ public sealed class ClangSharpHeaderParser
                 .Select(static part => char.ToUpperInvariant(part[0]) + part[1..]));
     }
 
+    private static string EscapeManagedIdentifier(string name)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        return CSharpKeywords.Contains(name) ? $"@{name}" : name;
+    }
+
     private static string GetRecordQualifiedName(CXType type, IDictionary<string, RecordBinding> recordsByName)
     {
         var spelling = type.Spelling.ToString();
@@ -1136,9 +1389,10 @@ public sealed class ClangSharpHeaderParser
     {
         var spelling = NormalizeTypeName(type.Spelling.ToString());
 
-        foreach (var record in recordsByName.Values)
+        foreach (var record in recordsByName.Values.OrderByDescending(static record => record.NativeName.Length))
         {
-            spelling = spelling.Replace(record.NativeName, record.CppQualifiedName, StringComparison.Ordinal);
+            var pattern = $@"(?<![:\w]){Regex.Escape(record.NativeName)}(?![:\w])";
+            spelling = Regex.Replace(spelling, pattern, record.CppQualifiedName, RegexOptions.CultureInvariant);
         }
 
         return spelling;
@@ -1785,23 +2039,29 @@ public sealed class ClangSharpHeaderParser
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
-        string entryPointPrefix)
+        string entryPointPrefix,
+        IReadOnlyList<string> ownedFileRoots)
     {
         namespaceCursor.VisitChildren(
             (child, _, _) =>
             {
+                if (!IsOwnedCursor(child, ownedFileRoots))
+                {
+                    return CXChildVisitResult.CXChildVisit_Continue;
+                }
+
                 switch (child.Kind)
                 {
                     case CXCursorKind.CXCursor_Namespace:
-                        VisitNamespace(child, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix);
+                        VisitNamespace(child, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, ownedFileRoots);
                         break;
 
                     case CXCursorKind.CXCursor_StructDecl:
-                        RegisterRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides);
+                        RegisterRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix);
                         break;
 
                     case CXCursorKind.CXCursor_ClassTemplate:
-                        RegisterTemplateRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides);
+                        RegisterTemplateRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix);
                         break;
 
                     case CXCursorKind.CXCursor_EnumDecl:

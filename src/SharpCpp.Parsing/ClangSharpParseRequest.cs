@@ -9,4 +9,5 @@ public sealed record ClangSharpParseRequest(
     string HeaderIncludePath,
     IReadOnlyList<string> ClangArguments,
     IReadOnlyList<string> MarshallerConfigurationFiles,
-    string EntryPointPrefix);
+    string EntryPointPrefix,
+    IReadOnlyList<string>? OwnedFileRoots = null);

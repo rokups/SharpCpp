@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>SharpCpp.Rbfx.Bindings</AssemblyName>
+    <SharpCppGeneratedDir Condition="'$(SharpCppGeneratedDir)' == ''">$(BaseIntermediateOutputPath)generated/SharpCpp.Rbfx</SharpCppGeneratedDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/SharpCpp.Support/SharpCpp.Support.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(SharpCppGeneratedDir)' != '' and Exists('$(SharpCppGeneratedDir)')">
+    <Compile Include="$(SharpCppGeneratedDir)/*.cs" LinkBase="Generated" Visible="false" />
+  </ItemGroup>
+</Project>

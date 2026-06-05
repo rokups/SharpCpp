@@ -9,6 +9,7 @@ public static class MetadataKeys
     public const string IgnoreReason = "ignore_reason";
     public const string DocumentationComment = "documentation_comment";
     public const string ExplicitGenericInstantiations = "explicit_generic_instantiations";
+    public const string ForwardDeclaration = "forward_declaration";
 }
 
 public enum AccessorPropertyKind

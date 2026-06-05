@@ -214,4 +214,49 @@ public sealed class BindingMetadataExporterTests
 
         Assert.True(exportedFunction.ReturnsOwnedHandle);
     }
+
+    [Fact]
+    public void Export_skips_ignored_surface()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "ignored.hpp" });
+
+        var retainedRecord = new RecordBinding("record:Retained", "retained", "Retained");
+        var ignoredRecord = new RecordBinding("record:Ignored", "ignored", "Ignored");
+        ignoredRecord.SetIgnoreReason("not yet supported");
+
+        var retainedMethod = new FunctionBinding("method:retained:get", "get_value", "GetValue", BindingType.Int32, "entry_get")
+        {
+            OwningRecordCppTypeName = "retained"
+        };
+        var ignoredMethod = new FunctionBinding("method:retained:skip", "skip", "Skip", BindingType.Int32, "entry_skip")
+        {
+            OwningRecordCppTypeName = "retained"
+        };
+        ignoredMethod.SetIgnoreReason("unsupported signature");
+        retainedRecord.Members.Add(retainedMethod);
+        retainedRecord.Members.Add(ignoredMethod);
+
+        var retainedFunction = new FunctionBinding("function:keep", "keep", "Keep", BindingType.Int32, "entry_keep");
+        var ignoredFunction = new FunctionBinding("function:skip", "skip", "Skip", BindingType.Int32, "entry_skip");
+        ignoredFunction.SetIgnoreReason("manual stub");
+
+        compilation.Members.Add(retainedRecord);
+        compilation.Members.Add(ignoredRecord);
+        compilation.Members.Add(retainedFunction);
+        compilation.Members.Add(ignoredFunction);
+
+        var document = BindingMetadataExporter.Export(compilation);
+
+        var exportedRecord = Assert.Single(document.Types);
+        Assert.Equal("Retained", exportedRecord.ManagedName);
+        Assert.Single(exportedRecord.Members!);
+        Assert.Equal("GetValue", exportedRecord.Members![0].ManagedName);
+        Assert.Single(document.Functions);
+        Assert.Equal("Keep", document.Functions[0].ManagedName);
+    }
 }

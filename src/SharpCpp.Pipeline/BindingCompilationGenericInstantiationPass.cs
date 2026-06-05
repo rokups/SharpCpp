@@ -12,6 +12,11 @@ public static class BindingCompilationGenericInstantiationPass
         {
             record.SupportedGenericInstantiations.Clear();
 
+            if (record.IsIgnored())
+            {
+                continue;
+            }
+
             if (record.TryGetMetadata(MetadataKeys.ExplicitGenericInstantiations, out GenericInstantiationMetadata? explicitInstantiations))
             {
                 foreach (var instantiation in explicitInstantiations!.Instantiations)
@@ -25,6 +30,11 @@ public static class BindingCompilationGenericInstantiationPass
         {
             function.SupportedGenericInstantiations.Clear();
 
+            if (function.IsIgnored())
+            {
+                continue;
+            }
+
             if (function.TryGetMetadata(MetadataKeys.ExplicitGenericInstantiations, out GenericInstantiationMetadata? explicitInstantiations))
             {
                 foreach (var instantiation in explicitInstantiations!.Instantiations)
@@ -36,6 +46,11 @@ public static class BindingCompilationGenericInstantiationPass
 
         foreach (var function in compilation.Functions)
         {
+            if (function.IsIgnored())
+            {
+                continue;
+            }
+
             CollectRecordInstantiations(compilation, function.ReturnType);
             foreach (var parameter in function.Parameters)
             {
@@ -45,6 +60,11 @@ public static class BindingCompilationGenericInstantiationPass
 
         foreach (var field in compilation.Descendants<FieldBinding>())
         {
+            if (field.IsIgnored())
+            {
+                continue;
+            }
+
             CollectRecordInstantiations(compilation, field.Type);
         }
     }
@@ -62,7 +82,7 @@ public static class BindingCompilationGenericInstantiationPass
         }
 
         var record = compilation.Records.FirstOrDefault(candidate => string.Equals(candidate.SymbolId, type.RecordId, StringComparison.Ordinal));
-        if (record is null || !record.IsGeneric || record.GenericParameters.Count != type.GenericArguments.Count)
+        if (record is null || record.IsIgnored() || !record.IsGeneric || record.GenericParameters.Count != type.GenericArguments.Count)
         {
             return;
         }

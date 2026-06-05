@@ -10,9 +10,15 @@ public static class ValidateBootstrapSurfacePass
 
         foreach (var record in compilation.Records)
         {
+            if (record.IsIgnored())
+            {
+                continue;
+            }
+
             if (record.Bases.Any(static baseBinding => baseBinding.IsVirtual))
             {
-                throw new NotSupportedException($"Record '{record.ManagedName}' uses virtual base inheritance, which is not supported in this bootstrap surface.");
+                record.SetIgnoreReason($"record uses virtual base inheritance, which is not supported in this bootstrap surface");
+                continue;
             }
 
             if (record.IsGeneric)
@@ -23,6 +29,11 @@ public static class ValidateBootstrapSurfacePass
 
         foreach (var function in compilation.Functions)
         {
+            if (function.IsIgnored())
+            {
+                continue;
+            }
+
             if (!function.IsGeneric)
             {
                 continue;
@@ -36,22 +47,29 @@ public static class ValidateBootstrapSurfacePass
     {
         if (record.IsDirector || record.IsPolymorphic || record.Bases.Count > 0)
         {
-            throw new NotSupportedException($"Generic record '{record.ManagedName}' is limited to non-polymorphic, non-director, non-inheriting surface in this slice.");
+            record.SetIgnoreReason($"generic record '{record.ManagedName}' is limited to non-polymorphic, non-director, non-inheriting surface in this slice");
+            return;
         }
 
         if (record.Members.OfType<FieldBinding>().Any())
         {
-            throw new NotSupportedException($"Generic record '{record.ManagedName}' does not support field projection in this slice.");
+            record.SetIgnoreReason($"generic record '{record.ManagedName}' does not support field projection in this slice");
+            return;
         }
 
         if (record.Members.OfType<FunctionBinding>().Any(static function => function.OperatorToken is not null || function.IsConversionOperator))
         {
-            throw new NotSupportedException($"Generic record '{record.ManagedName}' does not support operators in this slice.");
+            record.SetIgnoreReason($"generic record '{record.ManagedName}' does not support operators in this slice");
+            return;
         }
 
         foreach (var instantiation in record.SupportedGenericInstantiations)
         {
-            ValidateInstantiationKinds(instantiation, $"Generic record '{record.ManagedName}'");
+            if (!ValidateInstantiationKinds(instantiation))
+            {
+                record.SetIgnoreReason($"generic record '{record.ManagedName}' currently supports only primitive/enum/handle concrete type arguments");
+                return;
+            }
         }
     }
 
@@ -59,20 +77,22 @@ public static class ValidateBootstrapSurfacePass
     {
         if (function.FindOwningRecord() is { IsGeneric: false } ownerRecord)
         {
-            throw new NotSupportedException($"Generic method '{ownerRecord.ManagedName}.{function.ManagedName}' is not supported on non-generic records in this bootstrap surface.");
+            function.SetIgnoreReason($"generic method '{ownerRecord.ManagedName}.{function.ManagedName}' is not supported on non-generic records in this bootstrap surface");
+            return;
         }
 
         foreach (var instantiation in function.SupportedGenericInstantiations)
         {
-            ValidateInstantiationKinds(instantiation, $"Generic function '{function.ManagedName}'");
+            if (!ValidateInstantiationKinds(instantiation))
+            {
+                function.SetIgnoreReason($"generic function '{function.ManagedName}' currently supports only primitive/enum/handle concrete type arguments");
+                return;
+            }
         }
     }
 
-    private static void ValidateInstantiationKinds(RecordGenericInstantiationBinding instantiation, string surfaceName)
+    private static bool ValidateInstantiationKinds(RecordGenericInstantiationBinding instantiation)
     {
-        if (instantiation.TypeArguments.Any(argument => argument.Kind is not (BindingTypeKind.Primitive or BindingTypeKind.Enum or BindingTypeKind.Handle)))
-        {
-            throw new NotSupportedException($"{surfaceName} currently supports only primitive/enum/handle concrete type arguments.");
-        }
+        return !instantiation.TypeArguments.Any(argument => argument.Kind is not (BindingTypeKind.Primitive or BindingTypeKind.Enum or BindingTypeKind.Handle));
     }
 }

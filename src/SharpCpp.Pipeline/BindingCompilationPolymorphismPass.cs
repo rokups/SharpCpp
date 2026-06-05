@@ -20,12 +20,18 @@ public static class BindingCompilationPolymorphismPass
 
             foreach (var record in compilation.Records)
             {
+                if (record.IsIgnored())
+                {
+                    continue;
+                }
+
                 var isPolymorphic = record.Members
                     .OfType<FunctionBinding>()
+                    .Where(static function => !function.IsIgnored())
                     .Any(static function => function.IsVirtual);
 
                 if (!isPolymorphic &&
-                    record.EnumerateAllBaseRecords(compilation).Any(static baseRecord => baseRecord.IsPolymorphic))
+                    record.EnumerateAllBaseRecords(compilation).Any(static baseRecord => !baseRecord.IsIgnored() && baseRecord.IsPolymorphic))
                 {
                     isPolymorphic = true;
                 }

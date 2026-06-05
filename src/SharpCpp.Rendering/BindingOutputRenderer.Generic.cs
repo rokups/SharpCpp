@@ -108,11 +108,11 @@ public static partial class BindingOutputRenderer
         ValidateGenericRecordSlice(record);
 
         var writer = new CodeWriter();
-        var constructors = record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor).OrderBy(static function => function.Parameters.Count).ToArray();
-        var instanceMethods = record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && !function.IsStatic && function.OperatorToken is null && !function.IsConversionOperator).OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
+        var constructors = record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.Parameters.Count).ToArray();
+        var instanceMethods = record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && !function.IsStatic && function.OperatorToken is null && !function.IsConversionOperator && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
         var genericInstanceMethods = instanceMethods.Where(static function => function.IsGeneric).ToArray();
         var concreteInstanceMethods = instanceMethods.Where(static function => !function.IsGeneric).ToArray();
-        var staticMethods = record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic && function.OperatorToken is null && !function.IsConversionOperator).OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
+        var staticMethods = record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic && function.OperatorToken is null && !function.IsConversionOperator && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
         var instantiations = record.SupportedGenericInstantiations.OrderBy(static instantiation => string.Join("|", instantiation.TypeArguments.Select(static argument => argument.CppTypeName)), StringComparer.Ordinal).ToArray();
 
         WriteDocumentationComment(writer, record);
@@ -185,11 +185,11 @@ public static partial class BindingOutputRenderer
 
     private static IEnumerable<string> CollectGenericImportDeclarations(BindingCompilation compilation, RecordBinding record)
     {
-        var constructors = record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor).OrderBy(static function => function.Parameters.Count).ToArray();
-        var instanceMethods = record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && !function.IsStatic && function.OperatorToken is null && !function.IsConversionOperator).OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
+        var constructors = record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.Parameters.Count).ToArray();
+        var instanceMethods = record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && !function.IsStatic && function.OperatorToken is null && !function.IsConversionOperator && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
         var concreteInstanceMethods = instanceMethods.Where(static function => !function.IsGeneric).ToArray();
         var genericInstanceMethods = instanceMethods.Where(static function => function.IsGeneric).ToArray();
-        var staticMethods = record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic && function.OperatorToken is null && !function.IsConversionOperator).OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
+        var staticMethods = record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic && function.OperatorToken is null && !function.IsConversionOperator && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
         var instantiations = record.SupportedGenericInstantiations.OrderBy(static instantiation => string.Join("|", instantiation.TypeArguments.Select(static argument => argument.CppTypeName)), StringComparer.Ordinal).ToArray();
 
         foreach (var constructor in constructors)
