@@ -1,5 +1,4 @@
 using SharpCpp.Model.Ast;
-using System.Text.RegularExpressions;
 
 namespace SharpCpp.Pipeline;
 
@@ -144,12 +143,6 @@ public static class DegradeUnsupportedSurfacePass
             function.Parameters.All(static parameter => !parameter.Type.ContainsGenericParameters))
         {
             reason = $"generic function '{function.ManagedName}' does not expose its template parameters through supported ABI positions";
-            return true;
-        }
-
-        if (function.Parameters.Any(static parameter => parameter.ManagedDefaultValueExpression is { Length: > 0 } expression && LooksLikeUnresolvedMacroDefault(expression)))
-        {
-            reason = $"default argument on '{function.ManagedName}' is not yet renderer-ready C#";
             return true;
         }
 
@@ -300,10 +293,16 @@ public static class DegradeUnsupportedSurfacePass
             { OperatorToken: "+", Parameters.Count: 0 } => true,
             { OperatorToken: "+", Parameters.Count: 1 } => true,
             { OperatorToken: "-", Parameters.Count: 0 } => true,
+            { OperatorToken: "!", Parameters.Count: 0 } => true,
             { OperatorToken: "==" or "!=" or "<" or ">", Parameters.Count: 1 } => true,
             { IsConversionOperator: true, Parameters.Count: 0 } => true,
             _ => false
         };
+    }
+
+    private static bool HasEqualityOperator(RecordBinding record)
+    {
+        return record.Members.OfType<FunctionBinding>().Any(static function => function.OperatorToken == "==");
     }
 
     private static bool TryGetNamespaceExclusionReason(
@@ -355,13 +354,4 @@ public static class DegradeUnsupportedSurfacePass
             string.Join(";", function.Parameters.Select(static parameter => parameter.CppTypeName)));
     }
 
-    private static bool LooksLikeUnresolvedMacroDefault(string expression)
-    {
-        return Regex.IsMatch(expression, "^[A-Z][A-Z0-9_]*$", RegexOptions.CultureInvariant);
-    }
-
-    private static bool HasEqualityOperator(RecordBinding record)
-    {
-        return record.Members.OfType<FunctionBinding>().Any(static function => function.OperatorToken == "==");
-    }
 }

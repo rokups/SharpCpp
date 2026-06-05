@@ -1088,6 +1088,7 @@ public sealed class ClangSharpHeaderParser
         {
             CX_OverloadedOperatorKind.CX_OO_Plus => "+",
             CX_OverloadedOperatorKind.CX_OO_Minus => "-",
+            CX_OverloadedOperatorKind.CX_OO_Exclaim => "!",
             CX_OverloadedOperatorKind.CX_OO_EqualEqual => "==",
             CX_OverloadedOperatorKind.CX_OO_ExclaimEqual => "!=",
             CX_OverloadedOperatorKind.CX_OO_Less => "<",
@@ -1109,6 +1110,7 @@ public sealed class ClangSharpHeaderParser
             {
                 CX_OverloadedOperatorKind.CX_OO_Plus => cursor.NumArguments == 0 ? "OperatorUnaryPlus" : "OperatorPlus",
                 CX_OverloadedOperatorKind.CX_OO_Minus => cursor.NumArguments == 0 ? "OperatorUnaryMinus" : "OperatorMinus",
+                CX_OverloadedOperatorKind.CX_OO_Exclaim => "OperatorNot",
                 CX_OverloadedOperatorKind.CX_OO_EqualEqual => "OperatorEquals",
                 CX_OverloadedOperatorKind.CX_OO_ExclaimEqual => "OperatorNotEquals",
                 CX_OverloadedOperatorKind.CX_OO_Less => "OperatorLessThan",
@@ -1133,6 +1135,7 @@ public sealed class ClangSharpHeaderParser
             {
                 CX_OverloadedOperatorKind.CX_OO_Plus => cursor.NumArguments == 0 ? "operator_unary_plus" : "operator_plus",
                 CX_OverloadedOperatorKind.CX_OO_Minus => cursor.NumArguments == 0 ? "operator_unary_minus" : "operator_minus",
+                CX_OverloadedOperatorKind.CX_OO_Exclaim => "operator_not",
                 CX_OverloadedOperatorKind.CX_OO_EqualEqual => "operator_equal_equal",
                 CX_OverloadedOperatorKind.CX_OO_ExclaimEqual => "operator_not_equal",
                 CX_OverloadedOperatorKind.CX_OO_Less => "operator_less",
