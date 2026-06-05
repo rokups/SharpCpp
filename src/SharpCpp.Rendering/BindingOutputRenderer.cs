@@ -6,29 +6,81 @@ namespace SharpCpp.Rendering;
 
 public static partial class BindingOutputRenderer
 {
-    public static GeneratedBindingSet Render(BindingCompilation compilation, string fileStem)
+    public static GeneratedBindingSet Render(BindingCompilation compilation, string fileStem,
+        Func<string?, string>? deriveGroupStem = null)
     {
         ArgumentNullException.ThrowIfNull(compilation);
         ArgumentException.ThrowIfNullOrWhiteSpace(fileStem);
 
         AssignImportMethodNames(compilation);
 
-        var files = new[]
+        if (deriveGroupStem is null)
         {
-            new GeneratedBindingFile($"{fileStem}.Bindings.g.cs", RenderManagedBindings(compilation)),
-            new GeneratedBindingFile($"{fileStem}.Bindings.Aliases.g.cs", RenderAliasBindings()),
-            new GeneratedBindingFile($"{fileStem}.Bindings.g.cpp", RenderNativeBindings(compilation))
-        };
+            var files = new[]
+            {
+                new GeneratedBindingFile($"{fileStem}.Bindings.g.cs", RenderManagedBindings(compilation)),
+                new GeneratedBindingFile($"{fileStem}.Bindings.Aliases.g.cs", RenderAliasBindings()),
+                new GeneratedBindingFile($"{fileStem}.Bindings.g.cpp", RenderNativeBindings(compilation))
+            };
+            return new GeneratedBindingSet(files);
+        }
 
-        return new GeneratedBindingSet(files);
+        var allFiles = new List<GeneratedBindingFile>();
+
+        var groups = compilation.Members.OfType<BindingNode>()
+            .Where(m => m is RecordBinding or EnumBinding or FunctionBinding)
+            .GroupBy(m => m.HeaderIncludePath ?? string.Empty)
+            .ToList();
+
+        if (groups.Count == 0)
+        {
+            allFiles.Add(new GeneratedBindingFile($"{fileStem}.Bindings.g.cs", RenderManagedBindings(compilation)));
+            allFiles.Add(new GeneratedBindingFile($"{fileStem}.Bindings.g.cpp", RenderNativeBindings(compilation)));
+        }
+        else
+        {
+            var memberSetByHeader = groups.ToDictionary(g => g.Key, g => new HashSet<BindingNode>(g));
+
+            foreach (var group in groups)
+            {
+                var headerPath = group.Key;
+                var stem = deriveGroupStem(string.IsNullOrEmpty(headerPath) ? null : headerPath);
+                var memberSet = memberSetByHeader[headerPath];
+
+                Func<BindingNode, bool> filter = node =>
+                    memberSet.Contains(node) ||
+                    (node is RecordBinding r && memberSet.Contains(r));
+
+                allFiles.Add(new GeneratedBindingFile($"{stem}.g.cs",
+                    RenderManagedBindings(compilation, filter, headerPath)));
+                allFiles.Add(new GeneratedBindingFile($"{stem}.g.cpp",
+                    RenderNativeBindings(compilation, filter, headerPath)));
+            }
+        }
+
+        allFiles.Add(new GeneratedBindingFile($"{fileStem}.Bindings.Aliases.g.cs",
+            RenderAliasBindings(compilation, deriveGroupStem is not null)));
+        return new GeneratedBindingSet(allFiles);
     }
 
-    private static string RenderManagedBindings(BindingCompilation compilation)
+    private static string RenderManagedBindings(BindingCompilation compilation,
+        Func<BindingNode, bool>? memberFilter = null, string? groupHeaderPath = null)
     {
         var writer = new CodeWriter();
-        var records = compilation.Records.OrderBy(static record => record.ManagedName, StringComparer.Ordinal).ToArray();
-        var enums = compilation.Enums.OrderBy(static item => item.ManagedName, StringComparer.Ordinal).ToArray();
-        var functions = compilation.Functions.OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
+        var allRecords = compilation.Records.AsEnumerable();
+        var allEnums = compilation.Enums.AsEnumerable();
+        var allFunctions = compilation.Functions.AsEnumerable();
+
+        if (memberFilter is not null)
+        {
+            allRecords = allRecords.Where(r => memberFilter(r));
+            allEnums = allEnums.Where(e => memberFilter(e));
+            allFunctions = allFunctions.Where(f => memberFilter(f));
+        }
+
+        var records = allRecords.OrderBy(static record => record.ManagedName, StringComparer.Ordinal).ToArray();
+        var enums = allEnums.OrderBy(static item => item.ManagedName, StringComparer.Ordinal).ToArray();
+        var functions = allFunctions.OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
         var interfaceRecords = records
             .SelectMany(record => record.GetSecondaryBaseRecords(compilation))
             .GroupBy(static record => record.SymbolId, StringComparer.Ordinal)
@@ -149,7 +201,7 @@ public static partial class BindingOutputRenderer
             }
         }
 
-        if (polymorphicConcreteRecords.Length > 0)
+        if (memberFilter is null && polymorphicConcreteRecords.Length > 0)
         {
             writer.WriteLine();
             writer.Write(RenderNativeObjectRegistryInitializer(compilation, polymorphicConcreteRecords));
@@ -711,9 +763,43 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string RenderAliasBindings()
+    private static string RenderAliasBindings(BindingCompilation? compilation = null, bool includeRegistry = false)
     {
-        return "// <auto-generated />\n// No alias glue is required for this bootstrap pipeline.\n";
+        if (compilation is null || !includeRegistry)
+        {
+            return "// <auto-generated />\n// No alias glue is required for this bootstrap pipeline.\n";
+        }
+
+        var polymorphicConcreteRecords = compilation.Records
+            .Where(static record => record.IsPolymorphic && !record.IsAbstract && !record.HasMetadata(MetadataKeys.IgnoreReason))
+            .ToArray();
+        if (polymorphicConcreteRecords.Length == 0)
+        {
+            return "// <auto-generated />\n// No registry contents to generate.\n";
+        }
+
+        var writer = new CodeWriter();
+        writer.Write(
+            """
+            // <auto-generated />
+            #nullable enable
+            using System.Runtime.InteropServices;
+            """);
+
+        writer.Write($$"""
+
+            namespace {{compilation.ManagedNamespace}}
+            {
+            public static partial class {{compilation.ManagedClassName}}
+            {
+            """);
+        writer.Write(RenderNativeObjectRegistryInitializer(compilation, polymorphicConcreteRecords));
+        writer.Write(
+            """
+            }
+            }
+            """);
+        return writer.ToString();
     }
 
     private static string RenderRecord(BindingCompilation compilation, RecordBinding record)
@@ -1836,10 +1922,21 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string RenderNativeBindings(BindingCompilation compilation)
+    private static string RenderNativeBindings(BindingCompilation compilation,
+        Func<BindingNode, bool>? memberFilter = null, string? groupHeaderPath = null)
     {
         var writer = new CodeWriter();
-        var functions = compilation.Functions.OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
+        var allFunctions = compilation.Functions.AsEnumerable();
+        var allRecords = compilation.Records.AsEnumerable();
+
+        if (memberFilter is not null)
+        {
+            allFunctions = allFunctions.Where(f => memberFilter(f));
+            allRecords = allRecords.Where(r => memberFilter(r));
+        }
+
+        var functions = allFunctions.OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
+        var records = allRecords.OrderBy(static record => record.ManagedName, StringComparer.Ordinal).ToArray();
 
         writer.Write(
             """
@@ -1865,13 +1962,13 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
-        foreach (var record in compilation.Records.Where(record => record.RequiresDirector(compilation)).OrderBy(static record => record.ManagedName, StringComparer.Ordinal))
+        foreach (var record in records.Where(record => record.RequiresDirector(compilation)).OrderBy(static record => record.ManagedName, StringComparer.Ordinal))
         {
             writer.WriteLine();
             writer.Write(RenderNativeDirectorClass(compilation, record));
         }
 
-        var directorRecords = compilation.Records.Where(record => record.RequiresDirector(compilation)).ToArray();
+        var directorRecords = records.Where(record => record.RequiresDirector(compilation)).ToArray();
         foreach (var record in directorRecords)
         {
             var callbaseMethods = record.GetEffectiveVirtualMethodSlots(compilation)
@@ -1911,7 +2008,7 @@ public static partial class BindingOutputRenderer
             }
         }
 
-        foreach (var record in compilation.Records.Where(static record => record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static record => record.ManagedName, StringComparer.Ordinal))
+        foreach (var record in records.Where(static record => record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static record => record.ManagedName, StringComparer.Ordinal))
         {
             foreach (var instantiation in record.SupportedGenericInstantiations)
             {
@@ -2012,7 +2109,7 @@ public static partial class BindingOutputRenderer
             }
         }
 
-        foreach (var method in compilation.Records.Where(static record => !record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => !function.IsConstructor && !function.IsStatic && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        foreach (var method in records.Where(static record => !record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => !function.IsConstructor && !function.IsStatic && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             var parameterList = string.Join(", ", new[] { $"arg_t<{method.OwningRecordCppTypeName}*> self" }.Concat(method.Parameters.Select(RenderNativeParameter)));
             var abiArguments = string.Join(", ", method.Parameters.Select(static p => p.NativeName));
@@ -2034,7 +2131,7 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
-        foreach (var method in compilation.Records.Where(static record => !record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => function.IsStatic && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        foreach (var method in records.Where(static record => !record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => function.IsStatic && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             var parameterList = string.Join(", ", method.Parameters.Select(RenderNativeParameter));
             var abiArguments = string.Join(", ", method.Parameters.Select(static p => p.NativeName));
@@ -2065,7 +2162,7 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
-        foreach (var constructor in compilation.Records.Where(static record => !record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => function.IsConstructor && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.ManagedName, StringComparer.Ordinal))
+        foreach (var constructor in records.Where(static record => !record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => function.IsConstructor && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.ManagedName, StringComparer.Ordinal))
         {
             var parameterList = string.Join(", ", constructor.Parameters.Select(RenderNativeParameter));
             var abiArguments = string.Join(", ", constructor.Parameters.Select(static p => p.NativeName));
@@ -2083,7 +2180,7 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
-        foreach (var field in compilation.Records.Where(static record => !record.HasMetadata(MetadataKeys.IgnoreReason)).SelectMany(static record => record.Members.OfType<FieldBinding>()).Where(static field => !field.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static field => field.ManagedName, StringComparer.Ordinal))
+        foreach (var field in records.Where(static record => !record.HasMetadata(MetadataKeys.IgnoreReason)).SelectMany(static record => record.Members.OfType<FieldBinding>()).Where(static field => !field.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static field => field.ManagedName, StringComparer.Ordinal))
         {
             writer.WriteLine();
             writer.Write($$"""
@@ -2109,7 +2206,7 @@ public static partial class BindingOutputRenderer
             }
         }
 
-        foreach (var record in compilation.Records.Where(static record => !record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static record => record.ManagedName, StringComparer.Ordinal))
+        foreach (var record in records.Where(static record => !record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static record => record.ManagedName, StringComparer.Ordinal))
         {
             writer.WriteLine();
             writer.Write(RenderNativeDelete(record, record.RequiresDirector(compilation)));

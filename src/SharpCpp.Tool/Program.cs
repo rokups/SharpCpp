@@ -117,7 +117,13 @@ internal static class Program
 
         BindingCompilationBootstrapPipeline.Apply(compilation, headerFiles.Concat(marshallerConfigurationFiles));
 
-        var renderedBindings = BindingOutputRenderer.Render(compilation, fileStem);
+        var renderedBindings = BindingOutputRenderer.Render(compilation, fileStem, headerPath =>
+        {
+            if (string.IsNullOrEmpty(headerPath))
+                return $"{fileStem}.Bindings";
+            var group = Path.ChangeExtension(headerPath, null).Replace('/', '.').Replace('\\', '.');
+            return $"{fileStem}.{group}";
+        });
         var metadataDocument = BindingMetadataExporter.Export(
             compilation,
             new BindingMetadataExportOptions(

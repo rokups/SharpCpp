@@ -7,7 +7,9 @@ public sealed class DocumentationTests
     [Fact]
     public void Generated_public_api_includes_xml_docs_for_implemented_shapes()
     {
-        var generatedSource = File.ReadAllText(Path.Combine(GetGeneratedDir(), "SharpCppTestsE2E.Bindings.g.cs"));
+        var generatedDir = GetGeneratedDir();
+        var files = Directory.GetFiles(generatedDir, "*.g.cs", SearchOption.TopDirectoryOnly);
+        var generatedSource = string.Join("\n", files.Select(File.ReadAllText));
 
         Assert.Contains("/// <summary>Represents a documented record with a brief description.</summary>", generatedSource, StringComparison.Ordinal);
         Assert.Contains("/// <summary>Gets the stored value.</summary>", generatedSource, StringComparison.Ordinal);

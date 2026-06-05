@@ -105,19 +105,19 @@ public sealed class ClangSharpHeaderParser
                 switch (child.Kind)
                 {
                     case CXCursorKind.CXCursor_Namespace:
-                        VisitNamespace(child, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix, ownedFileRoots);
+                        VisitNamespace(child, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix, ownedFileRoots, request.HeaderIncludePath);
                         break;
 
                     case CXCursorKind.CXCursor_StructDecl:
-                        RegisterRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix);
+                        RegisterRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix, request.HeaderIncludePath);
                         break;
 
                     case CXCursorKind.CXCursor_ClassTemplate:
-                        RegisterTemplateRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix);
+                        RegisterTemplateRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix, request.HeaderIncludePath);
                         break;
 
                     case CXCursorKind.CXCursor_EnumDecl:
-                        RegisterEnum(child, compilation, enumsByName);
+                        RegisterEnum(child, compilation, enumsByName, request.HeaderIncludePath);
                         break;
 
                     case CXCursorKind.CXCursor_FunctionDecl:
@@ -126,6 +126,7 @@ public sealed class ClangSharpHeaderParser
                         CheckAndApplyIgnoreAttribute(child, function);
                         TryApplyRename(child, function);
                         ExtractAndApplyDocumentation(child, function);
+                        function.HeaderIncludePath = request.HeaderIncludePath;
                         compilation.Members.Add(function);
                         break;
                     }
@@ -138,6 +139,7 @@ public sealed class ClangSharpHeaderParser
                             CheckAndApplyIgnoreAttribute(child, function);
                             TryApplyRename(child, function);
                             ExtractAndApplyDocumentation(child, function);
+                            function.HeaderIncludePath = request.HeaderIncludePath;
                             compilation.Members.Add(function);
                         }
                         break;
@@ -280,7 +282,8 @@ public sealed class ClangSharpHeaderParser
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
-        string entryPointPrefix)
+        string entryPointPrefix,
+        string? headerIncludePath)
     {
         var nativeName = cursor.Spelling.ToString();
         if (string.IsNullOrWhiteSpace(nativeName) || recordsByName.ContainsKey(nativeName))
@@ -308,6 +311,7 @@ public sealed class ClangSharpHeaderParser
         TryApplyRename(cursor, record);
         ExtractAndApplyDocumentation(cursor, record);
         recordsByName.Add(nativeName, record);
+        record.HeaderIncludePath = headerIncludePath;
         compilation.Members.Add(record);
 
         PopulateRecordBases(cursor, record, recordsByName);
@@ -322,7 +326,8 @@ public sealed class ClangSharpHeaderParser
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
-        string entryPointPrefix)
+        string entryPointPrefix,
+        string? headerIncludePath)
     {
         var nativeName = cursor.Spelling.ToString();
         if (string.IsNullOrWhiteSpace(nativeName) || recordsByName.ContainsKey(nativeName))
@@ -362,6 +367,7 @@ public sealed class ClangSharpHeaderParser
         TryApplyRename(cursor, record);
         ExtractAndApplyDocumentation(cursor, record);
         recordsByName.Add(nativeName, record);
+        record.HeaderIncludePath = headerIncludePath;
         compilation.Members.Add(record);
 
         var genericParameters = CreateGenericParameterScope(templateParameters);
@@ -1863,7 +1869,7 @@ public sealed class ClangSharpHeaderParser
         }
     }
 
-    private static unsafe void RegisterEnum(CXCursor cursor, BindingCompilation compilation, IDictionary<string, EnumBinding> enumsByName)
+    private static unsafe void RegisterEnum(CXCursor cursor, BindingCompilation compilation, IDictionary<string, EnumBinding> enumsByName, string? headerIncludePath)
     {
         var nativeName = cursor.Spelling.ToString();
         if (string.IsNullOrWhiteSpace(nativeName) || enumsByName.ContainsKey(nativeName))
@@ -1903,6 +1909,7 @@ public sealed class ClangSharpHeaderParser
             new CXClientData(IntPtr.Zero));
 
         enumsByName.Add(nativeName, @enum);
+        @enum.HeaderIncludePath = headerIncludePath;
         compilation.Members.Add(@enum);
     }
 
@@ -2052,7 +2059,8 @@ public sealed class ClangSharpHeaderParser
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         string entryPointPrefix,
-        IReadOnlyList<string> ownedFileRoots)
+        IReadOnlyList<string> ownedFileRoots,
+        string? headerIncludePath)
     {
         namespaceCursor.VisitChildren(
             (child, _, _) =>
@@ -2065,19 +2073,19 @@ public sealed class ClangSharpHeaderParser
                 switch (child.Kind)
                 {
                     case CXCursorKind.CXCursor_Namespace:
-                        VisitNamespace(child, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, ownedFileRoots);
+                        VisitNamespace(child, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, ownedFileRoots, headerIncludePath);
                         break;
 
                     case CXCursorKind.CXCursor_StructDecl:
-                        RegisterRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix);
+                        RegisterRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, headerIncludePath);
                         break;
 
                     case CXCursorKind.CXCursor_ClassTemplate:
-                        RegisterTemplateRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix);
+                        RegisterTemplateRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, headerIncludePath);
                         break;
 
                     case CXCursorKind.CXCursor_EnumDecl:
-                        RegisterEnum(child, compilation, enumsByName);
+                        RegisterEnum(child, compilation, enumsByName, headerIncludePath);
                         break;
 
                     case CXCursorKind.CXCursor_FunctionDecl:
@@ -2086,6 +2094,7 @@ public sealed class ClangSharpHeaderParser
                         CheckAndApplyIgnoreAttribute(child, function);
                         TryApplyRename(child, function);
                         ExtractAndApplyDocumentation(child, function);
+                        function.HeaderIncludePath = headerIncludePath;
                         compilation.Members.Add(function);
                         break;
                     }
@@ -2098,6 +2107,7 @@ public sealed class ClangSharpHeaderParser
                             CheckAndApplyIgnoreAttribute(child, function);
                             TryApplyRename(child, function);
                             ExtractAndApplyDocumentation(child, function);
+                            function.HeaderIncludePath = headerIncludePath;
                             compilation.Members.Add(function);
                         }
                         break;

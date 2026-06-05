@@ -14,6 +14,8 @@ public abstract class BindingNode
 
     public BindingSourceReference? Source { get; init; }
 
+    public string? HeaderIncludePath { get; set; }
+
     public abstract BindingNodeKind Kind { get; }
 
     public abstract IEnumerable<BindingNode> Children { get; }

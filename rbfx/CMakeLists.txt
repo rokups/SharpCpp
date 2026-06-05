@@ -70,9 +70,7 @@ set(RBFX_BINDINGS_PROJECT "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Bindings/Sh
 set(RBFX_E2E_TESTS_PROJECT "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Tests.E2E/SharpCpp.Rbfx.Tests.E2E.csproj")
 set(RBFX_GENERATED_ROOT "${CMAKE_BINARY_DIR}/generated/rbfx")
 set(RBFX_FILE_STEM "SharpCpp.Rbfx")
-set(RBFX_GENERATED_CS "${RBFX_GENERATED_ROOT}/${RBFX_FILE_STEM}.Bindings.g.cs")
-set(RBFX_GENERATED_ALIAS_CS "${RBFX_GENERATED_ROOT}/${RBFX_FILE_STEM}.Bindings.Aliases.g.cs")
-set(RBFX_GENERATED_CPP "${RBFX_GENERATED_ROOT}/${RBFX_FILE_STEM}.Bindings.g.cpp")
+set(RBFX_GENERATED_STAMP "${RBFX_GENERATED_ROOT}/generate.stamp")
 set(RBFX_METADATA_FILE "${RBFX_GENERATED_ROOT}/${RBFX_FILE_STEM}.Bindings.json")
 set(RBFX_SDK_FLAGS_FILE "${CMAKE_BINARY_DIR}/rbfx-sdk-flags/$<CONFIG>/urho3d-sdk-flags.txt")
 set(RBFX_GENERATOR_LOG_FILE "${RBFX_GENERATED_ROOT}/generator.log")
@@ -110,11 +108,7 @@ sharpcpp_add_dotnet_build_target(
 get_target_property(RBFX_GENERATOR_BUILD_STAMP sharpcpp-rbfx-generator SHARPCPP_DOTNET_BUILD_STAMP)
 
 add_custom_command(
-  OUTPUT
-    "${RBFX_GENERATED_CS}"
-    "${RBFX_GENERATED_ALIAS_CS}"
-    "${RBFX_GENERATED_CPP}"
-    "${RBFX_METADATA_FILE}"
+  OUTPUT "${RBFX_GENERATED_STAMP}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "$<SHELL_PATH:${RBFX_GENERATED_ROOT}>"
   COMMAND "${DOTNET_EXECUTABLE}" "$<SHELL_PATH:${SHARPCPP_BIN_DIR}/SharpCpp.Rbfx.Generator.dll>"
           --sdk-root "$<SHELL_PATH:${RBFX_SDK_ROOT}>"
@@ -123,6 +117,7 @@ add_custom_command(
           --project-root "$<SHELL_PATH:${CMAKE_SOURCE_DIR}>"
           --sdk-library "$<SHELL_PATH:$<TARGET_FILE:${RBFX_URHO3D_TARGET}>>"
           --log-file "$<SHELL_PATH:${RBFX_GENERATOR_LOG_FILE}>"
+  COMMAND "${CMAKE_COMMAND}" -E touch "${RBFX_GENERATED_STAMP}"
   DEPENDS "${RBFX_GENERATOR_BUILD_STAMP}" "${RBFX_SDK_FLAGS_FILE}" ${RBFX_SDK_INPUT_HEADERS}
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
   VERBATIM
@@ -131,12 +126,16 @@ add_custom_command(
 add_custom_target(
   sharpcpp-generate-rbfx
   DEPENDS
-    "${RBFX_GENERATED_CS}"
-    "${RBFX_GENERATED_ALIAS_CS}"
-    "${RBFX_GENERATED_CPP}"
-    "${RBFX_METADATA_FILE}")
+    "${RBFX_GENERATED_STAMP}")
 
-add_library(SharpCppRbfx_Native SHARED "${RBFX_GENERATED_CPP}")
+file(MAKE_DIRECTORY "${RBFX_GENERATED_ROOT}")
+file(GLOB RBFX_GENERATED_CPP_FILES CONFIGURE_DEPENDS "${RBFX_GENERATED_ROOT}/*.g.cpp")
+if(NOT RBFX_GENERATED_CPP_FILES)
+  set(RBFX_PLACEHOLDER "${RBFX_GENERATED_ROOT}/.placeholders.cpp")
+  file(WRITE "${RBFX_PLACEHOLDER}" "// auto-generated content will populate this directory at build time\n")
+  set(RBFX_GENERATED_CPP_FILES "${RBFX_PLACEHOLDER}")
+endif()
+add_library(SharpCppRbfx_Native SHARED ${RBFX_GENERATED_CPP_FILES})
 add_dependencies(SharpCppRbfx_Native sharpcpp-generate-rbfx)
 target_compile_features(SharpCppRbfx_Native PRIVATE cxx_std_20)
 set_target_properties(SharpCppRbfx_Native PROPERTIES CXX_SCAN_FOR_MODULES OFF OUTPUT_NAME "SharpCpp.Rbfx.Native")
