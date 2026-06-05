@@ -10,6 +10,7 @@ public static class MetadataKeys
     public const string DocumentationComment = "documentation_comment";
     public const string ExplicitGenericInstantiations = "explicit_generic_instantiations";
     public const string ForwardDeclaration = "forward_declaration";
+    public const string UnexpressibleDefault = "unexpressible_default";
 }
 
 public enum AccessorPropertyKind

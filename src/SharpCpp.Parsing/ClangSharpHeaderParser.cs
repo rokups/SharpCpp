@@ -566,18 +566,16 @@ public sealed class ClangSharpHeaderParser
 
             var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(cursor, parameterCursor, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
             ignoreReason ??= parameterIgnoreReason;
-            function.Parameters.Add(
-                new ParameterBinding(
-                    $"parameter:{record.NativeName}:{nativeName}:{parameterName}",
-                    parameterName,
-                    managedParameterName,
-                    parameterType,
-                    direction,
-                    abiKind,
-                    ResolveQualifiedTypeName(parameterCursor.Type, recordsByName))
-                {
-                    ManagedDefaultValueExpression = GetManagedDefaultValueExpression(parameterCursor, parameterType)
-                });
+            var param = new ParameterBinding(
+                $"parameter:{record.NativeName}:{nativeName}:{parameterName}",
+                parameterName,
+                managedParameterName,
+                parameterType,
+                direction,
+                abiKind,
+                ResolveQualifiedTypeName(parameterCursor.Type, recordsByName));
+            ApplyManagedDefaultValue(param, parameterCursor, parameterType);
+            function.Parameters.Add(param);
         }
 
         function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(cursor, nativeName)}", function.Parameters);
@@ -658,18 +656,16 @@ public sealed class ClangSharpHeaderParser
 
                 var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(templateCursor, child, recordsByName, enumsByName, managedTypeOverrides, combinedGenericParameters);
                 ignoreReason ??= parameterIgnoreReason;
-                function.Parameters.Add(
-                    new ParameterBinding(
-                        $"parameter:{record.NativeName}:{nativeName}:{parameterName}",
-                        parameterName,
-                        managedParameterName,
-                        parameterType,
-                        direction,
-                        abiKind,
-                        ResolveQualifiedTypeName(child.Type, recordsByName))
-                    {
-                        ManagedDefaultValueExpression = GetManagedDefaultValueExpression(child, parameterType)
-                    });
+                var templateParam = new ParameterBinding(
+                    $"parameter:{record.NativeName}:{nativeName}:{parameterName}",
+                    parameterName,
+                    managedParameterName,
+                    parameterType,
+                    direction,
+                    abiKind,
+                    ResolveQualifiedTypeName(child.Type, recordsByName));
+                ApplyManagedDefaultValue(templateParam, child, parameterType);
+                function.Parameters.Add(templateParam);
 
                 return CXChildVisitResult.CXChildVisit_Continue;
             },
@@ -725,18 +721,16 @@ public sealed class ClangSharpHeaderParser
 
             var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(cursor, parameterCursor, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
             ignoreReason ??= parameterIgnoreReason;
-            function.Parameters.Add(
-                new ParameterBinding(
-                    $"parameter:{record.NativeName}:static:{nativeName}:{parameterName}",
-                    parameterName,
-                    managedParameterName,
-                    parameterType,
-                    direction,
-                    abiKind,
-                    ResolveQualifiedTypeName(parameterCursor.Type, recordsByName))
-                {
-                    ManagedDefaultValueExpression = GetManagedDefaultValueExpression(parameterCursor, parameterType)
-                });
+            var staticParam = new ParameterBinding(
+                $"parameter:{record.NativeName}:static:{nativeName}:{parameterName}",
+                parameterName,
+                managedParameterName,
+                parameterType,
+                direction,
+                abiKind,
+                ResolveQualifiedTypeName(parameterCursor.Type, recordsByName));
+            ApplyManagedDefaultValue(staticParam, parameterCursor, parameterType);
+            function.Parameters.Add(staticParam);
         }
 
         function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(cursor, nativeName)}", function.Parameters);
@@ -787,18 +781,16 @@ public sealed class ClangSharpHeaderParser
 
             var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(cursor, parameterCursor, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
             ignoreReason ??= parameterIgnoreReason;
-            function.Parameters.Add(
-                new ParameterBinding(
-                    $"parameter:{record.NativeName}:ctor:{parameterName}",
-                    parameterName,
-                    managedParameterName,
-                    parameterType,
-                    direction,
-                    abiKind,
-                    ResolveQualifiedTypeName(parameterCursor.Type, recordsByName))
-                {
-                    ManagedDefaultValueExpression = GetManagedDefaultValueExpression(parameterCursor, parameterType)
-                });
+            var ctorParam = new ParameterBinding(
+                $"parameter:{record.NativeName}:ctor:{parameterName}",
+                parameterName,
+                managedParameterName,
+                parameterType,
+                direction,
+                abiKind,
+                ResolveQualifiedTypeName(parameterCursor.Type, recordsByName));
+            ApplyManagedDefaultValue(ctorParam, parameterCursor, parameterType);
+            function.Parameters.Add(ctorParam);
         }
 
         function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_ctor", function.Parameters);
@@ -873,18 +865,16 @@ public sealed class ClangSharpHeaderParser
 
             var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(cursor, parameterCursor, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
             ignoreReason ??= parameterIgnoreReason;
-            function.Parameters.Add(
-                new ParameterBinding(
-                    $"parameter:{nativeName}:{parameterName}",
-                    parameterName,
-                    managedParameterName,
-                    parameterType,
-                    direction,
-                    abiKind,
-                    ResolveQualifiedTypeName(parameterCursor.Type, recordsByName))
-                {
-                    ManagedDefaultValueExpression = GetManagedDefaultValueExpression(parameterCursor, parameterType)
-                });
+            var freeParam = new ParameterBinding(
+                $"parameter:{nativeName}:{parameterName}",
+                parameterName,
+                managedParameterName,
+                parameterType,
+                direction,
+                abiKind,
+                ResolveQualifiedTypeName(parameterCursor.Type, recordsByName));
+            ApplyManagedDefaultValue(freeParam, parameterCursor, parameterType);
+            function.Parameters.Add(freeParam);
         }
 
         function.EntryPointName = BuildEntrypointName(entryPointPrefix, SanitizeEntrypointNamePart(function.CppQualifiedName), function.Parameters);
@@ -950,18 +940,16 @@ public sealed class ClangSharpHeaderParser
 
                 var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(templateCursor, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
                 ignoreReason ??= parameterIgnoreReason;
-                function.Parameters.Add(
-                    new ParameterBinding(
-                        $"parameter:{nativeName}:{parameterName}",
-                        parameterName,
-                        managedParameterName,
-                        parameterType,
-                        direction,
-                        abiKind,
-                        ResolveQualifiedTypeName(child.Type, recordsByName))
-                    {
-                        ManagedDefaultValueExpression = GetManagedDefaultValueExpression(child, parameterType)
-                    });
+                var freeTemplateParam = new ParameterBinding(
+                    $"parameter:{nativeName}:{parameterName}",
+                    parameterName,
+                    managedParameterName,
+                    parameterType,
+                    direction,
+                    abiKind,
+                    ResolveQualifiedTypeName(child.Type, recordsByName));
+                ApplyManagedDefaultValue(freeTemplateParam, child, parameterType);
+                function.Parameters.Add(freeTemplateParam);
 
                 return CXChildVisitResult.CXChildVisit_Continue;
             },
@@ -1956,6 +1944,17 @@ public sealed class ClangSharpHeaderParser
         }
     }
 
+    private static void ApplyManagedDefaultValue(ParameterBinding parameter, CXCursor parameterCursor, BindingType parameterType)
+    {
+        var defaultValue = GetManagedDefaultValueExpression(parameterCursor, parameterType);
+        parameter.ManagedDefaultValueExpression = defaultValue;
+
+        if (defaultValue is null && parameterCursor.HasDefaultArg)
+        {
+            parameter.SetMetadata(MetadataKeys.UnexpressibleDefault, true);
+        }
+    }
+
     private static string? GetManagedDefaultValueExpression(CXCursor parameterCursor, BindingType parameterType)
     {
         if (!parameterCursor.HasDefaultArg)
@@ -1983,6 +1982,11 @@ public sealed class ClangSharpHeaderParser
         if (parameterType.Kind == BindingTypeKind.Enum)
         {
             return NormalizeManagedEnumDefaultExpression(parameterType.ManagedTypeName, expression);
+        }
+
+        if (Regex.IsMatch(expression, "^[A-Z][A-Z0-9_]*$", RegexOptions.CultureInvariant))
+        {
+            return null;
         }
 
         return expressionCursor.Kind switch

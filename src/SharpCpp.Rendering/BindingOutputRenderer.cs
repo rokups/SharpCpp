@@ -142,6 +142,9 @@ public static partial class BindingOutputRenderer
                 {
                     writer.Write(RenderManagedWrapperMethod(compilation, function));
                     freeFunctionDeclarations.Add(RenderManagedImportDeclaration(compilation, function));
+
+                    if (HasUnexpressibleDefaultParams(function))
+                        freeFunctionDeclarations.Add(RenderUnexpressibleDefaultFreeFunctionImport(compilation, function));
                 }
             }
         }
@@ -628,6 +631,69 @@ public static partial class BindingOutputRenderer
             writer.Write(statement);
         }
 
+        if (HasUnexpressibleDefaultParams(function))
+        {
+            var shortImportName = GetUnexpressibleDefaultImportSuffix(function);
+            var shortParams = GetDefaultOmittedParameters(function);
+            var shortInvocationPlan = BuildManagedInvocationPlan(compilation, shortParams);
+            var shortArguments = string.Join(", ", shortInvocationPlan.Arguments);
+            var condition = string.Join(" && ", function.Parameters
+                .Where(static p => p.HasMetadata(MetadataKeys.UnexpressibleDefault))
+                .Select(static p => $"{p.ManagedName}.HasValue"));
+
+            writer.WriteLine($"    if ({condition})");
+            writer.WriteLine("    {");
+
+            if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+            {
+                writer.WriteLine($"        __PInvoke.{importMethodName}({invokeArguments});");
+            }
+            else if (function.ReturnType.Kind == BindingTypeKind.Handle)
+            {
+                writer.WriteLine($"        var __result = __PInvoke.{importMethodName}({invokeArguments});");
+                foreach (var statement in invocationPlan.PostCallStatements)
+                    writer.Write(statement);
+                writer.WriteLine($"        return {BuildManagedHandleWrap(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)};");
+            }
+            else
+            {
+                writer.WriteLine($"        var __result = __PInvoke.{importMethodName}({invokeArguments});");
+                foreach (var statement in invocationPlan.PostCallStatements)
+                    writer.Write(statement);
+                writer.WriteLine("        return __result;");
+            }
+
+            writer.WriteLine("    }");
+            writer.WriteLine("    else");
+            writer.WriteLine("    {");
+
+            foreach (var statement in shortInvocationPlan.PreCallStatements)
+                writer.Write(statement);
+
+            if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+            {
+                writer.WriteLine($"        __PInvoke.{shortImportName}({shortArguments});");
+            }
+            else if (function.ReturnType.Kind == BindingTypeKind.Handle)
+            {
+                writer.WriteLine($"        var __result = __PInvoke.{shortImportName}({shortArguments});");
+                foreach (var statement in shortInvocationPlan.PostCallStatements)
+                    writer.Write(statement);
+                writer.WriteLine($"        return {BuildManagedHandleWrap(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)};");
+            }
+            else
+            {
+                writer.WriteLine($"        var __result = __PInvoke.{shortImportName}({shortArguments});");
+                foreach (var statement in shortInvocationPlan.PostCallStatements)
+                    writer.Write(statement);
+                writer.WriteLine("        return __result;");
+            }
+
+            writer.WriteLine("    }");
+        }
+        else
+        {
+
         if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
         {
             writer.Write($$"""
@@ -669,6 +735,8 @@ public static partial class BindingOutputRenderer
                 """
                 return __result;
                 """);
+        }
+
         }
 
         writer.Write(
@@ -1992,6 +2060,12 @@ public static partial class BindingOutputRenderer
             writer.Write("""
                 }
                 """);
+
+            if (HasUnexpressibleDefaultParams(function))
+            {
+                writer.WriteLine();
+                writer.Write(RenderNativeUnexpressibleDefaultFreeFunction(function));
+            }
         }
 
         foreach (var method in compilation.Records.Where(static record => !record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => !function.IsConstructor && !function.IsStatic && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
@@ -2713,5 +2787,72 @@ public static partial class BindingOutputRenderer
                 }
             }
         }
+    }
+
+    private static bool HasUnexpressibleDefaultParams(FunctionBinding function)
+    {
+        return function.Parameters.Any(static parameter => parameter.HasMetadata(MetadataKeys.UnexpressibleDefault));
+    }
+
+    private static IReadOnlyList<ParameterBinding> GetDefaultOmittedParameters(FunctionBinding function)
+    {
+        return function.Parameters
+            .Where(static parameter => !parameter.HasMetadata(MetadataKeys.UnexpressibleDefault))
+            .ToArray();
+    }
+
+    private static string GetUnexpressibleDefaultImportSuffix(FunctionBinding function)
+    {
+        return $"__Default{function.ImportMethodName}";
+    }
+
+    private static string GetUnexpressibleDefaultEntrypointSuffix(FunctionBinding function)
+    {
+        return $"{function.EntryPointName}__default";
+    }
+
+    private static string RenderUnexpressibleDefaultFreeFunctionImport(BindingCompilation compilation, FunctionBinding function)
+    {
+        var shortParams = GetDefaultOmittedParameters(function);
+        var parameterList = string.Join(", ", shortParams.Select(RenderManagedParameter));
+        var returnTypeName = GetManagedImportTypeName(function.ReturnType);
+        var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
+        var shortImportName = GetUnexpressibleDefaultImportSuffix(function);
+        var shortEntrypointName = GetUnexpressibleDefaultEntrypointSuffix(function);
+        var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
+            ? $"internal static partial {returnTypeName} {shortImportName}({parameterList});"
+            : $"{returnAttribute}\ninternal static partial {returnTypeName} {shortImportName}({parameterList});";
+
+        return $$"""
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{shortEntrypointName}}")]
+            {{importMethodLine}}
+            """;
+    }
+
+    private static string RenderNativeUnexpressibleDefaultFreeFunction(FunctionBinding function)
+    {
+        var shortParams = GetDefaultOmittedParameters(function);
+        var parameterList = string.Join(", ", shortParams.Select(RenderNativeParameter));
+        var abiArguments = string.Join(", ", shortParams.Select(static p => p.NativeName));
+        var shortEntrypointName = GetUnexpressibleDefaultEntrypointSuffix(function);
+        var safeSuffix = new string(shortEntrypointName.Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
+        var wrapperName = $"__{safeSuffix}_wrapper";
+        var shortCppParams = string.Join(", ", shortParams.Select(static p => p.CppTypeName));
+        var signature = $"{function.CppReturnTypeName}({shortCppParams})";
+
+        var writer = new CodeWriter();
+        writer.Write($$"""
+            static auto {{wrapperName}}({{shortCppParams}}) -> {{function.CppReturnTypeName}}
+            {
+                {{(function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? string.Empty : "return ")}}{{function.CppQualifiedName}}({{string.Join(", ", shortParams.Select(static p => p.NativeName))}});
+            }
+
+            SHARPCPP_EXPORT ret_t<{{function.CppReturnTypeName}}> {{shortEntrypointName}}({{parameterList}})
+            {
+                using FT = {{signature}};
+                {{(function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? string.Empty : "return ")}}MarshallerInvoker::invoke_as<FT>(&{{wrapperName}}{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+            }
+            """);
+        return writer.ToString();
     }
 }
