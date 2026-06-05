@@ -143,10 +143,12 @@ target_link_libraries(SharpCppRbfx_Native PRIVATE sharpcpp-native-support ${RBFX
 target_compile_options(SharpCppRbfx_Native PRIVATE $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-Wno-attributes>)
 sharpcpp_set_binary_output(SharpCppRbfx_Native)
 
+file(GLOB_RECURSE RBFX_GENERATED_CS_FILES CONFIGURE_DEPENDS "${RBFX_GENERATED_ROOT}/*.g.cs")
+
 sharpcpp_add_dotnet_build_target(
   sharpcpp-rbfx-managed
   "${RBFX_BINDINGS_PROJECT}"
-  DEPENDS sharpcpp-generate-rbfx SharpCppRbfx_Native sharpcpp-support
+  DEPENDS sharpcpp-generate-rbfx SharpCppRbfx_Native sharpcpp-support ${RBFX_GENERATED_CS_FILES}
   PROPERTIES "-p:SharpCppGeneratedDir=${RBFX_GENERATED_ROOT}")
 
 sharpcpp_add_dotnet_build_target(
