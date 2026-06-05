@@ -1979,6 +1979,11 @@ public sealed class ClangSharpHeaderParser
             : asWrittenCursor;
         var expression = GetSourceText(expressionCursor.TranslationUnit, expressionCursor.Extent);
 
+        if (expression.Contains('#') || expression.Contains("///") || expression.Length > 100)
+        {
+            return null;
+        }
+
         if (parameterType.Kind == BindingTypeKind.Enum)
         {
             return NormalizeManagedEnumDefaultExpression(parameterType.ManagedTypeName, expression);
