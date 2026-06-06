@@ -29,7 +29,8 @@ public static partial class BindingOutputRenderer
 
         var groups = compilation.Members.OfType<BindingNode>()
             .Where(m => m is RecordBinding or EnumBinding or FunctionBinding)
-            .GroupBy(m => m.HeaderIncludePath ?? string.Empty)
+            .GroupBy(m => deriveGroupStem(string.IsNullOrEmpty(m.HeaderIncludePath) ? null : m.HeaderIncludePath), StringComparer.Ordinal)
+            .OrderBy(static group => group.Key, StringComparer.Ordinal)
             .ToList();
 
         if (groups.Count == 0)
@@ -39,22 +40,19 @@ public static partial class BindingOutputRenderer
         }
         else
         {
-            var memberSetByHeader = groups.ToDictionary(g => g.Key, g => new HashSet<BindingNode>(g));
-
             foreach (var group in groups)
             {
-                var headerPath = group.Key;
-                var stem = deriveGroupStem(string.IsNullOrEmpty(headerPath) ? null : headerPath);
-                var memberSet = memberSetByHeader[headerPath];
+                var stem = group.Key;
+                var memberSet = new HashSet<BindingNode>(group);
 
                 Func<BindingNode, bool> filter = node =>
                     memberSet.Contains(node) ||
                     (node is RecordBinding r && memberSet.Contains(r));
 
                 allFiles.Add(new GeneratedBindingFile($"{stem}.g.cs",
-                    RenderManagedBindings(compilation, filter, headerPath)));
+                    RenderManagedBindings(compilation, filter)));
                 allFiles.Add(new GeneratedBindingFile($"{stem}.g.cpp",
-                    RenderNativeBindings(compilation, filter, headerPath)));
+                    RenderNativeBindings(compilation, filter)));
             }
         }
 
@@ -81,8 +79,12 @@ public static partial class BindingOutputRenderer
         var records = allRecords.OrderBy(static record => record.ManagedName, StringComparer.Ordinal).ToArray();
         var enums = allEnums.OrderBy(static item => item.ManagedName, StringComparer.Ordinal).ToArray();
         var functions = allFunctions.OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
-        var interfaceRecords = records
+        var interfaceRecordIds = compilation.Records
             .SelectMany(record => record.GetSecondaryBaseRecords(compilation))
+            .Select(static record => record.SymbolId)
+            .ToHashSet(StringComparer.Ordinal);
+        var interfaceRecords = records
+            .Where(record => interfaceRecordIds.Contains(record.SymbolId))
             .GroupBy(static record => record.SymbolId, StringComparer.Ordinal)
             .Select(static group => group.First())
             .OrderBy(static record => record.ManagedName, StringComparer.Ordinal)
@@ -810,7 +812,12 @@ public static partial class BindingOutputRenderer
         }
 
         var writer = new CodeWriter();
-        var pinvokeDeclarations = new List<string> { RenderManagedDeleteImportDeclaration(compilation, record) };
+        var canEmitDeleteThunk = !record.GetMetadata<bool>(MetadataKeys.NonPublicDestructor);
+        var pinvokeDeclarations = new List<string>();
+        if (canEmitDeleteThunk)
+        {
+            pinvokeDeclarations.Add(RenderManagedDeleteImportDeclaration(compilation, record));
+        }
         var requiresDirector = record.RequiresDirector(compilation);
         var virtualSlots = record.GetEffectiveVirtualMethodSlots(compilation);
         if (record.IsPolymorphic)
@@ -829,6 +836,7 @@ public static partial class BindingOutputRenderer
         var staticHelperModifier = hidesStaticHelpers ? "new " : string.Empty;
         var cacheFieldModifier = hidesStaticHelpers ? "new " : string.Empty;
         var interfaceNames = record.GetSecondaryBaseRecords(compilation)
+            .Where(baseRecord => !baseRecord.IsIgnored() && baseRecord.GetRenderableInterfaceMethods(compilation).Count > 0)
             .Select(static baseRecord => baseRecord.GetManagedInterfaceName())
             .Cast<string>()
             .ToArray();
@@ -857,9 +865,9 @@ public static partial class BindingOutputRenderer
                 }
             }
 
-            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "public nint Handle => DangerousGetHandle();" : string.Empty)}}
-            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "public bool OwnsHandle => OwnsNativeHandle;" : string.Empty)}}
-            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "public bool IsNull => IsClosed || IsInvalid;" : string.Empty)}}
+            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) && !record.HasOwnManagedMemberNamed("Handle") ? "public nint Handle => DangerousGetHandle();" : string.Empty)}}
+            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) && !record.HasOwnManagedMemberNamed("OwnsHandle") ? "public bool OwnsHandle => OwnsNativeHandle;" : string.Empty)}}
+            {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) && !record.HasOwnManagedMemberNamed("IsNull") ? "public bool IsNull => IsClosed || IsInvalid;" : string.Empty)}}
 
             {{staticHelperModifier}}internal static {{record.ManagedName}} CreateManagedWrapper(nint handle, bool ownsHandle)
             {
@@ -872,7 +880,9 @@ public static partial class BindingOutputRenderer
 
             {{(record.IsPolymorphic
                 ? $"return ({record.ManagedName})global::SharpCpp.Support.NativeObjectRegistry.Create<{record.ManagedName}>(handle, ownsHandle);"
-                : $"return new {record.ManagedName}(handle, ownsHandle);")}}
+                : record.IsAbstract
+                    ? "return null!;"
+                    : $"return new {record.ManagedName}(handle, ownsHandle);")}}
             }
             """);
 
@@ -893,7 +903,7 @@ public static partial class BindingOutputRenderer
         }
 
         writer.WriteLine();
-        writer.Write(RenderManagedDispose(record));
+        writer.Write(RenderManagedDispose(record, canEmitDeleteThunk));
 
         var accessorProperties = CollectAccessorProperties(record);
         var accessorMethodIds = accessorProperties
@@ -983,6 +993,11 @@ public static partial class BindingOutputRenderer
 
         foreach (var field in record.Members.OfType<FieldBinding>().OrderBy(static field => field.ManagedName, StringComparer.Ordinal))
         {
+            if (record.HasOwnManagedNonFieldMemberNamed(field.ManagedName))
+            {
+                continue;
+            }
+
             writer.WriteLine();
             if (field.HasMetadata(MetadataKeys.IgnoreReason))
             {
@@ -1163,11 +1178,21 @@ public static partial class BindingOutputRenderer
 
         var baseRecord = compilation.Records.FirstOrDefault(candidate => string.Equals(candidate.ManagedName, record.ManagedBaseTypeName, StringComparison.Ordinal));
         return baseRecord is not null &&
-               baseRecord.Members.OfType<FunctionBinding>().Any(candidate => string.Equals(candidate.ManagedName, managedName, StringComparison.Ordinal));
+               baseRecord.Members.OfType<FunctionBinding>().Any(candidate => !candidate.IsIgnored() && string.Equals(candidate.ManagedName, managedName, StringComparison.Ordinal));
     }
 
-    private static string RenderManagedDispose(RecordBinding record)
+    private static string RenderManagedDispose(RecordBinding record, bool canEmitDeleteThunk)
     {
+        if (!canEmitDeleteThunk)
+        {
+            return """
+                protected override bool ReleaseNativeHandle(nint handle)
+                {
+                return true;
+                }
+                """;
+        }
+
         return """
             protected override bool ReleaseNativeHandle(nint handle)
             {
@@ -1941,15 +1966,11 @@ public static partial class BindingOutputRenderer
         writer.Write(
             """
             // <auto-generated />
+            #include "SharpCpp/Export.hpp"
             #include "SharpCpp/Marshaller.hpp"
             #include "SharpCpp/detail/MarshallerSupport.hpp"
             #include <stdexcept>
             #include <typeinfo>
-            #if defined(_WIN32)
-            #define SHARPCPP_EXPORT extern "C" __declspec(dllexport)
-            #else
-            #define SHARPCPP_EXPORT extern "C" __attribute__((visibility("default")))
-            #endif
 
             using namespace SharpCpp;
             """);
@@ -2209,7 +2230,10 @@ public static partial class BindingOutputRenderer
         foreach (var record in records.Where(static record => !record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static record => record.ManagedName, StringComparer.Ordinal))
         {
             writer.WriteLine();
-            writer.Write(RenderNativeDelete(record, record.RequiresDirector(compilation)));
+            if (!record.GetMetadata<bool>(MetadataKeys.NonPublicDestructor))
+            {
+                writer.Write(RenderNativeDelete(record, record.RequiresDirector(compilation)));
+            }
 
             if (record.RequiresDirector(compilation))
             {
@@ -2325,13 +2349,22 @@ public static partial class BindingOutputRenderer
             _ => string.Empty
         };
 
-        var typeName = parameter.HasMetadata(MetadataKeys.UnexpressibleDefault)
+        var isNullableHandleDefault = parameter.Direction == BindingParameterDirection.In &&
+            parameter.AbiKind == BindingParameterAbiKind.Value &&
+            parameter.ManagedDefaultValueExpression == "null" &&
+            parameter.Type.Kind == BindingTypeKind.Handle;
+
+        var typeName = parameter.HasMetadata(MetadataKeys.UnexpressibleDefault) || isNullableHandleDefault
             ? $"{GetManagedWrapperTypeName(parameter.Type)}?"
             : GetManagedWrapperTypeName(parameter.Type);
 
         var signature = $"{modifier}{typeName} {parameter.ManagedName}";
 
         if (parameter.HasMetadata(MetadataKeys.UnexpressibleDefault))
+        {
+            signature += " = null";
+        }
+        else if (isNullableHandleDefault)
         {
             signature += " = null";
         }
@@ -2456,7 +2489,7 @@ public static partial class BindingOutputRenderer
                 ? "virtual "
                 : "override ";
 
-            if (function.IsFinal)
+            if (function.IsFinal && modifier == "override ")
             {
                 modifier += "sealed ";
             }
@@ -2503,7 +2536,7 @@ public static partial class BindingOutputRenderer
 
             var match = baseRecord.Members
                 .OfType<FunctionBinding>()
-                .FirstOrDefault(bm => bm.IsVirtual && bm.ManagedName == function.ManagedName && bm.Parameters.Count == function.Parameters.Count);
+                .FirstOrDefault(bm => !bm.IsIgnored() && bm.IsVirtual && bm.ManagedName == function.ManagedName && bm.Parameters.Count == function.Parameters.Count);
 
             if (match is not null)
             {
@@ -2543,7 +2576,7 @@ public static partial class BindingOutputRenderer
         {
             var match = current.Members
                 .OfType<FunctionBinding>()
-                .FirstOrDefault(candidate => candidate.IsVirtual && RecordBindingExtensions.SignaturesMatch(candidate, function));
+                .FirstOrDefault(candidate => !candidate.IsIgnored() && candidate.IsVirtual && RecordBindingExtensions.SignaturesMatch(candidate, function));
             if (match is not null)
             {
                 return match;

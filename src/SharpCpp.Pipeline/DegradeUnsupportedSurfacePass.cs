@@ -28,14 +28,37 @@ public static class DegradeUnsupportedSurfacePass
             }
 
             foreach (var duplicateGroup in compilation.Functions
-                         .Where(static function => function.Parent is not RecordBinding && !function.IsIgnored() && function.Parent?.IsIgnored() != true)
-                         .GroupBy(GetManagedCallableSignatureKey, StringComparer.Ordinal)
-                         .Where(static group => group.Count() > 1))
+                          .Where(static function => function.Parent is not RecordBinding && !function.IsIgnored() && function.Parent?.IsIgnored() != true)
+                          .GroupBy(GetManagedCallableSignatureKey, StringComparer.Ordinal)
+                          .Where(static group => group.Count() > 1))
             {
                 foreach (var function in duplicateGroup)
                 {
                     function.SetIgnoreReason($"managed callable signature '{duplicateGroup.Key}' is declared multiple times in this bootstrap surface");
                     changed = true;
+                }
+            }
+
+            foreach (var record in compilation.Records)
+            {
+                var duplicateGroups = record.Members.OfType<FunctionBinding>()
+                    .Where(static function => !function.IsIgnored())
+                    .GroupBy(GetManagedPublicCallableSignatureKey, StringComparer.Ordinal)
+                    .Where(static group => group.Count() > 1)
+                    .ToArray();
+
+                foreach (var duplicateGroup in duplicateGroups)
+                {
+                    var kept = duplicateGroup
+                        .OrderBy(static function => function.IsConstMethod)
+                        .ThenBy(static function => function.SymbolId, StringComparer.Ordinal)
+                        .First();
+
+                    foreach (var function in duplicateGroup.Where(function => !ReferenceEquals(function, kept)))
+                    {
+                        function.SetIgnoreReason($"managed callable signature '{duplicateGroup.Key}' is declared multiple times in this bootstrap surface");
+                        changed = true;
+                    }
                 }
             }
 
@@ -163,7 +186,16 @@ public static class DegradeUnsupportedSurfacePass
 
         if (function.Parent is RecordBinding owningRecord &&
             function.OperatorToken == "!=" &&
-            !HasEqualityOperator(owningRecord))
+            !HasCompanionOperator(owningRecord, function, "=="))
+        {
+            reason = $"operator '{function.ManagedName}' does not have the companion comparison operator required by C#";
+            return true;
+        }
+
+        if (function.Parent is RecordBinding owningRecord2 &&
+            function.OperatorToken == "==" &&
+            !IsSelfComparisonOperator(owningRecord2, function) &&
+            !HasCompanionOperator(owningRecord2, function, "!="))
         {
             reason = $"operator '{function.ManagedName}' does not have the companion comparison operator required by C#";
             return true;
@@ -179,20 +211,32 @@ public static class DegradeUnsupportedSurfacePass
         IReadOnlyDictionary<string, RecordBinding> recordsById,
         out string reason)
     {
+        var unavailableBases = new List<RecordBaseBinding>();
+
         foreach (var baseBinding in record.Bases)
         {
             if (!recordsById.TryGetValue(baseBinding.RecordId, out var baseRecord) || baseRecord.IsIgnored())
             {
-                reason = $"base record '{baseBinding.CppQualifiedName}' is not available for a coherent managed hierarchy";
-                return true;
+                unavailableBases.Add(baseBinding);
+            }
+        }
+
+        foreach (var baseBinding in unavailableBases)
+        {
+            record.SetWarning($"dropping base '{baseBinding.CppQualifiedName}' from record '{record.CppQualifiedName}' because the base record is not available for a coherent managed hierarchy; the derived record will still be generated without that base");
+            record.Bases.Remove(baseBinding);
+
+            if (string.Equals(record.ManagedBaseTypeName, baseBinding.ManagedName, StringComparison.Ordinal))
+            {
+                record.ManagedBaseTypeName = null;
             }
         }
 
         if (!string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
             !compilation.Records.Any(candidate => !candidate.IsIgnored() && string.Equals(candidate.ManagedName, record.ManagedBaseTypeName, StringComparison.Ordinal)))
         {
-            reason = $"managed base type '{record.ManagedBaseTypeName}' is not available for a coherent managed hierarchy";
-            return true;
+            record.SetWarning($"dropping managed base type '{record.ManagedBaseTypeName}' from record '{record.ManagedName}' because the managed base type is not available for a coherent managed hierarchy; the derived record will still be generated without that base");
+            record.ManagedBaseTypeName = null;
         }
 
         if (record.GetSecondaryBaseRecords(compilation).Any(static baseRecord =>
@@ -262,6 +306,29 @@ public static class DegradeUnsupportedSurfacePass
             return true;
         }
 
+        if (type.ManagedTypeName.Contains(' ', StringComparison.Ordinal) ||
+            type.ManagedTypeName.Contains("><", StringComparison.Ordinal))
+        {
+            reason = $"managed type name '{type.ManagedTypeName}' is not yet renderer-ready C#";
+            return true;
+        }
+
+        if (type.ManagedTypeName.StartsWith("BaseVector", StringComparison.Ordinal) ||
+            type.ManagedTypeName.StartsWith("BaseIntegerVector", StringComparison.Ordinal))
+        {
+            reason = $"managed type name '{type.ManagedTypeName}' is not yet renderer-ready C#";
+            return true;
+        }
+
+        if (type.Kind == BindingTypeKind.Handle &&
+            recordsById.TryGetValue(type.RecordId ?? string.Empty, out var managedRecord) &&
+            (managedRecord.ManagedName.StartsWith("BaseVector", StringComparison.Ordinal) ||
+             managedRecord.ManagedName.StartsWith("BaseIntegerVector", StringComparison.Ordinal)))
+        {
+            reason = $"managed type name '{managedRecord.ManagedName}' is not yet renderer-ready C#";
+            return true;
+        }
+
         if (disallowNonPointerHandles && type.Kind == BindingTypeKind.Handle && !rawCppTypeName.Contains('*', StringComparison.Ordinal))
         {
             reason = $"record value/reference type '{rawCppTypeName}' is not yet supported";
@@ -300,9 +367,33 @@ public static class DegradeUnsupportedSurfacePass
         };
     }
 
-    private static bool HasEqualityOperator(RecordBinding record)
+    private static bool HasCompanionOperator(RecordBinding record, FunctionBinding function, string companionToken)
     {
-        return record.Members.OfType<FunctionBinding>().Any(static function => function.OperatorToken == "==");
+        return record.Members.OfType<FunctionBinding>().Any(candidate =>
+            candidate.OperatorToken == companionToken &&
+            candidate.Parameters.Count == function.Parameters.Count &&
+            candidate.Parameters.Select(static parameter => parameter.CppTypeName)
+                .SequenceEqual(function.Parameters.Select(static parameter => parameter.CppTypeName), StringComparer.Ordinal));
+    }
+
+    private static bool IsSelfComparisonOperator(RecordBinding record, FunctionBinding function)
+    {
+        if (function.Parameters.Count != 1)
+        {
+            return false;
+        }
+
+        var normalizedParameterType = NormalizeComparisonType(function.Parameters[0].CppTypeName);
+        var normalizedRecordType = NormalizeComparisonType(record.CppQualifiedName);
+        return string.Equals(normalizedParameterType, normalizedRecordType, StringComparison.Ordinal);
+    }
+
+    private static string NormalizeComparisonType(string value)
+    {
+        return value
+            .Replace("const ", string.Empty, StringComparison.Ordinal)
+            .Replace("&", string.Empty, StringComparison.Ordinal)
+            .Replace(" ", string.Empty, StringComparison.Ordinal);
     }
 
     private static bool TryGetNamespaceExclusionReason(
@@ -352,6 +443,24 @@ public static class DegradeUnsupportedSurfacePass
             function.IsStatic,
             function.IsConstructor,
             string.Join(";", function.Parameters.Select(static parameter => parameter.CppTypeName)));
+    }
+
+    private static string GetManagedPublicCallableSignatureKey(FunctionBinding function)
+    {
+        return string.Join(
+            "|",
+            function.ManagedName,
+            function.IsStatic,
+            function.IsConstructor,
+            string.Join(
+                ";",
+                function.Parameters.Select(static parameter =>
+                    string.Join(
+                        ":",
+                        parameter.Direction,
+                        parameter.AbiKind,
+                        parameter.Type.Kind,
+                        parameter.Type.ManagedTypeName))));
     }
 
 }

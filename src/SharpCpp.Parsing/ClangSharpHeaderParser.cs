@@ -109,15 +109,19 @@ public sealed class ClangSharpHeaderParser
                         break;
 
                     case CXCursorKind.CXCursor_StructDecl:
-                        RegisterRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix, request.HeaderIncludePath);
+                    case CXCursorKind.CXCursor_ClassDecl:
+                        RegisterRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix,
+                            ResolveOwnedHeaderIncludePath(child, ownedFileRoots, request.HeaderIncludePath));
                         break;
 
                     case CXCursorKind.CXCursor_ClassTemplate:
-                        RegisterTemplateRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix, request.HeaderIncludePath);
+                        RegisterTemplateRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix,
+                            ResolveOwnedHeaderIncludePath(child, ownedFileRoots, request.HeaderIncludePath));
                         break;
 
                     case CXCursorKind.CXCursor_EnumDecl:
-                        RegisterEnum(child, compilation, enumsByName, request.HeaderIncludePath);
+                        RegisterEnum(child, compilation, enumsByName,
+                            ResolveOwnedHeaderIncludePath(child, ownedFileRoots, request.HeaderIncludePath));
                         break;
 
                     case CXCursorKind.CXCursor_FunctionDecl:
@@ -126,7 +130,9 @@ public sealed class ClangSharpHeaderParser
                         CheckAndApplyIgnoreAttribute(child, function);
                         TryApplyRename(child, function);
                         ExtractAndApplyDocumentation(child, function);
-                        function.HeaderIncludePath = request.HeaderIncludePath;
+                        ApplyCallableDefinitionMetadata(child, function);
+                        ApplyDeletedCallableIgnore(child, function);
+                        function.HeaderIncludePath = ResolveOwnedHeaderIncludePath(child, ownedFileRoots, request.HeaderIncludePath);
                         compilation.Members.Add(function);
                         break;
                     }
@@ -139,7 +145,9 @@ public sealed class ClangSharpHeaderParser
                             CheckAndApplyIgnoreAttribute(child, function);
                             TryApplyRename(child, function);
                             ExtractAndApplyDocumentation(child, function);
-                            function.HeaderIncludePath = request.HeaderIncludePath;
+                            ApplyCallableDefinitionMetadata(child, function);
+                            ApplyDeletedCallableIgnore(child, function);
+                            function.HeaderIncludePath = ResolveOwnedHeaderIncludePath(child, ownedFileRoots, request.HeaderIncludePath);
                             compilation.Members.Add(function);
                         }
                         break;
@@ -276,6 +284,30 @@ public sealed class ClangSharpHeaderParser
         return false;
     }
 
+    private static string ResolveOwnedHeaderIncludePath(CXCursor cursor, IReadOnlyList<string> ownedFileRoots, string fallbackHeaderIncludePath)
+    {
+        cursor.Location.GetFileLocation(out var file, out _, out _, out _);
+        var fileName = file.Name.CString;
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return fallbackHeaderIncludePath;
+        }
+
+        var filePath = Path.GetFullPath(fileName);
+        foreach (var ownedFileRoot in ownedFileRoots)
+        {
+            if (!Directory.Exists(ownedFileRoot) ||
+                !filePath.StartsWith(ownedFileRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            return Path.GetRelativePath(ownedFileRoot, filePath).Replace('\\', '/');
+        }
+
+        return fallbackHeaderIncludePath;
+    }
+
     private static unsafe void RegisterRecord(
         CXCursor cursor,
         BindingCompilation compilation,
@@ -286,7 +318,7 @@ public sealed class ClangSharpHeaderParser
         string? headerIncludePath)
     {
         var nativeName = cursor.Spelling.ToString();
-        if (string.IsNullOrWhiteSpace(nativeName) || recordsByName.ContainsKey(nativeName))
+        if (string.IsNullOrWhiteSpace(nativeName))
         {
             return;
         }
@@ -298,6 +330,24 @@ public sealed class ClangSharpHeaderParser
             ? sourceText[..braceIndex]
             : sourceText;
         var isForwardDeclaration = braceIndex < 0;
+
+        if (recordsByName.TryGetValue(nativeName, out var ghostRecord) &&
+            ghostRecord.GetMetadata<bool>(MetadataKeys.PlaceholderRecord))
+        {
+            ghostRecord.Detach();
+            recordsByName.Remove(nativeName);
+        }
+        else if (ghostRecord is not null &&
+                 ghostRecord.GetMetadata<bool>(MetadataKeys.ForwardDeclaration) &&
+                 !isForwardDeclaration)
+        {
+            ghostRecord.Detach();
+            recordsByName.Remove(nativeName);
+        }
+        else if (ghostRecord is not null)
+        {
+            return;
+        }
         var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(nativeName), cppQualifiedName)
         {
             IsAbstract = cursor.CXXRecord_IsAbstract,
@@ -314,6 +364,7 @@ public sealed class ClangSharpHeaderParser
         record.HeaderIncludePath = headerIncludePath;
         compilation.Members.Add(record);
 
+        ApplyDestructorMetadata(cursor, record);
         PopulateRecordBases(cursor, record, recordsByName);
         PopulateRecordMembers(cursor, record, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters, entryPointPrefix);
 
@@ -330,7 +381,29 @@ public sealed class ClangSharpHeaderParser
         string? headerIncludePath)
     {
         var nativeName = cursor.Spelling.ToString();
-        if (string.IsNullOrWhiteSpace(nativeName) || recordsByName.ContainsKey(nativeName))
+        if (string.IsNullOrWhiteSpace(nativeName))
+        {
+            return;
+        }
+
+        var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
+        var braceIndex = sourceText.IndexOf('{');
+        var isForwardDeclaration = braceIndex < 0;
+
+        if (recordsByName.TryGetValue(nativeName, out var ghostRecord) &&
+            ghostRecord.GetMetadata<bool>(MetadataKeys.PlaceholderRecord))
+        {
+            ghostRecord.Detach();
+            recordsByName.Remove(nativeName);
+        }
+        else if (ghostRecord is not null &&
+                 ghostRecord.GetMetadata<bool>(MetadataKeys.ForwardDeclaration) &&
+                 !isForwardDeclaration)
+        {
+            ghostRecord.Detach();
+            recordsByName.Remove(nativeName);
+        }
+        else if (ghostRecord is not null)
         {
             return;
         }
@@ -341,12 +414,9 @@ public sealed class ClangSharpHeaderParser
         }
 
         var cppQualifiedName = GetCppQualifiedName(cursor);
-        var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
-        var braceIndex = sourceText.IndexOf('{');
         var declarationText = braceIndex >= 0
             ? sourceText[..braceIndex]
             : sourceText;
-        var isForwardDeclaration = braceIndex < 0;
         var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(nativeName), cppQualifiedName)
         {
             IsAbstract = cursor.CXXRecord_IsAbstract,
@@ -371,6 +441,7 @@ public sealed class ClangSharpHeaderParser
         compilation.Members.Add(record);
 
         var genericParameters = CreateGenericParameterScope(templateParameters);
+        ApplyDestructorMetadata(cursor, record);
         PopulateRecordBases(cursor, record, recordsByName);
         PopulateRecordMembers(cursor, record, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
 
@@ -393,7 +464,9 @@ public sealed class ClangSharpHeaderParser
                 var baseTypeName = GetRecordQualifiedName(child.Type, recordsByName);
                 if (!recordsByName.TryGetValue(baseTypeName, out var baseRecord))
                 {
-                    baseRecord = new RecordBinding($"record:{baseTypeName}", baseTypeName, ToPascalCase(baseTypeName));
+                    var baseQualifiedName = NormalizeNamedTypeName(child.Type.Spelling.ToString());
+                    baseRecord = new RecordBinding($"record:{baseTypeName}", baseTypeName, ToPascalCase(baseTypeName), baseQualifiedName);
+                    baseRecord.SetMetadata(MetadataKeys.PlaceholderRecord, true);
                     recordsByName.Add(baseTypeName, baseRecord);
                 }
 
@@ -436,6 +509,8 @@ public sealed class ClangSharpHeaderParser
                 CheckAndApplyIgnoreAttribute(child, method);
                 TryApplyRename(child, method);
                 ExtractAndApplyDocumentation(child, method);
+                ApplyCallableDefinitionMetadata(child, method);
+                ApplyDeletedCallableIgnore(child, method);
                 ApplyVirtualSpecifiers(child, method);
                 record.Members.Add(method);
                 return CXChildVisitResult.CXChildVisit_Continue;
@@ -459,6 +534,8 @@ public sealed class ClangSharpHeaderParser
                 CheckAndApplyIgnoreAttribute(child, staticMethod);
                 TryApplyRename(child, staticMethod);
                 ExtractAndApplyDocumentation(child, staticMethod);
+                ApplyCallableDefinitionMetadata(child, staticMethod);
+                ApplyDeletedCallableIgnore(child, staticMethod);
                 record.Members.Add(staticMethod);
                 return CXChildVisitResult.CXChildVisit_Continue;
             },
@@ -480,6 +557,19 @@ public sealed class ClangSharpHeaderParser
                 var ctor = CreateConstructor(record, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
                 CheckAndApplyIgnoreAttribute(child, ctor);
                 ExtractAndApplyDocumentation(child, ctor);
+                ApplyCallableDefinitionMetadata(child, ctor);
+
+                if (record.IsAbstract && !record.IsDirector)
+                {
+                    ctor.SetIgnoreReason($"constructors on abstract record '{record.CppQualifiedName}' are not materializable in this bootstrap surface");
+                }
+                else if (record.GetMetadata<bool>(MetadataKeys.NonPublicDestructor))
+                {
+                    ctor.SetIgnoreReason($"constructors on record '{record.CppQualifiedName}' with a non-public destructor are not materializable in this bootstrap surface");
+                }
+
+                ApplyDeletedCallableIgnore(child, ctor);
+
                 record.Members.Add(ctor);
                 return CXChildVisitResult.CXChildVisit_Continue;
             },
@@ -502,6 +592,8 @@ public sealed class ClangSharpHeaderParser
                 CheckAndApplyIgnoreAttribute(child, templateMethod);
                 TryApplyRename(child, templateMethod);
                 ExtractAndApplyDocumentation(child, templateMethod);
+                ApplyCallableDefinitionMetadata(child, templateMethod);
+                ApplyDeletedCallableIgnore(child, templateMethod);
                 record.Members.Add(templateMethod);
                 return CXChildVisitResult.CXChildVisit_Continue;
             },
@@ -824,7 +916,7 @@ public sealed class ClangSharpHeaderParser
             nativeName,
             ToPascalCase(nativeName),
             fieldType,
-            NormalizeTypeName(cursor.Type.Spelling.ToString()),
+            ResolveQualifiedTypeName(cursor.Type, recordsByName),
             record.CppQualifiedName,
             isReadOnly: cursor.Type.IsConstQualified)
         {
@@ -1095,7 +1187,7 @@ public sealed class ClangSharpHeaderParser
     {
         if (cursor.Kind == CXCursorKind.CXCursor_ConversionFunction)
         {
-            return $"OperatorTo{NormalizeNamedTypeName(cursor.ResultType.Spelling.ToString())}";
+            return $"OperatorTo{ToPascalCase(SanitizeEntrypointNamePart(cursor.ResultType.Spelling.ToString()))}";
         }
 
         if (cursor.IsOverloadedOperator)
@@ -1118,14 +1210,16 @@ public sealed class ClangSharpHeaderParser
 
     private static string GetEntrypointSuffix(CXCursor cursor, string nativeName)
     {
+        var constSuffix = clang.CXXMethod_isConst(cursor) != 0 ? "_const" : string.Empty;
+
         if (cursor.Kind == CXCursorKind.CXCursor_ConversionFunction)
         {
-            return $"operator_to_{NormalizeNamedTypeName(cursor.ResultType.Spelling.ToString()).ToLowerInvariant()}";
+            return $"operator_to_{SanitizeEntrypointNamePart(cursor.ResultType.Spelling.ToString()).ToLowerInvariant()}{constSuffix}";
         }
 
         if (cursor.IsOverloadedOperator)
         {
-            return cursor.OverloadedOperatorKind switch
+            return (cursor.OverloadedOperatorKind switch
             {
                 CX_OverloadedOperatorKind.CX_OO_Plus => cursor.NumArguments == 0 ? "operator_unary_plus" : "operator_plus",
                 CX_OverloadedOperatorKind.CX_OO_Minus => cursor.NumArguments == 0 ? "operator_unary_minus" : "operator_minus",
@@ -1135,10 +1229,44 @@ public sealed class ClangSharpHeaderParser
                 CX_OverloadedOperatorKind.CX_OO_Less => "operator_less",
                 CX_OverloadedOperatorKind.CX_OO_Greater => "operator_greater",
                 _ => nativeName
-            };
+            }) + constSuffix;
         }
 
-        return nativeName;
+        return nativeName + constSuffix;
+    }
+
+    private static void ApplyDeletedCallableIgnore(CXCursor cursor, FunctionBinding function)
+    {
+        if (!cursor.IsDeleted || function.IsIgnored())
+        {
+            return;
+        }
+
+        var callableLabel = function.IsConstructor
+            ? $"constructor '{function.CppQualifiedName}'"
+            : $"callable '{function.CppQualifiedName}'";
+        function.SetIgnoreReason($"{callableLabel} is deleted in the native surface");
+    }
+
+    private static void ApplyCallableDefinitionMetadata(CXCursor cursor, FunctionBinding function)
+    {
+        function.SetMetadata(MetadataKeys.HasNativeDefinition, cursor.IsThisDeclarationADefinition);
+    }
+
+    private static unsafe void ApplyDestructorMetadata(CXCursor cursor, RecordBinding record)
+    {
+        cursor.VisitChildren(
+            (child, _, _) =>
+            {
+                if (child.Kind == CXCursorKind.CXCursor_Destructor && child.CXXAccessSpecifier != CX_CXXAccessSpecifier.CX_CXXPublic)
+                {
+                    record.SetMetadata(MetadataKeys.NonPublicDestructor, true);
+                    return CXChildVisitResult.CXChildVisit_Break;
+                }
+
+                return CXChildVisitResult.CXChildVisit_Continue;
+            },
+            new CXClientData(IntPtr.Zero));
     }
 
     private static string BuildEntrypointName(string entryPointPrefix, string baseName, IEnumerable<ParameterBinding> parameters)
@@ -1279,7 +1407,8 @@ public sealed class ClangSharpHeaderParser
                 var recordName = GetRecordQualifiedName(pointeeType, recordsByName);
                 if (!recordsByName.TryGetValue(recordName, out var record))
                 {
-                    record = new RecordBinding($"record:{recordName}", recordName, ToPascalCase(recordName));
+                    record = new RecordBinding($"record:{recordName}", recordName, ToPascalCase(recordName), NormalizeNamedTypeName(pointeeType.Spelling.ToString()));
+                    record.SetMetadata(MetadataKeys.PlaceholderRecord, true);
                     recordsByName.Add(recordName, record);
                 }
 
@@ -1365,10 +1494,18 @@ public sealed class ClangSharpHeaderParser
     {
         var spelling = type.Spelling.ToString();
         var normalizedName = NormalizeNamedTypeName(spelling);
+        var unqualifiedName = normalizedName.Contains("::", StringComparison.Ordinal)
+            ? normalizedName[(normalizedName.LastIndexOf("::", StringComparison.Ordinal) + 2)..]
+            : normalizedName;
 
         if (recordsByName.TryGetValue(normalizedName, out _))
         {
             return normalizedName;
+        }
+
+        if (recordsByName.TryGetValue(unqualifiedName, out _))
+        {
+            return unqualifiedName;
         }
 
         foreach (var candidate in recordsByName.Values)
@@ -1379,12 +1516,18 @@ public sealed class ClangSharpHeaderParser
             }
         }
 
-        return normalizedName;
+        return unqualifiedName;
     }
 
     private static string ResolveQualifiedTypeName(CXType type, IDictionary<string, RecordBinding> recordsByName)
     {
         var spelling = NormalizeTypeName(type.Spelling.ToString());
+
+        if (TryGetQualifiedNamedType(type, out var unqualifiedName, out var qualifiedName))
+        {
+            var pattern = $@"(?<![:\w]){Regex.Escape(unqualifiedName)}(?![:\w])";
+            spelling = Regex.Replace(spelling, pattern, qualifiedName, RegexOptions.CultureInvariant);
+        }
 
         foreach (var record in recordsByName.Values.OrderByDescending(static record => record.NativeName.Length))
         {
@@ -1393,6 +1536,34 @@ public sealed class ClangSharpHeaderParser
         }
 
         return spelling;
+    }
+
+    private static bool TryGetQualifiedNamedType(CXType type, out string unqualifiedName, out string qualifiedName)
+    {
+        var resolvedType = type.CanonicalType;
+        while (resolvedType.kind is CXTypeKind.CXType_LValueReference or CXTypeKind.CXType_RValueReference or CXTypeKind.CXType_Pointer)
+        {
+            resolvedType = resolvedType.PointeeType.CanonicalType;
+        }
+
+        var declaration = resolvedType.Declaration;
+        if (string.IsNullOrWhiteSpace(declaration.Spelling.ToString()))
+        {
+            unqualifiedName = string.Empty;
+            qualifiedName = string.Empty;
+            return false;
+        }
+
+        if (declaration.Kind is not (CXCursorKind.CXCursor_StructDecl or CXCursorKind.CXCursor_ClassDecl or CXCursorKind.CXCursor_ClassTemplate or CXCursorKind.CXCursor_EnumDecl))
+        {
+            unqualifiedName = string.Empty;
+            qualifiedName = string.Empty;
+            return false;
+        }
+
+        unqualifiedName = declaration.Spelling.ToString();
+        qualifiedName = GetCppQualifiedName(declaration);
+        return !string.IsNullOrWhiteSpace(qualifiedName);
     }
 
     private static bool ShouldParseRecordMember(RecordBinding record, CX_CXXAccessSpecifier accessSpecifier)
@@ -1984,11 +2155,24 @@ public sealed class ClangSharpHeaderParser
         var expressionCursor = asWrittenCursor.Kind == CXCursorKind.CXCursor_FirstInvalid
             ? defaultArgumentCursor
             : asWrittenCursor;
-        var expression = GetSourceText(expressionCursor.TranslationUnit, expressionCursor.Extent);
+        var expression = GetSourceText(expressionCursor.TranslationUnit, expressionCursor.Extent).Trim();
+        expression = expression.StartsWith("=", StringComparison.Ordinal)
+            ? expression[1..].TrimStart()
+            : expression;
 
         if (expression.Contains('#') || expression.Contains("///") || expression.Length > 100)
         {
             return null;
+        }
+
+        if (expression.Contains('{') || expression.Contains('}'))
+        {
+            return null;
+        }
+
+        if (string.Equals(expression, "nullptr", StringComparison.Ordinal))
+        {
+            return parameterType.Kind == BindingTypeKind.Handle ? "null" : "default";
         }
 
         if (parameterType.Kind == BindingTypeKind.Enum)
@@ -1996,7 +2180,21 @@ public sealed class ClangSharpHeaderParser
             return NormalizeManagedEnumDefaultExpression(parameterType.ManagedTypeName, expression);
         }
 
+        if (expression.Contains("::", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
         if (Regex.IsMatch(expression, "^[A-Z][A-Z0-9_]*$", RegexOptions.CultureInvariant))
+        {
+            return null;
+        }
+
+        if (Regex.IsMatch(expression, "^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.CultureInvariant) &&
+            !string.Equals(expression, "true", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(expression, "false", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(expression, "null", StringComparison.Ordinal) &&
+            !string.Equals(expression, "default", StringComparison.Ordinal))
         {
             return null;
         }
@@ -2077,15 +2275,19 @@ public sealed class ClangSharpHeaderParser
                         break;
 
                     case CXCursorKind.CXCursor_StructDecl:
-                        RegisterRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, headerIncludePath);
+                    case CXCursorKind.CXCursor_ClassDecl:
+                        RegisterRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix,
+                            ResolveOwnedHeaderIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty));
                         break;
 
                     case CXCursorKind.CXCursor_ClassTemplate:
-                        RegisterTemplateRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, headerIncludePath);
+                        RegisterTemplateRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix,
+                            ResolveOwnedHeaderIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty));
                         break;
 
                     case CXCursorKind.CXCursor_EnumDecl:
-                        RegisterEnum(child, compilation, enumsByName, headerIncludePath);
+                        RegisterEnum(child, compilation, enumsByName,
+                            ResolveOwnedHeaderIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty));
                         break;
 
                     case CXCursorKind.CXCursor_FunctionDecl:
@@ -2094,7 +2296,9 @@ public sealed class ClangSharpHeaderParser
                         CheckAndApplyIgnoreAttribute(child, function);
                         TryApplyRename(child, function);
                         ExtractAndApplyDocumentation(child, function);
-                        function.HeaderIncludePath = headerIncludePath;
+                        ApplyCallableDefinitionMetadata(child, function);
+                        ApplyDeletedCallableIgnore(child, function);
+                        function.HeaderIncludePath = ResolveOwnedHeaderIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty);
                         compilation.Members.Add(function);
                         break;
                     }
@@ -2107,7 +2311,9 @@ public sealed class ClangSharpHeaderParser
                             CheckAndApplyIgnoreAttribute(child, function);
                             TryApplyRename(child, function);
                             ExtractAndApplyDocumentation(child, function);
-                            function.HeaderIncludePath = headerIncludePath;
+                            ApplyCallableDefinitionMetadata(child, function);
+                            ApplyDeletedCallableIgnore(child, function);
+                            function.HeaderIncludePath = ResolveOwnedHeaderIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty);
                             compilation.Members.Add(function);
                         }
                         break;

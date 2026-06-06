@@ -103,8 +103,9 @@ internal static class Program
 
             BindingCompilationBootstrapPipeline.Apply(compilation, marshallerConfigurationFiles);
             ApplySdkExportFilter(compilation, options.SdkLibraryPath, logWriter);
+            IgnoreUnexpressibleDefaultCallables(compilation, logWriter);
 
-            var renderedBindings = BindingOutputRenderer.Render(compilation, GeneratedFileStem);
+            var renderedBindings = BindingOutputRenderer.Render(compilation, GeneratedFileStem, DeriveGroupStem);
             var metadataDocument = BindingMetadataExporter.Export(
                 compilation,
                 new BindingMetadataExportOptions(
@@ -119,6 +120,16 @@ internal static class Program
                 BindingMetadataSerializer.Serialize(metadataDocument));
 
             Log(logWriter, $"Generated rbfx bindings for {compilation.Records.Count(record => !record.IsIgnored())} retained record(s) from {compilation.Records.Count} ingested record declaration(s).");
+
+            var warnedRecords = compilation.Records.Where(record => record.GetWarnings().Count > 0).ToArray();
+            foreach (var record in warnedRecords)
+            {
+                foreach (var warning in record.GetWarnings())
+                {
+                    Log(logWriter, $"warning: record '{record.CppQualifiedName}': {warning}");
+                }
+            }
+
             return 0;
         }
         catch (Exception exception)
@@ -245,6 +256,21 @@ internal static class Program
             removedCount++;
         }
 
+        foreach (var function in compilation.Functions.Where(static function =>
+                     function.Parent is RecordBinding &&
+                     !function.IsIgnored() &&
+                     !function.GetMetadata<bool>(MetadataKeys.HasNativeDefinition) &&
+                     function.CppQualifiedName.Contains("::", StringComparison.Ordinal)))
+        {
+            if (exportedSymbols.Any(symbol => symbol.Contains($"{function.CppQualifiedName}(", StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            function.SetIgnoreReason($"member function '{function.CppQualifiedName}' is declared in headers but not exported by the linked rbfx SDK library");
+            removedCount++;
+        }
+
         if (removedCount > 0)
         {
             Log(logWriter, $"Ignored {removedCount} top-level function(s) that are not exported by '{sdkLibraryPath}'.");
@@ -313,5 +339,44 @@ internal static class Program
         }
 
         return mappings;
+    }
+
+    private static void IgnoreUnexpressibleDefaultCallables(BindingCompilation compilation, TextWriter? logWriter)
+    {
+        foreach (var function in compilation.Functions.Where(static function =>
+                     !function.IsIgnored() &&
+                     function.Parameters.Any(static parameter => parameter.HasMetadata(MetadataKeys.UnexpressibleDefault))))
+        {
+            function.SetIgnoreReason("rbfx bootstrap currently excludes callables with unexpressible C++ default arguments");
+            Log(logWriter, $"warning: callable '{function.CppQualifiedName}' was excluded because it relies on unexpressible C++ default arguments.");
+        }
+    }
+
+    private static string DeriveGroupStem(string? headerPath)
+    {
+        if (string.IsNullOrWhiteSpace(headerPath))
+        {
+            return $"{GeneratedFileStem}.Bindings";
+        }
+
+        var normalizedHeaderPath = headerPath.Replace('\\', '/');
+        if (normalizedHeaderPath.StartsWith("Urho3D/", StringComparison.Ordinal))
+        {
+            normalizedHeaderPath = normalizedHeaderPath["Urho3D/".Length..];
+        }
+
+        var pathWithoutExtension = Path.ChangeExtension(normalizedHeaderPath, null)!.Replace('\\', '/');
+        var pathParts = pathWithoutExtension.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (pathParts.Length == 0)
+        {
+            return $"{GeneratedFileStem}.Bindings";
+        }
+
+        if (pathParts.Length == 1)
+        {
+            return $"{GeneratedFileStem}.{pathParts[0]}";
+        }
+
+        return $"{pathParts[0]}/{GeneratedFileStem}.{string.Join('.', pathParts.Skip(1))}";
     }
 }

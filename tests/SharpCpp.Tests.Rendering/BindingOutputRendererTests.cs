@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 
 using SharpCpp.Model.Ast;
 using SharpCpp.Pipeline;
@@ -33,7 +34,7 @@ public sealed class BindingOutputRendererTests
         var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
 
         Assert.Contains("using namespace SharpCpp;", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("#define SHARPCPP_EXPORT extern \"C\"", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("#include \"SharpCpp/Export.hpp\"", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("extern \"C\"\n{", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("#include \"SharpCpp/Marshaller.hpp\"", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("SHARPCPP_EXPORT ret_t<int> sharpcpp_sample_add_numbers(arg_t<int> lhs, arg_t<int> rhs)", nativeOutput, StringComparison.Ordinal);
@@ -842,5 +843,121 @@ public sealed class BindingOutputRendererTests
         NormalizeManagedNamespacesPass.Apply(compilation);
 
         Assert.Equal("SharpCpp.Generated.Utils", record.ManagedNamespace);
+    }
+
+    [Fact]
+    public void Render_uses_first_rbfx_folder_as_output_subdirectory()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Rbfx.Bindings",
+            "Urho3D",
+            "Bindings",
+            "SharpCpp.Rbfx.Native",
+            new[] { "Urho3D/Urho3DAll.h" });
+
+        var graphicsModel = new RecordBinding("record:graphics_model", "graphics_model", "GraphicsModel")
+        {
+            HeaderIncludePath = "Graphics/Model.h"
+        };
+        var graphicsMaterial = new RecordBinding("record:graphics_material", "graphics_material", "GraphicsMaterial")
+        {
+            HeaderIncludePath = "Graphics/Material.h"
+        };
+        var deepNode = new RecordBinding("record:deep_node", "deep_node", "DeepNode")
+        {
+            HeaderIncludePath = "Foo/Bar/Baz.h"
+        };
+
+        compilation.Members.Add(graphicsModel);
+        compilation.Members.Add(graphicsMaterial);
+        compilation.Members.Add(deepNode);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCpp.Rbfx", DeriveRbfxGroupStem).Files;
+
+        Assert.Contains(files, static file => file.RelativePath == "Graphics/SharpCpp.Rbfx.Model.g.cs");
+        Assert.Contains(files, static file => file.RelativePath == "Graphics/SharpCpp.Rbfx.Model.g.cpp");
+        Assert.Contains(files, static file => file.RelativePath == "Graphics/SharpCpp.Rbfx.Material.g.cs");
+        Assert.Contains(files, static file => file.RelativePath == "Graphics/SharpCpp.Rbfx.Material.g.cpp");
+        Assert.Contains(files, static file => file.RelativePath == "Foo/SharpCpp.Rbfx.Bar.Baz.g.cs");
+        Assert.Contains(files, static file => file.RelativePath == "Foo/SharpCpp.Rbfx.Bar.Baz.g.cpp");
+        Assert.Contains(files, static file => file.RelativePath == "SharpCpp.Rbfx.Bindings.Aliases.g.cs");
+
+        var modelManagedOutput = files.Single(static file => file.RelativePath == "Graphics/SharpCpp.Rbfx.Model.g.cs").Content;
+        var materialManagedOutput = files.Single(static file => file.RelativePath == "Graphics/SharpCpp.Rbfx.Material.g.cs").Content;
+        var deepManagedOutput = files.Single(static file => file.RelativePath == "Foo/SharpCpp.Rbfx.Bar.Baz.g.cs").Content;
+
+        Assert.Contains("public partial class GraphicsModel", modelManagedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("public partial class GraphicsMaterial", modelManagedOutput, StringComparison.Ordinal);
+
+        Assert.Contains("public partial class GraphicsMaterial", materialManagedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("public partial class GraphicsModel", materialManagedOutput, StringComparison.Ordinal);
+
+        Assert.Contains("public partial class DeepNode", deepManagedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Generated_binding_set_removes_stale_generated_files_when_rewriting_directory()
+    {
+        var outputDirectory = Path.Combine(Path.GetTempPath(), $"SharpCpp.Tests.Rendering.{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outputDirectory);
+
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(outputDirectory, "Graphics"));
+            File.WriteAllText(Path.Combine(outputDirectory, "SharpCpp.Rbfx.Bindings.g.cpp"), "stale native");
+            File.WriteAllText(Path.Combine(outputDirectory, "Graphics", "SharpCpp.Rbfx.Model.g.cs"), "stale managed");
+            File.WriteAllText(Path.Combine(outputDirectory, "keep.txt"), "keep");
+
+            var generatedSet = new GeneratedBindingSet(
+            [
+                new GeneratedBindingFile("Graphics/SharpCpp.Rbfx.Material.g.cs", "material managed"),
+                new GeneratedBindingFile("Graphics/SharpCpp.Rbfx.Material.g.cpp", "material native"),
+                new GeneratedBindingFile("SharpCpp.Rbfx.Bindings.Aliases.g.cs", "aliases")
+            ]);
+
+            generatedSet.WriteToDirectory(outputDirectory);
+
+            Assert.False(File.Exists(Path.Combine(outputDirectory, "SharpCpp.Rbfx.Bindings.g.cpp")));
+            Assert.False(File.Exists(Path.Combine(outputDirectory, "Graphics", "SharpCpp.Rbfx.Model.g.cs")));
+            Assert.True(File.Exists(Path.Combine(outputDirectory, "Graphics", "SharpCpp.Rbfx.Material.g.cs")));
+            Assert.True(File.Exists(Path.Combine(outputDirectory, "Graphics", "SharpCpp.Rbfx.Material.g.cpp")));
+            Assert.True(File.Exists(Path.Combine(outputDirectory, "SharpCpp.Rbfx.Bindings.Aliases.g.cs")));
+            Assert.True(File.Exists(Path.Combine(outputDirectory, "keep.txt")));
+        }
+        finally
+        {
+            if (Directory.Exists(outputDirectory))
+            {
+                Directory.Delete(outputDirectory, recursive: true);
+            }
+        }
+    }
+
+    private static string DeriveRbfxGroupStem(string? headerPath)
+    {
+        if (string.IsNullOrWhiteSpace(headerPath))
+        {
+            return "SharpCpp.Rbfx.Bindings";
+        }
+
+        var normalizedHeaderPath = headerPath.Replace('\\', '/');
+        if (normalizedHeaderPath.StartsWith("Urho3D/", StringComparison.Ordinal))
+        {
+            normalizedHeaderPath = normalizedHeaderPath["Urho3D/".Length..];
+        }
+
+        var pathWithoutExtension = Path.ChangeExtension(normalizedHeaderPath, null)!.Replace('\\', '/');
+        var pathParts = pathWithoutExtension.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (pathParts.Length == 0)
+        {
+            return "SharpCpp.Rbfx.Bindings";
+        }
+
+        if (pathParts.Length == 1)
+        {
+            return $"SharpCpp.Rbfx.{pathParts[0]}";
+        }
+
+        return $"{pathParts[0]}/SharpCpp.Rbfx.{string.Join('.', pathParts.Skip(1))}";
     }
 }

@@ -26,4 +26,25 @@ public static class BindingNodeIgnoreExtensions
 
         node.SetMetadata(MetadataKeys.IgnoreReason, reason);
     }
+
+    public static IReadOnlyList<string> GetWarnings(this BindingNode node)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        return node.GetMetadata<IReadOnlyList<string>>(MetadataKeys.Warnings) ?? Array.Empty<string>();
+    }
+
+    public static void SetWarning(this BindingNode node, string warning)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        ArgumentException.ThrowIfNullOrWhiteSpace(warning);
+
+        var existing = node.GetMetadata<List<string>>(MetadataKeys.Warnings);
+        if (existing is null)
+        {
+            existing = new List<string>();
+            node.SetMetadata(MetadataKeys.Warnings, existing);
+        }
+
+        existing.Add(warning);
+    }
 }

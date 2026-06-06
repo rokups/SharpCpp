@@ -165,7 +165,7 @@ public static class RecordBindingExtensions
         {
             foreach (var method in candidateRecord.Members.OfType<FunctionBinding>())
             {
-                if (method.IsConstructor || method.IsStatic || method.AccessModifier != BindingAccessModifier.Public)
+                if (method.IsConstructor || method.IsStatic || method.AccessModifier != BindingAccessModifier.Public || method.IsIgnored())
                 {
                     continue;
                 }
@@ -175,6 +175,26 @@ public static class RecordBindingExtensions
         }
 
         return methods;
+    }
+
+    public static bool HasOwnManagedNonFieldMemberNamed(this RecordBinding record, string managedName)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentException.ThrowIfNullOrWhiteSpace(managedName);
+
+        return record.Members.OfType<FunctionBinding>().Any(function => string.Equals(function.ManagedName, managedName, StringComparison.Ordinal))
+            || record.Members.OfType<FunctionBinding>()
+                .Select(function => function.GetMetadata<AccessorPropertyAnnotation>(MetadataKeys.AccessorProperty))
+                .Any(annotation => annotation is not null && string.Equals(annotation.PropertyName, managedName, StringComparison.Ordinal));
+    }
+
+    public static bool HasOwnManagedMemberNamed(this RecordBinding record, string managedName)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentException.ThrowIfNullOrWhiteSpace(managedName);
+
+        return record.HasOwnManagedNonFieldMemberNamed(managedName)
+            || record.Members.OfType<FieldBinding>().Any(field => string.Equals(field.ManagedName, managedName, StringComparison.Ordinal));
     }
 
     private static IReadOnlyList<RecordBinding> EnumeratePrimaryBaseChain(this RecordBinding record, BindingCompilation compilation)

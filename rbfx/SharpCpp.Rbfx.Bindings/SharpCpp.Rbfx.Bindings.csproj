@@ -2,6 +2,7 @@
   <PropertyGroup>
     <AssemblyName>SharpCpp.Rbfx.Bindings</AssemblyName>
     <SharpCppGeneratedDir Condition="'$(SharpCppGeneratedDir)' == ''">$(BaseIntermediateOutputPath)generated/SharpCpp.Rbfx</SharpCppGeneratedDir>
+    <NoWarn>$(NoWarn);CS0108;CS0109</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -9,6 +10,6 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(SharpCppGeneratedDir)' != '' and Exists('$(SharpCppGeneratedDir)')">
-    <Compile Include="$(SharpCppGeneratedDir)/*.cs" LinkBase="Generated" Visible="false" />
+    <Compile Include="$(SharpCppGeneratedDir)/**/*.cs" LinkBase="Generated" Visible="false" />
   </ItemGroup>
 </Project>
