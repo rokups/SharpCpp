@@ -139,6 +139,17 @@ sharpcpp_add_dotnet_build_target(
 
 get_target_property(RBFX_GENERATOR_BUILD_STAMP sharpcpp-rbfx-generator SHARPCPP_DOTNET_BUILD_STAMP)
 
+get_filename_component(RBFX_GENERATOR_SRC_DIR "${RBFX_GENERATOR_PROJECT}" DIRECTORY)
+file(GLOB_RECURSE RBFX_GENERATOR_INPUTS CONFIGURE_DEPENDS
+  "${CMAKE_SOURCE_DIR}/src/SharpCpp.Model/*.cs"
+  "${CMAKE_SOURCE_DIR}/src/SharpCpp.Metadata/*.cs"
+  "${CMAKE_SOURCE_DIR}/src/SharpCpp.Parsing/*.cs"
+  "${CMAKE_SOURCE_DIR}/src/SharpCpp.Pipeline/*.cs"
+  "${CMAKE_SOURCE_DIR}/src/SharpCpp.Rendering/*.cs"
+  "${RBFX_GENERATOR_SRC_DIR}/*.cs"
+  "${CMAKE_SOURCE_DIR}/include/SharpCpp/*.hpp"
+  "${CMAKE_SOURCE_DIR}/include/SharpCpp/*.h")
+
 add_custom_command(
   OUTPUT "${RBFX_GENERATED_STAMP}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "$<SHELL_PATH:${RBFX_GENERATED_ROOT}>"
@@ -150,7 +161,7 @@ add_custom_command(
           --sdk-library "$<SHELL_PATH:$<TARGET_FILE:${RBFX_URHO3D_TARGET}>>"
           --log-file "$<SHELL_PATH:${RBFX_GENERATOR_LOG_FILE}>"
   COMMAND "${CMAKE_COMMAND}" -E touch "${RBFX_GENERATED_STAMP}"
-  DEPENDS "${RBFX_GENERATOR_BUILD_STAMP}" "${RBFX_SDK_FLAGS_FILE}" ${RBFX_SDK_INPUT_HEADERS}
+  DEPENDS "${RBFX_GENERATOR_BUILD_STAMP}" "${RBFX_SDK_FLAGS_FILE}" ${RBFX_SDK_INPUT_HEADERS} ${RBFX_GENERATOR_INPUTS}
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
   VERBATIM
   USES_TERMINAL)
