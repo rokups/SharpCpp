@@ -68,13 +68,18 @@ internal static class Program
         var projectRoot = GetPathOption(args, "--project-root") ?? Environment.CurrentDirectory;
         var fixtureRoot = Path.Combine(projectRoot, "tests", "SharpCpp.Tests.E2E");
         var parser = new ClangSharpHeaderParser();
-        var clangArguments = new[]
+        var clangArguments = new List<string>
         {
             "-xc++",
             "-std=c++20",
             "-Wno-unknown-attributes",
             $"-I{Path.Combine(projectRoot, "include")}",
-            $"-I{fixtureRoot}"
+            $"-I{fixtureRoot}",
+            "-I/usr/include/c++/16.1.1",
+            "-I/usr/include/c++/16.1.1/x86_64-pc-linux-gnu",
+            "-I/usr/include/c++/16.1.1/backward",
+            "-I/usr/lib/gcc/x86_64-pc-linux-gnu/16.1.1/include",
+            "-I/usr/include"
         };
         var marshallerConfigurationFiles = new[]
         {

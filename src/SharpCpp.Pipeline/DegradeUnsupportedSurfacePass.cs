@@ -243,6 +243,7 @@ public static class DegradeUnsupportedSurfacePass
         }
 
         if (!string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
+            !record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal) &&
             !compilation.Records.Any(candidate => !candidate.IsIgnored() && string.Equals(candidate.ManagedName, record.ManagedBaseTypeName, StringComparison.Ordinal)))
         {
             record.SetWarning($"dropping managed base type '{record.ManagedBaseTypeName}' from record '{record.ManagedName}' because the managed base type is not available for a coherent managed hierarchy; the derived record will still be generated without that base");

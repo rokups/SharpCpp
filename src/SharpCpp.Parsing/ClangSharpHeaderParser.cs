@@ -161,6 +161,14 @@ public sealed class ClangSharpHeaderParser
             },
             new CXClientData(IntPtr.Zero));
 
+        foreach (var record in recordsByName.Values)
+        {
+            if (!compilation.Members.Contains(record))
+            {
+                compilation.Members.Add(record);
+            }
+        }
+
         AssignImportMethodNames(compilation);
 
         return compilation;
@@ -1427,7 +1435,9 @@ public sealed class ClangSharpHeaderParser
                     recordsByName.Add(recordName, record);
                 }
 
-                var genericArguments = TryParseGenericArguments(pointeeType.Spelling.ToString(), recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+                var genericArguments = record.HasMetadata(MetadataKeys.PlaceholderRecord)
+                    ? Array.Empty<BindingType>()
+                    : TryParseGenericArguments(pointeeType.Spelling.ToString(), recordsByName, enumsByName, managedTypeOverrides, genericParameters);
                 return genericArguments.Count == 0
                     ? record.HandleType
                     : BindingType.CreateHandle(normalizedTypeName, record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments);
@@ -1449,13 +1459,19 @@ public sealed class ClangSharpHeaderParser
             }
 
             var recordName = GetRecordQualifiedName(normalizedType, recordsByName);
-            if (recordsByName.TryGetValue(recordName, out var record))
+            if (!recordsByName.TryGetValue(recordName, out var record))
             {
-                var genericArguments = TryParseGenericArguments(normalizedType.Spelling.ToString(), recordsByName, enumsByName, managedTypeOverrides, genericParameters);
-                return genericArguments.Count == 0
-                    ? record.HandleType
-                    : BindingType.CreateHandle($"{NormalizeTypeName(normalizedType.Spelling.ToString())}*", record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments);
+                record = new RecordBinding($"record:{recordName}", recordName, ToPascalCase(recordName), NormalizeNamedTypeName(normalizedType.Spelling.ToString()));
+                record.SetMetadata(MetadataKeys.PlaceholderRecord, true);
+                recordsByName.Add(recordName, record);
             }
+
+            var genericArguments = record.HasMetadata(MetadataKeys.PlaceholderRecord)
+                ? Array.Empty<BindingType>()
+                : TryParseGenericArguments(normalizedType.Spelling.ToString(), recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+            return genericArguments.Count == 0
+                ? record.HandleType
+                : BindingType.CreateHandle($"{NormalizeTypeName(normalizedType.Spelling.ToString())}*", record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments);
         }
 
         if (normalizedType.kind == CXTypeKind.CXType_Enum)
@@ -2457,6 +2473,7 @@ public sealed class ClangSharpHeaderParser
             "double" => BindingType.Double,
             "long" => BindingType.NativeInt,
             "unsigned long" => BindingType.NativeUInt,
+            "char" => BindingType.Int8,
             _ when enumsByName.TryGetValue(NormalizeNamedTypeName(normalized), out var @enum) => BindingType.CreateEnum(@enum.NativeName, @enum.ManagedName),
             _ when recordsByName.TryGetValue(NormalizeNamedTypeName(normalized), out var record) => BindingType.CreateHandle($"{normalized}*", record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName),
             _ => throw new NotSupportedException($"ClangSharp sample parser does not support generic argument token '{normalized}'.")

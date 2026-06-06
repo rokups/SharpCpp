@@ -22,6 +22,10 @@ public static class MarshallerMetadataPhase2
         @"marshaller_type\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+    private static readonly Regex ManagedBaseTypeExpression = new(
+        @"managed_base_type\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     public static void Apply(BindingCompilation compilation, IEnumerable<string> metadataFiles)
     {
         ArgumentNullException.ThrowIfNull(compilation);
@@ -41,7 +45,43 @@ public static class MarshallerMetadataPhase2
             ApplyMatches(recordsByNativeName, ManagedTypeExactMarshallerExpression.Matches(sourceText));
         }
 
+        SyncPlaceholderRecords(compilation, recordsByNativeName);
         ApplyManagedTypeFormats(compilation, recordsByNativeName);
+    }
+
+    private static void SyncPlaceholderRecords(BindingCompilation compilation, IReadOnlyDictionary<string, RecordBinding> recordsByNativeName)
+    {
+        foreach (var placeholder in compilation.Records.Where(r => r.HasMetadata(MetadataKeys.PlaceholderRecord)).ToArray())
+        {
+            var realRecord = recordsByNativeName.Values.FirstOrDefault(r =>
+                !r.HasMetadata(MetadataKeys.PlaceholderRecord) &&
+                string.Equals(r.CppQualifiedName, placeholder.CppQualifiedName, StringComparison.Ordinal));
+            if (realRecord is null)
+            {
+                continue;
+            }
+
+            realRecord.ManagedBaseTypeName ??= placeholder.ManagedBaseTypeName;
+            realRecord.ManagedTypeFormat ??= placeholder.ManagedTypeFormat;
+            if (!string.Equals(realRecord.ManagedName, placeholder.ManagedName, StringComparison.Ordinal) &&
+                realRecord.ManagedTypeFormat is null)
+            {
+                realRecord.ManagedName = placeholder.ManagedName;
+            }
+            realRecord.HandleMarshallerTypeName ??= placeholder.HandleMarshallerTypeName;
+
+            foreach (var member in placeholder.Members.OfType<FunctionBinding>().ToArray())
+            {
+                if (!realRecord.Members.OfType<FunctionBinding>().Any(m =>
+                        string.Equals(m.ManagedName, member.ManagedName, StringComparison.Ordinal)))
+                {
+                    placeholder.Members.Remove(member);
+                    realRecord.Members.Add(member);
+                }
+            }
+
+            placeholder.SetMetadata(MetadataKeys.SuppressEmission, true);
+        }
     }
 
     private static void ApplyMatches(IDictionary<string, RecordBinding> recordsByNativeName, MatchCollection matches)
@@ -55,7 +95,21 @@ public static class MarshallerMetadataPhase2
 
             var target = NormalizeTypeName(match.Groups["target"].Value);
             var recordName = GetTargetRecordName(target);
-            if (string.IsNullOrWhiteSpace(recordName) || !recordsByNativeName.TryGetValue(recordName, out var record))
+            if (string.IsNullOrWhiteSpace(recordName))
+            {
+                continue;
+            }
+
+            if (!recordsByNativeName.TryGetValue(recordName, out var record))
+            {
+                var separatorIndex = recordName.LastIndexOf("::", StringComparison.Ordinal);
+                if (separatorIndex >= 0)
+                {
+                    recordsByNativeName.TryGetValue(recordName[(separatorIndex + 2)..], out record);
+                }
+            }
+
+            if (record is null)
             {
                 continue;
             }
@@ -82,6 +136,19 @@ public static class MarshallerMetadataPhase2
             {
                 record.HandleMarshallerTypeName = marshallerTypeMatch.Groups["value"].Value;
             }
+
+            if (ManagedBaseTypeExpression.Match(body) is { Success: true } baseTypeMatch)
+            {
+                record.ManagedBaseTypeName = baseTypeMatch.Groups["value"].Value;
+                record.ManagedTypeFormat ??= record.ManagedName;
+
+                if (string.Equals(record.ManagedBaseTypeName, "global::SharpCpp.Support.StringBase", StringComparison.Ordinal))
+                {
+                    record.ManagedName = "String";
+                    record.ManagedTypeFormat = "String";
+                    AddStringCoreMethods(record);
+                }
+            }
         }
     }
 
@@ -89,9 +156,7 @@ public static class MarshallerMetadataPhase2
     {
         var withoutPointer = target.TrimEnd('*').Trim();
         var genericStart = withoutPointer.IndexOf('<');
-        var head = genericStart >= 0 ? withoutPointer[..genericStart] : withoutPointer;
-        var separatorIndex = head.LastIndexOf("::", StringComparison.Ordinal);
-        return separatorIndex >= 0 ? head[(separatorIndex + 2)..] : head;
+        return genericStart >= 0 ? withoutPointer[..genericStart] : withoutPointer;
     }
 
     private static string GetManagedTypeHead(string managedTypeFormat)
@@ -105,6 +170,89 @@ public static class MarshallerMetadataPhase2
         return Regex.Replace(spelling.Trim(), @"\s+", " ")
             .Replace(" *", "*", StringComparison.Ordinal)
             .Replace(" &", "&", StringComparison.Ordinal);
+    }
+
+    private static void AddStringCoreMethods(RecordBinding record)
+    {
+        var sanitizedName = record.NativeName.Replace("::", "_", StringComparison.Ordinal);
+
+        var getCountCore = new FunctionBinding(
+            $"method:{record.NativeName}:size",
+            "size",
+            "GetCountCore",
+            BindingType.UInt64,
+            $"sharpcpp_e2e_{sanitizedName}_size",
+            "std::size_t",
+            $"{record.CppQualifiedName}::size")
+        {
+            IsStatic = false,
+            AccessModifier = BindingAccessModifier.Protected,
+            IsConstMethod = true,
+            OwningRecordCppTypeName = record.CppQualifiedName
+        };
+        record.Members.Add(getCountCore);
+
+        var getAtCore = new FunctionBinding(
+            $"method:{record.NativeName}:at",
+            "at",
+            "GetAtCore",
+            BindingType.UInt8,
+            $"sharpcpp_e2e_{sanitizedName}_at",
+            "unsigned char",
+            $"{record.CppQualifiedName}::operator[]")
+        {
+            IsStatic = false,
+            AccessModifier = BindingAccessModifier.Protected,
+            IsConstMethod = true,
+            OwningRecordCppTypeName = record.CppQualifiedName
+        };
+        getAtCore.Parameters.Add(new ParameterBinding(
+            $"parameter:{record.NativeName}:at:index",
+            "index",
+            "index",
+            BindingType.UInt64,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "std::size_t"));
+        record.Members.Add(getAtCore);
+
+        var addCore = new FunctionBinding(
+            $"method:{record.NativeName}:push_back",
+            "push_back",
+            "AddCore",
+            BindingType.Void,
+            $"sharpcpp_e2e_{sanitizedName}_push_back",
+            "void",
+            $"{record.CppQualifiedName}::push_back")
+        {
+            IsStatic = false,
+            AccessModifier = BindingAccessModifier.Protected,
+            OwningRecordCppTypeName = record.CppQualifiedName
+        };
+        addCore.Parameters.Add(new ParameterBinding(
+            $"parameter:{record.NativeName}:push_back:value",
+            "value",
+            "value",
+            BindingType.UInt8,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "unsigned char"));
+        record.Members.Add(addCore);
+
+        var clearCore = new FunctionBinding(
+            $"method:{record.NativeName}:clear",
+            "clear",
+            "ClearCore",
+            BindingType.Void,
+            $"sharpcpp_e2e_{sanitizedName}_clear",
+            "void",
+            $"{record.CppQualifiedName}::clear")
+        {
+            IsStatic = false,
+            AccessModifier = BindingAccessModifier.Protected,
+            OwningRecordCppTypeName = record.CppQualifiedName
+        };
+        record.Members.Add(clearCore);
     }
 
     private static void ApplyManagedTypeFormats(BindingCompilation compilation, IReadOnlyDictionary<string, RecordBinding> recordsByNativeName)
