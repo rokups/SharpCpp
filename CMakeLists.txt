@@ -373,7 +373,7 @@ add_library(
   ${SHARPCPP_E2E_GENERATED_CPP_FILES})
 add_dependencies(SharpCppTestsE2E_Native sharpcpp-generate-e2e)
 target_compile_features(SharpCppTestsE2E_Native PRIVATE cxx_std_20)
-set_target_properties(SharpCppTestsE2E_Native PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+set_target_properties(SharpCppTestsE2E_Native PROPERTIES CXX_SCAN_FOR_MODULES OFF UNITY_BUILD ON UNITY_BUILD_BATCH_SIZE 100)
 target_include_directories(
   SharpCppTestsE2E_Native
   PRIVATE
