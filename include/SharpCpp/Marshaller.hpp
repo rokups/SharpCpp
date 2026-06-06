@@ -189,7 +189,7 @@ struct [[sharpcpp::managed_type(public_type = "string")]] Marshaller<char**>
 };
 
 template <>
-struct [[sharpcpp::managed_type(managed_base_type = "global::SharpCpp.Support.StringBase", public_type = "StdString")]]
+struct [[sharpcpp::managed_type(managed_base_type = "global::SharpCpp.Support.StringBase", public_type = "String")]]
 Marshaller<std::basic_string<char> >
 {
     using cpp_type = std::string;

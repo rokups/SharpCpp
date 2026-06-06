@@ -57,8 +57,8 @@ public sealed class StringTests
     }
 
     [Fact]
-    public void StdString_type_exists_and_inherits_StringBase()
+    public void String_type_exists_and_inherits_StringBase()
     {
-        Assert.True(typeof(StdString).IsSubclassOf(typeof(StringBase)));
+        Assert.True(typeof(Std.String).IsSubclassOf(typeof(StringBase)));
     }
 }

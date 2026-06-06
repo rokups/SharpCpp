@@ -147,9 +147,8 @@ public static class MarshallerMetadataPhase2
 
                 if (string.Equals(record.ManagedBaseTypeName, "global::SharpCpp.Support.StringBase", StringComparison.Ordinal))
                 {
-                    record.ManagedName = "StdString";
-                    record.ManagedTypeFormat = "StdString";
-                    record.ManagedNamespace = null;
+                    record.ManagedName = "String";
+                    record.ManagedTypeFormat = "Std.String";
                     AddStringCoreMethods(record);
                 }
             }
