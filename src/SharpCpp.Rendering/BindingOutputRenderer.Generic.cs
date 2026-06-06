@@ -621,7 +621,7 @@ public static partial class BindingOutputRenderer
     {
         var parameterList = string.Join(", ", function.Parameters.Select((parameter, index) => RenderConcreteManagedParameter(parameter, SubstituteGenericType(record, parameter.Type, instantiation))));
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetGenericEntryPointName(function, instantiation)}}")]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetGenericEntryPointName(function, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
             internal static partial nint {{GetGenericImportMethodName(function, instantiation)}}({{parameterList}});
             """;
     }
@@ -637,7 +637,7 @@ public static partial class BindingOutputRenderer
             : $"{returnAttribute}\ninternal static partial {returnTypeName} {GetGenericImportMethodName(function, instantiation)}({parameterList});";
 
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetGenericEntryPointName(function, instantiation)}}")]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetGenericEntryPointName(function, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
             {{importMethodLine}}
             """;
     }
@@ -664,7 +664,7 @@ public static partial class BindingOutputRenderer
             : $"{returnAttribute}\ninternal static partial {returnTypeName} {importMethodName}({parameterList});";
 
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{entryPointName}}")]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{entryPointName}}", StringMarshalling = StringMarshalling.Utf8)]
             {{importMethodLine}}
             """;
     }
@@ -680,7 +680,7 @@ public static partial class BindingOutputRenderer
             : $"{returnAttribute}\ninternal static partial {returnTypeName} {GetGenericImportMethodName(function, instantiation)}({parameterList});";
 
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetGenericEntryPointName(function, instantiation)}}")]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetGenericEntryPointName(function, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
             {{importMethodLine}}
             """;
     }
@@ -698,7 +698,7 @@ public static partial class BindingOutputRenderer
             : $"{returnAttribute}\ninternal static partial {returnTypeName} {importMethodName}({parameterList});";
 
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetGenericEntryPointName(function, instantiation)}}")]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetGenericEntryPointName(function, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
             {{importMethodLine}}
             """;
     }
@@ -706,7 +706,7 @@ public static partial class BindingOutputRenderer
     private static string RenderGenericDeleteImportDeclaration(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetGenericDeleteEntryPointName(record, instantiation)}}")]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetGenericDeleteEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
             internal static partial void {{GetGenericDeleteImportMethodName(record, instantiation)}}(nint self);
             """;
     }

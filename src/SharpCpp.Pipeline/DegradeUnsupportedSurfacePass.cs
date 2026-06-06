@@ -305,8 +305,11 @@ public static class DegradeUnsupportedSurfacePass
 
         if (type.Kind == BindingTypeKind.Primitive && type.PrimitiveKind == BindingPrimitiveKind.Unsupported)
         {
-            reason = $"configured marshaller-backed type '{rawCppTypeName}' is not yet supported";
-            return true;
+            if (string.Equals(type.ManagedTypeName, rawCppTypeName, StringComparison.Ordinal))
+            {
+                reason = $"configured marshaller-backed type '{rawCppTypeName}' is not yet supported";
+                return true;
+            }
         }
 
         if (type.ManagedTypeName.Contains("::", StringComparison.Ordinal) &&

@@ -1335,6 +1335,18 @@ public sealed class ClangSharpHeaderParser
 
         if (normalizedType.kind == CXTypeKind.CXType_Pointer)
         {
+            var normalizedTypeName = NormalizeTypeName(type.Spelling.ToString());
+            if (managedTypeOverrides.TryGetValue(normalizedTypeName, out _))
+            {
+                var pointeeKind = normalizedType.PointeeType.CanonicalType.kind;
+                return (
+                    MapType(type, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
+                    explicitDirection ?? (pointeeKind is CXTypeKind.CXType_Void or CXTypeKind.CXType_Record
+                        ? BindingParameterDirection.In
+                        : (type.PointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Out)),
+                    BindingParameterAbiKind.Value);
+            }
+
             var sourcePointeeType = type.PointeeType;
             var normalizedPointeeType = normalizedType.PointeeType.CanonicalType;
 

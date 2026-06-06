@@ -41,6 +41,72 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Managed_output_uses_ReadOnlySpan_for_const_char_pointer_parameter()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "String/String.hpp" });
+        var constCharType = BindingType.CreateConfigured("const char*", "global::System.ReadOnlySpan<byte>");
+        var function = new FunctionBinding(
+            "function:set_name",
+            "set_name",
+            "SetName",
+            BindingType.Void,
+            "sharpcpp_sample_set_name");
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:set_name:name",
+            "name",
+            "name",
+            constCharType,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "const char*"));
+        compilation.Members.Add(function);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("ReadOnlySpan<byte> name", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public static void SetName(global::System.ReadOnlySpan<byte> name)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial void SetName(global::System.ReadOnlySpan<byte> name);", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Native_output_uses_arg_t_for_const_char_pointer_parameter()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "String/String.hpp" });
+        var constCharType = BindingType.CreateConfigured("const char*", "global::System.ReadOnlySpan<byte>");
+        var function = new FunctionBinding(
+            "function:set_name",
+            "set_name",
+            "SetName",
+            BindingType.Void,
+            "sharpcpp_sample_set_name");
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:set_name:name",
+            "name",
+            "name",
+            constCharType,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "const char*"));
+        compilation.Members.Add(function);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("SHARPCPP_EXPORT ret_t<void> sharpcpp_sample_set_name(arg_t<const char*> name)", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Managed_output_uses_ast_direction_and_abi_kind_for_handle_parameters()
     {
         var compilation = new BindingCompilation(

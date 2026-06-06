@@ -135,6 +135,57 @@ struct Marshaller<const T*>
     }
 };
 
+template <>
+struct [[sharpcpp::managed_type(public_type = "global::System.ReadOnlySpan<byte>")]] Marshaller<const char*>
+{
+    using cpp_type = const char*;
+    using abi_type = const char*;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return value;
+    }
+
+    constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        return value;
+    }
+};
+
+template <>
+struct [[sharpcpp::managed_type(public_type = "string")]] Marshaller<const char**>
+{
+    using cpp_type = const char**;
+    using abi_type = const char**;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return value;
+    }
+
+    constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        return value;
+    }
+};
+
+template <>
+struct [[sharpcpp::managed_type(public_type = "string")]] Marshaller<char**>
+{
+    using cpp_type = char**;
+    using abi_type = char**;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return value;
+    }
+
+    constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        return value;
+    }
+};
+
 template <class T>
 using arg_t = typename Marshaller<T>::abi_type;
 

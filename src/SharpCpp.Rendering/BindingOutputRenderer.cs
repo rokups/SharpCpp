@@ -761,7 +761,7 @@ public static partial class BindingOutputRenderer
 
         writer.Write(
             $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}")]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}", StringMarshalling = StringMarshalling.Utf8)]
             {{importMethodLine}}
             """);
         return writer.ToString();
@@ -1234,7 +1234,7 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedDeleteImportDeclaration(BindingCompilation compilation, RecordBinding record)
     {
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{record.NativeName}}_delete")]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{record.NativeName}}_delete", StringMarshalling = StringMarshalling.Utf8)]
             internal static partial void Delete(nint self);
             """;
     }
@@ -1412,7 +1412,7 @@ public static partial class BindingOutputRenderer
         var importMethodName = GetManagedImportMethodName(function);
 
         writer.Write($$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}")]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}", StringMarshalling = StringMarshalling.Utf8)]
             internal static partial nint {{importMethodName}}({{parameterList}});
             """);
         return writer.ToString();
@@ -1428,7 +1428,7 @@ public static partial class BindingOutputRenderer
             new[] { "nint self" }.Concat(slots.Select((_, index) => $"nint slot{index}")));
 
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{record.NativeName}}_connect_director")]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{record.NativeName}}_connect_director", StringMarshalling = StringMarshalling.Utf8)]
             internal static partial void ConnectDirector({{parameterList}});
             """;
     }
@@ -1620,7 +1620,7 @@ public static partial class BindingOutputRenderer
 
         writer.Write(
             $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}")]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}", StringMarshalling = StringMarshalling.Utf8)]
             {{importMethodLine}}
             """);
         return writer.ToString();
@@ -1797,7 +1797,7 @@ public static partial class BindingOutputRenderer
 
         writer.Write(
             $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}")]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}", StringMarshalling = StringMarshalling.Utf8)]
             {{importMethodLine}}
             """);
         return writer.ToString();
@@ -1819,7 +1819,7 @@ public static partial class BindingOutputRenderer
 
         writer.Write(
             $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}")]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}", StringMarshalling = StringMarshalling.Utf8)]
             {{importMethodLine}}
             """);
         return writer.ToString();
@@ -1844,7 +1844,7 @@ public static partial class BindingOutputRenderer
 
         writer.Write(
             $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{entryPointName}}")]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{entryPointName}}", StringMarshalling = StringMarshalling.Utf8)]
             {{importMethodLine}}
             """);
         return writer.ToString();
@@ -1975,7 +1975,7 @@ public static partial class BindingOutputRenderer
             : $"{returnAttribute}\ninternal static partial {returnTypeName} Get_{field.ManagedName}({recordManagedName} self);";
 
         writer.Write($$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_get")]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_get", StringMarshalling = StringMarshalling.Utf8)]
             {{importMethodLine}}
             """);
         return writer.ToString();
@@ -1995,7 +1995,7 @@ public static partial class BindingOutputRenderer
                 field.CppTypeName));
 
         writer.Write($$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_set")]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_set", StringMarshalling = StringMarshalling.Utf8)]
             internal static partial void Set_{{field.ManagedName}}({{recordManagedName}} self, {{parameter}});
             """);
         return writer.ToString();
@@ -2772,7 +2772,7 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedStaticTypeIdImportDeclaration(BindingCompilation compilation, RecordBinding record)
     {
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{record.NativeName}}_type_id")]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{record.NativeName}}_type_id", StringMarshalling = StringMarshalling.Utf8)]
             internal static partial nuint GetStaticTypeId();
             """;
     }
@@ -2780,7 +2780,7 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedNativeObjectMetadataImportDeclaration(BindingCompilation compilation, RecordBinding record)
     {
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{record.NativeName}}_metadata")]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{record.NativeName}}_metadata", StringMarshalling = StringMarshalling.Utf8)]
             internal static partial void GetNativeObjectMetadata(nint self, out nint handle, out nuint dynamicTypeId);
             """;
     }
@@ -3000,7 +3000,7 @@ public static partial class BindingOutputRenderer
                 : $"{returnAttribute}\ninternal static partial {returnTypeName} {importName}({parameterList});";
 
             writer.Write($$"""
-                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{entrypointName}}")]
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{entrypointName}}", StringMarshalling = StringMarshalling.Utf8)]
                 {{importMethodLine}}
                 """);
         }
@@ -3024,7 +3024,7 @@ public static partial class BindingOutputRenderer
                 : $"{returnAttribute}\ninternal static partial {returnTypeName} {variantImportName}({parameterList});";
 
             writer.Write($$"""
-                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{variantEntrypointName}}")]
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{variantEntrypointName}}", StringMarshalling = StringMarshalling.Utf8)]
                 {{importMethodLine}}
                 """);
         }
@@ -3056,7 +3056,7 @@ public static partial class BindingOutputRenderer
                 : $"{returnAttribute}\ninternal static partial {returnTypeName} {variantImportName}({parameterList});";
 
             writer.Write($$"""
-                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{variantEntrypointName}}")]
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{variantEntrypointName}}", StringMarshalling = StringMarshalling.Utf8)]
                 {{importMethodLine}}
                 """);
         }
@@ -3076,7 +3076,7 @@ public static partial class BindingOutputRenderer
             var variantEntrypointName = GetUnexpressibleVariantEntrypointName(function.EntryPointName, keepCount);
 
             writer.Write($$"""
-                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{variantEntrypointName}}")]
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{variantEntrypointName}}", StringMarshalling = StringMarshalling.Utf8)]
                 internal static partial nint {{variantImportName}}({{parameterList}});
                 """);
         }
