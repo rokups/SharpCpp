@@ -1,12 +1,7 @@
 #pragma once
 
-extern "C"
-{
-    unsigned long strlen(const char* s);
-    char* strcpy(char* dest, const char* src);
-    void* malloc(unsigned long size);
-    void free(void* ptr);
-}
+#include <cstdlib>
+#include <cstring>
 
 inline int string_length(const char* value)
 {
@@ -31,16 +26,16 @@ inline bool string_equals(const char* lhs, const char* rhs)
 inline void get_name(const char** value)
 {
     const char* source = "SharpCpp";
-    auto* buf = (char*)malloc(strlen(source) + 1);
-    strcpy(buf, source);
+    auto* buf = (char*)std::malloc(std::strlen(source) + 1);
+    std::strcpy(buf, source);
     *value = buf;
 }
 
 inline void replace_name([[sharpcpp::ref]] char** value)
 {
     const char* source = "replaced";
-    auto* buf = (char*)malloc(strlen(source) + 1);
-    strcpy(buf, source);
-    free(*value);
+    auto* buf = (char*)std::malloc(std::strlen(source) + 1);
+    std::strcpy(buf, source);
+    std::free(*value);
     *value = buf;
 }

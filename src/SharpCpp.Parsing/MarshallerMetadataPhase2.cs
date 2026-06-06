@@ -103,9 +103,12 @@ public static class MarshallerMetadataPhase2
             if (!recordsByNativeName.TryGetValue(recordName, out var record))
             {
                 var separatorIndex = recordName.LastIndexOf("::", StringComparison.Ordinal);
-                if (separatorIndex >= 0)
+                var unqualified = separatorIndex >= 0 ? recordName[(separatorIndex + 2)..] : recordName;
+                if (!recordsByNativeName.TryGetValue(unqualified, out record))
                 {
-                    recordsByNativeName.TryGetValue(recordName[(separatorIndex + 2)..], out record);
+                    record = recordsByNativeName.FirstOrDefault(kvp =>
+                        kvp.Key.StartsWith(unqualified, StringComparison.Ordinal) &&
+                        (kvp.Key.Length == unqualified.Length || kvp.Key[unqualified.Length] == '<')).Value;
                 }
             }
 
@@ -294,11 +297,27 @@ public static class MarshallerMetadataPhase2
         }
 
         var record = recordsByNativeName.Values.FirstOrDefault(candidate => string.Equals(candidate.SymbolId, type.RecordId, StringComparison.Ordinal));
+        if (record is null && type.RecordId.StartsWith("record:", StringComparison.Ordinal))
+        {
+            var qualifiedName = StripGenericArguments(type.RecordId["record:".Length..]);
+            record = recordsByNativeName.Values.FirstOrDefault(candidate =>
+                string.Equals(candidate.CppQualifiedName, qualifiedName, StringComparison.Ordinal) ||
+                candidate.CppQualifiedName.EndsWith("::" + qualifiedName, StringComparison.Ordinal) ||
+                string.Equals(candidate.NativeName, qualifiedName, StringComparison.Ordinal) ||
+                string.Equals(candidate.ManagedName, qualifiedName, StringComparison.Ordinal));
+        }
+
         if (record is null)
         {
             return;
         }
 
         type.SetManagedTypeFormatOverride(record.ManagedTypeFormat ?? record.ManagedName);
+    }
+
+    private static string StripGenericArguments(string name)
+    {
+        var genericStart = name.IndexOf('<');
+        return genericStart >= 0 ? name[..genericStart] : name;
     }
 }
