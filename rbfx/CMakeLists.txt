@@ -147,6 +147,7 @@ file(GLOB_RECURSE RBFX_GENERATOR_INPUTS CONFIGURE_DEPENDS
   "${CMAKE_SOURCE_DIR}/src/SharpCpp.Pipeline/*.cs"
   "${CMAKE_SOURCE_DIR}/src/SharpCpp.Rendering/*.cs"
   "${RBFX_GENERATOR_SRC_DIR}/*.cs"
+  "${CMAKE_CURRENT_SOURCE_DIR}/*.hpp"
   "${CMAKE_SOURCE_DIR}/include/SharpCpp/*.hpp"
   "${CMAKE_SOURCE_DIR}/include/SharpCpp/*.h")
 
