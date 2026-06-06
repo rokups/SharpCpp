@@ -1,5 +1,7 @@
 using System;
+using System.Text;
 
+using SharpCpp.Support;
 using SharpCpp.Tests.E2E.Generated;
 
 using Xunit;
@@ -52,5 +54,11 @@ public sealed class StringTests
         var value = "original";
         E2EBindings.ReplaceName(ref value);
         Assert.Equal("replaced", value);
+    }
+
+    [Fact]
+    public void StdString_type_exists_and_inherits_StringBase()
+    {
+        Assert.True(typeof(StdString).IsSubclassOf(typeof(StringBase)));
     }
 }

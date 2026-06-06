@@ -414,7 +414,7 @@ public static partial class BindingOutputRenderer
         if (!requiresDirector)
         {
             return $$"""
-                SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{record.NativeName}}_delete(arg_t<{{record.CppQualifiedName}}*> self)
+                SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.NativeName)}}_delete(arg_t<{{record.CppQualifiedName}}*> self)
                 {
                 MarshallerInvoker::destroy<{{record.CppQualifiedName}}>(self);
                 }
@@ -423,7 +423,7 @@ public static partial class BindingOutputRenderer
 
         var directorName = GetNativeDirectorClassName(record);
         return $$"""
-            SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{record.NativeName}}_delete(arg_t<{{record.CppQualifiedName}}*> self)
+            SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.NativeName)}}_delete(arg_t<{{record.CppQualifiedName}}*> self)
             {
             if (auto* director = dynamic_cast<{{directorName}}*>(self))
             {
@@ -834,7 +834,8 @@ public static partial class BindingOutputRenderer
 
         WriteDocumentationComment(writer, record);
         var classModifier = record.IsAbstract ? "abstract " : string.Empty;
-        var hidesStaticHelpers = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName);
+        var hidesStaticHelpers = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) && 
+            !record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal);
         var staticHelperModifier = hidesStaticHelpers ? "new " : string.Empty;
         var cacheFieldModifier = hidesStaticHelpers ? "new " : string.Empty;
         var interfaceNames = record.GetSecondaryBaseRecords(compilation)
@@ -1073,14 +1074,16 @@ public static partial class BindingOutputRenderer
             writer.WriteLine();
         }
 
+        var hasGeneratedBase = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) && 
+            !record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal);
         writer.Write(
-            string.IsNullOrWhiteSpace(record.ManagedBaseTypeName)
-            ? """
-            internal static partial class __PInvoke
+            hasGeneratedBase
+            ? $$"""
+            new internal static partial class __PInvoke
             {
             """
-            : """
-            new internal static partial class __PInvoke
+            : $$"""
+            internal static partial class __PInvoke
             {
             """);
 
@@ -1234,7 +1237,7 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedDeleteImportDeclaration(BindingCompilation compilation, RecordBinding record)
     {
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{record.NativeName}}_delete", StringMarshalling = StringMarshalling.Utf8)]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.NativeName)}}_delete", StringMarshalling = StringMarshalling.Utf8)]
             internal static partial void Delete(nint self);
             """;
     }
@@ -2203,7 +2206,8 @@ public static partial class BindingOutputRenderer
                 using FT = {{memberSignature}};
                 """);
 
-            writer.Write(method.AccessModifier == BindingAccessModifier.Protected
+            var owningRecord = method.Parent as RecordBinding;
+            writer.Write(method.AccessModifier == BindingAccessModifier.Protected && owningRecord is not null && owningRecord.RequiresDirector(compilation)
                 ? RenderNativeProtectedMethodInvocation(compilation, method, abiArguments, memberSignature)
                 : RenderNativeMethodInvocation(method, abiArguments, memberSignature));
 
@@ -2564,7 +2568,7 @@ public static partial class BindingOutputRenderer
         if (function.IsVirtual)
         {
             var modifier = FindPrimaryBaseVirtualMatch(compilation, record, function) is null
-                ? "virtual "
+                ? (function.IsOverride && !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "override " : "virtual ")
                 : "override ";
 
             if (function.IsFinal && modifier == "override ")
@@ -2573,6 +2577,12 @@ public static partial class BindingOutputRenderer
             }
 
             return modifier;
+        }
+
+        if (function.IsOverride && !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
+            record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal))
+        {
+            return "override ";
         }
 
         return ShouldUseNewModifier(compilation, record, function.ManagedName) ? "new " : string.Empty;
@@ -2827,7 +2837,9 @@ public static partial class BindingOutputRenderer
 
     private static string SanitizeNativeEntrypointName(string value)
     {
-        return value.Replace("::", "_", StringComparison.Ordinal);
+        return value.Replace("::", "_", StringComparison.Ordinal)
+                    .Replace("<", "_", StringComparison.Ordinal)
+                    .Replace(">", "_", StringComparison.Ordinal);
     }
 
     private static string GetManagedParameterAttribute(BindingType type)

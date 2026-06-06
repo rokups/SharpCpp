@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 inline int string_length(const char* value)
 {
@@ -38,4 +39,9 @@ inline void replace_name([[sharpcpp::ref]] char** value)
     std::strcpy(buf, source);
     std::free(*value);
     *value = buf;
+}
+
+inline int measure_std_string(const std::string& value)
+{
+    return static_cast<int>(value.size());
 }

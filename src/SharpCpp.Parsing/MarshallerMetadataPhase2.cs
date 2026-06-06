@@ -147,8 +147,8 @@ public static class MarshallerMetadataPhase2
 
                 if (string.Equals(record.ManagedBaseTypeName, "global::SharpCpp.Support.StringBase", StringComparison.Ordinal))
                 {
-                    record.ManagedName = "String";
-                    record.ManagedTypeFormat = "String";
+                    record.ManagedName = "StdString";
+                    record.ManagedTypeFormat = "StdString";
                     AddStringCoreMethods(record);
                 }
             }
@@ -177,7 +177,10 @@ public static class MarshallerMetadataPhase2
 
     private static void AddStringCoreMethods(RecordBinding record)
     {
-        var sanitizedName = record.NativeName.Replace("::", "_", StringComparison.Ordinal);
+        var sanitizedName = record.NativeName
+            .Replace("::", "_", StringComparison.Ordinal)
+            .Replace("<", "_", StringComparison.Ordinal)
+            .Replace(">", "_", StringComparison.Ordinal);
 
         var getCountCore = new FunctionBinding(
             $"method:{record.NativeName}:size",
@@ -191,33 +194,10 @@ public static class MarshallerMetadataPhase2
             IsStatic = false,
             AccessModifier = BindingAccessModifier.Protected,
             IsConstMethod = true,
+            IsOverride = true,
             OwningRecordCppTypeName = record.CppQualifiedName
         };
         record.Members.Add(getCountCore);
-
-        var getAtCore = new FunctionBinding(
-            $"method:{record.NativeName}:at",
-            "at",
-            "GetAtCore",
-            BindingType.UInt8,
-            $"sharpcpp_e2e_{sanitizedName}_at",
-            "unsigned char",
-            $"{record.CppQualifiedName}::operator[]")
-        {
-            IsStatic = false,
-            AccessModifier = BindingAccessModifier.Protected,
-            IsConstMethod = true,
-            OwningRecordCppTypeName = record.CppQualifiedName
-        };
-        getAtCore.Parameters.Add(new ParameterBinding(
-            $"parameter:{record.NativeName}:at:index",
-            "index",
-            "index",
-            BindingType.UInt64,
-            BindingParameterDirection.In,
-            BindingParameterAbiKind.Value,
-            "std::size_t"));
-        record.Members.Add(getAtCore);
 
         var addCore = new FunctionBinding(
             $"method:{record.NativeName}:push_back",
@@ -230,6 +210,7 @@ public static class MarshallerMetadataPhase2
         {
             IsStatic = false,
             AccessModifier = BindingAccessModifier.Protected,
+            IsOverride = true,
             OwningRecordCppTypeName = record.CppQualifiedName
         };
         addCore.Parameters.Add(new ParameterBinding(
@@ -253,6 +234,7 @@ public static class MarshallerMetadataPhase2
         {
             IsStatic = false,
             AccessModifier = BindingAccessModifier.Protected,
+            IsOverride = true,
             OwningRecordCppTypeName = record.CppQualifiedName
         };
         record.Members.Add(clearCore);

@@ -18,10 +18,10 @@ public abstract class StringBase : NativeObject, IReadOnlyList<char>, IEquatable
         Assign(value);
     }
 
-    protected abstract ulong GetCountCore();
-    protected abstract void ClearCore();
-    protected abstract byte GetAtCore(ulong index);
-    protected abstract void AddCore(byte value);
+    protected virtual ulong GetCountCore() => throw new NotImplementedException();
+    protected virtual void ClearCore() => throw new NotImplementedException();
+    protected virtual byte GetAtCore(ulong index) => throw new NotImplementedException();
+    protected virtual void AddCore(byte value) => throw new NotImplementedException();
 
     public void Assign(string? value)
     {
