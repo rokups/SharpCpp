@@ -2568,7 +2568,8 @@ public static partial class BindingOutputRenderer
         if (function.IsVirtual)
         {
             var modifier = FindPrimaryBaseVirtualMatch(compilation, record, function) is null
-                ? (function.IsOverride && !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "override " : "virtual ")
+                ? (function.IsOverride && !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
+                   record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal) ? "override " : "virtual ")
                 : "override ";
 
             if (function.IsFinal && modifier == "override ")

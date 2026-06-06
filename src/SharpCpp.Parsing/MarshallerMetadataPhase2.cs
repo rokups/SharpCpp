@@ -149,6 +149,7 @@ public static class MarshallerMetadataPhase2
                 {
                     record.ManagedName = "StdString";
                     record.ManagedTypeFormat = "StdString";
+                    record.ManagedNamespace = null;
                     AddStringCoreMethods(record);
                 }
             }
