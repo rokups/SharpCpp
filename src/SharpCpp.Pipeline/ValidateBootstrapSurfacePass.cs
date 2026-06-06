@@ -45,6 +45,12 @@ public static class ValidateBootstrapSurfacePass
 
     private static void ValidateGenericRecord(RecordBinding record)
     {
+        if (record.SupportedGenericInstantiations.Count == 0 && !record.HasMetadata(MetadataKeys.ExplicitGenericInstantiations))
+        {
+            record.SetIgnoreReason($"generic record '{record.ManagedName}' has no known concrete instantiations");
+            return;
+        }
+
         if (record.IsDirector || record.IsPolymorphic || record.Bases.Count > 0)
         {
             record.SetIgnoreReason($"generic record '{record.ManagedName}' is limited to non-polymorphic, non-director, non-inheriting surface in this slice");
@@ -75,6 +81,12 @@ public static class ValidateBootstrapSurfacePass
 
     private static void ValidateGenericFunction(FunctionBinding function)
     {
+        if (function.SupportedGenericInstantiations.Count == 0 && !function.HasMetadata(MetadataKeys.ExplicitGenericInstantiations))
+        {
+            function.SetIgnoreReason($"generic function '{function.ManagedName}' has no known concrete instantiations");
+            return;
+        }
+
         if (function.FindOwningRecord() is { IsGeneric: false } ownerRecord)
         {
             function.SetIgnoreReason($"generic method '{ownerRecord.ManagedName}.{function.ManagedName}' is not supported on non-generic records in this bootstrap surface");

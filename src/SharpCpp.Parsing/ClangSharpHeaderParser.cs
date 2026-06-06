@@ -1339,6 +1339,17 @@ public sealed class ClangSharpHeaderParser
                     BindingParameterAbiKind.Value);
             }
 
+            var pointeeTypeName = NormalizeTypeName(sourcePointeeType.Spelling.ToString());
+            if (normalizedPointeeType.kind == CXTypeKind.CXType_Pointer &&
+                managedTypeOverrides.TryGetValue(pointeeTypeName, out var pointeeOverride) &&
+                pointeeOverride.PublicTypeName.Contains("ReadOnlySpan", StringComparison.Ordinal))
+            {
+                return (
+                    MapType(sourcePointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
+                    explicitDirection ?? BindingParameterDirection.In,
+                    BindingParameterAbiKind.Value);
+            }
+
             return (
                 MapType(normalizedPointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
                 explicitDirection ?? (sourcePointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Ref),
