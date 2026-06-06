@@ -1,6 +1,7 @@
 using SharpCpp.Metadata.Export;
 using SharpCpp.Metadata.Import;
 using SharpCpp.Model.Ast;
+using Xunit;
 
 namespace SharpCpp.Tests.Metadata;
 

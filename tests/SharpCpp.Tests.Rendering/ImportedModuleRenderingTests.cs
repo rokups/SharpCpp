@@ -1,5 +1,6 @@
 using SharpCpp.Model.Ast;
 using SharpCpp.Rendering;
+using Xunit;
 
 namespace SharpCpp.Tests.Rendering;
 

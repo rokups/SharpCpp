@@ -221,6 +221,21 @@ struct MarshallerInvoker
             std::forward<TAbiArgs>(abiArguments)...);
     }
 
+    template <typename FT, typename TCallable, typename... TAbiArgs>
+    static decltype(auto) invoke_as(TCallable&& callable, TAbiArgs&&... abiArguments)
+    {
+        using traits = detail::FunctionTraits<FT>;
+        using result_type = typename traits::return_type;
+        using arg_tuple = typename traits::argument_tuple;
+
+        detail::marshaller_tuple_t<arg_tuple> marshallers;
+        return detail::InvokeWithMarshallersImpl<result_type, arg_tuple>(
+            std::forward<TCallable>(callable),
+            marshallers,
+            std::make_index_sequence<std::tuple_size_v<arg_tuple>>{},
+            std::forward<TAbiArgs>(abiArguments)...);
+    }
+
     template <typename FT, typename TSelfAbi, typename... TAbiArgs>
     static decltype(auto) invoke(FT method, TSelfAbi self, TAbiArgs&&... abiArguments)
     {

@@ -3093,22 +3093,20 @@ public static partial class BindingOutputRenderer
             var parameterList = string.Join(", ", variantParams.Select(RenderNativeParameter));
             var abiArguments = string.Join(", ", variantParams.Select(static p => p.NativeName));
             var entrypointName = GetUnexpressibleVariantEntrypointName(function.EntryPointName, keepCount);
-            var safeSuffix = new string(entrypointName.Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
-            var wrapperName = $"__{safeSuffix}_wrapper";
             var cppTypeNames = string.Join(", ", variantParams.Select(static p => p.CppTypeName));
-            var cppParamDecls = string.Join(", ", variantParams.Select(static p => $"{p.CppTypeName} {p.NativeName}"));
+            var cppParamDecls = string.Join(", ", variantParams.Select(static p => $"auto&& {p.NativeName}"));
             var signature = $"{function.CppReturnTypeName}({cppTypeNames})";
+            var forwardedArgs = string.Join(", ", variantParams.Select(static p => $"std::forward<decltype({p.NativeName})>({p.NativeName})"));
 
             writer.Write($$"""
-                static auto {{wrapperName}}({{cppParamDecls}}) -> {{function.CppReturnTypeName}}
-                {
-                    {{(function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? string.Empty : "return ")}}{{function.CppQualifiedName}}({{string.Join(", ", variantParams.Select(static p => p.NativeName))}});
-                }
-
                 SHARPCPP_EXPORT ret_t<{{function.CppReturnTypeName}}> {{entrypointName}}({{parameterList}})
                 {
                     using FT = {{signature}};
-                    {{(function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? string.Empty : "return ")}}MarshallerInvoker::invoke_as<FT>(&{{wrapperName}}{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                    auto fn = []({{cppParamDecls}}) -> decltype(auto)
+                    {
+                        return {{function.CppQualifiedName}}({{forwardedArgs}});
+                    };
+                    return MarshallerInvoker::invoke_as<FT>(fn{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
                 }
 
                 """);
@@ -3125,22 +3123,20 @@ public static partial class BindingOutputRenderer
             var parameterList = string.Join(", ", variantParams.Select(RenderNativeParameter));
             var abiArguments = string.Join(", ", variantParams.Select(static p => p.NativeName));
             var entrypointName = GetUnexpressibleVariantEntrypointName(method.EntryPointName, keepCount);
-            var safeSuffix = new string(entrypointName.Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
-            var wrapperName = $"__{safeSuffix}_wrapper";
             var cppTypeNames = string.Join(", ", variantParams.Select(static p => p.CppTypeName));
-            var cppParamDecls = string.Join(", ", variantParams.Select(static p => $"{p.CppTypeName} {p.NativeName}"));
+            var cppParamDecls = string.Join(", ", variantParams.Select(static p => $"auto&& {p.NativeName}"));
             var signature = $"{method.CppReturnTypeName}({cppTypeNames})";
+            var forwardedArgs = string.Join(", ", variantParams.Select(static p => $"std::forward<decltype({p.NativeName})>({p.NativeName})"));
 
             writer.Write($$"""
-                static auto {{wrapperName}}({{cppParamDecls}}) -> {{method.CppReturnTypeName}}
-                {
-                    {{(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? string.Empty : "return ")}}{{method.OwningRecordCppTypeName}}::{{method.NativeName}}({{string.Join(", ", variantParams.Select(static p => p.NativeName))}});
-                }
-
                 SHARPCPP_EXPORT ret_t<{{method.CppReturnTypeName}}> {{entrypointName}}({{parameterList}})
                 {
                     using FT = {{signature}};
-                    {{(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? string.Empty : "return ")}}MarshallerInvoker::invoke_as<FT>(&{{wrapperName}}{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                    auto fn = []({{cppParamDecls}}) -> decltype(auto)
+                    {
+                        return {{method.OwningRecordCppTypeName}}::{{method.NativeName}}({{forwardedArgs}});
+                    };
+                    return MarshallerInvoker::invoke_as<FT>(fn{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
                 }
 
                 """);
@@ -3163,38 +3159,30 @@ public static partial class BindingOutputRenderer
             var parameterList = string.Join(", ", new[] { $"arg_t<{method.OwningRecordCppTypeName}*> self" }.Concat(variantParams.Select(RenderNativeParameter)));
             var abiArguments = string.Join(", ", variantParams.Select(static p => p.NativeName));
             var entrypointName = GetUnexpressibleVariantEntrypointName(method.EntryPointName, keepCount);
-            var safeSuffix = new string(entrypointName.Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
-            var wrapperName = $"__{safeSuffix}_wrapper";
             var cppTypeNames = string.Join(", ", new[] { $"{method.OwningRecordCppTypeName}*" }.Concat(variantParams.Select(static p => p.CppTypeName)));
-            var cppParamDecls = string.Join(", ", new[] { $"{method.OwningRecordCppTypeName}* self" }.Concat(variantParams.Select(static p => $"{p.CppTypeName} {p.NativeName}")));
+            var cppParamDecls = string.Join(", ", new[] { "auto&& self" }.Concat(variantParams.Select(static p => $"auto&& {p.NativeName}")));
             var signature = $"{method.CppReturnTypeName}({cppTypeNames})";
-            var callArguments = string.Join(", ", variantParams.Select(static p => p.NativeName));
+            var forwardedArgs = string.Join(", ", variantParams.Select(static p => $"std::forward<decltype({p.NativeName})>({p.NativeName})"));
             var invocation = method.NativeDispatchRecordCppTypeName is null
-                ? (method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
-                    ? $"self->{method.NativeName}({callArguments});"
-                    : $"return self->{method.NativeName}({callArguments});")
+                ? $"return std::forward<decltype(self)>(self)->{method.NativeName}({forwardedArgs});"
                 : $$"""
-                    auto* dispatch = dynamic_cast<{{method.NativeDispatchRecordCppTypeName}}*>(self);
+                    auto* dispatch = dynamic_cast<{{method.NativeDispatchRecordCppTypeName}}*>(std::forward<decltype(self)>(self));
                     if (dispatch == nullptr)
                     {
-                    throw std::runtime_error("SharpCpp failed to adjust the native handle for secondary-base dispatch.");
+                        throw std::runtime_error("SharpCpp failed to adjust the native handle for secondary-base dispatch.");
                     }
-
-                    {{(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
-                        ? $"dispatch->{method.NativeName}({callArguments});"
-                        : $"return dispatch->{method.NativeName}({callArguments});")}}
+                    return dispatch->{{method.NativeName}}({{forwardedArgs}});
                     """;
 
             writer.Write($$"""
-                static auto {{wrapperName}}({{cppParamDecls}}) -> {{method.CppReturnTypeName}}
-                {
-                    {{invocation}}
-                }
-
                 SHARPCPP_EXPORT ret_t<{{method.CppReturnTypeName}}> {{entrypointName}}({{parameterList}})
                 {
                     using FT = {{signature}};
-                    {{(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? string.Empty : "return ")}}MarshallerInvoker::invoke_as<FT>(&{{wrapperName}}, self{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                    auto fn = []({{cppParamDecls}}) -> decltype(auto)
+                    {
+                        {{invocation}}
+                    };
+                    return MarshallerInvoker::invoke_as<FT>(fn, self{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
                 }
 
                 """);
@@ -3215,22 +3203,20 @@ public static partial class BindingOutputRenderer
             var parameterList = string.Join(", ", new[] { $"arg_t<{record.CppQualifiedName}*> self" }.Concat(variantParams.Select(RenderNativeParameter)));
             var abiArguments = string.Join(", ", variantParams.Select(static p => p.NativeName));
             var entrypointName = GetUnexpressibleVariantEntrypointName(baseEntrypointName, keepCount);
-            var safeSuffix = new string(entrypointName.Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
-            var wrapperName = $"__{safeSuffix}_wrapper";
             var cppTypeNames = string.Join(", ", new[] { $"{record.CppQualifiedName}*" }.Concat(variantParams.Select(static p => p.CppTypeName)));
-            var cppParamDecls = string.Join(", ", new[] { $"{record.CppQualifiedName}* self" }.Concat(variantParams.Select(static p => $"{p.CppTypeName} {p.NativeName}")));
+            var cppParamDecls = string.Join(", ", new[] { "auto&& self" }.Concat(variantParams.Select(static p => $"auto&& {p.NativeName}")));
             var signature = $"{method.CppReturnTypeName}({cppTypeNames})";
+            var forwardedArgs = string.Join(", ", variantParams.Select(static p => $"std::forward<decltype({p.NativeName})>({p.NativeName})"));
 
             writer.Write($$"""
-                static auto {{wrapperName}}({{cppParamDecls}}) -> {{method.CppReturnTypeName}}
-                {
-                    {{(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? string.Empty : "return ")}}{{helperName}}(self{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
-                }
-
                 SHARPCPP_EXPORT ret_t<{{method.CppReturnTypeName}}> {{entrypointName}}({{parameterList}})
                 {
                     using FT = {{signature}};
-                    {{(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? string.Empty : "return ")}}MarshallerInvoker::invoke_as<FT>(&{{wrapperName}}, self{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                    auto fn = []({{cppParamDecls}}) -> decltype(auto)
+                    {
+                        return {{helperName}}(std::forward<decltype(self)>(self){{(abiArguments.Length > 0 ? $", {forwardedArgs}" : string.Empty)}});
+                    };
+                    return MarshallerInvoker::invoke_as<FT>(fn, self{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
                 }
 
                 """);
@@ -3248,25 +3234,23 @@ public static partial class BindingOutputRenderer
             var parameterList = string.Join(", ", variantParams.Select(RenderNativeParameter));
             var abiArguments = string.Join(", ", variantParams.Select(static p => p.NativeName));
             var entrypointName = GetUnexpressibleVariantEntrypointName(constructor.EntryPointName, keepCount);
-            var safeSuffix = new string(entrypointName.Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
-            var wrapperName = $"__{safeSuffix}_wrapper";
             var cppTypeNames = string.Join(", ", variantParams.Select(static p => p.CppTypeName));
-            var cppParamDecls = string.Join(", ", variantParams.Select(static p => $"{p.CppTypeName} {p.NativeName}"));
+            var cppParamDecls = string.Join(", ", variantParams.Select(static p => $"auto&& {p.NativeName}"));
             var signature = $"{constructor.CppReturnTypeName}({cppTypeNames})";
             var constructedTypeName = requiresDirector
                 ? GetNativeDirectorClassName((RecordBinding)constructor.Parent!)
                 : constructor.OwningRecordCppTypeName;
+            var forwardedArgs = string.Join(", ", variantParams.Select(static p => $"std::forward<decltype({p.NativeName})>({p.NativeName})"));
 
             writer.Write($$"""
-                static auto {{wrapperName}}({{cppParamDecls}}) -> {{constructor.CppReturnTypeName}}
-                {
-                    return new {{constructedTypeName}}({{string.Join(", ", variantParams.Select(static p => p.NativeName))}});
-                }
-
                 SHARPCPP_EXPORT ret_t<{{constructor.CppReturnTypeName}}> {{entrypointName}}({{parameterList}})
                 {
                     using FT = {{signature}};
-                    return MarshallerInvoker::invoke_as<FT>(&{{wrapperName}}{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                    auto fn = []({{cppParamDecls}}) -> decltype(auto)
+                    {
+                        return new {{constructedTypeName}}({{forwardedArgs}});
+                    };
+                    return MarshallerInvoker::invoke_as<FT>(fn{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
                 }
 
                 """);
