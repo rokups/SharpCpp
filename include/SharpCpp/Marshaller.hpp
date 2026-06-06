@@ -266,11 +266,14 @@ template <class T>
 using arg_t = typename Marshaller<T>::abi_type;
 
 template <class T>
-using ret_t = typename Marshaller<T>::abi_type;
-
-template <class T>
 using ParameterMarshaller = Marshaller<T>;
 
 template <class T>
-using ReturnMarshaller = Marshaller<T>;
+struct ReturnMarshaller : Marshaller<T> {};
+
+template <>
+struct [[sharpcpp::managed_type(public_type = "string")]] ReturnMarshaller<const char*> : Marshaller<const char*> {};
+
+template <class T>
+using ret_t = typename ReturnMarshaller<T>::abi_type;
 }

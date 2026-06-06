@@ -33,6 +33,9 @@ public sealed class ClangSharpHeaderParser
     private static readonly Regex ManagedTypeMarshallerExpression = new(
         @"template\s*<>\s*struct\s*\[\[\s*sharpcpp::managed_type\((?<body>.*?)\)\s*\]\]\s*Marshaller\s*<\s*(?<cppType>.*?)\s*>\s*\{(?<members>.*?)\};",
         RegexOptions.CultureInvariant | RegexOptions.Compiled | RegexOptions.Singleline);
+    private static readonly Regex ReturnMarshallerExpression = new(
+        @"template\s*<>\s*struct\s*\[\[\s*sharpcpp::managed_type\((?<body>.*?)\)\s*\]\]\s*ReturnMarshaller\s*<\s*(?<cppType>.*?)\s*>\s*.+;",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled | RegexOptions.Singleline);
     private static readonly Regex PublicTypeExpression = new(
         @"public_type\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -643,7 +646,7 @@ public sealed class ClangSharpHeaderParser
         string entryPointPrefix)
     {
         var nativeName = cursor.Spelling.ToString();
-        var (returnType, ignoreReason) = TryMapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        var (returnType, ignoreReason) = TryMapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, genericParameters, isReturn: true);
         var cppReturnTypeName = ResolveQualifiedTypeName(cursor.ResultType, recordsByName);
         var function = new FunctionBinding(
             $"method:{record.NativeName}:{nativeName}",
@@ -723,7 +726,7 @@ public sealed class ClangSharpHeaderParser
         }
 
         var nativeName = templateCursor.Spelling.ToString();
-        var (returnType, ignoreReason) = TryMapType(templateCursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, combinedGenericParameters);
+        var (returnType, ignoreReason) = TryMapType(templateCursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, combinedGenericParameters, isReturn: true);
         var cppReturnTypeName = ResolveQualifiedTypeName(templateCursor.ResultType, recordsByName);
         var function = new FunctionBinding(
             $"method:{record.NativeName}:{nativeName}",
@@ -801,7 +804,7 @@ public sealed class ClangSharpHeaderParser
         string entryPointPrefix)
     {
         var nativeName = cursor.Spelling.ToString();
-        var (returnType, ignoreReason) = TryMapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        var (returnType, ignoreReason) = TryMapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, genericParameters, isReturn: true);
         var cppReturnTypeName = ResolveQualifiedTypeName(cursor.ResultType, recordsByName);
         var function = new FunctionBinding(
             $"static-method:{record.NativeName}:{nativeName}",
@@ -951,7 +954,7 @@ public sealed class ClangSharpHeaderParser
         IReadOnlyDictionary<string, BindingType> genericParameters)
     {
         var nativeName = cursor.Spelling.ToString();
-        var (returnType, ignoreReason) = TryMapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        var (returnType, ignoreReason) = TryMapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, genericParameters, isReturn: true);
         var cppReturnTypeName = ResolveQualifiedTypeName(cursor.ResultType, recordsByName);
         var function = new FunctionBinding(
             $"function:{nativeName}",
@@ -1015,7 +1018,7 @@ public sealed class ClangSharpHeaderParser
             return null;
         }
 
-        var (returnType, ignoreReason) = TryMapType(templateCursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        var (returnType, ignoreReason) = TryMapType(templateCursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, genericParameters, isReturn: true);
         var cppReturnTypeName = ResolveQualifiedTypeName(templateCursor.ResultType, recordsByName);
         var function = new FunctionBinding(
             $"function:{nativeName}",
@@ -1079,11 +1082,12 @@ public sealed class ClangSharpHeaderParser
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
-        IReadOnlyDictionary<string, BindingType> genericParameters)
+        IReadOnlyDictionary<string, BindingType> genericParameters,
+        bool isReturn = false)
     {
         try
         {
-            return (MapType(type, recordsByName, enumsByName, managedTypeOverrides, genericParameters), null);
+            return (MapType(type, recordsByName, enumsByName, managedTypeOverrides, genericParameters, isReturn), null);
         }
         catch (NotSupportedException exception)
         {
@@ -1380,7 +1384,8 @@ public sealed class ClangSharpHeaderParser
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
-        IReadOnlyDictionary<string, BindingType> genericParameters)
+        IReadOnlyDictionary<string, BindingType> genericParameters,
+        bool isReturn = false)
     {
         var normalizedType = type.CanonicalType;
         var normalizedTypeName = NormalizeTypeName(type.Spelling.ToString());
@@ -1388,6 +1393,13 @@ public sealed class ClangSharpHeaderParser
         if (TryMapGenericParameterType(normalizedTypeName, genericParameters, out var genericParameterType))
         {
             return genericParameterType;
+        }
+
+        if (isReturn && managedTypeOverrides.TryGetValue("return:" + normalizedTypeName, out var returnOverride))
+        {
+            return BindingType.CreateConfigured(
+                returnOverride.CppTypeName,
+                returnOverride.PublicTypeName);
         }
 
         if (managedTypeOverrides.TryGetValue(normalizedTypeName, out var managedTypeOverride))
@@ -2273,6 +2285,21 @@ public sealed class ClangSharpHeaderParser
 
                 var cppTypeName = NormalizeTypeName(match.Groups["cppType"].Value);
                 result[cppTypeName] = new ManagedTypeOverride(
+                    cppTypeName,
+                    publicTypeMatch.Groups["value"].Value);
+            }
+
+            foreach (Match match in ReturnMarshallerExpression.Matches(sourceText))
+            {
+                var body = match.Groups["body"].Value;
+                var publicTypeMatch = PublicTypeExpression.Match(body);
+                if (!publicTypeMatch.Success)
+                {
+                    continue;
+                }
+
+                var cppTypeName = NormalizeTypeName(match.Groups["cppType"].Value);
+                result["return:" + cppTypeName] = new ManagedTypeOverride(
                     cppTypeName,
                     publicTypeMatch.Groups["value"].Value);
             }
