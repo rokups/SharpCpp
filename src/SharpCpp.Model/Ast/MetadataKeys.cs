@@ -12,6 +12,7 @@ public static class MetadataKeys
     public const string ExplicitGenericInstantiations = "explicit_generic_instantiations";
     public const string ForwardDeclaration = "forward_declaration";
     public const string PlaceholderRecord = "placeholder_record";
+    public const string SuppressEmission = "suppress_emission";
     public const string HasNativeDefinition = "has_native_definition";
     public const string NonPublicDestructor = "non_public_destructor";
     public const string UnexpressibleDefault = "unexpressible_default";

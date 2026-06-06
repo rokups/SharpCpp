@@ -220,6 +220,9 @@ add_dependencies(sharpcpp-rbfx-tests-e2e-managed sharpcpp-rbfx-runtime)
 
 add_custom_target(sharpcpp-rbfx-native DEPENDS sharpcpp-generate-rbfx SharpCppRbfx_Native sharpcpp-rbfx-runtime)
 
+add_subdirectory(Rbfx.UserCode)
+add_subdirectory(Rbfx.Application)
+
 if(BUILD_TESTING)
   add_test(
     NAME sharpcpp.rbfx.e2e

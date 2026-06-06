@@ -103,7 +103,6 @@ internal static class Program
 
             BindingCompilationBootstrapPipeline.Apply(compilation, marshallerConfigurationFiles);
             ApplySdkExportFilter(compilation, options.SdkLibraryPath, logWriter);
-            IgnoreUnexpressibleDefaultCallables(compilation, logWriter);
 
             var renderedBindings = BindingOutputRenderer.Render(compilation, GeneratedFileStem, DeriveGroupStem);
             var metadataDocument = BindingMetadataExporter.Export(
@@ -339,17 +338,6 @@ internal static class Program
         }
 
         return mappings;
-    }
-
-    private static void IgnoreUnexpressibleDefaultCallables(BindingCompilation compilation, TextWriter? logWriter)
-    {
-        foreach (var function in compilation.Functions.Where(static function =>
-                     !function.IsIgnored() &&
-                     function.Parameters.Any(static parameter => parameter.HasMetadata(MetadataKeys.UnexpressibleDefault))))
-        {
-            function.SetIgnoreReason("rbfx bootstrap currently excludes callables with unexpressible C++ default arguments");
-            Log(logWriter, $"warning: callable '{function.CppQualifiedName}' was excluded because it relies on unexpressible C++ default arguments.");
-        }
     }
 
     private static string DeriveGroupStem(string? headerPath)

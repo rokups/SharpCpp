@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 
+using SharpCpp.Metadata.Import;
 using SharpCpp.Model.Ast;
 
 namespace SharpCpp.Parsing;
@@ -93,6 +94,8 @@ public sealed class ClangSharpHeaderParser
         var recordsByName = new Dictionary<string, RecordBinding>(StringComparer.Ordinal);
         var enumsByName = new Dictionary<string, EnumBinding>(StringComparer.Ordinal);
         var managedTypeOverrides = LoadManagedTypeOverrides(request.MarshallerConfigurationFiles);
+
+        request.ImportedBindingMetadata?.Seed(compilation, recordsByName, enumsByName);
 
         translationUnit.Cursor.VisitChildren(
             (child, _, _) =>

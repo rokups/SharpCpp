@@ -124,6 +124,7 @@ function(sharpcpp_write_last_props)
   get_property(compat_props_file GLOBAL PROPERTY SHARPCPP_COMPAT_PROPS_FILE)
   get_property(e2e_generated_dir GLOBAL PROPERTY SHARPCPP_E2E_GENERATED_DIR)
   get_property(rbfx_generated_dir GLOBAL PROPERTY SHARPCPP_RBFX_GENERATED_DIR)
+  get_property(rbfx_usercode_generated_dir GLOBAL PROPERTY SHARPCPP_RBFX_USERCODE_GENERATED_DIR)
   get_property(rbfx_tests_e2e_generated_dir GLOBAL PROPERTY SHARPCPP_RBFX_TESTS_E2E_GENERATED_DIR)
 
   string(REPLACE "\\" "/" output_root "${output_root}")
@@ -157,6 +158,14 @@ function(sharpcpp_write_last_props)
     string(APPEND content
       "  <PropertyGroup Condition=\"'$(MSBuildProjectName)' == 'SharpCpp.Rbfx.Bindings'\">\n"
       "    <SharpCppGeneratedDir>${rbfx_generated_dir}</SharpCppGeneratedDir>\n"
+      "  </PropertyGroup>\n")
+  endif()
+
+  if(NOT rbfx_usercode_generated_dir STREQUAL "")
+    string(REPLACE "\\" "/" rbfx_usercode_generated_dir "${rbfx_usercode_generated_dir}")
+    string(APPEND content
+      "  <PropertyGroup Condition=\"'$(MSBuildProjectName)' == 'Rbfx.UserCode.Bindings'\">\n"
+      "    <SharpCppGeneratedDir>${rbfx_usercode_generated_dir}</SharpCppGeneratedDir>\n"
       "  </PropertyGroup>\n")
   endif()
 
@@ -405,6 +414,8 @@ add_custom_target(
     sharpcpp-generator
     sharpcpp-e2e-managed
     sharpcpp-rbfx-managed
+    sharpcpp-rbfx-usercode-managed
+    sharpcpp-rbfx-application
     sharpcpp-rbfx-tests-e2e-managed)
 
 add_custom_target(

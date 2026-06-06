@@ -25,6 +25,7 @@ public sealed record BindingMetadataType(
     string Kind,
     string NativeName,
     string ManagedName,
+    string? ManagedNamespace,
     string? ManagedBaseTypeName,
     BindingMetadataTypeReference Projection,
     bool IsFlags = false,

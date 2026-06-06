@@ -86,4 +86,80 @@ public sealed class UnsupportedDefaultsTests
 
         Assert.Equal(42, result);
     }
+
+    [Fact]
+    public void Mixed_default_signatures_keep_expressible_defaults_and_null_out_unexpressible_ones()
+    {
+        var freeFunction = typeof(E2EBindings).GetMethod(nameof(E2EBindings.CheckMixedDefaults), BindingFlags.Public | BindingFlags.Static)!;
+        var freeFunctionParameters = freeFunction.GetParameters();
+
+        Assert.False(freeFunctionParameters[0].HasDefaultValue);
+        Assert.Equal(typeof(int), freeFunctionParameters[1].ParameterType);
+        Assert.Equal(2, freeFunctionParameters[1].DefaultValue);
+        Assert.Equal(typeof(int?), freeFunctionParameters[2].ParameterType);
+        Assert.Null(freeFunctionParameters[2].DefaultValue);
+        Assert.Equal(typeof(int), freeFunctionParameters[3].ParameterType);
+        Assert.Equal(5, freeFunctionParameters[3].DefaultValue);
+
+        var constructor = typeof(UnsupportedDefaultCounter).GetConstructor([typeof(int), typeof(int), typeof(int?), typeof(int)])!;
+        var constructorParameters = constructor.GetParameters();
+
+        Assert.False(constructorParameters[0].HasDefaultValue);
+        Assert.Equal(2, constructorParameters[1].DefaultValue);
+        Assert.Equal(typeof(int?), constructorParameters[2].ParameterType);
+        Assert.Null(constructorParameters[2].DefaultValue);
+        Assert.Equal(5, constructorParameters[3].DefaultValue);
+
+        var combine = typeof(UnsupportedDefaultCounter).GetMethod(nameof(UnsupportedDefaultCounter.Combine))!;
+        var combineParameters = combine.GetParameters();
+
+        Assert.False(combineParameters[0].HasDefaultValue);
+        Assert.Equal(3, combineParameters[1].DefaultValue);
+        Assert.Equal(typeof(int?), combineParameters[2].ParameterType);
+        Assert.Null(combineParameters[2].DefaultValue);
+        Assert.Equal(2, combineParameters[3].DefaultValue);
+
+        var add = typeof(UnsupportedDefaultCounter).GetMethod(nameof(UnsupportedDefaultCounter.Add), BindingFlags.Public | BindingFlags.Static)!;
+        var addParameters = add.GetParameters();
+
+        Assert.False(addParameters[0].HasDefaultValue);
+        Assert.Equal(typeof(int?), addParameters[1].ParameterType);
+        Assert.Null(addParameters[1].DefaultValue);
+        Assert.Equal(typeof(int), addParameters[2].ParameterType);
+        Assert.Equal(5, addParameters[2].DefaultValue);
+    }
+
+    [Fact]
+    public void Mixed_default_free_function_omits_unexpressible_suffix_at_native_boundary()
+    {
+        Assert.Equal(1245, E2EBindings.CheckMixedDefaults(1));
+        Assert.Equal(1445, E2EBindings.CheckMixedDefaults(1, 4));
+        Assert.Equal(1465, E2EBindings.CheckMixedDefaults(1, 4, 6));
+        Assert.Equal(1467, E2EBindings.CheckMixedDefaults(1, 4, 6, 7));
+    }
+
+    [Fact]
+    public void Mixed_default_constructors_and_methods_omit_unexpressible_suffix_at_native_boundary()
+    {
+        using var defaultCounter = new UnsupportedDefaultCounter(3);
+        Assert.Equal(3245, defaultCounter.GetValue());
+        Assert.Equal(4607, defaultCounter.Combine(1));
+
+        using var customFactorCounter = new UnsupportedDefaultCounter(3, 4);
+        Assert.Equal(3445, customFactorCounter.GetValue());
+        Assert.Equal(5007, customFactorCounter.Combine(1, 5));
+
+        using var customOffsetCounter = new UnsupportedDefaultCounter(3, 4, 8);
+        Assert.Equal(3485, customOffsetCounter.GetValue());
+        Assert.Equal(5077, customOffsetCounter.Combine(1, 5, 9));
+        Assert.Equal(5076, customOffsetCounter.Combine(1, 5, 9, 1));
+    }
+
+    [Fact]
+    public void Mixed_default_static_methods_omit_unexpressible_suffix_at_native_boundary()
+    {
+        Assert.Equal(175, UnsupportedDefaultCounter.Add(1));
+        Assert.Equal(195, UnsupportedDefaultCounter.Add(1, 9));
+        Assert.Equal(193, UnsupportedDefaultCounter.Add(1, 9, 3));
+    }
 }

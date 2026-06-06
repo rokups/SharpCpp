@@ -11,13 +11,13 @@ public static class BindingMetadataExporter
         options ??= new BindingMetadataExportOptions(compilation.ProjectName);
 
         var types = compilation.Records
-            .Where(static record => !record.IsIgnored())
+            .Where(static record => !record.IsIgnored() && !record.GetMetadata<bool>(MetadataKeys.SuppressEmission))
             .OrderBy(static record => record.ManagedName, StringComparer.Ordinal)
             .ThenBy(static record => record.SymbolId, StringComparer.Ordinal)
             .Select(CreateRecordType)
             .Concat(
                 compilation.Enums
-                    .Where(static @enum => !@enum.IsIgnored())
+                    .Where(static @enum => !@enum.IsIgnored() && !@enum.GetMetadata<bool>(MetadataKeys.SuppressEmission))
                     .OrderBy(static @enum => @enum.ManagedName, StringComparer.Ordinal)
                     .ThenBy(static @enum => @enum.SymbolId, StringComparer.Ordinal)
                     .Select(CreateEnumType))
@@ -60,6 +60,7 @@ public static class BindingMetadataExporter
             kind,
             record.NativeName,
             record.ManagedName,
+            record.ManagedNamespace,
             record.ManagedBaseTypeName,
             CreateTypeReference(record.HandleType),
             Members: record.Members
@@ -76,6 +77,7 @@ public static class BindingMetadataExporter
             "enum",
             @enum.NativeName,
             @enum.ManagedName,
+            @enum.ManagedNamespace,
             ManagedBaseTypeName: null,
             CreateTypeReference(BindingType.CreateEnum(@enum.NativeName, @enum.ManagedName)),
             IsFlags: @enum.IsFlags,

@@ -12,11 +12,21 @@ public static class NormalizeManagedNamespacesPass
 
         foreach (var record in compilation.Records)
         {
+            if (record.GetMetadata<bool>(MetadataKeys.SuppressEmission))
+            {
+                continue;
+            }
+
             record.ManagedNamespace = ResolveManagedNamespace(record.CppQualifiedName, compilation.ManagedNamespace, namespaceMappings, record.NativeName);
         }
 
         foreach (var @enum in compilation.Enums)
         {
+            if (@enum.GetMetadata<bool>(MetadataKeys.SuppressEmission))
+            {
+                continue;
+            }
+
             @enum.ManagedNamespace = ResolveManagedNamespace(@enum.CppQualifiedName, compilation.ManagedNamespace, namespaceMappings, @enum.NativeName);
         }
     }

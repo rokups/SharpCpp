@@ -28,7 +28,9 @@ public static partial class BindingOutputRenderer
         var allFiles = new List<GeneratedBindingFile>();
 
         var groups = compilation.Members.OfType<BindingNode>()
-            .Where(m => m is RecordBinding or EnumBinding or FunctionBinding)
+            .Where(m => m is FunctionBinding ||
+                        m is RecordBinding record && !record.GetMetadata<bool>(MetadataKeys.SuppressEmission) ||
+                        m is EnumBinding @enum && !@enum.GetMetadata<bool>(MetadataKeys.SuppressEmission))
             .GroupBy(m => deriveGroupStem(string.IsNullOrEmpty(m.HeaderIncludePath) ? null : m.HeaderIncludePath), StringComparer.Ordinal)
             .OrderBy(static group => group.Key, StringComparer.Ordinal)
             .ToList();
@@ -65,8 +67,8 @@ public static partial class BindingOutputRenderer
         Func<BindingNode, bool>? memberFilter = null, string? groupHeaderPath = null)
     {
         var writer = new CodeWriter();
-        var allRecords = compilation.Records.AsEnumerable();
-        var allEnums = compilation.Enums.AsEnumerable();
+        var allRecords = compilation.Records.Where(static record => !record.GetMetadata<bool>(MetadataKeys.SuppressEmission)).AsEnumerable();
+        var allEnums = compilation.Enums.Where(static @enum => !@enum.GetMetadata<bool>(MetadataKeys.SuppressEmission)).AsEnumerable();
         var allFunctions = compilation.Functions.AsEnumerable();
 
         if (memberFilter is not null)
@@ -687,7 +689,7 @@ public static partial class BindingOutputRenderer
 
         if (HasUnexpressibleDefaultParams(function))
         {
-            WriteUnexpressibleDefaultCascade(compilation, writer, function);
+            WriteUnexpressibleDefaultCascade(compilation, writer, function, importMethodName, []);
         }
         else
         {
@@ -856,7 +858,7 @@ public static partial class BindingOutputRenderer
 
             protected override global::SharpCpp.Support.INativeInstanceCache? InstanceCache => s_instanceCache;
 
-            internal {{record.ManagedName}}(nint handle, bool ownsHandle = false)
+            protected internal {{record.ManagedName}}(nint handle, bool ownsHandle = false)
                 : base(handle, ownsHandle)
             {
                 if (!IsInvalid)
@@ -869,7 +871,7 @@ public static partial class BindingOutputRenderer
             {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) && !record.HasOwnManagedMemberNamed("OwnsHandle") ? "public bool OwnsHandle => OwnsNativeHandle;" : string.Empty)}}
             {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) && !record.HasOwnManagedMemberNamed("IsNull") ? "public bool IsNull => IsClosed || IsInvalid;" : string.Empty)}}
 
-            {{staticHelperModifier}}internal static {{record.ManagedName}} CreateManagedWrapper(nint handle, bool ownsHandle)
+            {{staticHelperModifier}}public static {{record.ManagedName}} CreateManagedWrapper(nint handle, bool ownsHandle)
             {
             if (handle == 0)
                 {{(record.IsAbstract ? "return null!;" : $"return new {record.ManagedName}(0, ownsHandle);")}}
@@ -922,6 +924,10 @@ public static partial class BindingOutputRenderer
             {
                 writer.Write(RenderManagedConstructor(record, constructor, requiresDirector));
                 pinvokeDeclarations.Add(RenderManagedConstructorImportDeclaration(compilation, constructor));
+                if (HasUnexpressibleDefaultParams(constructor))
+                {
+                    pinvokeDeclarations.Add(RenderManagedUnexpressibleDefaultConstructorImports(compilation, constructor));
+                }
             }
         }
 
@@ -955,10 +961,18 @@ public static partial class BindingOutputRenderer
                 if (isDirectorVirtual)
                 {
                     pinvokeDeclarations.Add(RenderManagedCallbaseImportDeclaration(compilation, method, record.ManagedName));
+                    if (HasUnexpressibleDefaultParams(method))
+                    {
+                        pinvokeDeclarations.Add(RenderManagedUnexpressibleDefaultInstanceImports(compilation, method, record.ManagedName, useCallbase: true));
+                    }
                 }
                 else
                 {
                     pinvokeDeclarations.Add(RenderManagedInstanceImportDeclaration(compilation, method, record.ManagedName));
+                    if (HasUnexpressibleDefaultParams(method))
+                    {
+                        pinvokeDeclarations.Add(RenderManagedUnexpressibleDefaultInstanceImports(compilation, method, record.ManagedName));
+                    }
                 }
             }
         }
@@ -974,6 +988,10 @@ public static partial class BindingOutputRenderer
             {
                 writer.Write(RenderManagedStaticMethod(compilation, method));
                 pinvokeDeclarations.Add(RenderManagedStaticImportDeclaration(compilation, method));
+                if (HasUnexpressibleDefaultParams(method))
+                {
+                    pinvokeDeclarations.Add(RenderManagedUnexpressibleDefaultStaticImports(compilation, method));
+                }
             }
         }
 
@@ -1093,8 +1111,6 @@ public static partial class BindingOutputRenderer
         var parameterList = string.Join(
             ", ",
             function.Parameters.Select(RenderManagedPublicParameter));
-        var invocationPlan = BuildManagedInvocationPlan(compilation, function.Parameters);
-        var invokeArguments = string.Join(", ", new[] { "this" }.Concat(invocationPlan.Arguments));
         var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType);
         var importMethodName = useCallbase
             ? GetManagedCallbaseImportMethodName(function)
@@ -1114,52 +1130,62 @@ public static partial class BindingOutputRenderer
             {
             """);
 
-        foreach (var statement in invocationPlan.PreCallStatements)
+        if (HasUnexpressibleDefaultParams(function))
         {
-            writer.Write(statement);
-        }
-
-        if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
-        {
-            writer.Write($$"""
-                __PInvoke.{{importMethodName}}({{invokeArguments}});
-                """);
-
-            foreach (var statement in invocationPlan.PostCallStatements)
-            {
-                writer.Write(statement);
-            }
-        }
-        else if (function.ReturnType.Kind == BindingTypeKind.Handle)
-        {
-            writer.Write($$"""
-                var __result = __PInvoke.{{importMethodName}}({{invokeArguments}});
-                """);
-
-            foreach (var statement in invocationPlan.PostCallStatements)
-            {
-                writer.Write(statement);
-            }
-
-            writer.Write($$"""
-                return {{BuildManagedHandleWrap(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
-                """);
+            WriteUnexpressibleDefaultCascade(compilation, writer, function, importMethodName, ["this"]);
         }
         else
         {
-            writer.Write($$"""
-                var __result = __PInvoke.{{importMethodName}}({{invokeArguments}});
-                """);
+            var invocationPlan = BuildManagedInvocationPlan(compilation, function.Parameters);
+            var invokeArguments = string.Join(", ", new[] { "this" }.Concat(invocationPlan.Arguments));
 
-            foreach (var statement in invocationPlan.PostCallStatements)
+            foreach (var statement in invocationPlan.PreCallStatements)
             {
                 writer.Write(statement);
             }
 
-            writer.Write(
-                """
-                return __result;
-                """);
+            if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+            {
+                writer.Write($$"""
+                    __PInvoke.{{importMethodName}}({{invokeArguments}});
+                    """);
+
+                foreach (var statement in invocationPlan.PostCallStatements)
+                {
+                    writer.Write(statement);
+                }
+            }
+            else if (function.ReturnType.Kind == BindingTypeKind.Handle)
+            {
+                writer.Write($$"""
+                    var __result = __PInvoke.{{importMethodName}}({{invokeArguments}});
+                    """);
+
+                foreach (var statement in invocationPlan.PostCallStatements)
+                {
+                    writer.Write(statement);
+                }
+
+                writer.Write($$"""
+                    return {{BuildManagedHandleWrap(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
+                    """);
+            }
+            else
+            {
+                writer.Write($$"""
+                    var __result = __PInvoke.{{importMethodName}}({{invokeArguments}});
+                    """);
+
+                foreach (var statement in invocationPlan.PostCallStatements)
+                {
+                    writer.Write(statement);
+                }
+
+                writer.Write(
+                    """
+                    return __result;
+                    """);
+            }
         }
 
         writer.Write(
@@ -1319,14 +1345,11 @@ public static partial class BindingOutputRenderer
             : NormalizeEnumManagedTypeName(function.ManagedName);
         var importMethodName = GetManagedImportMethodName(function);
         var hasHandleParams = function.Parameters.Any(static parameter => parameter.Type.Kind == BindingTypeKind.Handle);
+        var hasUnexpressibleDefaults = HasUnexpressibleDefaultParams(function);
 
-        if (hasHandleParams)
+        if (hasHandleParams || hasUnexpressibleDefaults)
         {
             var factoryName = $"__CreateHandle_{importMethodName}";
-            var handleParams = function.Parameters.Where(static parameter => parameter.Type.Kind == BindingTypeKind.Handle).ToArray();
-            var keepAliveStatements = string.Join(
-                "\n        ",
-                handleParams.Select(static parameter => $"global::System.GC.KeepAlive({parameter.ManagedName});"));
 
             writer.Write($$"""
                 {{GetManagedVisibility(function.AccessModifier)}} {{constructorName}}({{parameterList}})
@@ -1337,9 +1360,32 @@ public static partial class BindingOutputRenderer
 
                 private static nint {{factoryName}}({{parameterList}})
                 {
-                var __handle = __PInvoke.{{importMethodName}}({{invokeArguments}});
-                {{keepAliveStatements}}
-                return __handle;
+                """);
+
+            if (hasUnexpressibleDefaults)
+            {
+                WriteUnexpressibleDefaultConstructorCascade(writer, function, importMethodName);
+            }
+            else
+            {
+                var invocationPlan = BuildManagedInvocationPlan(null!, function.Parameters);
+                writer.Write($$"""
+                    var __handle = __PInvoke.{{importMethodName}}({{invokeArguments}});
+                    """);
+
+                foreach (var statement in invocationPlan.PostCallStatements)
+                {
+                    writer.Write(statement);
+                }
+
+                writer.Write(
+                    """
+                    return __handle;
+                    """);
+            }
+
+            writer.Write(
+                """
                 }
                 """);
         }
@@ -1486,8 +1532,6 @@ public static partial class BindingOutputRenderer
         var parameterList = string.Join(
             ", ",
             function.Parameters.Select(RenderManagedPublicParameter));
-        var invocationPlan = BuildManagedInvocationPlan(compilation, function.Parameters);
-        var invokeArguments = string.Join(", ", invocationPlan.Arguments);
         var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType);
         var importMethodName = GetManagedImportMethodName(function);
 
@@ -1496,52 +1540,62 @@ public static partial class BindingOutputRenderer
             {
             """);
 
-        foreach (var statement in invocationPlan.PreCallStatements)
+        if (HasUnexpressibleDefaultParams(function))
         {
-            writer.Write(statement);
-        }
-
-        if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
-        {
-            writer.Write($$"""
-                __PInvoke.{{importMethodName}}({{invokeArguments}});
-                """);
-
-            foreach (var statement in invocationPlan.PostCallStatements)
-            {
-                writer.Write(statement);
-            }
-        }
-        else if (function.ReturnType.Kind == BindingTypeKind.Handle)
-        {
-            writer.Write($$"""
-                var __result = __PInvoke.{{importMethodName}}({{invokeArguments}});
-                """);
-
-            foreach (var statement in invocationPlan.PostCallStatements)
-            {
-                writer.Write(statement);
-            }
-
-            writer.Write($$"""
-                return {{BuildManagedHandleWrap(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
-                """);
+            WriteUnexpressibleDefaultCascade(compilation, writer, function, importMethodName, []);
         }
         else
         {
-            writer.Write($$"""
-                var __result = __PInvoke.{{importMethodName}}({{invokeArguments}});
-                """);
+            var invocationPlan = BuildManagedInvocationPlan(compilation, function.Parameters);
+            var invokeArguments = string.Join(", ", invocationPlan.Arguments);
 
-            foreach (var statement in invocationPlan.PostCallStatements)
+            foreach (var statement in invocationPlan.PreCallStatements)
             {
                 writer.Write(statement);
             }
 
-            writer.Write(
-                """
-                return __result;
-                """);
+            if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+            {
+                writer.Write($$"""
+                    __PInvoke.{{importMethodName}}({{invokeArguments}});
+                    """);
+
+                foreach (var statement in invocationPlan.PostCallStatements)
+                {
+                    writer.Write(statement);
+                }
+            }
+            else if (function.ReturnType.Kind == BindingTypeKind.Handle)
+            {
+                writer.Write($$"""
+                    var __result = __PInvoke.{{importMethodName}}({{invokeArguments}});
+                    """);
+
+                foreach (var statement in invocationPlan.PostCallStatements)
+                {
+                    writer.Write(statement);
+                }
+
+                writer.Write($$"""
+                    return {{BuildManagedHandleWrap(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
+                    """);
+            }
+            else
+            {
+                writer.Write($$"""
+                    var __result = __PInvoke.{{importMethodName}}({{invokeArguments}});
+                    """);
+
+                foreach (var statement in invocationPlan.PostCallStatements)
+                {
+                    writer.Write(statement);
+                }
+
+                writer.Write(
+                    """
+                    return __result;
+                    """);
+            }
         }
 
         writer.Write(
@@ -1952,7 +2006,7 @@ public static partial class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         var allFunctions = compilation.Functions.AsEnumerable();
-        var allRecords = compilation.Records.AsEnumerable();
+        var allRecords = compilation.Records.Where(static record => !record.GetMetadata<bool>(MetadataKeys.SuppressEmission)).AsEnumerable();
 
         if (memberFilter is not null)
         {
@@ -2025,6 +2079,12 @@ public static partial class BindingOutputRenderer
                         return MarshallerInvoker::invoke_as<FT>(&{{directorName}}::{{helperName}}, self{{(callbaseArguments.Length > 0 ? $", {callbaseArguments}" : string.Empty)}});
                         }
                         """);
+                }
+
+                if (HasUnexpressibleDefaultParams(method))
+                {
+                    writer.WriteLine();
+                    writer.Write(RenderNativeUnexpressibleDefaultCallbase(record, method));
                 }
             }
         }
@@ -2150,6 +2210,12 @@ public static partial class BindingOutputRenderer
             writer.Write("""
                 }
                 """);
+
+            if (HasUnexpressibleDefaultParams(method))
+            {
+                writer.WriteLine();
+                writer.Write(RenderNativeUnexpressibleDefaultInstanceMethod(method));
+            }
         }
 
         foreach (var method in records.Where(static record => !record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => function.IsStatic && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
@@ -2181,6 +2247,12 @@ public static partial class BindingOutputRenderer
             writer.Write("""
                 }
                 """);
+
+            if (HasUnexpressibleDefaultParams(method))
+            {
+                writer.WriteLine();
+                writer.Write(RenderNativeUnexpressibleDefaultStaticMethod(method));
+            }
         }
 
         foreach (var constructor in records.Where(static record => !record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => function.IsConstructor && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.ManagedName, StringComparer.Ordinal))
@@ -2199,6 +2271,12 @@ public static partial class BindingOutputRenderer
                     : $"return MarshallerInvoker::construct<{constructor.OwningRecordCppTypeName}{(constructorArgTypes.Length > 0 ? $", {constructorArgTypes}" : string.Empty)}>({abiArguments});")}}
                 }
                 """);
+
+            if (HasUnexpressibleDefaultParams(constructor))
+            {
+                writer.WriteLine();
+                writer.Write(RenderNativeUnexpressibleDefaultConstructor(constructor, owningRecord is not null && owningRecord.RequiresDirector(compilation)));
+            }
         }
 
         foreach (var field in records.Where(static record => !record.HasMetadata(MetadataKeys.IgnoreReason)).SelectMany(static record => record.Members.OfType<FieldBinding>()).Where(static field => !field.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static field => field.ManagedName, StringComparer.Ordinal))
@@ -2876,51 +2954,47 @@ public static partial class BindingOutputRenderer
         return function.Parameters.Any(static parameter => parameter.HasMetadata(MetadataKeys.UnexpressibleDefault));
     }
 
-    private static int GetUnexpressibleDefaultCount(FunctionBinding function)
+    private static IReadOnlyList<int> GetUnexpressibleDefaultParameterIndices(FunctionBinding function)
     {
-        var count = 0;
-        for (var i = function.Parameters.Count - 1; i >= 0; i--)
+        var indices = new List<int>();
+        for (var i = 0; i < function.Parameters.Count; i++)
         {
             if (function.Parameters[i].HasMetadata(MetadataKeys.UnexpressibleDefault))
-                count++;
-            else
-                break;
+            {
+                indices.Add(i);
+            }
         }
-        return count;
+
+        return indices;
     }
 
-    private static IReadOnlyList<ParameterBinding> GetUnexpressibleVariantParams(FunctionBinding function, int omitCount)
+    private static IReadOnlyList<ParameterBinding> GetUnexpressibleVariantParams(FunctionBinding function, int keepCount)
     {
-        var keepCount = function.Parameters.Count - omitCount;
         return function.Parameters.Take(keepCount).ToArray();
     }
 
-    private static string GetUnexpressibleVariantImportSuffix(FunctionBinding function, int omitCount)
+    private static string GetUnexpressibleVariantImportName(string importMethodName, int keepCount)
     {
-        return omitCount == 0
-            ? function.ImportMethodName
-            : $"__Default{omitCount}{function.ImportMethodName}";
+        return $"{importMethodName}__Args{keepCount}";
     }
 
-    private static string GetUnexpressibleVariantEntrypointSuffix(FunctionBinding function, int omitCount)
+    private static string GetUnexpressibleVariantEntrypointName(string entryPointName, int keepCount)
     {
-        return omitCount == 0
-            ? function.EntryPointName
-            : $"{function.EntryPointName}__default{omitCount}";
+        return $"{entryPointName}__Args{keepCount}";
     }
 
     private static string RenderUnexpressibleDefaultFreeFunctionImport(BindingCompilation compilation, FunctionBinding function)
     {
         var writer = new CodeWriter();
-        var defaultCount = GetUnexpressibleDefaultCount(function);
-        for (var omitCount = 1; omitCount <= defaultCount; omitCount++)
+        var importMethodName = GetManagedImportMethodName(function);
+        foreach (var keepCount in GetUnexpressibleDefaultParameterIndices(function))
         {
-            var variantParams = GetUnexpressibleVariantParams(function, omitCount);
+            var variantParams = GetUnexpressibleVariantParams(function, keepCount);
             var parameterList = string.Join(", ", variantParams.Select(RenderManagedParameter));
             var returnTypeName = GetManagedImportTypeName(function.ReturnType);
             var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
-            var importName = GetUnexpressibleVariantImportSuffix(function, omitCount);
-            var entrypointName = GetUnexpressibleVariantEntrypointSuffix(function, omitCount);
+            var importName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
+            var entrypointName = GetUnexpressibleVariantEntrypointName(function.EntryPointName, keepCount);
             var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
                 ? $"internal static partial {returnTypeName} {importName}({parameterList});"
                 : $"{returnAttribute}\ninternal static partial {returnTypeName} {importName}({parameterList});";
@@ -2933,16 +3007,92 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
+    private static string RenderManagedUnexpressibleDefaultStaticImports(BindingCompilation compilation, FunctionBinding function)
+    {
+        var writer = new CodeWriter();
+        var importMethodName = GetManagedImportMethodName(function);
+        foreach (var keepCount in GetUnexpressibleDefaultParameterIndices(function))
+        {
+            var variantParams = GetUnexpressibleVariantParams(function, keepCount);
+            var parameterList = string.Join(", ", variantParams.Select(RenderManagedParameter));
+            var returnTypeName = GetManagedImportTypeName(function.ReturnType);
+            var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
+            var variantImportName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
+            var variantEntrypointName = GetUnexpressibleVariantEntrypointName(function.EntryPointName, keepCount);
+            var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
+                ? $"internal static partial {returnTypeName} {variantImportName}({parameterList});"
+                : $"{returnAttribute}\ninternal static partial {returnTypeName} {variantImportName}({parameterList});";
+
+            writer.Write($$"""
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{variantEntrypointName}}")]
+                {{importMethodLine}}
+                """);
+        }
+
+        return writer.ToString();
+    }
+
+    private static string RenderManagedUnexpressibleDefaultInstanceImports(BindingCompilation compilation, FunctionBinding function, string recordManagedName, bool useCallbase = false)
+    {
+        var writer = new CodeWriter();
+        var importMethodName = useCallbase
+            ? GetManagedCallbaseImportMethodName(function)
+            : GetManagedImportMethodName(function);
+        var owningRecord = function.FindOwningRecord();
+        var entryPointName = useCallbase && owningRecord is not null
+            ? GetNativeCallbaseEntrypointName(owningRecord, function)
+            : function.EntryPointName;
+
+        foreach (var keepCount in GetUnexpressibleDefaultParameterIndices(function))
+        {
+            var variantParams = GetUnexpressibleVariantParams(function, keepCount);
+            var parameterList = string.Join(", ", new[] { $"{recordManagedName} self" }.Concat(variantParams.Select(RenderManagedParameter)));
+            var returnTypeName = GetManagedImportTypeName(function.ReturnType);
+            var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
+            var variantImportName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
+            var variantEntrypointName = GetUnexpressibleVariantEntrypointName(entryPointName, keepCount);
+            var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
+                ? $"internal static partial {returnTypeName} {variantImportName}({parameterList});"
+                : $"{returnAttribute}\ninternal static partial {returnTypeName} {variantImportName}({parameterList});";
+
+            writer.Write($$"""
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{variantEntrypointName}}")]
+                {{importMethodLine}}
+                """);
+        }
+
+        return writer.ToString();
+    }
+
+    private static string RenderManagedUnexpressibleDefaultConstructorImports(BindingCompilation compilation, FunctionBinding function)
+    {
+        var writer = new CodeWriter();
+        var importMethodName = GetManagedImportMethodName(function);
+        foreach (var keepCount in GetUnexpressibleDefaultParameterIndices(function))
+        {
+            var variantParams = GetUnexpressibleVariantParams(function, keepCount);
+            var parameterList = string.Join(", ", variantParams.Select(RenderManagedParameter));
+            var variantImportName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
+            var variantEntrypointName = GetUnexpressibleVariantEntrypointName(function.EntryPointName, keepCount);
+
+            writer.Write($$"""
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{variantEntrypointName}}")]
+                internal static partial nint {{variantImportName}}({{parameterList}});
+                """);
+        }
+
+        return writer.ToString();
+    }
+
     private static string RenderNativeUnexpressibleDefaultFreeFunction(FunctionBinding function)
     {
         var writer = new CodeWriter();
-        var defaultCount = GetUnexpressibleDefaultCount(function);
-        for (var omitCount = 1; omitCount <= defaultCount; omitCount++)
+        foreach (var keepCount in GetUnexpressibleDefaultParameterIndices(function))
         {
-            var variantParams = GetUnexpressibleVariantParams(function, omitCount);
+            var variantParams = GetUnexpressibleVariantParams(function, keepCount);
             var parameterList = string.Join(", ", variantParams.Select(RenderNativeParameter));
             var abiArguments = string.Join(", ", variantParams.Select(static p => p.NativeName));
-            var entrypointName = GetUnexpressibleVariantEntrypointSuffix(function, omitCount);
+            var entrypointName = GetUnexpressibleVariantEntrypointName(function.EntryPointName, keepCount);
             var safeSuffix = new string(entrypointName.Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
             var wrapperName = $"__{safeSuffix}_wrapper";
             var cppTypeNames = string.Join(", ", variantParams.Select(static p => p.CppTypeName));
@@ -2966,97 +3116,263 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string BuildUnexpressibleDefaultArguments(FunctionBinding function, int omitCount)
+    private static string RenderNativeUnexpressibleDefaultStaticMethod(FunctionBinding method)
     {
-        var variantParams = GetUnexpressibleVariantParams(function, omitCount);
-        return string.Join(", ", variantParams.Select(p =>
-            p.HasMetadata(MetadataKeys.UnexpressibleDefault)
-                ? $"{p.ManagedName}.Value"
-                : RenderManagedInvocationArgument(p)));
+        var writer = new CodeWriter();
+        foreach (var keepCount in GetUnexpressibleDefaultParameterIndices(method))
+        {
+            var variantParams = GetUnexpressibleVariantParams(method, keepCount);
+            var parameterList = string.Join(", ", variantParams.Select(RenderNativeParameter));
+            var abiArguments = string.Join(", ", variantParams.Select(static p => p.NativeName));
+            var entrypointName = GetUnexpressibleVariantEntrypointName(method.EntryPointName, keepCount);
+            var safeSuffix = new string(entrypointName.Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
+            var wrapperName = $"__{safeSuffix}_wrapper";
+            var cppTypeNames = string.Join(", ", variantParams.Select(static p => p.CppTypeName));
+            var cppParamDecls = string.Join(", ", variantParams.Select(static p => $"{p.CppTypeName} {p.NativeName}"));
+            var signature = $"{method.CppReturnTypeName}({cppTypeNames})";
+
+            writer.Write($$"""
+                static auto {{wrapperName}}({{cppParamDecls}}) -> {{method.CppReturnTypeName}}
+                {
+                    {{(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? string.Empty : "return ")}}{{method.OwningRecordCppTypeName}}::{{method.NativeName}}({{string.Join(", ", variantParams.Select(static p => p.NativeName))}});
+                }
+
+                SHARPCPP_EXPORT ret_t<{{method.CppReturnTypeName}}> {{entrypointName}}({{parameterList}})
+                {
+                    using FT = {{signature}};
+                    {{(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? string.Empty : "return ")}}MarshallerInvoker::invoke_as<FT>(&{{wrapperName}}{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                }
+
+                """);
+        }
+
+        return writer.ToString();
     }
 
-    private static void WriteUnexpressibleDefaultCascade(BindingCompilation compilation, CodeWriter writer, FunctionBinding function)
+    private static string RenderNativeUnexpressibleDefaultInstanceMethod(FunctionBinding method)
     {
-        var defaultIndices = new List<int>();
-        for (var i = 0; i < function.Parameters.Count; i++)
-            if (function.Parameters[i].HasMetadata(MetadataKeys.UnexpressibleDefault))
-                defaultIndices.Add(i);
+        if (method.AccessModifier == BindingAccessModifier.Protected)
+        {
+            throw new NotSupportedException($"Protected member '{method.ManagedName}' does not support unexpressible defaults yet.");
+        }
 
-        var importMethodName = GetManagedImportMethodName(function);
+        var writer = new CodeWriter();
+        foreach (var keepCount in GetUnexpressibleDefaultParameterIndices(method))
+        {
+            var variantParams = GetUnexpressibleVariantParams(method, keepCount);
+            var parameterList = string.Join(", ", new[] { $"arg_t<{method.OwningRecordCppTypeName}*> self" }.Concat(variantParams.Select(RenderNativeParameter)));
+            var abiArguments = string.Join(", ", variantParams.Select(static p => p.NativeName));
+            var entrypointName = GetUnexpressibleVariantEntrypointName(method.EntryPointName, keepCount);
+            var safeSuffix = new string(entrypointName.Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
+            var wrapperName = $"__{safeSuffix}_wrapper";
+            var cppTypeNames = string.Join(", ", new[] { $"{method.OwningRecordCppTypeName}*" }.Concat(variantParams.Select(static p => p.CppTypeName)));
+            var cppParamDecls = string.Join(", ", new[] { $"{method.OwningRecordCppTypeName}* self" }.Concat(variantParams.Select(static p => $"{p.CppTypeName} {p.NativeName}")));
+            var signature = $"{method.CppReturnTypeName}({cppTypeNames})";
+            var callArguments = string.Join(", ", variantParams.Select(static p => p.NativeName));
+            var invocation = method.NativeDispatchRecordCppTypeName is null
+                ? (method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
+                    ? $"self->{method.NativeName}({callArguments});"
+                    : $"return self->{method.NativeName}({callArguments});")
+                : $$"""
+                    auto* dispatch = dynamic_cast<{{method.NativeDispatchRecordCppTypeName}}*>(self);
+                    if (dispatch == nullptr)
+                    {
+                    throw std::runtime_error("SharpCpp failed to adjust the native handle for secondary-base dispatch.");
+                    }
+
+                    {{(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
+                        ? $"dispatch->{method.NativeName}({callArguments});"
+                        : $"return dispatch->{method.NativeName}({callArguments});")}}
+                    """;
+
+            writer.Write($$"""
+                static auto {{wrapperName}}({{cppParamDecls}}) -> {{method.CppReturnTypeName}}
+                {
+                    {{invocation}}
+                }
+
+                SHARPCPP_EXPORT ret_t<{{method.CppReturnTypeName}}> {{entrypointName}}({{parameterList}})
+                {
+                    using FT = {{signature}};
+                    {{(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? string.Empty : "return ")}}MarshallerInvoker::invoke_as<FT>(&{{wrapperName}}, self{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                }
+
+                """);
+        }
+
+        return writer.ToString();
+    }
+
+    private static string RenderNativeUnexpressibleDefaultCallbase(RecordBinding record, FunctionBinding method)
+    {
+        var writer = new CodeWriter();
+        var helperName = GetNativeCallbaseHelperName(method);
+        var baseEntrypointName = GetNativeCallbaseEntrypointName(record, method);
+
+        foreach (var keepCount in GetUnexpressibleDefaultParameterIndices(method))
+        {
+            var variantParams = GetUnexpressibleVariantParams(method, keepCount);
+            var parameterList = string.Join(", ", new[] { $"arg_t<{record.CppQualifiedName}*> self" }.Concat(variantParams.Select(RenderNativeParameter)));
+            var abiArguments = string.Join(", ", variantParams.Select(static p => p.NativeName));
+            var entrypointName = GetUnexpressibleVariantEntrypointName(baseEntrypointName, keepCount);
+            var safeSuffix = new string(entrypointName.Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
+            var wrapperName = $"__{safeSuffix}_wrapper";
+            var cppTypeNames = string.Join(", ", new[] { $"{record.CppQualifiedName}*" }.Concat(variantParams.Select(static p => p.CppTypeName)));
+            var cppParamDecls = string.Join(", ", new[] { $"{record.CppQualifiedName}* self" }.Concat(variantParams.Select(static p => $"{p.CppTypeName} {p.NativeName}")));
+            var signature = $"{method.CppReturnTypeName}({cppTypeNames})";
+
+            writer.Write($$"""
+                static auto {{wrapperName}}({{cppParamDecls}}) -> {{method.CppReturnTypeName}}
+                {
+                    {{(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? string.Empty : "return ")}}{{helperName}}(self{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                }
+
+                SHARPCPP_EXPORT ret_t<{{method.CppReturnTypeName}}> {{entrypointName}}({{parameterList}})
+                {
+                    using FT = {{signature}};
+                    {{(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? string.Empty : "return ")}}MarshallerInvoker::invoke_as<FT>(&{{wrapperName}}, self{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                }
+
+                """);
+        }
+
+        return writer.ToString();
+    }
+
+    private static string RenderNativeUnexpressibleDefaultConstructor(FunctionBinding constructor, bool requiresDirector)
+    {
+        var writer = new CodeWriter();
+        foreach (var keepCount in GetUnexpressibleDefaultParameterIndices(constructor))
+        {
+            var variantParams = GetUnexpressibleVariantParams(constructor, keepCount);
+            var parameterList = string.Join(", ", variantParams.Select(RenderNativeParameter));
+            var abiArguments = string.Join(", ", variantParams.Select(static p => p.NativeName));
+            var entrypointName = GetUnexpressibleVariantEntrypointName(constructor.EntryPointName, keepCount);
+            var safeSuffix = new string(entrypointName.Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
+            var wrapperName = $"__{safeSuffix}_wrapper";
+            var cppTypeNames = string.Join(", ", variantParams.Select(static p => p.CppTypeName));
+            var cppParamDecls = string.Join(", ", variantParams.Select(static p => $"{p.CppTypeName} {p.NativeName}"));
+            var signature = $"{constructor.CppReturnTypeName}({cppTypeNames})";
+            var constructedTypeName = requiresDirector
+                ? GetNativeDirectorClassName((RecordBinding)constructor.Parent!)
+                : constructor.OwningRecordCppTypeName;
+
+            writer.Write($$"""
+                static auto {{wrapperName}}({{cppParamDecls}}) -> {{constructor.CppReturnTypeName}}
+                {
+                    return new {{constructedTypeName}}({{string.Join(", ", variantParams.Select(static p => p.NativeName))}});
+                }
+
+                SHARPCPP_EXPORT ret_t<{{constructor.CppReturnTypeName}}> {{entrypointName}}({{parameterList}})
+                {
+                    using FT = {{signature}};
+                    return MarshallerInvoker::invoke_as<FT>(&{{wrapperName}}{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                }
+
+                """);
+        }
+
+        return writer.ToString();
+    }
+
+    private static string BuildManagedDispatchArgument(ParameterBinding parameter, string plannedArgument)
+    {
+        if (!parameter.HasMetadata(MetadataKeys.UnexpressibleDefault) || parameter.Type.Kind == BindingTypeKind.Handle)
+        {
+            return plannedArgument;
+        }
+
+        var valueExpression = $"{parameter.ManagedName}.Value";
+        return parameter.Direction switch
+        {
+            BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => $"in {valueExpression}",
+            BindingParameterDirection.Ref => $"ref {valueExpression}",
+            BindingParameterDirection.Out => $"out {valueExpression}",
+            _ => valueExpression
+        };
+    }
+
+    private static string BuildManagedDispatchArguments(FunctionBinding function, ManagedInvocationPlan plan, IReadOnlyList<string> leadingArguments, int keepCount)
+    {
+        var arguments = new List<string>(leadingArguments);
+        for (var i = 0; i < keepCount; i++)
+        {
+            var parameter = function.Parameters[i];
+            arguments.Add(BuildManagedDispatchArgument(parameter, plan.Arguments[i]));
+        }
+
+        return string.Join(", ", arguments);
+    }
+
+    private static string BuildUnexpressibleDefaultCondition(ParameterBinding parameter, bool provided)
+    {
+        if (parameter.Type.Kind == BindingTypeKind.Handle)
+        {
+            return $"{parameter.ManagedName} is {(provided ? "not null" : "null")}";
+        }
+
+        return provided
+            ? $"{parameter.ManagedName}.HasValue"
+            : $"!{parameter.ManagedName}.HasValue";
+    }
+
+    private static string BuildUnexpressibleDefaultCondition(FunctionBinding function, IReadOnlyList<int> defaultIndices, int providedDefaultCount)
+    {
+        var parts = new List<string>(defaultIndices.Count);
+        for (var i = 0; i < defaultIndices.Count; i++)
+        {
+            parts.Add(BuildUnexpressibleDefaultCondition(function.Parameters[defaultIndices[i]], provided: i < providedDefaultCount));
+        }
+
+        return string.Join(" && ", parts);
+    }
+
+    private static void WriteUnexpressibleDefaultCascade(BindingCompilation compilation, CodeWriter writer, FunctionBinding function, string importMethodName, IReadOnlyList<string> leadingArguments)
+    {
+        var defaultIndices = GetUnexpressibleDefaultParameterIndices(function);
         var invocationPlan = BuildManagedInvocationPlan(compilation, function.Parameters);
 
         foreach (var statement in invocationPlan.PreCallStatements)
+        {
             writer.Write(statement);
-
-        var defaultCount = defaultIndices.Count;
-        var isVoid = function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void;
-        var scopeIndex = 0;
-
-        if (defaultCount == 1)
-        {
-            var param = function.Parameters[defaultIndices[0]];
-
-            writer.Write($$"""
-                if (!{{param.ManagedName}}.HasValue)
-                """);
-            writer.WriteLine(" {");
-
-            var variantImportName = GetUnexpressibleVariantImportSuffix(function, 1);
-            var variantInvocationPlan = BuildManagedInvocationPlan(compilation, GetUnexpressibleVariantParams(function, 1));
-            WriteDispatchCallWithScope(writer, function, variantImportName, variantInvocationPlan, 1, scopeIndex++);
-
-            if (isVoid)
-                writer.Write("return;\n");
-
-            writer.WriteLine("}");
-            writer.WriteLine();
-
-            WriteDispatchCall(writer, function, importMethodName, invocationPlan, 0);
         }
-        else
+
+        WriteUnexpressibleDefaultBranch(compilation, writer, function, importMethodName, invocationPlan, leadingArguments, function.Parameters.Count, defaultIndices, defaultIndices.Count);
+
+        for (var providedDefaultCount = defaultIndices.Count - 1; providedDefaultCount >= 0; providedDefaultCount--)
         {
-            var allOmitName = GetUnexpressibleVariantImportSuffix(function, defaultCount);
-            var allOmitPlan = BuildManagedInvocationPlan(compilation, GetUnexpressibleVariantParams(function, defaultCount));
-
-            // All null: omit all
-            writer.Write("if (");
-            WriteUnexpressibleCondition(writer, defaultIndices, function, invert: true);
-            writer.WriteLine(") {");
-            WriteDispatchCallWithScope(writer, function, allOmitName, allOmitPlan, defaultCount, scopeIndex++);
-            if (isVoid) writer.Write("return;\n");
-            writer.WriteLine("}");
-
-            // For each level from rightmost-1 to leftmost: rightmost null, next has value
-            for (var depth = defaultIndices.Count - 1; depth > 0; depth--)
-            {
-                var rightmostParam = function.Parameters[defaultIndices[depth]];
-                var nextParam = function.Parameters[defaultIndices[depth - 1]];
-                var omitCount = defaultCount - depth;
-
-                var variantName = GetUnexpressibleVariantImportSuffix(function, omitCount);
-                var variantPlan = BuildManagedInvocationPlan(compilation, GetUnexpressibleVariantParams(function, omitCount));
-
-                writer.Write($$"""
-                    if (!{{rightmostParam.ManagedName}}.HasValue && {{nextParam.ManagedName}}.HasValue)
-                    """);
-                writer.WriteLine(" {");
-                WriteDispatchCallWithScope(writer, function, variantName, variantPlan, omitCount, scopeIndex++);
-                if (isVoid) writer.Write("return;\n");
-                writer.WriteLine("}");
-            }
-
-            // All provided
-            writer.WriteLine();
-            WriteDispatchCall(writer, function, importMethodName, invocationPlan, 0);
+            var keepCount = defaultIndices[providedDefaultCount];
+            var variantPlan = BuildManagedInvocationPlan(compilation, GetUnexpressibleVariantParams(function, keepCount));
+            var variantImportName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
+            WriteUnexpressibleDefaultBranch(compilation, writer, function, variantImportName, variantPlan, leadingArguments, keepCount, defaultIndices, providedDefaultCount);
         }
+
+        writer.Write(
+            """
+                throw new global::System.ArgumentException("SharpCpp optional arguments that depend on native defaults must be supplied as a trailing contiguous suffix.");
+            """);
     }
 
-    private static void WriteDispatchCall(CodeWriter writer, FunctionBinding function, string importName,
-        ManagedInvocationPlan plan, int omitCount)
+    private static void WriteUnexpressibleDefaultBranch(BindingCompilation compilation, CodeWriter writer, FunctionBinding function, string importName,
+        ManagedInvocationPlan plan, IReadOnlyList<string> leadingArguments, int keepCount, IReadOnlyList<int> defaultIndices, int providedDefaultCount)
+    {
+        writer.WriteLine($"if ({BuildUnexpressibleDefaultCondition(function, defaultIndices, providedDefaultCount)})");
+        writer.WriteLine("{");
+        WriteDispatchCall(writer, compilation, function, importName, plan, leadingArguments, keepCount);
+        if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+        {
+            writer.WriteLine("return;");
+        }
+
+        writer.WriteLine("}");
+        writer.WriteLine();
+    }
+
+    private static void WriteDispatchCall(CodeWriter writer, BindingCompilation compilation, FunctionBinding function, string importName,
+        ManagedInvocationPlan plan, IReadOnlyList<string> leadingArguments, int keepCount)
     {
         var resultVar = "__result";
-        var args = string.Join(", ", function.Parameters.Take(function.Parameters.Count - omitCount).Select(p =>
-            p.HasMetadata(MetadataKeys.UnexpressibleDefault) ? $"{p.ManagedName}!.Value" : plan.Arguments[function.Parameters.IndexOf(p)]));
+        var args = BuildManagedDispatchArguments(function, plan, leadingArguments, keepCount);
 
         if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
         {
@@ -3077,7 +3393,7 @@ public static partial class BindingOutputRenderer
                 writer.Write(statement);
 
             writer.Write($$"""
-                return {{BuildManagedHandleWrap(null!, function.ReturnType, resultVar, function.ReturnsOwnedHandle)}};
+                return {{BuildManagedHandleWrap(compilation, function.ReturnType, resultVar, function.ReturnsOwnedHandle)}};
                 """);
         }
         else
@@ -3095,56 +3411,59 @@ public static partial class BindingOutputRenderer
         }
     }
 
-    private static void WriteDispatchCallWithScope(CodeWriter writer, FunctionBinding function, string importName,
-        ManagedInvocationPlan plan, int omitCount, int scopeIndex)
+    private static void WriteUnexpressibleDefaultConstructorCascade(CodeWriter writer, FunctionBinding function, string importMethodName)
     {
-        var args = string.Join(", ", function.Parameters.Take(function.Parameters.Count - omitCount).Select(p =>
-            p.HasMetadata(MetadataKeys.UnexpressibleDefault) ? $"{p.ManagedName}!.Value" : plan.Arguments[function.Parameters.IndexOf(p)]));
-        var resultVar = $"__result{scopeIndex}";
+        var defaultIndices = GetUnexpressibleDefaultParameterIndices(function);
+        var invocationPlan = BuildManagedInvocationPlan(null!, function.Parameters);
 
-        if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+        foreach (var statement in invocationPlan.PreCallStatements)
         {
-            writer.Write($$"""
-                __PInvoke.{{importName}}({{args}});
-                """);
-
-            foreach (var statement in plan.PostCallStatements)
-                writer.Write(statement);
+            writer.Write(statement);
         }
-        else if (function.ReturnType.Kind == BindingTypeKind.Handle)
+
+        WriteUnexpressibleDefaultConstructorBranch(writer, function, importMethodName, invocationPlan, function.Parameters.Count, defaultIndices, defaultIndices.Count);
+
+        for (var providedDefaultCount = defaultIndices.Count - 1; providedDefaultCount >= 0; providedDefaultCount--)
         {
-            writer.Write($$"""
-                var {{resultVar}} = __PInvoke.{{importName}}({{args}});
-                """);
-
-            foreach (var statement in plan.PostCallStatements)
-                writer.Write(statement);
-
-            writer.Write($$"""
-                return {{BuildManagedHandleWrap(null!, function.ReturnType, resultVar, function.ReturnsOwnedHandle)}};
-                """);
+            var keepCount = defaultIndices[providedDefaultCount];
+            var variantPlan = BuildManagedInvocationPlan(null!, GetUnexpressibleVariantParams(function, keepCount));
+            var variantImportName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
+            WriteUnexpressibleDefaultConstructorBranch(writer, function, variantImportName, variantPlan, keepCount, defaultIndices, providedDefaultCount);
         }
-        else
-        {
-            writer.Write($$"""
-                var {{resultVar}} = __PInvoke.{{importName}}({{args}});
-                """);
 
-            foreach (var statement in plan.PostCallStatements)
-                writer.Write(statement);
-
-            writer.Write($$"""
-                return {{resultVar}};
-                """);
-        }
+        writer.Write(
+            """
+                throw new global::System.ArgumentException("SharpCpp optional arguments that depend on native defaults must be supplied as a trailing contiguous suffix.");
+            """);
     }
 
-    private static void WriteUnexpressibleCondition(CodeWriter writer, List<int> defaultIndices, FunctionBinding function, bool invert)
+    private static void WriteUnexpressibleDefaultConstructorBranch(CodeWriter writer, FunctionBinding function, string importName,
+        ManagedInvocationPlan plan, int keepCount, IReadOnlyList<int> defaultIndices, int providedDefaultCount)
     {
-        var parts = defaultIndices
-            .Select(i => invert ? $"!{function.Parameters[i].ManagedName}.HasValue" : $"{function.Parameters[i].ManagedName}.HasValue")
-            .ToList();
+        writer.WriteLine($"if ({BuildUnexpressibleDefaultCondition(function, defaultIndices, providedDefaultCount)})");
+        writer.WriteLine("{");
+        WriteConstructorDispatchCall(writer, function, importName, plan, keepCount);
+        writer.WriteLine("}");
+        writer.WriteLine();
+    }
 
-        writer.Write(string.Join(" && ", parts));
+    private static void WriteConstructorDispatchCall(CodeWriter writer, FunctionBinding function, string importName,
+        ManagedInvocationPlan plan, int keepCount)
+    {
+        var args = BuildManagedDispatchArguments(function, plan, [], keepCount);
+
+        writer.Write($$"""
+            var __handle = __PInvoke.{{importName}}({{args}});
+            """);
+
+        foreach (var statement in plan.PostCallStatements)
+        {
+            writer.Write(statement);
+        }
+
+        writer.Write(
+            """
+            return __handle;
+            """);
     }
 }

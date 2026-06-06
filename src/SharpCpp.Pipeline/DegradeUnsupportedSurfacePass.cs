@@ -69,6 +69,11 @@ public static class DegradeUnsupportedSurfacePass
                     continue;
                 }
 
+                if (record.GetMetadata<bool>(MetadataKeys.SuppressEmission))
+                {
+                    continue;
+                }
+
                 if (TryGetNamespaceExclusionReason(record.CppQualifiedName, allowedNamespaceRoots, out var namespaceReason))
                 {
                     record.SetIgnoreReason(namespaceReason);
@@ -93,6 +98,11 @@ public static class DegradeUnsupportedSurfacePass
             foreach (var @enum in compilation.Enums)
             {
                 if (@enum.IsIgnored())
+                {
+                    continue;
+                }
+
+                if (@enum.GetMetadata<bool>(MetadataKeys.SuppressEmission))
                 {
                     continue;
                 }

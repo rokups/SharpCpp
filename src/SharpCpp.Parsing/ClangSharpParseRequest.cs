@@ -1,3 +1,5 @@
+using SharpCpp.Metadata.Import;
+
 namespace SharpCpp.Parsing;
 
 public sealed record ClangSharpParseRequest(
@@ -10,4 +12,5 @@ public sealed record ClangSharpParseRequest(
     IReadOnlyList<string> ClangArguments,
     IReadOnlyList<string> MarshallerConfigurationFiles,
     string EntryPointPrefix,
-    IReadOnlyList<string>? OwnedFileRoots = null);
+    IReadOnlyList<string>? OwnedFileRoots = null,
+    BindingMetadataImportCatalog? ImportedBindingMetadata = null);

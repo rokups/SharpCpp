@@ -10,7 +10,7 @@ public static class ValidateBootstrapSurfacePass
 
         foreach (var record in compilation.Records)
         {
-            if (record.IsIgnored())
+            if (record.IsIgnored() || record.GetMetadata<bool>(MetadataKeys.SuppressEmission))
             {
                 continue;
             }

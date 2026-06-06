@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Rbfx.UserCode.Bindings</AssemblyName>
+    <SharpCppGeneratedDir Condition="'$(SharpCppGeneratedDir)' == ''">$(BaseIntermediateOutputPath)generated/rbfx-usercode</SharpCppGeneratedDir>
+    <NoWarn>$(NoWarn);CS0108;CS0109</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../src/SharpCpp.Support/SharpCpp.Support.csproj" />
+    <ProjectReference Include="../../SharpCpp.Rbfx.Bindings/SharpCpp.Rbfx.Bindings.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(SharpCppGeneratedDir)' != '' and Exists('$(SharpCppGeneratedDir)')">
+    <Compile Include="$(SharpCppGeneratedDir)/*.cs" LinkBase="Generated" Visible="false" />
+  </ItemGroup>
+</Project>
