@@ -37,13 +37,14 @@ public static class NormalizeManagedNamespacesPass
         IReadOnlyDictionary<string, string> namespaceMappings,
         string nativeName)
     {
-        var lastSeparator = cppQualifiedName.LastIndexOf("::", StringComparison.Ordinal);
+        var strippedName = StripTemplateArguments(cppQualifiedName);
+        var lastSeparator = strippedName.LastIndexOf("::", StringComparison.Ordinal);
         if (lastSeparator < 0)
         {
             return defaultNamespace;
         }
 
-        var cppNamespace = cppQualifiedName[..lastSeparator];
+        var cppNamespace = strippedName[..lastSeparator];
 
         if (namespaceMappings.TryGetValue(cppNamespace, out var mappedNamespace))
         {
@@ -57,6 +58,12 @@ public static class NormalizeManagedNamespacesPass
         }
 
         return string.Join(".", segments);
+    }
+
+    private static string StripTemplateArguments(string name)
+    {
+        var genericStart = name.IndexOf('<');
+        return genericStart >= 0 ? name[..genericStart] : name;
     }
 
     private static string ToPascalCase(string name)

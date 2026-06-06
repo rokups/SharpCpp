@@ -246,6 +246,11 @@ internal static class Program
                 continue;
             }
 
+            if (function.GetMetadata<bool>(MetadataKeys.HasNativeDefinition))
+            {
+                continue;
+            }
+
             if (exportedSymbols.Any(symbol => symbol.Contains($"{function.CppQualifiedName}(", StringComparison.Ordinal)))
             {
                 continue;
