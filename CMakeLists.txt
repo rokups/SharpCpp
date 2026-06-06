@@ -353,11 +353,16 @@ set_property(GLOBAL PROPERTY SHARPCPP_E2E_GENERATED_DIR "${SHARPCPP_E2E_GENERATE
 
 add_custom_command(
   OUTPUT "${SHARPCPP_E2E_GENERATED_STAMP}"
-  COMMAND "${CMAKE_COMMAND}" -E make_directory "$<SHELL_PATH:${SHARPCPP_E2E_GENERATED_ROOT}>"
-  COMMAND "${DOTNET_EXECUTABLE}" run --project "$<SHELL_PATH:${CMAKE_SOURCE_DIR}/src/SharpCpp.Tool/SharpCpp.Tool.csproj>" --configuration $<IF:$<CONFIG:Debug>,Debug,Release> --
+  COMMAND "${CMAKE_COMMAND}"
+          "-DGENERATOR_DLL=${SHARPCPP_BIN_DIR}/SharpCpp.Tool.dll"
+          "-DGENERATED_STAMP=${SHARPCPP_E2E_GENERATED_STAMP}"
+          "-DGENERATED_DIR=${SHARPCPP_E2E_GENERATED_ROOT}"
+          -P "${CMAKE_SOURCE_DIR}/tests/SharpCpp.Tests.E2E/CheckGeneratedStaleness.cmake"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${SHARPCPP_E2E_GENERATED_ROOT}"
+  COMMAND "${DOTNET_EXECUTABLE}" run --project "${CMAKE_SOURCE_DIR}/src/SharpCpp.Tool/SharpCpp.Tool.csproj" --configuration $<IF:$<CONFIG:Debug>,Debug,Release> --
           generate-sample
-          --generated-root "$<SHELL_PATH:${SHARPCPP_E2E_GENERATED_ROOT}>"
-          --project-root "$<SHELL_PATH:${CMAKE_SOURCE_DIR}>"
+          --generated-root "${SHARPCPP_E2E_GENERATED_ROOT}"
+          --project-root "${CMAKE_SOURCE_DIR}"
           --file-stem "${SHARPCPP_E2E_FILE_STEM}"
   COMMAND "${CMAKE_COMMAND}" -E touch "${SHARPCPP_E2E_GENERATED_STAMP}"
   DEPENDS "${SHARPCPP_TOOL_BUILD_STAMP}" ${SHARPCPP_E2E_INPUT_HEADERS} ${SHARPCPP_E2E_GENERATOR_INPUTS}
