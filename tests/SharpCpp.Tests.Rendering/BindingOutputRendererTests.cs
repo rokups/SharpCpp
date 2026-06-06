@@ -1026,4 +1026,77 @@ public sealed class BindingOutputRendererTests
 
         return $"{pathParts[0]}/SharpCpp.Rbfx.{string.Join('.', pathParts.Skip(1))}";
     }
+
+    [Fact]
+    public void Managed_output_uses_StringBase_for_string_record_wrapper()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "String/String.hpp" });
+        var stringRecord = new RecordBinding("record:std::basic_string", "std::basic_string", "String")
+        {
+            ManagedBaseTypeName = "global::SharpCpp.Support.StringBase",
+            ManagedTypeFormat = "String"
+        };
+        compilation.Members.Add(stringRecord);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public partial class String : global::SharpCpp.Support.StringBase", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain(": global::SharpCpp.Support.NativeObject", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Managed_output_renders_protected_core_methods_for_string_record()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "String/String.hpp" });
+        var stringRecord = new RecordBinding("record:std::basic_string", "std::basic_string", "String")
+        {
+            ManagedBaseTypeName = "global::SharpCpp.Support.StringBase",
+            ManagedTypeFormat = "String",
+            IsDirector = true
+        };
+
+        var getCountCore = new FunctionBinding("method:std::basic_string:size", "size", "GetCountCore",
+            BindingType.UInt64, "sharpcpp_e2e_std_basic_string_size", "std::size_t", "std::basic_string::size")
+        {
+            IsStatic = false,
+            AccessModifier = BindingAccessModifier.Protected,
+            IsConstMethod = true,
+            OwningRecordCppTypeName = "std::basic_string"
+        };
+        stringRecord.Members.Add(getCountCore);
+
+        var addCore = new FunctionBinding("method:std::basic_string:push_back", "push_back", "AddCore",
+            BindingType.Void, "sharpcpp_e2e_std_basic_string_push_back", "void", "std::basic_string::push_back")
+        {
+            IsStatic = false,
+            AccessModifier = BindingAccessModifier.Protected,
+            OwningRecordCppTypeName = "std::basic_string"
+        };
+        addCore.Parameters.Add(new ParameterBinding(
+            "parameter:std::basic_string:push_back:value", "value", "value",
+            BindingType.UInt8, BindingParameterDirection.In, BindingParameterAbiKind.Value, "unsigned char"));
+        stringRecord.Members.Add(addCore);
+
+        compilation.Members.Add(stringRecord);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("GetCountCore()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("AddCore", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT ret_t<std::size_t> sharpcpp_e2e_std_basic_string_size(arg_t<std::basic_string*> self)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_std_basic_string_push_back(arg_t<std::basic_string*> self", nativeOutput, StringComparison.Ordinal);
+    }
 }
