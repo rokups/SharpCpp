@@ -199,7 +199,7 @@ public static partial class BindingOutputRenderer
                     writer.Write(RenderManagedWrapperMethod(compilation, function));
                     freeFunctionDeclarations.Add(RenderManagedImportDeclaration(compilation, function));
 
-                    if (HasUnexpressibleDefaultParams(function))
+                    if (HasUnexpressibleDefaultParams(function) || HasUndefaultableParams(function))
                         freeFunctionDeclarations.Add(RenderUnexpressibleDefaultFreeFunctionImport(compilation, function));
                 }
             }
@@ -669,13 +669,20 @@ public static partial class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         WriteDocumentationComment(writer, function);
+        var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType);
+        var importMethodName = GetManagedImportMethodName(function);
+
+        if (HasUndefaultableParams(function))
+        {
+            WriteUndefaultableOverloads(compilation, writer, function, importMethodName, []);
+            return writer.ToString();
+        }
+
         var parameterList = string.Join(
             ", ",
             function.Parameters.Select(RenderManagedPublicParameter));
         var invocationPlan = BuildManagedInvocationPlan(compilation, function.Parameters);
         var invokeArguments = string.Join(", ", invocationPlan.Arguments);
-        var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType);
-        var importMethodName = GetManagedImportMethodName(function);
 
         writer.Write($$"""
             public static {{returnTypeName}} {{function.ManagedName}}({{parameterList}})
@@ -925,7 +932,7 @@ public static partial class BindingOutputRenderer
             {
                 writer.Write(RenderManagedConstructor(record, constructor, requiresDirector));
                 pinvokeDeclarations.Add(RenderManagedConstructorImportDeclaration(compilation, constructor));
-                if (HasUnexpressibleDefaultParams(constructor))
+                if (HasUnexpressibleDefaultParams(constructor) || HasUndefaultableParams(constructor))
                 {
                     pinvokeDeclarations.Add(RenderManagedUnexpressibleDefaultConstructorImports(compilation, constructor));
                 }
@@ -962,7 +969,7 @@ public static partial class BindingOutputRenderer
                 if (isDirectorVirtual)
                 {
                     pinvokeDeclarations.Add(RenderManagedCallbaseImportDeclaration(compilation, method, record.ManagedName));
-                    if (HasUnexpressibleDefaultParams(method))
+                    if (HasUnexpressibleDefaultParams(method) || HasUndefaultableParams(method))
                     {
                         pinvokeDeclarations.Add(RenderManagedUnexpressibleDefaultInstanceImports(compilation, method, record.ManagedName, useCallbase: true));
                     }
@@ -970,7 +977,7 @@ public static partial class BindingOutputRenderer
                 else
                 {
                     pinvokeDeclarations.Add(RenderManagedInstanceImportDeclaration(compilation, method, record.ManagedName));
-                    if (HasUnexpressibleDefaultParams(method))
+                    if (HasUnexpressibleDefaultParams(method) || HasUndefaultableParams(method))
                     {
                         pinvokeDeclarations.Add(RenderManagedUnexpressibleDefaultInstanceImports(compilation, method, record.ManagedName));
                     }
@@ -989,7 +996,7 @@ public static partial class BindingOutputRenderer
             {
                 writer.Write(RenderManagedStaticMethod(compilation, method));
                 pinvokeDeclarations.Add(RenderManagedStaticImportDeclaration(compilation, method));
-                if (HasUnexpressibleDefaultParams(method))
+                if (HasUnexpressibleDefaultParams(method) || HasUndefaultableParams(method))
                 {
                     pinvokeDeclarations.Add(RenderManagedUnexpressibleDefaultStaticImports(compilation, method));
                 }
@@ -1111,9 +1118,6 @@ public static partial class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         WriteDocumentationComment(writer, function);
-        var parameterList = string.Join(
-            ", ",
-            function.Parameters.Select(RenderManagedPublicParameter));
         var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType);
         var importMethodName = useCallbase
             ? GetManagedCallbaseImportMethodName(function)
@@ -1122,14 +1126,27 @@ public static partial class BindingOutputRenderer
 
         if (string.Equals(memberModifier, "abstract ", StringComparison.Ordinal))
         {
+            var parameterList = string.Join(
+                ", ",
+                function.Parameters.Select(RenderManagedPublicParameter));
             writer.Write($$"""
                 {{GetManagedVisibilityNormalized(compilation, record, function)}} {{memberModifier}}{{returnTypeName}} {{function.ManagedName}}({{parameterList}});
                 """);
             return writer.ToString();
         }
 
+        if (HasUndefaultableParams(function))
+        {
+            WriteUndefaultableOverloads(compilation, writer, function, importMethodName, ["this"]);
+            return writer.ToString();
+        }
+
+        var parameterListFull = string.Join(
+            ", ",
+            function.Parameters.Select(RenderManagedPublicParameter));
+
         writer.Write($$"""
-            {{GetManagedVisibilityNormalized(compilation, record, function)}} {{memberModifier}}{{returnTypeName}} {{function.ManagedName}}({{parameterList}})
+            {{GetManagedVisibilityNormalized(compilation, record, function)}} {{memberModifier}}{{returnTypeName}} {{function.ManagedName}}({{parameterListFull}})
             {
             """);
 
@@ -1339,14 +1356,21 @@ public static partial class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         WriteDocumentationComment(writer, function);
-        var parameterList = string.Join(
-            ", ",
-            function.Parameters.Select(RenderManagedPublicParameter));
-        var invokeArguments = string.Join(", ", function.Parameters.Select(RenderManagedInvocationArgument));
         var constructorName = function.Parent is RecordBinding owningRecord
             ? owningRecord.ManagedName
             : NormalizeEnumManagedTypeName(function.ManagedName);
         var importMethodName = GetManagedImportMethodName(function);
+
+        if (HasUndefaultableParams(function))
+        {
+            WriteUndefaultableConstructorOverloads(writer, record, function, constructorName, importMethodName, requiresDirector);
+            return writer.ToString();
+        }
+
+        var parameterList = string.Join(
+            ", ",
+            function.Parameters.Select(RenderManagedPublicParameter));
+        var invokeArguments = string.Join(", ", function.Parameters.Select(RenderManagedInvocationArgument));
         var hasHandleParams = function.Parameters.Any(static parameter => parameter.Type.Kind == BindingTypeKind.Handle);
         var hasUnexpressibleDefaults = HasUnexpressibleDefaultParams(function);
 
@@ -1404,6 +1428,145 @@ public static partial class BindingOutputRenderer
         }
 
         return writer.ToString();
+    }
+
+    private static void WriteUndefaultableConstructorOverloads(
+        CodeWriter writer,
+        RecordBinding record,
+        FunctionBinding function,
+        string constructorName,
+        string importMethodName,
+        bool requiresDirector)
+    {
+        var firstU = GetFirstUndefaultableParamIndex(function);
+        if (firstU < 0)
+        {
+            return;
+        }
+
+        // =========================================================
+        // Overload A: params before first undefaultable index
+        // =========================================================
+        {
+            var beforeParams = function.Parameters.Take(firstU).ToArray();
+            var aParamList = string.Join(", ", beforeParams.Select(RenderManagedPublicParameter));
+            var aArgNames = string.Join(", ", beforeParams.Select(static p => p.ManagedName));
+            var aHasUnexpressible = beforeParams.Any(p => p.HasMetadata(MetadataKeys.UnexpressibleDefault));
+
+            var aFactoryName = $"__CreateHandle_{importMethodName}_OverloadA";
+
+            writer.Write($$"""
+                public {{constructorName}}({{aParamList}})
+                    : this({{aFactoryName}}({{aArgNames}}), true)
+                {
+                {{(requiresDirector ? "ConnectDirector();" : string.Empty)}}
+                }
+
+                private static nint {{aFactoryName}}({{aParamList}})
+                {
+                """);
+
+            if (firstU == 0)
+            {
+                writer.Write($$"""
+                    var __handle = __PInvoke.{{GetUnexpressibleVariantImportName(importMethodName, 0)}}();
+                    return __handle;
+                    """);
+            }
+            else if (aHasUnexpressible)
+            {
+                WriteUnexpressibleDefaultConstructorCascade(writer, function, importMethodName);
+            }
+            else
+            {
+                var aPlan = BuildManagedInvocationPlan(null!, beforeParams);
+                var aInvokeArgs = string.Join(", ", beforeParams.Select(RenderManagedInvocationArgument));
+                writer.Write($$"""
+                    var __handle = __PInvoke.{{GetUnexpressibleVariantImportName(importMethodName, firstU)}}({{aInvokeArgs}});
+                    """);
+                foreach (var statement in aPlan.PostCallStatements)
+                {
+                    writer.Write(statement);
+                }
+                writer.Write("""
+                    return __handle;
+                    """);
+            }
+
+            writer.Write("""
+                }
+                """);
+            writer.WriteLine();
+        }
+
+        // =========================================================
+        // Overload B: all params, before/first undefaultable are required
+        // =========================================================
+        {
+            var bParamParts = new List<string>();
+            for (var i = 0; i < function.Parameters.Count; i++)
+            {
+                var param = function.Parameters[i];
+                if (i < firstU || param.HasMetadata(MetadataKeys.UndefaultableParam))
+                {
+                    bParamParts.Add(RenderManagedPublicParameterRequired(param));
+                }
+                else
+                {
+                    bParamParts.Add(RenderManagedPublicParameter(param));
+                }
+            }
+            var bParamList = string.Join(", ", bParamParts);
+            var bArgNames = string.Join(", ", function.Parameters.Select(static p => p.ManagedName));
+            var bFactoryName = $"__CreateHandle_{importMethodName}_OverloadB";
+            var bHasAfterUnexpressible = function.Parameters.Skip(firstU).Any(p => p.HasMetadata(MetadataKeys.UnexpressibleDefault));
+
+            writer.Write($$"""
+                public {{constructorName}}({{bParamList}})
+                    : this({{bFactoryName}}({{bArgNames}}), true)
+                {
+                {{(requiresDirector ? "ConnectDirector();" : string.Empty)}}
+                }
+
+                private static nint {{bFactoryName}}({{bParamList}})
+                {
+                """);
+
+            if (bHasAfterUnexpressible)
+            {
+                // Cascade only for after-firstU unexpressible defaults.
+                // We use a filtered approach: create a projection of the function
+                // that only has the after-firstU params, so the standard cascade
+                // only generates conditions/variants for those positions.
+                // Reuse the cascade but with a builder that adjusts param names.
+                var uFirst = GetFirstUndefaultableParamIndex(function);
+                var afterDefaultIndices = new List<int>();
+                for (var i = uFirst; i < function.Parameters.Count; i++)
+                {
+                    if (function.Parameters[i].HasMetadata(MetadataKeys.UnexpressibleDefault))
+                    {
+                        afterDefaultIndices.Add(i);
+                    }
+                }
+
+                // Write a targeted cascade for the after-params only.
+                // Filter defaultIndices to only after-firstU positions, since
+                // before-firstU params are non-nullable in Overload B.
+                WriteUndefaultableConstructorCascade_Filtered(writer, function, importMethodName, uFirst, afterDefaultIndices);
+            }
+            else
+            {
+                var bInvokeArgs = string.Join(", ", function.Parameters.Select(RenderManagedInvocationArgument));
+                writer.Write($$"""
+                    var __handle = __PInvoke.{{importMethodName}}({{bInvokeArgs}});
+                    return __handle;
+                    """);
+            }
+
+            writer.Write("""
+                }
+                """);
+        }
     }
 
     private static string RenderManagedConstructorImportDeclaration(BindingCompilation compilation, FunctionBinding function)
@@ -1532,11 +1695,18 @@ public static partial class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         WriteDocumentationComment(writer, function);
+        var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType);
+        var importMethodName = GetManagedImportMethodName(function);
+
+        if (HasUndefaultableParams(function))
+        {
+            WriteUndefaultableOverloads(compilation, writer, function, importMethodName, []);
+            return writer.ToString();
+        }
+
         var parameterList = string.Join(
             ", ",
             function.Parameters.Select(RenderManagedPublicParameter));
-        var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType);
-        var importMethodName = GetManagedImportMethodName(function);
 
         writer.Write($$"""
             {{GetManagedVisibility(function.AccessModifier)}} static {{returnTypeName}} {{function.ManagedName}}({{parameterList}})
@@ -2084,7 +2254,7 @@ public static partial class BindingOutputRenderer
                         """);
                 }
 
-                if (HasUnexpressibleDefaultParams(method))
+                if (HasUnexpressibleDefaultParams(method) || HasUndefaultableParams(method))
                 {
                     writer.WriteLine();
                     writer.Write(RenderNativeUnexpressibleDefaultCallbase(record, method));
@@ -2186,7 +2356,7 @@ public static partial class BindingOutputRenderer
                 }
                 """);
 
-            if (HasUnexpressibleDefaultParams(function))
+            if (HasUnexpressibleDefaultParams(function) || HasUndefaultableParams(function))
             {
                 writer.WriteLine();
                 writer.Write(RenderNativeUnexpressibleDefaultFreeFunction(function));
@@ -2232,7 +2402,7 @@ public static partial class BindingOutputRenderer
                 """);
             }
 
-            if (HasUnexpressibleDefaultParams(method))
+            if (HasUnexpressibleDefaultParams(method) || HasUndefaultableParams(method))
             {
                 writer.WriteLine();
                 writer.Write(RenderNativeUnexpressibleDefaultInstanceMethod(method));
@@ -2269,7 +2439,7 @@ public static partial class BindingOutputRenderer
                 }
                 """);
 
-            if (HasUnexpressibleDefaultParams(method))
+            if (HasUnexpressibleDefaultParams(method) || HasUndefaultableParams(method))
             {
                 writer.WriteLine();
                 writer.Write(RenderNativeUnexpressibleDefaultStaticMethod(method));
@@ -2293,7 +2463,7 @@ public static partial class BindingOutputRenderer
                 }
                 """);
 
-            if (HasUnexpressibleDefaultParams(constructor))
+            if (HasUnexpressibleDefaultParams(constructor) || HasUndefaultableParams(constructor))
             {
                 writer.WriteLine();
                 writer.Write(RenderNativeUnexpressibleDefaultConstructor(constructor, owningRecord is not null && owningRecord.RequiresDirector(compilation)));
@@ -2440,6 +2610,16 @@ public static partial class BindingOutputRenderer
 
     private static string RenderManagedPublicParameter(ParameterBinding parameter)
     {
+        return RenderManagedPublicParameterCore(parameter, forceRequired: false);
+    }
+
+    private static string RenderManagedPublicParameterRequired(ParameterBinding parameter)
+    {
+        return RenderManagedPublicParameterCore(parameter, forceRequired: true);
+    }
+
+    private static string RenderManagedPublicParameterCore(ParameterBinding parameter, bool forceRequired)
+    {
         var modifier = parameter.Direction switch
         {
             BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => "in ",
@@ -2448,30 +2628,34 @@ public static partial class BindingOutputRenderer
             _ => string.Empty
         };
 
-        var isNullableHandleDefault = parameter.Direction == BindingParameterDirection.In &&
+        var isNullableHandleDefault = !forceRequired &&
+            parameter.Direction == BindingParameterDirection.In &&
             parameter.AbiKind == BindingParameterAbiKind.Value &&
             parameter.ManagedDefaultValueExpression == "null" &&
             parameter.Type.Kind == BindingTypeKind.Handle;
 
-        var typeName = parameter.HasMetadata(MetadataKeys.UnexpressibleDefault) || isNullableHandleDefault
+        var typeName = (!forceRequired && parameter.HasMetadata(MetadataKeys.UnexpressibleDefault)) || isNullableHandleDefault
             ? $"{GetManagedWrapperTypeName(parameter.Type)}?"
             : GetManagedWrapperTypeName(parameter.Type);
 
         var signature = $"{modifier}{typeName} {parameter.ManagedName}";
 
-        if (parameter.HasMetadata(MetadataKeys.UnexpressibleDefault))
+        if (!forceRequired)
         {
-            signature += " = null";
-        }
-        else if (isNullableHandleDefault)
-        {
-            signature += " = null";
-        }
-        else if (parameter.Direction == BindingParameterDirection.In &&
-            parameter.AbiKind == BindingParameterAbiKind.Value &&
-            parameter.ManagedDefaultValueExpression is { Length: > 0 } defaultValueExpression)
-        {
-            signature += $" = {defaultValueExpression}";
+            if (parameter.HasMetadata(MetadataKeys.UnexpressibleDefault))
+            {
+                signature += " = null";
+            }
+            else if (isNullableHandleDefault)
+            {
+                signature += " = null";
+            }
+            else if (parameter.Direction == BindingParameterDirection.In &&
+                parameter.AbiKind == BindingParameterAbiKind.Value &&
+                parameter.ManagedDefaultValueExpression is { Length: > 0 } defaultValueExpression)
+            {
+                signature += $" = {defaultValueExpression}";
+            }
         }
 
         return signature;
@@ -2984,6 +3168,24 @@ public static partial class BindingOutputRenderer
         return function.Parameters.Any(static parameter => parameter.HasMetadata(MetadataKeys.UnexpressibleDefault));
     }
 
+    private static bool HasUndefaultableParams(FunctionBinding function)
+    {
+        return function.Parameters.Any(static parameter => parameter.HasMetadata(MetadataKeys.UndefaultableParam));
+    }
+
+    private static int GetFirstUndefaultableParamIndex(FunctionBinding function)
+    {
+        for (var i = 0; i < function.Parameters.Count; i++)
+        {
+            if (function.Parameters[i].HasMetadata(MetadataKeys.UndefaultableParam))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
     private static IReadOnlyList<int> GetUnexpressibleDefaultParameterIndices(FunctionBinding function)
     {
         var indices = new List<int>();
@@ -2996,6 +3198,18 @@ public static partial class BindingOutputRenderer
         }
 
         return indices;
+    }
+
+    private static IReadOnlyList<int> GetVariantParameterIndices(FunctionBinding function)
+    {
+        var indices = new HashSet<int>(GetUnexpressibleDefaultParameterIndices(function));
+        var firstUndefaultable = GetFirstUndefaultableParamIndex(function);
+        if (firstUndefaultable >= 0)
+        {
+            indices.Add(firstUndefaultable);
+        }
+
+        return indices.OrderBy(static i => i).ToArray();
     }
 
     private static IReadOnlyList<ParameterBinding> GetUnexpressibleVariantParams(FunctionBinding function, int keepCount)
@@ -3017,7 +3231,7 @@ public static partial class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         var importMethodName = GetManagedImportMethodName(function);
-        foreach (var keepCount in GetUnexpressibleDefaultParameterIndices(function))
+        foreach (var keepCount in GetVariantParameterIndices(function))
         {
             var variantParams = GetUnexpressibleVariantParams(function, keepCount);
             var parameterList = string.Join(", ", variantParams.Select(RenderManagedParameter));
@@ -3041,7 +3255,7 @@ public static partial class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         var importMethodName = GetManagedImportMethodName(function);
-        foreach (var keepCount in GetUnexpressibleDefaultParameterIndices(function))
+        foreach (var keepCount in GetVariantParameterIndices(function))
         {
             var variantParams = GetUnexpressibleVariantParams(function, keepCount);
             var parameterList = string.Join(", ", variantParams.Select(RenderManagedParameter));
@@ -3073,7 +3287,7 @@ public static partial class BindingOutputRenderer
             ? GetNativeCallbaseEntrypointName(owningRecord, function)
             : function.EntryPointName;
 
-        foreach (var keepCount in GetUnexpressibleDefaultParameterIndices(function))
+        foreach (var keepCount in GetVariantParameterIndices(function))
         {
             var variantParams = GetUnexpressibleVariantParams(function, keepCount);
             var parameterList = string.Join(", ", new[] { $"{recordManagedName} self" }.Concat(variantParams.Select(RenderManagedParameter)));
@@ -3098,7 +3312,7 @@ public static partial class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         var importMethodName = GetManagedImportMethodName(function);
-        foreach (var keepCount in GetUnexpressibleDefaultParameterIndices(function))
+        foreach (var keepCount in GetVariantParameterIndices(function))
         {
             var variantParams = GetUnexpressibleVariantParams(function, keepCount);
             var parameterList = string.Join(", ", variantParams.Select(RenderManagedParameter));
@@ -3172,7 +3386,7 @@ public static partial class BindingOutputRenderer
     private static string RenderNativeUnexpressibleDefaultFreeFunction(FunctionBinding function)
     {
         var writer = new CodeWriter();
-        foreach (var keepCount in GetUnexpressibleDefaultParameterIndices(function))
+        foreach (var keepCount in GetVariantParameterIndices(function))
         {
             var variantParams = GetUnexpressibleVariantParams(function, keepCount);
             var invocation = $"return {function.CppQualifiedName}({ForwardVariantArgs(variantParams)});";
@@ -3184,7 +3398,7 @@ public static partial class BindingOutputRenderer
     private static string RenderNativeUnexpressibleDefaultStaticMethod(FunctionBinding method)
     {
         var writer = new CodeWriter();
-        foreach (var keepCount in GetUnexpressibleDefaultParameterIndices(method))
+        foreach (var keepCount in GetVariantParameterIndices(method))
         {
             var variantParams = GetUnexpressibleVariantParams(method, keepCount);
             var invocation = $"return {method.OwningRecordCppTypeName}::{method.NativeName}({ForwardVariantArgs(variantParams)});";
@@ -3201,7 +3415,7 @@ public static partial class BindingOutputRenderer
         }
 
         var writer = new CodeWriter();
-        foreach (var keepCount in GetUnexpressibleDefaultParameterIndices(method))
+        foreach (var keepCount in GetVariantParameterIndices(method))
         {
             var variantParams = GetUnexpressibleVariantParams(method, keepCount);
             var forwardedArgs = ForwardVariantArgs(variantParams);
@@ -3226,7 +3440,7 @@ public static partial class BindingOutputRenderer
         var helperName = GetNativeCallbaseHelperName(method);
         var baseEntrypointName = GetNativeCallbaseEntrypointName(record, method);
 
-        foreach (var keepCount in GetUnexpressibleDefaultParameterIndices(method))
+        foreach (var keepCount in GetVariantParameterIndices(method))
         {
             var variantParams = GetUnexpressibleVariantParams(method, keepCount);
             var forwardedArgs = ForwardVariantArgs(variantParams);
@@ -3243,7 +3457,7 @@ public static partial class BindingOutputRenderer
             ? GetNativeDirectorClassName((RecordBinding)constructor.Parent!)
             : constructor.OwningRecordCppTypeName;
 
-        foreach (var keepCount in GetUnexpressibleDefaultParameterIndices(constructor))
+        foreach (var keepCount in GetVariantParameterIndices(constructor))
         {
             var variantParams = GetUnexpressibleVariantParams(constructor, keepCount);
             var invocation = $"return new {constructedTypeName}({ForwardVariantArgs(variantParams)});";
@@ -3267,6 +3481,12 @@ public static partial class BindingOutputRenderer
             BindingParameterDirection.Out => $"out {valueExpression}",
             _ => valueExpression
         };
+    }
+
+    private static string BuildManagedDispatchArgumentRequired(ParameterBinding parameter, string plannedArgument)
+    {
+        // For required (non-nullable) params, just use the planned argument directly
+        return plannedArgument;
     }
 
     private static string BuildManagedDispatchArguments(FunctionBinding function, ManagedInvocationPlan plan, IReadOnlyList<string> leadingArguments, int keepCount)
@@ -3302,6 +3522,393 @@ public static partial class BindingOutputRenderer
         }
 
         return string.Join(" && ", parts);
+    }
+
+    private static void WriteUndefaultableOverloads(
+        BindingCompilation compilation,
+        CodeWriter writer,
+        FunctionBinding function,
+        string importMethodName,
+        IReadOnlyList<string> leadingArguments,
+        bool isConstructor = false)
+    {
+        var firstU = GetFirstUndefaultableParamIndex(function);
+        if (firstU < 0)
+        {
+            // No undefaultable params — normal path, shouldn't reach here
+            return;
+        }
+
+        // Build common invocation plan for the full parameter set
+        var fullPlan = BuildManagedInvocationPlan(compilation, function.Parameters);
+
+        // =========================================================
+        // Overload A: params before first undefaultable index
+        // =========================================================
+        {
+            var beforeParams = function.Parameters.Take(firstU).ToArray();
+
+            // Check if before-params have any unexpressible defaults
+            var beforeHasUnexpressible = beforeParams.Any(p => p.HasMetadata(MetadataKeys.UnexpressibleDefault));
+
+            // Render public signature for overload A
+            var aParamList = string.Join(", ", beforeParams.Select(RenderManagedPublicParameter));
+
+            if (isConstructor)
+            {
+                writer.Write($$"""
+                    public {{function.ManagedName}}({{aParamList}})
+                    {
+                    """);
+            }
+            else if (function.IsStatic)
+            {
+                writer.Write($$"""
+                    {{GetManagedVisibility(function.AccessModifier)}} static {{GetManagedPublicReturnTypeName(function.ReturnType)}} {{function.ManagedName}}({{aParamList}})
+                    {
+                    """);
+            }
+            else
+            {
+                writer.Write($$"""
+                    {{GetManagedVisibility(function.AccessModifier)}} {{GetManagedPublicReturnTypeName(function.ReturnType)}} {{function.ManagedName}}({{aParamList}})
+                    {
+                    """);
+            }
+
+            if (firstU == 0)
+            {
+                // Overload A has no params — call __Args0 variant
+                var variantImportName = GetUnexpressibleVariantImportName(importMethodName, 0);
+                if (isConstructor)
+                {
+                    writer.Write($$"""
+                        var __handle = __PInvoke.{{variantImportName}}();
+                        """);
+                }
+                else if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+                {
+                    writer.Write($$"""
+                        __PInvoke.{{variantImportName}}({{string.Join(", ", leadingArguments)}});
+                        """);
+                }
+                else
+                {
+                    var leading = leadingArguments.Count > 0 ? string.Join(", ", leadingArguments) + ", " : string.Empty;
+                    writer.Write($$"""
+                        var __result = __PInvoke.{{variantImportName}}({{leading.TrimEnd(',', ' ')}});
+                        """);
+                }
+            }
+            else if (beforeHasUnexpressible)
+            {
+                // Cascade for before-params with unexpressible defaults
+                WriteUnexpressibleDefaultCascade(compilation, writer, function, importMethodName, leadingArguments);
+                // Need to get past the closing brace
+            }
+            else
+            {
+                // Direct call with firstU params — use __Args{firstU} variant
+                var variantImportName = GetUnexpressibleVariantImportName(importMethodName, firstU);
+                var beforePlan = BuildManagedInvocationPlan(compilation, beforeParams);
+                var beforeArgs = string.Join(", ", leadingArguments.Concat(beforePlan.Arguments));
+
+                if (isConstructor)
+                {
+                    writer.Write($$"""
+                        var __handle = __PInvoke.{{variantImportName}}({{beforeArgs}});
+                        """);
+                }
+                else if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+                {
+                    writer.Write($$"""
+                        __PInvoke.{{variantImportName}}({{beforeArgs}});
+                        """);
+                }
+                else
+                {
+                    writer.Write($$"""
+                        var __result = __PInvoke.{{variantImportName}}({{beforeArgs}});
+                        """);
+                }
+            }
+
+            // Handle return and constructor post-call
+            if (isConstructor)
+            {
+                writer.Write("""
+                    return __handle;
+                    }
+                    """);
+            }
+            else if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+            {
+                writer.Write("""
+                    }
+                    """);
+            }
+            else
+            {
+                writer.Write($$"""
+                    return {{BuildManagedHandleWrapIfNeeded(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
+                    }
+                    """);
+            }
+
+            writer.WriteLine();
+        }
+
+        // =========================================================
+        // Overload B: all params, undefaultable ones required
+        // =========================================================
+        {
+            // Render public parameter list: params before firstU are required,
+            // firstU is required, params after firstU get normal defaults
+            var bParamParts = new List<string>();
+            for (var i = 0; i < function.Parameters.Count; i++)
+            {
+                var param = function.Parameters[i];
+                if (i < firstU || param.HasMetadata(MetadataKeys.UndefaultableParam))
+                {
+                    // Required: no default, non-nullable
+                    bParamParts.Add(RenderManagedPublicParameterRequired(param));
+                }
+                else
+                {
+                    // Normal default rules
+                    bParamParts.Add(RenderManagedPublicParameter(param));
+                }
+            }
+            var bParamList = string.Join(", ", bParamParts);
+
+            if (isConstructor)
+            {
+                writer.Write($$"""
+                    public {{function.ManagedName}}({{bParamList}})
+                    {
+                    """);
+            }
+            else if (function.IsStatic)
+            {
+                writer.Write($$"""
+                    {{GetManagedVisibility(function.AccessModifier)}} static {{GetManagedPublicReturnTypeName(function.ReturnType)}} {{function.ManagedName}}({{bParamList}})
+                    {
+                    """);
+            }
+            else
+            {
+                writer.Write($$"""
+                    {{GetManagedVisibility(function.AccessModifier)}} {{GetManagedPublicReturnTypeName(function.ReturnType)}} {{function.ManagedName}}({{bParamList}})
+                    {
+                    """);
+            }
+
+            // Emit pre-call statements
+            foreach (var statement in fullPlan.PreCallStatements)
+            {
+                writer.Write(statement);
+            }
+
+            // Check if after-firstU params have unexpressible defaults
+            var afterParams = function.Parameters.Skip(firstU).ToArray();
+            var afterHasUnexpressible = afterParams.Any(p => p.HasMetadata(MetadataKeys.UnexpressibleDefault));
+
+            if (afterHasUnexpressible)
+            {
+                // Build a cascade for the after-params portion (indices >= firstU)
+                // This mirrors the standard cascade but only for after-firstU params.
+                // Before-firstU params are always provided (required, non-nullable).
+                var afterDefaultIndices = new List<int>();
+                for (var i = firstU; i < function.Parameters.Count; i++)
+                {
+                    if (function.Parameters[i].HasMetadata(MetadataKeys.UnexpressibleDefault))
+                    {
+                        afterDefaultIndices.Add(i);
+                    }
+                }
+
+                // Each branch handles its own dispatch + post-call + return
+                for (var providedDefaultCount = afterDefaultIndices.Count; providedDefaultCount >= 0; providedDefaultCount--)
+                {
+                    var keepCount = providedDefaultCount < afterDefaultIndices.Count
+                        ? afterDefaultIndices[providedDefaultCount]
+                        : function.Parameters.Count;
+                    WriteUndefaultableBranchB(compilation, writer, function, importMethodName, fullPlan,
+                        leadingArguments, keepCount, afterDefaultIndices, providedDefaultCount);
+                }
+
+                // Fallback: should never reach here if cascade conditions are complete
+                writer.Write(
+                    """
+                        throw new global::System.ArgumentException("SharpCpp optional arguments that depend on native defaults must be supplied as a trailing contiguous suffix.");
+                    """);
+            }
+            else
+            {
+                // Direct call with all params
+                var allArgs = string.Join(", ", leadingArguments.Concat(fullPlan.Arguments));
+
+                if (isConstructor)
+                {
+                    writer.Write($$"""
+                        var __handle = __PInvoke.{{importMethodName}}({{allArgs}});
+                        """);
+                }
+                else if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+                {
+                    writer.Write($$"""
+                        __PInvoke.{{importMethodName}}({{allArgs}});
+                        """);
+                }
+                else
+                {
+                    writer.Write($$"""
+                        var __result = __PInvoke.{{importMethodName}}({{allArgs}});
+                        """);
+                }
+
+                // Post-call statements (only on non-cascade path)
+                foreach (var statement in fullPlan.PostCallStatements)
+                {
+                    writer.Write(statement);
+                }
+
+                // Return / constructor finalize (only on non-cascade path)
+                if (isConstructor)
+                {
+                    writer.Write("""
+                        return __handle;
+                        }
+                        """);
+                }
+                else if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+                {
+                    writer.Write("""
+                        }
+                        """);
+                }
+                else
+                {
+                    writer.Write($$"""
+                        return {{BuildManagedHandleWrapIfNeeded(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
+                        }
+                        """);
+                }
+            }
+        }
+    }
+
+    private static void WriteUndefaultableBranchB(
+        BindingCompilation compilation,
+        CodeWriter writer,
+        FunctionBinding function,
+        string importMethodName,
+        ManagedInvocationPlan plan,
+        IReadOnlyList<string> leadingArguments,
+        int keepCount,
+        IReadOnlyList<int> defaultIndices,
+        int? providedDefaultCount = null)
+    {
+        // For Overload B cascade branches, the before-firstU params are always present (non-nullable).
+        // The cascade condition only tests the after-firstU params that have unexpressible defaults.
+        if (providedDefaultCount.HasValue)
+        {
+            // Build condition for the unexpressible after-params
+            var relevantIndices = defaultIndices.Where(i => i >= GetFirstUndefaultableParamIndex(function)).ToList();
+            if (relevantIndices.Count == 0)
+            {
+                // No cascade needed
+                return;
+            }
+
+            var condition = BuildUndefaultableBCondition(function, relevantIndices, providedDefaultCount.Value);
+            writer.WriteLine($"if ({condition})");
+            writer.WriteLine("{");
+        }
+
+        // Build dispatch arguments — for required params, use the plan argument directly;
+        // for unexpressible default after-params, unwrap .Value
+        var args = new List<string>(leadingArguments);
+        for (var i = 0; i < keepCount; i++)
+        {
+            var param = function.Parameters[i];
+            if (param.HasMetadata(MetadataKeys.UndefaultableParam) ||
+                (i < GetFirstUndefaultableParamIndex(function) && !param.HasMetadata(MetadataKeys.UnexpressibleDefault)))
+            {
+                // Required param — use plan argument directly
+                args.Add(plan.Arguments[i]);
+            }
+            else
+            {
+                // May have unexpressible default — use .Value unwrapping if needed
+                args.Add(BuildManagedDispatchArgument(param, plan.Arguments[i]));
+            }
+        }
+        var invokeArgs = string.Join(", ", args);
+
+        if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+        {
+            writer.Write($$"""
+                __PInvoke.{{importMethodName}}({{invokeArgs}});
+                """);
+
+            foreach (var statement in plan.PostCallStatements)
+            {
+                writer.Write(statement);
+            }
+
+            // Prevent fallthrough to next cascade branch or throw
+            if (providedDefaultCount.HasValue)
+            {
+                writer.WriteLine("return;");
+            }
+        }
+        else
+        {
+            writer.Write($$"""
+                var __result = __PInvoke.{{importMethodName}}({{invokeArgs}});
+                """);
+
+            foreach (var statement in plan.PostCallStatements)
+            {
+                writer.Write(statement);
+            }
+
+            writer.Write($$"""
+                return {{BuildManagedHandleWrapIfNeeded(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
+                """);
+        }
+
+        if (providedDefaultCount.HasValue)
+        {
+            writer.WriteLine("}");
+        }
+    }
+
+    private static string BuildUndefaultableBCondition(FunctionBinding function, IReadOnlyList<int> defaultIndices, int providedDefaultCount)
+    {
+        var firstU = GetFirstUndefaultableParamIndex(function);
+        var relevantIndices = defaultIndices.Where(i => i >= firstU).ToList();
+        var parts = new List<string>(relevantIndices.Count);
+        for (var i = 0; i < relevantIndices.Count; i++)
+        {
+            var param = function.Parameters[relevantIndices[i]];
+            parts.Add(param.HasMetadata(MetadataKeys.UndefaultableParam)
+                ? $"{param.ManagedName} is not null"
+                : BuildUnexpressibleDefaultCondition(param, provided: i < providedDefaultCount));
+        }
+
+        return string.Join(" && ", parts);
+    }
+
+    private static string BuildManagedHandleWrapIfNeeded(BindingCompilation compilation, BindingType type, string variableName, bool returnsOwnedHandle)
+    {
+        if (type.Kind != BindingTypeKind.Handle)
+        {
+            return variableName;
+        }
+
+        return BuildManagedHandleWrap(compilation, type, variableName, returnsOwnedHandle);
     }
 
     private static void WriteUnexpressibleDefaultCascade(BindingCompilation compilation, CodeWriter writer, FunctionBinding function, string importMethodName, IReadOnlyList<string> leadingArguments)
@@ -3406,6 +4013,56 @@ public static partial class BindingOutputRenderer
             var variantPlan = BuildManagedInvocationPlan(null!, GetUnexpressibleVariantParams(function, keepCount));
             var variantImportName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
             WriteUnexpressibleDefaultConstructorBranch(writer, function, variantImportName, variantPlan, keepCount, defaultIndices, providedDefaultCount);
+        }
+
+        writer.Write(
+            """
+                throw new global::System.ArgumentException("SharpCpp optional arguments that depend on native defaults must be supplied as a trailing contiguous suffix.");
+            """);
+    }
+
+    private static void WriteUndefaultableConstructorCascade_Filtered(
+        CodeWriter writer,
+        FunctionBinding function,
+        string importMethodName,
+        int firstU,
+        IReadOnlyList<int> afterDefaultIndices)
+    {
+        if (afterDefaultIndices.Count == 0)
+        {
+            return;
+        }
+
+        // Use only the full-params import variant for Overload B (before-firstU params
+        // are always present, so we never call __ArgsN for before-firstU positions).
+        var invocationPlan = BuildManagedInvocationPlan(null!, function.Parameters);
+
+        foreach (var statement in invocationPlan.PreCallStatements)
+        {
+            writer.Write(statement);
+        }
+
+        // Branch: all after-defaults provided → full dispatch
+        var conditionAll = BuildUndefaultableBCondition(function, afterDefaultIndices, afterDefaultIndices.Count);
+        writer.WriteLine($"if ({conditionAll})");
+        writer.WriteLine("{");
+        WriteConstructorDispatchCall(writer, function, importMethodName, invocationPlan, function.Parameters.Count);
+        writer.WriteLine("}");
+        writer.WriteLine();
+
+        // Cascade branches: progressively fewer after-defaults provided
+        // Each uses a __ArgsN variant that keeps only up to the relevant after-default index
+        for (var providedDefaultCount = afterDefaultIndices.Count - 1; providedDefaultCount >= 0; providedDefaultCount--)
+        {
+            var keepCount = afterDefaultIndices[providedDefaultCount];
+            var condition = BuildUndefaultableBCondition(function, afterDefaultIndices, providedDefaultCount);
+            writer.WriteLine($"if ({condition})");
+            writer.WriteLine("{");
+            var variantImportName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
+            var variantPlan = BuildManagedInvocationPlan(null!, GetUnexpressibleVariantParams(function, keepCount));
+            WriteConstructorDispatchCall(writer, function, variantImportName, variantPlan, keepCount);
+            writer.WriteLine("}");
+            writer.WriteLine();
         }
 
         writer.Write(

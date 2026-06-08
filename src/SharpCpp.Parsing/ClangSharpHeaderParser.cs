@@ -39,6 +39,9 @@ public sealed class ClangSharpHeaderParser
     private static readonly Regex PublicTypeExpression = new(
         @"public_type\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex UndefaultableExpression = new(
+        @"undefaultable\s*=\s*(?<value>true|false)",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex IgnoreAttributeExpression = new(
         @"\[\[\s*sharpcpp::ignore(?:\s*\(\s*""(?<reason>[^""]*)""\s*\))?\s*\]\]",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -686,7 +689,7 @@ public sealed class ClangSharpHeaderParser
                 direction,
                 abiKind,
                 ResolveQualifiedTypeName(parameterCursor.Type, recordsByName));
-            ApplyManagedDefaultValue(param, parameterCursor, parameterType);
+            ApplyManagedDefaultValue(param, parameterCursor, parameterType, managedTypeOverrides);
             function.Parameters.Add(param);
         }
 
@@ -776,7 +779,7 @@ public sealed class ClangSharpHeaderParser
                     direction,
                     abiKind,
                     ResolveQualifiedTypeName(child.Type, recordsByName));
-                ApplyManagedDefaultValue(templateParam, child, parameterType);
+                ApplyManagedDefaultValue(templateParam, child, parameterType, managedTypeOverrides);
                 function.Parameters.Add(templateParam);
 
                 return CXChildVisitResult.CXChildVisit_Continue;
@@ -841,7 +844,7 @@ public sealed class ClangSharpHeaderParser
                 direction,
                 abiKind,
                 ResolveQualifiedTypeName(parameterCursor.Type, recordsByName));
-            ApplyManagedDefaultValue(staticParam, parameterCursor, parameterType);
+            ApplyManagedDefaultValue(staticParam, parameterCursor, parameterType, managedTypeOverrides);
             function.Parameters.Add(staticParam);
         }
 
@@ -901,7 +904,7 @@ public sealed class ClangSharpHeaderParser
                 direction,
                 abiKind,
                 ResolveQualifiedTypeName(parameterCursor.Type, recordsByName));
-            ApplyManagedDefaultValue(ctorParam, parameterCursor, parameterType);
+            ApplyManagedDefaultValue(ctorParam, parameterCursor, parameterType, managedTypeOverrides);
             function.Parameters.Add(ctorParam);
         }
 
@@ -985,7 +988,7 @@ public sealed class ClangSharpHeaderParser
                 direction,
                 abiKind,
                 ResolveQualifiedTypeName(parameterCursor.Type, recordsByName));
-            ApplyManagedDefaultValue(freeParam, parameterCursor, parameterType);
+            ApplyManagedDefaultValue(freeParam, parameterCursor, parameterType, managedTypeOverrides);
             function.Parameters.Add(freeParam);
         }
 
@@ -1060,7 +1063,7 @@ public sealed class ClangSharpHeaderParser
                     direction,
                     abiKind,
                     ResolveQualifiedTypeName(child.Type, recordsByName));
-                ApplyManagedDefaultValue(freeTemplateParam, child, parameterType);
+                ApplyManagedDefaultValue(freeTemplateParam, child, parameterType, managedTypeOverrides);
                 function.Parameters.Add(freeTemplateParam);
 
                 return CXChildVisitResult.CXChildVisit_Continue;
@@ -2172,7 +2175,11 @@ public sealed class ClangSharpHeaderParser
         }
     }
 
-    private static void ApplyManagedDefaultValue(ParameterBinding parameter, CXCursor parameterCursor, BindingType parameterType)
+    private static void ApplyManagedDefaultValue(
+        ParameterBinding parameter,
+        CXCursor parameterCursor,
+        BindingType parameterType,
+        IReadOnlyDictionary<string, ManagedTypeOverride>? managedTypeOverrides = null)
     {
         var defaultValue = GetManagedDefaultValueExpression(parameterCursor, parameterType);
         parameter.ManagedDefaultValueExpression = defaultValue;
@@ -2180,6 +2187,17 @@ public sealed class ClangSharpHeaderParser
         if (defaultValue is null && parameterCursor.HasDefaultArg)
         {
             parameter.SetMetadata(MetadataKeys.UnexpressibleDefault, true);
+        }
+
+        // Only mark as undefaultable if the parameter actually has a C++ default value.
+        // If there's no default at all, the overload split is unnecessary — the parameter
+        // is already required.
+        if (parameterCursor.HasDefaultArg &&
+            managedTypeOverrides is not null &&
+            managedTypeOverrides.TryGetValue(parameterType.CppTypeName, out var overrideInfo) &&
+            overrideInfo.Undefaultable)
+        {
+            parameter.SetMetadata(MetadataKeys.UndefaultableParam, true);
         }
     }
 
@@ -2291,9 +2309,14 @@ public sealed class ClangSharpHeaderParser
                 }
 
                 var cppTypeName = NormalizeTypeName(match.Groups["cppType"].Value);
+                var undefaultableMatch = UndefaultableExpression.Match(body);
                 result[cppTypeName] = new ManagedTypeOverride(
                     cppTypeName,
-                    publicTypeMatch.Groups["value"].Value);
+                    publicTypeMatch.Groups["value"].Value)
+                {
+                    Undefaultable = undefaultableMatch.Success &&
+                        string.Equals(undefaultableMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase)
+                };
             }
 
             foreach (Match match in ReturnMarshallerExpression.Matches(sourceText))
@@ -2306,9 +2329,14 @@ public sealed class ClangSharpHeaderParser
                 }
 
                 var cppTypeName = NormalizeTypeName(match.Groups["cppType"].Value);
+                var undefaultableMatch = UndefaultableExpression.Match(body);
                 result["return:" + cppTypeName] = new ManagedTypeOverride(
                     cppTypeName,
-                    publicTypeMatch.Groups["value"].Value);
+                    publicTypeMatch.Groups["value"].Value)
+                {
+                    Undefaultable = undefaultableMatch.Success &&
+                        string.Equals(undefaultableMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase)
+                };
             }
         }
 
@@ -2390,7 +2418,10 @@ public sealed class ClangSharpHeaderParser
             new CXClientData(IntPtr.Zero));
     }
 
-    private sealed record ManagedTypeOverride(string CppTypeName, string PublicTypeName);
+    private sealed record ManagedTypeOverride(string CppTypeName, string PublicTypeName)
+    {
+        public bool Undefaultable { get; init; }
+    }
 
     private static bool TryMapGenericParameterType(string normalizedTypeName, IReadOnlyDictionary<string, BindingType> genericParameters, out BindingType type)
     {

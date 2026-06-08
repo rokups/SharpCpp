@@ -138,7 +138,7 @@ struct Marshaller<const T*>
 };
 
 template <>
-struct [[sharpcpp::managed_type(public_type = "global::System.ReadOnlySpan<byte>")]] Marshaller<const char*>
+struct [[sharpcpp::managed_type(public_type = "global::System.ReadOnlySpan<byte>", undefaultable = true)]] Marshaller<const char*>
 {
     using cpp_type = const char*;
     using abi_type = const char*;
