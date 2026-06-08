@@ -32,7 +32,8 @@ public enum BindingPrimitiveKind
 public sealed record MarshallerDescriptor(
     string CppTypeName,
     string PublicTypeName,
-    string? MarshallerTypeName = null);
+    string? MarshallerTypeName = null,
+    string? ManagedMarshaller = null);
 
 public sealed class BindingType
 {
@@ -105,6 +106,8 @@ public sealed class BindingType
 
     public string? MarshallerTypeName => Marshaller.MarshallerTypeName;
 
+    public string? ManagedMarshaller => Marshaller.ManagedMarshaller;
+
     public bool IsGenericParameter => Kind == BindingTypeKind.GenericParameter;
 
     public bool ContainsGenericParameters => IsGenericParameter || GenericArguments.Any(static argument => argument.ContainsGenericParameters);
@@ -145,6 +148,11 @@ public sealed class BindingType
 
     public static BindingType CreateConfigured(string cppTypeName, string publicTypeName, string? marshallerTypeName)
     {
+        return CreateConfigured(cppTypeName, publicTypeName, marshallerTypeName, null);
+    }
+
+    public static BindingType CreateConfigured(string cppTypeName, string publicTypeName, string? marshallerTypeName, string? managedMarshaller)
+    {
         var primitiveKind = string.Equals(publicTypeName, "global::System.IntPtr", StringComparison.Ordinal)
             ? BindingPrimitiveKind.IntPtr
             : BindingPrimitiveKind.Unsupported;
@@ -152,7 +160,7 @@ public sealed class BindingType
         return new BindingType(
             BindingTypeKind.Primitive,
             primitiveKind,
-            new MarshallerDescriptor(cppTypeName, publicTypeName, marshallerTypeName));
+            new MarshallerDescriptor(cppTypeName, publicTypeName, marshallerTypeName, managedMarshaller));
     }
 
     public override string ToString()

@@ -285,7 +285,10 @@ template <class T>
 struct ReturnMarshaller : Marshaller<T> {};
 
 template <>
-struct [[sharpcpp::managed_type(public_type = "string", marshaller_type = "global::System.IntPtr")]] ReturnMarshaller<const char*> : Marshaller<const char*> {};
+struct [[sharpcpp::managed_type(
+    public_type = "global::System.ReadOnlySpan<byte>",
+    managed_marshaller = "global::SharpCpp.Support.Utf8SpanReturnMarshaller"
+)]] ReturnMarshaller<const char*> : Marshaller<const char*> {};
 
 template <class T>
 using ret_t = typename ReturnMarshaller<T>::abi_type;

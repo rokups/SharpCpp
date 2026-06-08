@@ -115,15 +115,15 @@ public sealed class BindingOutputRendererTests
             "SampleBindings",
             "SharpCpp.Sample.Native",
             new[] { "String/String.hpp" });
-        var constCharType = BindingType.CreateConfigured("const char*", "global::System.ReadOnlySpan<byte>");
         var function = new FunctionBinding(
             "function:get_name",
             "get_name",
             "GetName",
             BindingType.CreateConfigured(
                 "const char*",
-                "string",
-                "global::System.IntPtr"),
+                "global::System.ReadOnlySpan<byte>",
+                null,
+                "global::SharpCpp.Support.Utf8SpanReturnMarshaller"),
             "sharpcpp_sample_get_name",
             "const char*");
         compilation.Members.Add(function);
@@ -131,9 +131,10 @@ public sealed class BindingOutputRendererTests
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("public static string GetName()", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("internal static partial global::System.IntPtr GetName();", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("PtrToStringUTF8", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public static global::System.ReadOnlySpan<byte> GetName()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial global::System.ReadOnlySpan<byte> GetName();", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("MarshalUsing", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("Utf8SpanReturnMarshaller", managedOutput, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -59,7 +59,7 @@ public sealed class StringTests
     [Fact]
     public void GetMessage_returns_SharpCpp_string()
     {
-        Assert.Equal("Hello from SharpCpp", E2EBindings.GetMessage());
+        Assert.True(E2EBindings.GetMessage().SequenceEqual("Hello from SharpCpp"u8));
     }
 
     [Fact]

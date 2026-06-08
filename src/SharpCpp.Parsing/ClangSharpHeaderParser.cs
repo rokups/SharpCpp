@@ -45,6 +45,9 @@ public sealed class ClangSharpHeaderParser
     private static readonly Regex MarshallerTypeInAttributeExpression = new(
         @"marshaller_type\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex ManagedMarshallerInAttributeExpression = new(
+        @"managed_marshaller\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex IgnoreAttributeExpression = new(
         @"\[\[\s*sharpcpp::ignore(?:\s*\(\s*""(?<reason>[^""]*)""\s*\))?\s*\]\]",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -1413,7 +1416,8 @@ public sealed class ClangSharpHeaderParser
             return BindingType.CreateConfigured(
                 returnOverride.CppTypeName,
                 returnOverride.PublicTypeName,
-                returnOverride.MarshallerTypeName);
+                returnOverride.MarshallerTypeName,
+                returnOverride.ManagedMarshaller);
         }
 
         if (managedTypeOverrides.TryGetValue(normalizedTypeName, out var managedTypeOverride))
@@ -2315,13 +2319,15 @@ public sealed class ClangSharpHeaderParser
                 var cppTypeName = NormalizeTypeName(match.Groups["cppType"].Value);
                 var undefaultableMatch = UndefaultableExpression.Match(body);
                 var marshallerTypeMatch = MarshallerTypeInAttributeExpression.Match(body);
+                var managedMarshallerMatch = ManagedMarshallerInAttributeExpression.Match(body);
                 result[cppTypeName] = new ManagedTypeOverride(
                     cppTypeName,
                     publicTypeMatch.Groups["value"].Value)
                 {
                     Undefaultable = undefaultableMatch.Success &&
                         string.Equals(undefaultableMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase),
-                    MarshallerTypeName = marshallerTypeMatch.Success ? marshallerTypeMatch.Groups["value"].Value : null
+                    MarshallerTypeName = marshallerTypeMatch.Success ? marshallerTypeMatch.Groups["value"].Value : null,
+                    ManagedMarshaller = managedMarshallerMatch.Success ? managedMarshallerMatch.Groups["value"].Value : null
                 };
             }
 
@@ -2337,13 +2343,15 @@ public sealed class ClangSharpHeaderParser
                 var cppTypeName = NormalizeTypeName(match.Groups["cppType"].Value);
                 var undefaultableMatch = UndefaultableExpression.Match(body);
                 var marshallerTypeMatch = MarshallerTypeInAttributeExpression.Match(body);
+                var managedMarshallerMatch = ManagedMarshallerInAttributeExpression.Match(body);
                 result["return:" + cppTypeName] = new ManagedTypeOverride(
                     cppTypeName,
                     publicTypeMatch.Groups["value"].Value)
                 {
                     Undefaultable = undefaultableMatch.Success &&
                         string.Equals(undefaultableMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase),
-                    MarshallerTypeName = marshallerTypeMatch.Success ? marshallerTypeMatch.Groups["value"].Value : null
+                    MarshallerTypeName = marshallerTypeMatch.Success ? marshallerTypeMatch.Groups["value"].Value : null,
+                    ManagedMarshaller = managedMarshallerMatch.Success ? managedMarshallerMatch.Groups["value"].Value : null
                 };
             }
         }
@@ -2430,6 +2438,7 @@ public sealed class ClangSharpHeaderParser
     {
         public bool Undefaultable { get; init; }
         public string? MarshallerTypeName { get; init; }
+        public string? ManagedMarshaller { get; init; }
     }
 
     private static bool TryMapGenericParameterType(string normalizedTypeName, IReadOnlyDictionary<string, BindingType> genericParameters, out BindingType type)

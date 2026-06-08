@@ -2580,9 +2580,8 @@ public static partial class BindingOutputRenderer
     /// <summary>
     /// Writes the P/Invoke result variable, post-call statements, and conversion
     /// for types where import type differs from public type (e.g., IntPtr → string).
-    /// TODO: Replace this hard-coded pattern with a C# custom marshaller
-    /// (e.g. [return: MarshalUsing(typeof(...))]) on the LibraryImport declaration,
-    /// so the source generator handles the conversion directly.
+    /// This path is used when a marshaller_type is set but NO managed_marshaller.
+    /// New types should use managed_marshaller (C# custom marshaller) instead.
     /// </summary>
     private static void WriteManagedReturnWithMarshallerConversion(
         CodeWriter writer,
@@ -3103,6 +3102,11 @@ public static partial class BindingOutputRenderer
 
     private static string GetManagedReturnAttribute(BindingType type)
     {
+        if (type.ManagedMarshaller is not null)
+        {
+            return $"[return: MarshalUsing(typeof({type.ManagedMarshaller}))]";
+        }
+
         return type.PrimitiveKind == BindingPrimitiveKind.Boolean
             ? "[return: MarshalAs(UnmanagedType.I1)]"
             : string.Empty;
