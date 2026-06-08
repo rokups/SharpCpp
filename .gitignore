@@ -7,3 +7,4 @@ out/
 *.suo
 compile_commands.json
 TestResults/
+.slim/deepwork/
