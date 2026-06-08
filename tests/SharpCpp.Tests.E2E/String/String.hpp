@@ -41,6 +41,11 @@ inline void replace_name([[sharpcpp::ref]] char** value)
     *value = buf;
 }
 
+inline const char* get_message()
+{
+    return "Hello from SharpCpp";
+}
+
 inline int measure_std_string(const std::string& value)
 {
     return static_cast<int>(value.size());

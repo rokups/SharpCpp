@@ -107,6 +107,57 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Managed_output_uses_string_for_const_char_return()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "String/String.hpp" });
+        var constCharType = BindingType.CreateConfigured("const char*", "global::System.ReadOnlySpan<byte>");
+        var function = new FunctionBinding(
+            "function:get_name",
+            "get_name",
+            "GetName",
+            BindingType.CreateConfigured("const char*", "string"),
+            "sharpcpp_sample_get_name",
+            "const char*");
+        compilation.Members.Add(function);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public static string GetName()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial string GetName();", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("IntPtr", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Native_output_uses_ret_t_of_const_char_pointer_for_const_char_return()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "String/String.hpp" });
+        var function = new FunctionBinding(
+            "function:get_name",
+            "get_name",
+            "GetName",
+            BindingType.CreateConfigured("const char*", "string"),
+            "sharpcpp_sample_get_name",
+            "const char*");
+        compilation.Members.Add(function);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("ret_t<const char*> sharpcpp_sample_get_name(", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Managed_output_uses_ast_direction_and_abi_kind_for_handle_parameters()
     {
         var compilation = new BindingCompilation(

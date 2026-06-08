@@ -140,6 +140,11 @@ public sealed class BindingType
 
     public static BindingType CreateConfigured(string cppTypeName, string publicTypeName)
     {
+        return CreateConfigured(cppTypeName, publicTypeName, null);
+    }
+
+    public static BindingType CreateConfigured(string cppTypeName, string publicTypeName, string? marshallerTypeName)
+    {
         var primitiveKind = string.Equals(publicTypeName, "global::System.IntPtr", StringComparison.Ordinal)
             ? BindingPrimitiveKind.IntPtr
             : BindingPrimitiveKind.Unsupported;
@@ -147,7 +152,7 @@ public sealed class BindingType
         return new BindingType(
             BindingTypeKind.Primitive,
             primitiveKind,
-            new MarshallerDescriptor(cppTypeName, publicTypeName));
+            new MarshallerDescriptor(cppTypeName, publicTypeName, marshallerTypeName));
     }
 
     public override string ToString()

@@ -727,6 +727,26 @@ public static partial class BindingOutputRenderer
                 return {{BuildManagedHandleWrap(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
                 """);
         }
+        else if (function.ReturnType.MarshallerTypeName is not null)
+        {
+            var importTypeName = GetManagedImportTypeName(function.ReturnType);
+            var publicTypeName = function.ReturnType.ManagedTypeName;
+            writer.Write($$"""
+                var __result_raw = __PInvoke.{{importMethodName}}({{invokeArguments}});
+                """);
+
+            foreach (var statement in invocationPlan.PostCallStatements)
+            {
+                writer.Write(statement);
+            }
+
+            var conversionExpression = importTypeName == "global::System.IntPtr" && publicTypeName == "string"
+                ? "global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__result_raw)!"
+                : "__result_raw";
+            writer.Write($$"""
+                return {{conversionExpression}};
+                """);
+        }
         else
         {
             writer.Write($$"""
@@ -1188,6 +1208,26 @@ public static partial class BindingOutputRenderer
 
                 writer.Write($$"""
                     return {{BuildManagedHandleWrap(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
+                    """);
+            }
+            else if (function.ReturnType.MarshallerTypeName is not null)
+            {
+                var importTypeName = GetManagedImportTypeName(function.ReturnType);
+                var publicTypeName = function.ReturnType.ManagedTypeName;
+                writer.Write($$"""
+                    var __result_raw = __PInvoke.{{importMethodName}}({{invokeArguments}});
+                    """);
+
+                foreach (var statement in invocationPlan.PostCallStatements)
+                {
+                    writer.Write(statement);
+                }
+
+                var conversionExpression = importTypeName == "global::System.IntPtr" && publicTypeName == "string"
+                    ? "global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__result_raw)!"
+                    : "__result_raw";
+                writer.Write($$"""
+                    return {{conversionExpression}};
                     """);
             }
             else
@@ -1751,6 +1791,26 @@ public static partial class BindingOutputRenderer
 
                 writer.Write($$"""
                     return {{BuildManagedHandleWrap(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
+                    """);
+            }
+            else if (function.ReturnType.MarshallerTypeName is not null)
+            {
+                var importTypeName = GetManagedImportTypeName(function.ReturnType);
+                var publicTypeName = function.ReturnType.ManagedTypeName;
+                writer.Write($$"""
+                    var __result_raw = __PInvoke.{{importMethodName}}({{invokeArguments}});
+                    """);
+
+                foreach (var statement in invocationPlan.PostCallStatements)
+                {
+                    writer.Write(statement);
+                }
+
+                var conversionExpression = importTypeName == "global::System.IntPtr" && publicTypeName == "string"
+                    ? "global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__result_raw)!"
+                    : "__result_raw";
+                writer.Write($$"""
+                    return {{conversionExpression}};
                     """);
             }
             else
@@ -2567,6 +2627,11 @@ public static partial class BindingOutputRenderer
 
     private static string GetManagedImportTypeName(BindingType type)
     {
+        if (type.MarshallerTypeName is not null)
+        {
+            return type.MarshallerTypeName;
+        }
+
         return type.Kind switch
         {
             BindingTypeKind.Primitive => type.ManagedTypeName,

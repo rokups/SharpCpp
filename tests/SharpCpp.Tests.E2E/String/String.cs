@@ -57,6 +57,12 @@ public sealed class StringTests
     }
 
     [Fact]
+    public void GetMessage_returns_SharpCpp_string()
+    {
+        Assert.Equal("Hello from SharpCpp", E2EBindings.GetMessage());
+    }
+
+    [Fact]
     public void String_type_exists_and_inherits_StringBase()
     {
         Assert.True(typeof(Std.String).IsSubclassOf(typeof(StringBase)));
