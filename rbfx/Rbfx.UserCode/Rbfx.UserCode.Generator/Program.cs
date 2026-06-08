@@ -110,7 +110,7 @@ internal static class Program
                 ["RbfxUserCode"] = "RbfxUserCode"
             };
 
-            BindingCompilationBootstrapPipeline.Apply(compilation, new[] { headerPath }.Concat(marshallerConfigurationFiles));
+            BindingCompilationBootstrapPipeline.Apply(compilation, marshallerConfigurationFiles, clangArguments);
 
             var renderedBindings = BindingOutputRenderer.Render(compilation, GeneratedFileStem);
             var metadataDocument = BindingMetadataExporter.Export(

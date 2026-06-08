@@ -101,7 +101,7 @@ internal static class Program
                     OwnedFileRoots: new[] { urhoIncludeRoot }));
             compilation.NamespaceMappings = BuildNamespaceMappings(compilation);
 
-            BindingCompilationBootstrapPipeline.Apply(compilation, marshallerConfigurationFiles);
+            BindingCompilationBootstrapPipeline.Apply(compilation, marshallerConfigurationFiles, clangArguments);
             ApplySdkExportFilter(compilation, options.SdkLibraryPath, logWriter);
 
             var renderedBindings = BindingOutputRenderer.Render(compilation, GeneratedFileStem, DeriveGroupStem);

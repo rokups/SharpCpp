@@ -120,7 +120,7 @@ internal static class Program
             }
         }
 
-        BindingCompilationBootstrapPipeline.Apply(compilation, headerFiles.Concat(marshallerConfigurationFiles));
+        BindingCompilationBootstrapPipeline.Apply(compilation, marshallerConfigurationFiles, clangArguments);
 
         var renderedBindings = BindingOutputRenderer.Render(compilation, fileStem, headerPath =>
         {
