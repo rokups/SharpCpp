@@ -13,6 +13,8 @@ This repository is the clean restart line described in `doc/`.
 - Prefer the smallest change that moves the current phase forward.
 - Keep layering clean: `Model -> Metadata -> Parsing/Pipeline/Rendering -> Tool`; `Support` stays runtime-side.
 - Do not broaden feature surface before the current slice is coherent.
+- **DO** use `jcodemunch` to explore and understand the codebase.
+- **DO NOT** add type-specific special cases to the core ever. All type-specific behaviors are configured through C++ and C# marshallers only.
 
 ## 3. Current Implementation Phase
 
