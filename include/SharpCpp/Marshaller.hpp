@@ -189,7 +189,7 @@ struct [[sharpcpp::managed_type(public_type = "string")]] Marshaller<char**>
 };
 
 template <>
-struct [[sharpcpp::managed_type(managed_base_type = "global::SharpCpp.Support.StringBase", public_type = "String")]]
+struct [[sharpcpp::managed_type(managed_base_type = "global::SharpCpp.Support.StringBase", public_type = "Std.String")]]
 Marshaller<std::basic_string<char> >
 {
     using cpp_type = std::string;
@@ -205,10 +205,23 @@ Marshaller<std::basic_string<char> >
         return *value;
     }
 
-    static std::size_t __size(const std::string& s) { return s.size(); }
-    static unsigned char __at(const std::string& s, std::size_t i) { return static_cast<unsigned char>(s[i]); }
-    static void __push_back(std::string& s, unsigned char c) { s.push_back(static_cast<char>(c)); }
-    static void __clear(std::string& s) { s.clear(); }
+    [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
+    static std::size_t GetCountCore(const std::string& self)
+    {
+        return self.size();
+    }
+
+    [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
+    static void AddCore(std::string& self, unsigned char value)
+    {
+        self.push_back(static_cast<char>(value));
+    }
+
+    [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
+    static void ClearCore(std::string& self)
+    {
+        self.clear();
+    }
 };
 
 template <>

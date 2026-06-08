@@ -26,6 +26,18 @@ public static class MarshallerMetadataPhase2
         @"managed_base_type\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+    private static readonly Regex ExposeMemberAttributeExpression = new(
+        @"\[\s*\[\s*sharpcpp::expose_member\s*\(\s*(?<attr>[^)]*?)\s*\)\s*\]\s*\]",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static readonly Regex ShapeExpression = new(
+        @"shape\s*=\s*\""(?<value>[^\""]+)\""",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static readonly Regex ExposedExpression = new(
+        @"exposed\s*=\s*(?<value>true|false)",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     public static void Apply(BindingCompilation compilation, IEnumerable<string> metadataFiles)
     {
         ArgumentNullException.ThrowIfNull(compilation);
@@ -145,13 +157,15 @@ public static class MarshallerMetadataPhase2
                 record.ManagedBaseTypeName = baseTypeMatch.Groups["value"].Value;
                 record.ManagedTypeFormat ??= record.ManagedName;
 
-                if (string.Equals(record.ManagedBaseTypeName, "global::SharpCpp.Support.StringBase", StringComparison.Ordinal))
+                var simpleName = GetSimpleTypeName(record.ManagedTypeFormat ?? record.ManagedName);
+                if (!string.Equals(record.ManagedName, simpleName, StringComparison.Ordinal))
                 {
-                    record.ManagedName = "String";
-                    record.ManagedTypeFormat = "Std.String";
-                    AddStringCoreMethods(record);
+                    record.ManagedName = simpleName;
                 }
             }
+
+            var members = match.Groups["members"].Value;
+            ApplyExposedMembers(record, target, members);
         }
     }
 
@@ -175,69 +189,195 @@ public static class MarshallerMetadataPhase2
             .Replace(" &", "&", StringComparison.Ordinal);
     }
 
-    private static void AddStringCoreMethods(RecordBinding record)
+    private static string GetSimpleTypeName(string managedTypeFormat)
     {
-        var sanitizedName = record.NativeName
+        var lastDot = managedTypeFormat.LastIndexOf('.');
+        return lastDot >= 0 ? managedTypeFormat[(lastDot + 1)..] : managedTypeFormat;
+    }
+
+    private static void ApplyExposedMembers(RecordBinding record, string marshallerCppType, string members)
+    {
+        var matches = ExposeMemberAttributeExpression.Matches(members);
+        if (matches.Count == 0)
+        {
+            return;
+        }
+
+        foreach (Match match in matches)
+        {
+            var attrBody = match.Groups["attr"].Value;
+            var shape = ShapeExpression.Match(attrBody) is { Success: true } shapeMatch
+                ? shapeMatch.Groups["value"].Value
+                : "method";
+            var exposed = ExposedExpression.Match(attrBody) is { Success: true } exposedMatch
+                ? string.Equals(exposedMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase)
+                : true;
+
+            var methodStart = match.Index + match.Length;
+            var rest = members[methodStart..];
+            var methodInfo = ParseExposedMethodSignature(rest);
+            if (methodInfo is null)
+            {
+                continue;
+            }
+
+            var (methodName, cppReturnType, isConst, parameters) = methodInfo.Value;
+
+            var managedReturnType = MapManagedPrimitiveType(cppReturnType) ?? BindingType.Void;
+            var nativeName = methodName;
+
+            var function = new FunctionBinding(
+                $"method:{record.NativeName}:{nativeName}",
+                nativeName,
+                methodName,
+                managedReturnType,
+                $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_{nativeName}",
+                cppReturnType,
+                $"{record.CppQualifiedName}::{nativeName}")
+            {
+                IsStatic = false,
+                AccessModifier = shape == "protected_override" ? BindingAccessModifier.Protected : BindingAccessModifier.Public,
+                IsConstMethod = isConst && !parameters.Any(),
+                IsOverride = shape == "protected_override",
+                OwningRecordCppTypeName = record.CppQualifiedName
+            };
+            function.SetMetadata(MetadataKeys.MarshallerExposedMethod, marshallerCppType);
+
+            foreach (var (paramName, paramCppType) in parameters.Skip(1))
+            {
+                function.Parameters.Add(new ParameterBinding(
+                    $"parameter:{record.NativeName}:{nativeName}:{paramName}",
+                    paramName,
+                    paramName,
+                    MapManagedPrimitiveType(paramCppType) ?? BindingType.Void,
+                    BindingParameterDirection.In,
+                    BindingParameterAbiKind.Value,
+                    paramCppType));
+            }
+
+            record.Members.Add(function);
+        }
+    }
+
+    private static (string MethodName, string CppReturnType, bool IsConst, List<(string Name, string CppType)> Parameters)?
+        ParseExposedMethodSignature(string text)
+    {
+        var staticMatch = Regex.Match(text, @"static\s+");
+        if (!staticMatch.Success)
+        {
+            return null;
+        }
+
+        var afterStatic = text[(staticMatch.Index + staticMatch.Length)..];
+        var parenIndex = afterStatic.IndexOf('(');
+        if (parenIndex < 0)
+        {
+            return null;
+        }
+
+        var beforeParams = afterStatic[..parenIndex].Trim();
+        var paramEnd = afterStatic.IndexOf(')', parenIndex);
+        if (paramEnd < 0)
+        {
+            return null;
+        }
+
+        var paramsText = afterStatic[(parenIndex + 1)..paramEnd].Trim();
+        var returnTypeAndName = beforeParams.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+
+        if (returnTypeAndName.Length < 2)
+        {
+            return null;
+        }
+
+        var methodName = returnTypeAndName[^1];
+        var isConst = returnTypeAndName.Length >= 3 && string.Equals(returnTypeAndName[^2], "const", StringComparison.Ordinal);
+
+        var returnTypeParts = isConst
+            ? returnTypeAndName[..^2]
+            : returnTypeAndName[..^1];
+        var cppReturnType = string.Join(" ", returnTypeParts);
+
+        var parameters = new List<(string Name, string CppType)>();
+        if (paramsText.Length > 0)
+        {
+            foreach (var param in SplitParameters(paramsText))
+            {
+                var trimmed = param.Trim();
+                if (trimmed.Length == 0)
+                {
+                    continue;
+                }
+
+                var paramParts = trimmed.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                var paramName = paramParts[^1];
+                var paramType = string.Join(" ", paramParts[..^1]);
+                parameters.Add((paramName, paramType));
+            }
+        }
+
+        return (methodName, cppReturnType, isConst, parameters);
+    }
+
+    private static IEnumerable<string> SplitParameters(string paramsText)
+    {
+        var depth = 0;
+        var start = 0;
+        for (var i = 0; i < paramsText.Length; i++)
+        {
+            var ch = paramsText[i];
+            if (ch == '<')
+            {
+                depth++;
+            }
+            else if (ch == '>')
+            {
+                depth--;
+            }
+            else if (ch == ',' && depth == 0)
+            {
+                yield return paramsText[start..i];
+                start = i + 1;
+            }
+        }
+
+        if (start < paramsText.Length)
+        {
+            yield return paramsText[start..];
+        }
+    }
+
+    private static BindingType? MapManagedPrimitiveType(string cppType)
+    {
+        var normalized = NormalizeTypeName(cppType);
+        return normalized switch
+        {
+            "void" => BindingType.Void,
+            "bool" => BindingType.Boolean,
+            "char" => BindingType.Int8,
+            "unsigned char" => BindingType.UInt8,
+            "short" => BindingType.Int16,
+            "unsigned short" => BindingType.UInt16,
+            "int" => BindingType.Int32,
+            "unsigned int" => BindingType.UInt32,
+            "long" => BindingType.Int64,
+            "unsigned long" => BindingType.UInt64,
+            "long long" => BindingType.Int64,
+            "unsigned long long" => BindingType.UInt64,
+            "float" => BindingType.Single,
+            "double" => BindingType.Double,
+            "std::size_t" => BindingType.UInt64,
+            _ => null
+        };
+    }
+
+    private static string SanitizeNativeEntrypointName(string name)
+    {
+        return name
             .Replace("::", "_", StringComparison.Ordinal)
             .Replace("<", "_", StringComparison.Ordinal)
-            .Replace(">", "_", StringComparison.Ordinal);
-
-        var getCountCore = new FunctionBinding(
-            $"method:{record.NativeName}:size",
-            "size",
-            "GetCountCore",
-            BindingType.UInt64,
-            $"sharpcpp_e2e_{sanitizedName}_size",
-            "std::size_t",
-            $"{record.CppQualifiedName}::size")
-        {
-            IsStatic = false,
-            AccessModifier = BindingAccessModifier.Protected,
-            IsConstMethod = true,
-            IsOverride = true,
-            OwningRecordCppTypeName = record.CppQualifiedName
-        };
-        record.Members.Add(getCountCore);
-
-        var addCore = new FunctionBinding(
-            $"method:{record.NativeName}:push_back",
-            "push_back",
-            "AddCore",
-            BindingType.Void,
-            $"sharpcpp_e2e_{sanitizedName}_push_back",
-            "void",
-            $"{record.CppQualifiedName}::push_back")
-        {
-            IsStatic = false,
-            AccessModifier = BindingAccessModifier.Protected,
-            IsOverride = true,
-            OwningRecordCppTypeName = record.CppQualifiedName
-        };
-        addCore.Parameters.Add(new ParameterBinding(
-            $"parameter:{record.NativeName}:push_back:value",
-            "value",
-            "value",
-            BindingType.UInt8,
-            BindingParameterDirection.In,
-            BindingParameterAbiKind.Value,
-            "unsigned char"));
-        record.Members.Add(addCore);
-
-        var clearCore = new FunctionBinding(
-            $"method:{record.NativeName}:clear",
-            "clear",
-            "ClearCore",
-            BindingType.Void,
-            $"sharpcpp_e2e_{sanitizedName}_clear",
-            "void",
-            $"{record.CppQualifiedName}::clear")
-        {
-            IsStatic = false,
-            AccessModifier = BindingAccessModifier.Protected,
-            IsOverride = true,
-            OwningRecordCppTypeName = record.CppQualifiedName
-        };
-        record.Members.Add(clearCore);
+            .Replace(">", "_", StringComparison.Ordinal)
+            .Replace(" ", "_", StringComparison.Ordinal);
     }
 
     private static void ApplyManagedTypeFormats(BindingCompilation compilation, IReadOnlyDictionary<string, RecordBinding> recordsByNativeName)

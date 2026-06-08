@@ -16,6 +16,7 @@ public static class MetadataKeys
     public const string HasNativeDefinition = "has_native_definition";
     public const string NonPublicDestructor = "non_public_destructor";
     public const string UnexpressibleDefault = "unexpressible_default";
+    public const string MarshallerExposedMethod = "marshaller_exposed_method";
 }
 
 public enum AccessorPropertyKind

@@ -2200,6 +2200,22 @@ public static partial class BindingOutputRenderer
             var memberSignature = BuildNativeMethodSignature(method);
 
             writer.WriteLine();
+            if (method.TryGetMetadata(MetadataKeys.MarshallerExposedMethod, out string? marshallerCppType))
+            {
+                var marshallerArgs = string.Join(", ", new[] { $"*self" }.Concat(method.Parameters.Select(static p => p.NativeName)));
+                var marshallerCall = method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
+                    ? $"Marshaller<{marshallerCppType}>::{method.NativeName}({marshallerArgs});"
+                    : $"return Marshaller<{marshallerCppType}>::{method.NativeName}({marshallerArgs});";
+
+                writer.Write($$"""
+                    SHARPCPP_EXPORT ret_t<{{method.CppReturnTypeName}}> {{method.EntryPointName}}({{parameterList}})
+                    {
+                    {{marshallerCall}}
+                    }
+                    """);
+            }
+            else
+            {
             writer.Write($$"""
                 SHARPCPP_EXPORT ret_t<{{method.CppReturnTypeName}}> {{method.EntryPointName}}({{parameterList}})
                 {
@@ -2214,6 +2230,7 @@ public static partial class BindingOutputRenderer
             writer.Write("""
                 }
                 """);
+            }
 
             if (HasUnexpressibleDefaultParams(method))
             {
@@ -3426,4 +3443,5 @@ public static partial class BindingOutputRenderer
             return __handle;
             """);
     }
+
 }
