@@ -13,8 +13,11 @@ This repository is the clean restart line described in `doc/`.
 - Prefer the smallest change that moves the current phase forward.
 - Keep layering clean: `Model -> Metadata -> Parsing/Pipeline/Rendering -> Tool`; `Support` stays runtime-side.
 - Do not broaden feature surface before the current slice is coherent.
-- **DO** use `jcodemunch` to explore and understand the codebase.
 - **DO NOT** add type-specific special cases to the core ever. All type-specific behaviors are configured through C++ and C# marshallers only.
+- **Tooling preference (hierarchy for codebase exploration/editing)**:
+  1. **jcodemunch** (first resort) — `search_symbols`, `get_symbol_source`, `get_call_hierarchy`, `get_blast_radius`, `get_file_outline`, `get_dependency_graph`, `find_references`, `check_references`, `get_ranked_context`. Use these for symbol lookup, call chain tracing, reference checking, and dependency analysis BEFORE falling back to text tools.
+  2. **ast_grep** (structural search/replace) — `ast_grep_search` / `ast_grep_replace` for AST-aware pattern matching and rewriting. Use when jcodemunch is too heavy (single simple pattern) or when you need to rewrite matching code blocks.
+  3. **glob + grep + read** (fallback) — use only when jcodemunch can't answer the question (e.g. searching string literals, comments, config values) or when you already know the exact file and line.
 
 ## 3. Current Implementation Phase
 
@@ -82,6 +85,12 @@ Dispatch aggressively. The cost of explaining to a subagent is almost always les
 - You need several independent queries in parallel
 
 **Batch queries:** Send 2-4 focused queries in parallel rather than one broad sweep. E.g. "find all helpers in class X" + "find all call sites of Y" + "find all files matching pattern Z" as three parallel tasks, not one serial read.
+
+**Tool preference for exploration:**
+- Use `search_symbols` (jcodemunch) for finding classes, methods, types — it understands symbol identity, not text
+- Use `get_call_hierarchy` / `get_dependency_graph` / `get_blast_radius` before falling back to text greps
+- Use `get_file_outline` to understand a file's structure without reading its full contents
+- Use `ast_grep_search` for AST-aware pattern matching (e.g. "all methods taking a RecordBinding parameter")
 
 **Don't delegate when:**
 - You already know the exact file and line number — just read it directly
