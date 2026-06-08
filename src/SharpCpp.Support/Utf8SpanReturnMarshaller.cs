@@ -12,7 +12,7 @@ namespace SharpCpp.Support;
 /// The native pointer must remain valid for the span's lifetime.
 /// </summary>
 [CustomMarshaller(typeof(ReadOnlySpan<byte>), MarshalMode.ManagedToUnmanagedOut, typeof(Utf8SpanReturnMarshaller))]
-internal static unsafe class Utf8SpanReturnMarshaller
+public static unsafe class Utf8SpanReturnMarshaller
 {
     public static ReadOnlySpan<byte> ConvertToManaged(IntPtr unmanaged)
     {
