@@ -629,8 +629,8 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("typeof(T) == typeof(float)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("public T GetValue()", managedOutput, StringComparison.Ordinal);
         Assert.Contains("(BoxOf<T>)(object)BoxOf<int>.CreateManagedWrapper", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("entry_get__int", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("entry_get__float", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("entry_get__1", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("entry_get__2", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]

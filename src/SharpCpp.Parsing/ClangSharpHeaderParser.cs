@@ -690,7 +690,7 @@ public sealed class ClangSharpHeaderParser
             function.Parameters.Add(param);
         }
 
-        function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(cursor, nativeName)}", function.Parameters);
+        function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(cursor, nativeName)}");
 
         if (ignoreReason is not null)
         {
@@ -783,7 +783,7 @@ public sealed class ClangSharpHeaderParser
             },
             new CXClientData(IntPtr.Zero));
 
-        function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(templateCursor, nativeName)}", function.Parameters);
+        function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(templateCursor, nativeName)}");
 
         if (ignoreReason is not null)
         {
@@ -845,7 +845,7 @@ public sealed class ClangSharpHeaderParser
             function.Parameters.Add(staticParam);
         }
 
-        function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(cursor, nativeName)}", function.Parameters);
+        function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(cursor, nativeName)}");
 
         if (ignoreReason is not null)
         {
@@ -905,7 +905,7 @@ public sealed class ClangSharpHeaderParser
             function.Parameters.Add(ctorParam);
         }
 
-        function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_ctor", function.Parameters);
+        function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_ctor");
 
         if (ignoreReason is not null)
         {
@@ -989,7 +989,7 @@ public sealed class ClangSharpHeaderParser
             function.Parameters.Add(freeParam);
         }
 
-        function.EntryPointName = BuildEntrypointName(entryPointPrefix, SanitizeEntrypointNamePart(function.CppQualifiedName), function.Parameters);
+        function.EntryPointName = BuildEntrypointName(entryPointPrefix, SanitizeEntrypointNamePart(function.CppQualifiedName));
 
         if (ignoreReason is not null)
         {
@@ -1067,7 +1067,7 @@ public sealed class ClangSharpHeaderParser
             },
             new CXClientData(IntPtr.Zero));
 
-        function.EntryPointName = BuildEntrypointName(entryPointPrefix, SanitizeEntrypointNamePart(function.CppQualifiedName), function.Parameters);
+                function.EntryPointName = BuildEntrypointName(entryPointPrefix, SanitizeEntrypointNamePart(function.CppQualifiedName));
 
         if (ignoreReason is not null)
         {
@@ -1076,6 +1076,9 @@ public sealed class ClangSharpHeaderParser
 
         return function;
     }
+
+
+
 
     private static (BindingType Type, string? IgnoreReason) TryMapType(
         CXType type,
@@ -1229,7 +1232,7 @@ public sealed class ClangSharpHeaderParser
 
         if (cursor.Kind == CXCursorKind.CXCursor_ConversionFunction)
         {
-            return $"operator_to_{SanitizeEntrypointNamePart(cursor.ResultType.Spelling.ToString()).ToLowerInvariant()}{constSuffix}";
+            return $"operator_to{constSuffix}";
         }
 
         if (cursor.IsOverloadedOperator)
@@ -1284,19 +1287,12 @@ public sealed class ClangSharpHeaderParser
             new CXClientData(IntPtr.Zero));
     }
 
-    private static string BuildEntrypointName(string entryPointPrefix, string baseName, IEnumerable<ParameterBinding> parameters)
+    private static int s_entrypointCounter;
+
+    private static string BuildEntrypointName(string entryPointPrefix, string baseName)
     {
-        var builder = new StringBuilder(entryPointPrefix);
-        builder.Append('_');
-        builder.Append(baseName);
-
-        foreach (var parameter in parameters)
-        {
-            builder.Append('_');
-            builder.Append(SanitizeEntrypointNamePart(parameter.CppTypeName));
-        }
-
-        return builder.ToString();
+        var counter = ++s_entrypointCounter;
+        return $"{entryPointPrefix}_{baseName}_{counter}";
     }
 
     private static string SanitizeEntrypointNamePart(string value)

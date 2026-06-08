@@ -866,12 +866,7 @@ public static partial class BindingOutputRenderer
 
     private static string GetGenericInstantiationSuffix(RecordGenericInstantiationBinding instantiation)
     {
-        if (instantiation.TypeArguments.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        return "__" + string.Join("__", instantiation.TypeArguments.Select(argument => SanitizeManagedToken(argument.CppTypeName)));
+        return instantiation.Suffix;
     }
 
     private static string RenderNativeGenericConstructor(RecordBinding record, FunctionBinding constructor, RecordGenericInstantiationBinding instantiation)
