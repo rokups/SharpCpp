@@ -120,7 +120,10 @@ public sealed class BindingOutputRendererTests
             "function:get_name",
             "get_name",
             "GetName",
-            BindingType.CreateConfigured("const char*", "string"),
+            BindingType.CreateConfigured(
+                "const char*",
+                "string",
+                "global::System.IntPtr"),
             "sharpcpp_sample_get_name",
             "const char*");
         compilation.Members.Add(function);
@@ -129,8 +132,8 @@ public sealed class BindingOutputRendererTests
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
         Assert.Contains("public static string GetName()", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("internal static partial string GetName();", managedOutput, StringComparison.Ordinal);
-        Assert.DoesNotContain("IntPtr", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial global::System.IntPtr GetName();", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("PtrToStringUTF8", managedOutput, StringComparison.Ordinal);
     }
 
     [Fact]

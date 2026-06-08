@@ -729,23 +729,7 @@ public static partial class BindingOutputRenderer
         }
         else if (function.ReturnType.MarshallerTypeName is not null)
         {
-            var importTypeName = GetManagedImportTypeName(function.ReturnType);
-            var publicTypeName = function.ReturnType.ManagedTypeName;
-            writer.Write($$"""
-                var __result_raw = __PInvoke.{{importMethodName}}({{invokeArguments}});
-                """);
-
-            foreach (var statement in invocationPlan.PostCallStatements)
-            {
-                writer.Write(statement);
-            }
-
-            var conversionExpression = importTypeName == "global::System.IntPtr" && publicTypeName == "string"
-                ? "global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__result_raw)!"
-                : "__result_raw";
-            writer.Write($$"""
-                return {{conversionExpression}};
-                """);
+            WriteManagedReturnWithMarshallerConversion(writer, function, importMethodName, invokeArguments, invocationPlan);
         }
         else
         {
@@ -1212,23 +1196,7 @@ public static partial class BindingOutputRenderer
             }
             else if (function.ReturnType.MarshallerTypeName is not null)
             {
-                var importTypeName = GetManagedImportTypeName(function.ReturnType);
-                var publicTypeName = function.ReturnType.ManagedTypeName;
-                writer.Write($$"""
-                    var __result_raw = __PInvoke.{{importMethodName}}({{invokeArguments}});
-                    """);
-
-                foreach (var statement in invocationPlan.PostCallStatements)
-                {
-                    writer.Write(statement);
-                }
-
-                var conversionExpression = importTypeName == "global::System.IntPtr" && publicTypeName == "string"
-                    ? "global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__result_raw)!"
-                    : "__result_raw";
-                writer.Write($$"""
-                    return {{conversionExpression}};
-                    """);
+                WriteManagedReturnWithMarshallerConversion(writer, function, importMethodName, invokeArguments, invocationPlan);
             }
             else
             {
@@ -1795,23 +1763,7 @@ public static partial class BindingOutputRenderer
             }
             else if (function.ReturnType.MarshallerTypeName is not null)
             {
-                var importTypeName = GetManagedImportTypeName(function.ReturnType);
-                var publicTypeName = function.ReturnType.ManagedTypeName;
-                writer.Write($$"""
-                    var __result_raw = __PInvoke.{{importMethodName}}({{invokeArguments}});
-                    """);
-
-                foreach (var statement in invocationPlan.PostCallStatements)
-                {
-                    writer.Write(statement);
-                }
-
-                var conversionExpression = importTypeName == "global::System.IntPtr" && publicTypeName == "string"
-                    ? "global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__result_raw)!"
-                    : "__result_raw";
-                writer.Write($$"""
-                    return {{conversionExpression}};
-                    """);
+                WriteManagedReturnWithMarshallerConversion(writer, function, importMethodName, invokeArguments, invocationPlan);
             }
             else
             {
@@ -2623,6 +2575,39 @@ public static partial class BindingOutputRenderer
     private static string GetManagedPublicReturnTypeName(BindingType type)
     {
         return GetManagedWrapperTypeName(type);
+    }
+
+    /// <summary>
+    /// Writes the P/Invoke result variable, post-call statements, and conversion
+    /// for types where import type differs from public type (e.g., IntPtr → string).
+    /// TODO: Replace this hard-coded pattern with a C# custom marshaller
+    /// (e.g. [return: MarshalUsing(typeof(...))]) on the LibraryImport declaration,
+    /// so the source generator handles the conversion directly.
+    /// </summary>
+    private static void WriteManagedReturnWithMarshallerConversion(
+        CodeWriter writer,
+        FunctionBinding function,
+        string importMethodName,
+        string invokeArguments,
+        ManagedInvocationPlan invocationPlan)
+    {
+        var importTypeName = GetManagedImportTypeName(function.ReturnType);
+        var publicTypeName = function.ReturnType.ManagedTypeName;
+        writer.Write($$"""
+            var __result_raw = __PInvoke.{{importMethodName}}({{invokeArguments}});
+            """);
+
+        foreach (var statement in invocationPlan.PostCallStatements)
+        {
+            writer.Write(statement);
+        }
+
+        var conversionExpression = importTypeName == "global::System.IntPtr" && publicTypeName == "string"
+            ? "global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__result_raw)!"
+            : "__result_raw";
+        writer.Write($$"""
+            return {{conversionExpression}};
+            """);
     }
 
     private static string GetManagedImportTypeName(BindingType type)
