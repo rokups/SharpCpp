@@ -120,45 +120,6 @@ internal static class MarshallerConfigExtractor
         return result;
     }
 
-    private static void PerformClangParse(
-        IReadOnlyList<string> marshallerFiles,
-        IReadOnlyList<string> clangArgs,
-        Action<CXTranslationUnit> action)
-    {
-        var tempCppPath = GenerateTempCpp(marshallerFiles);
-        try
-        {
-            using var index = CXIndex.Create();
-            using var translationUnit = CXTranslationUnit.Parse(
-                index,
-                tempCppPath,
-                clangArgs.ToArray(),
-                Array.Empty<CXUnsavedFile>(),
-                CXTranslationUnit_Flags.CXTranslationUnit_None);
-
-            if (translationUnit.NumDiagnostics > 0)
-            {
-                for (uint diagIndex = 0; diagIndex < translationUnit.NumDiagnostics; diagIndex++)
-                {
-                    using var diagnostic = translationUnit.GetDiagnostic(diagIndex);
-                    if (diagnostic.Severity == CXDiagnosticSeverity.CXDiagnostic_Error ||
-                        diagnostic.Severity == CXDiagnosticSeverity.CXDiagnostic_Fatal)
-                    {
-                        Console.Error.WriteLine(
-                            $"SharpCpp warning: marshaller config parse error: " +
-                            $"{diagnostic.Format(CXDiagnostic.DefaultDisplayOptions).ToString()}");
-                    }
-                }
-            }
-
-            action(translationUnit);
-        }
-        finally
-        {
-            TryDeleteTempFile(tempCppPath);
-        }
-    }
-
     private static void PerformManagedClangParse(
         IReadOnlyList<string> marshallerFiles,
         IReadOnlyList<string> clangArgs,

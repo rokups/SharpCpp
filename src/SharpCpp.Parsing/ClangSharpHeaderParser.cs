@@ -274,53 +274,7 @@ public sealed class ClangSharpHeaderParser
         return files.OrderBy(static path => path, StringComparer.Ordinal).ToArray();
     }
 
-    private static bool IsOwnedCursor(CXCursor cursor, IReadOnlyList<string> ownedFileRoots)
-    {
-        cursor.Location.GetFileLocation(out var file, out _, out _, out _);
-        var filePath = Path.GetFullPath(file.Name.CString);
-
-        foreach (var ownedFileRoot in ownedFileRoots)
-        {
-            if (File.Exists(ownedFileRoot) && string.Equals(filePath, ownedFileRoot, StringComparison.Ordinal))
-            {
-                return true;
-            }
-
-            if (Directory.Exists(ownedFileRoot) &&
-                filePath.StartsWith(ownedFileRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static string ResolveOwnedHeaderIncludePath(CXCursor cursor, IReadOnlyList<string> ownedFileRoots, string fallbackHeaderIncludePath)
-    {
-        cursor.Location.GetFileLocation(out var file, out _, out _, out _);
-        var fileName = file.Name.CString;
-        if (string.IsNullOrWhiteSpace(fileName))
-        {
-            return fallbackHeaderIncludePath;
-        }
-
-        var filePath = Path.GetFullPath(fileName);
-        foreach (var ownedFileRoot in ownedFileRoots)
-        {
-            if (!Directory.Exists(ownedFileRoot) ||
-                !filePath.StartsWith(ownedFileRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            return Path.GetRelativePath(ownedFileRoot, filePath).Replace('\\', '/');
-        }
-
-        return fallbackHeaderIncludePath;
-    }
-
-    // ─── Decl-based helpers (ClangSharp managed API overloads) ──────────────────
+    // ─── Decl-based helpers (ClangSharp managed API) ────────────────────────────
 
     private static string GetCppQualifiedName(Decl decl)
     {
@@ -2695,15 +2649,18 @@ public sealed class ClangSharpHeaderParser
         bool isOverride = false;
         bool isFinal = false;
 
-        foreach (var attr in methodDecl.Decls)
+        if (methodDecl.HasAttrs)
         {
-            if ((int)attr.Kind == 417) // CXCursor_CXXOverrideAttr
+            foreach (var attr in methodDecl.Attrs)
             {
-                isOverride = true;
-            }
-            else if ((int)attr.Kind == 418) // CXCursor_CXXFinalAttr
-            {
-                isFinal = true;
+                if (attr.Kind == CX_AttrKind.CX_AttrKind_Override)
+                {
+                    isOverride = true;
+                }
+                else if (attr.Kind == CX_AttrKind.CX_AttrKind_Final)
+                {
+                    isFinal = true;
+                }
             }
         }
 
