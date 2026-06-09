@@ -434,44 +434,22 @@ internal static class MarshallerConfigExtractor
     /// </summary>
     private static string? ExtractTemplateArgFromCursorType(CXCursor cursor)
     {
-        var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
-
-        // Determine which prefix to look for (Marshaller vs ReturnMarshaller).
-        var prefix = sourceText.Contains("ReturnMarshaller", StringComparison.Ordinal)
-            ? "ReturnMarshaller"
-            : "Marshaller";
-
-        // Find the prefix word, then locate the first '<' after it.
-        var prefixIndex = sourceText.IndexOf(prefix, StringComparison.Ordinal);
-        if (prefixIndex < 0)
-            return null;
-
-        var openIndex = sourceText.IndexOf('<', prefixIndex);
-        if (openIndex < 0)
-            return null;
-
-        // Walk forward from after '<', tracking angle bracket depth.
-        var depth = 0;
-        var start = openIndex + 1;
-        var i = start;
-        for (; i < sourceText.Length; i++)
+        // Use the TYPE-level template argument API. clang_Type_getTemplateArgumentAsType
+        // works on the cursor's Type (a TemplateSpecializationType backed by RecordType)
+        // even for CXCursor_StructDecl explicit specializations.
+        // The returned type spelling has correct spacing and handles nested angle brackets.
+        var numArgs = clang.Type_getNumTemplateArguments(cursor.Type);
+        if (numArgs <= 0)
         {
-            if (sourceText[i] == '<')
-                depth++;
-            else if (sourceText[i] == '>')
-            {
-                if (depth == 0)
-                    break; // matching closing bracket
-                depth--;
-            }
+            return null;
         }
 
-        if (i >= sourceText.Length || sourceText[i] != '>')
-            return null;
-
-        var typeName = sourceText.Substring(start, i - start);
+        var argType = clang.Type_getTemplateArgumentAsType(cursor.Type, 0);
+        var typeName = argType.Spelling.ToString();
         if (string.IsNullOrWhiteSpace(typeName))
+        {
             return null;
+        }
 
         return NormalizeTypeName(typeName);
     }
@@ -480,10 +458,6 @@ internal static class MarshallerConfigExtractor
     {
         return Regex.Replace(spelling.Trim(), @"\s+", " ")
             .Replace(" *", "*", StringComparison.Ordinal)
-            .Replace(" &", "&", StringComparison.Ordinal)
-            .Replace(":: ", "::", StringComparison.Ordinal)
-            .Replace(" ::", "::", StringComparison.Ordinal)
-            .Replace(" <", "<", StringComparison.Ordinal)
-            .Replace("> ", ">", StringComparison.Ordinal);
+            .Replace(" &", "&", StringComparison.Ordinal);
     }
 }
