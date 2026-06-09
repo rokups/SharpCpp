@@ -102,69 +102,65 @@ public sealed class ClangSharpHeaderParser
 
         request.ImportedBindingMetadata?.Seed(compilation, recordsByName, enumsByName);
 
-        translationUnit.Cursor.VisitChildren(
-            (child, _, _) =>
+        var managedTranslationUnit = TranslationUnit.GetOrCreate(translationUnit);
+        foreach (var child in managedTranslationUnit.TranslationUnitDecl.Decls)
+        {
+            if (!IsOwnedDecl(child, ownedFileRoots))
             {
-                if (!IsOwnedCursor(child, ownedFileRoots))
+                continue;
+            }
+
+            switch (child)
+            {
+                case NamespaceDecl nsChild:
+                    VisitNamespace(nsChild, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix, ownedFileRoots, request.HeaderIncludePath);
+                    break;
+
+                case RecordDecl:
+                    RegisterRecord(child.Handle, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix,
+                        ResolveDeclIncludePath(child, ownedFileRoots, request.HeaderIncludePath));
+                    break;
+
+                case ClassTemplateDecl:
+                    RegisterTemplateRecord(child.Handle, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix,
+                        ResolveDeclIncludePath(child, ownedFileRoots, request.HeaderIncludePath));
+                    break;
+
+                case EnumDecl:
+                    RegisterEnum(child.Handle, compilation, enumsByName,
+                        ResolveDeclIncludePath(child, ownedFileRoots, request.HeaderIncludePath));
+                    break;
+
+                case FunctionDecl:
                 {
-                    return CXChildVisitResult.CXChildVisit_Continue;
+                    var function = CreateFunction(child.Handle, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
+                    CheckAndApplyIgnoreAttribute(child.Handle, function);
+                    TryApplyRename(child.Handle, function);
+                    ExtractAndApplyDocumentation(child.Handle, function);
+                    ApplyCallableDefinitionMetadata(child.Handle, function);
+                    ApplyDeletedCallableIgnore(child.Handle, function);
+                    function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, request.HeaderIncludePath);
+                    compilation.Members.Add(function);
+                    break;
                 }
 
-                switch (child.Kind)
+                case FunctionTemplateDecl:
                 {
-                    case CXCursorKind.CXCursor_Namespace:
-                        VisitNamespace(child, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix, ownedFileRoots, request.HeaderIncludePath);
-                        break;
-
-                    case CXCursorKind.CXCursor_StructDecl:
-                    case CXCursorKind.CXCursor_ClassDecl:
-                        RegisterRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix,
-                            ResolveOwnedHeaderIncludePath(child, ownedFileRoots, request.HeaderIncludePath));
-                        break;
-
-                    case CXCursorKind.CXCursor_ClassTemplate:
-                        RegisterTemplateRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix,
-                            ResolveOwnedHeaderIncludePath(child, ownedFileRoots, request.HeaderIncludePath));
-                        break;
-
-                    case CXCursorKind.CXCursor_EnumDecl:
-                        RegisterEnum(child, compilation, enumsByName,
-                            ResolveOwnedHeaderIncludePath(child, ownedFileRoots, request.HeaderIncludePath));
-                        break;
-
-                    case CXCursorKind.CXCursor_FunctionDecl:
+                    var function = CreateTemplateFunction(child.Handle, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
+                    if (function is not null)
                     {
-                        var function = CreateFunction(child, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
-                        CheckAndApplyIgnoreAttribute(child, function);
-                        TryApplyRename(child, function);
-                        ExtractAndApplyDocumentation(child, function);
-                        ApplyCallableDefinitionMetadata(child, function);
-                        ApplyDeletedCallableIgnore(child, function);
-                        function.HeaderIncludePath = ResolveOwnedHeaderIncludePath(child, ownedFileRoots, request.HeaderIncludePath);
+                        CheckAndApplyIgnoreAttribute(child.Handle, function);
+                        TryApplyRename(child.Handle, function);
+                        ExtractAndApplyDocumentation(child.Handle, function);
+                        ApplyCallableDefinitionMetadata(child.Handle, function);
+                        ApplyDeletedCallableIgnore(child.Handle, function);
+                        function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, request.HeaderIncludePath);
                         compilation.Members.Add(function);
-                        break;
                     }
-
-                    case CXCursorKind.CXCursor_FunctionTemplate:
-                    {
-                        var function = CreateTemplateFunction(child, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
-                        if (function is not null)
-                        {
-                            CheckAndApplyIgnoreAttribute(child, function);
-                            TryApplyRename(child, function);
-                            ExtractAndApplyDocumentation(child, function);
-                            ApplyCallableDefinitionMetadata(child, function);
-                            ApplyDeletedCallableIgnore(child, function);
-                            function.HeaderIncludePath = ResolveOwnedHeaderIncludePath(child, ownedFileRoots, request.HeaderIncludePath);
-                            compilation.Members.Add(function);
-                        }
-                        break;
-                    }
+                    break;
                 }
-
-                return CXChildVisitResult.CXChildVisit_Continue;
-            },
-            new CXClientData(IntPtr.Zero));
+            }
+        }
 
         foreach (var record in recordsByName.Values)
         {
@@ -2393,8 +2389,8 @@ public sealed class ClangSharpHeaderParser
     // MarshallerConfigExtractor.ExtractManagedTypeOverrides() which uses ClangSharp
     // AST walking instead of whole-file regex for finding template specializations.
 
-    private static unsafe void VisitNamespace(
-        CXCursor namespaceCursor,
+    private static void VisitNamespace(
+        Decl nsDecl,
         BindingCompilation compilation,
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
@@ -2403,69 +2399,64 @@ public sealed class ClangSharpHeaderParser
         IReadOnlyList<string> ownedFileRoots,
         string? headerIncludePath)
     {
-        namespaceCursor.VisitChildren(
-            (child, _, _) =>
+        foreach (var child in nsDecl.Decls)
+        {
+            if (!IsOwnedDecl(child, ownedFileRoots))
             {
-                if (!IsOwnedCursor(child, ownedFileRoots))
+                continue;
+            }
+
+            switch (child)
+            {
+                case NamespaceDecl nsChild:
+                    VisitNamespace(nsChild, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, ownedFileRoots, headerIncludePath);
+                    break;
+
+                case RecordDecl:
+                    RegisterRecord(child.Handle, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix,
+                        ResolveDeclIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty));
+                    break;
+
+                case ClassTemplateDecl:
+                    RegisterTemplateRecord(child.Handle, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix,
+                        ResolveDeclIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty));
+                    break;
+
+                case EnumDecl:
+                    RegisterEnum(child.Handle, compilation, enumsByName,
+                        ResolveDeclIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty));
+                    break;
+
+                case FunctionDecl:
                 {
-                    return CXChildVisitResult.CXChildVisit_Continue;
+                    var function = CreateFunction(child.Handle, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
+                    CheckAndApplyIgnoreAttribute(child.Handle, function);
+                    TryApplyRename(child.Handle, function);
+                    ExtractAndApplyDocumentation(child.Handle, function);
+                    ApplyCallableDefinitionMetadata(child.Handle, function);
+                    ApplyDeletedCallableIgnore(child.Handle, function);
+                    function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty);
+                    compilation.Members.Add(function);
+                    break;
                 }
 
-                switch (child.Kind)
+                case FunctionTemplateDecl:
                 {
-                    case CXCursorKind.CXCursor_Namespace:
-                        VisitNamespace(child, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, ownedFileRoots, headerIncludePath);
-                        break;
-
-                    case CXCursorKind.CXCursor_StructDecl:
-                    case CXCursorKind.CXCursor_ClassDecl:
-                        RegisterRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix,
-                            ResolveOwnedHeaderIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty));
-                        break;
-
-                    case CXCursorKind.CXCursor_ClassTemplate:
-                        RegisterTemplateRecord(child, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix,
-                            ResolveOwnedHeaderIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty));
-                        break;
-
-                    case CXCursorKind.CXCursor_EnumDecl:
-                        RegisterEnum(child, compilation, enumsByName,
-                            ResolveOwnedHeaderIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty));
-                        break;
-
-                    case CXCursorKind.CXCursor_FunctionDecl:
+                    var function = CreateTemplateFunction(child.Handle, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
+                    if (function is not null)
                     {
-                        var function = CreateFunction(child, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
-                        CheckAndApplyIgnoreAttribute(child, function);
-                        TryApplyRename(child, function);
-                        ExtractAndApplyDocumentation(child, function);
-                        ApplyCallableDefinitionMetadata(child, function);
-                        ApplyDeletedCallableIgnore(child, function);
-                        function.HeaderIncludePath = ResolveOwnedHeaderIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty);
+                        CheckAndApplyIgnoreAttribute(child.Handle, function);
+                        TryApplyRename(child.Handle, function);
+                        ExtractAndApplyDocumentation(child.Handle, function);
+                        ApplyCallableDefinitionMetadata(child.Handle, function);
+                        ApplyDeletedCallableIgnore(child.Handle, function);
+                        function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty);
                         compilation.Members.Add(function);
-                        break;
                     }
-
-                    case CXCursorKind.CXCursor_FunctionTemplate:
-                    {
-                        var function = CreateTemplateFunction(child, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
-                        if (function is not null)
-                        {
-                            CheckAndApplyIgnoreAttribute(child, function);
-                            TryApplyRename(child, function);
-                            ExtractAndApplyDocumentation(child, function);
-                            ApplyCallableDefinitionMetadata(child, function);
-                            ApplyDeletedCallableIgnore(child, function);
-                            function.HeaderIncludePath = ResolveOwnedHeaderIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty);
-                            compilation.Members.Add(function);
-                        }
-                        break;
-                    }
+                    break;
                 }
-
-                return CXChildVisitResult.CXChildVisit_Continue;
-            },
-            new CXClientData(IntPtr.Zero));
+            }
+        }
     }
 
     // ManagedTypeOverride is now in MarshallerConfigExtractor (see using alias above).
