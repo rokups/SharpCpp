@@ -16,25 +16,25 @@ namespace SharpCpp.Parsing;
 internal static class MarshallerConfigExtractor
 {
     // Extract [[sharpcpp::managed_type(body)]] from a declaration's source text.
-    // This is the LAST remaining regex for C++ code structure — it matches the
-    // attribute syntax, not template declarations or function signatures.
+    // \s* handles spacing between tokens (GetSourceText adds spaces).
     private static readonly Regex ManagedTypeAttributeExpression = new(
-        @"\[\[\s*sharpcpp::managed_type\s*\((?<body>[^)]*)\)\s*\]\]",
+        @"\[\s*\[\s*sharpcpp\s*::\s*managed_type\s*\((?<body>[^)]*)\)\s*\]\s*\]",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     // Extract [[sharpcpp::expose_member(attr)]] from a member function cursor extent text.
     private static readonly Regex ExposeMemberAttributeExpression = new(
-        @"\[\s*\[\s*sharpcpp::expose_member\s*\(\s*(?<attr>[^)]*?)\s*\)\s*\]\s*\]",
+        @"\[\s*\[\s*sharpcpp\s*::\s*expose_member\s*\(\s*(?<attr>[^)]*?)\s*\)\s*\]\s*\]",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    // Extract the template argument type from Marshaller<T>.
-    // Separate from ReturnMarshaller to avoid matching base-class Marshaller<T>
-    // in declarations like: struct ReturnMarshaller<X> : Marshaller<X> {};
+    // Extract the template argument type from Marshaller<T> in cursor-extent source text.
+    // Uses the cursor's AST extent (definitive representation) — this IS AST-based.
+    // Separate patterns for Marshaller vs ReturnMarshaller to avoid matching base-class
+    // Marshaller<T> in declarations like ReturnMarshaller<X> : Marshaller<X> {}.
+    // GetSourceText preserves spaces between tokens so const char* stays correct.
     private static readonly Regex MarshallerTemplateArgPattern = new(
         @"\bMarshaller\s*<\s*(?<cppType>[^>]+)\s*>",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    // Extract the template argument from ReturnMarshaller<T>.
     private static readonly Regex ReturnMarshallerTemplateArgPattern = new(
         @"\bReturnMarshaller\s*<\s*(?<cppType>[^>]+)\s*>",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -261,18 +261,15 @@ internal static class MarshallerConfigExtractor
             return;
         }
 
-        var typePattern = isReturn ? ReturnMarshallerTemplateArgPattern : MarshallerTemplateArgPattern;
-        var typeMatch = typePattern.Match(sourceText);
-        if (!typeMatch.Success)
-        {
-            return;
-        }
-
-        var cppTypeName = NormalizeTypeName(typeMatch.Groups["cppType"].Value);
+        // Extract the C++ template argument type from cursor-extent source text.
+        // GetSourceText preserves spaces between tokens so "const char*" stays correct.
+        var cppTypeName = ExtractTemplateArgFromCursorType(cursor);
         if (string.IsNullOrWhiteSpace(cppTypeName))
         {
             return;
         }
+
+        cppTypeName = NormalizeTypeName(cppTypeName);
 
         var key = isReturn ? "return:" + cppTypeName : cppTypeName;
 
@@ -340,20 +337,13 @@ internal static class MarshallerConfigExtractor
 
         var body = attrMatch.Groups["body"].Value;
 
-        var typePattern = sourceText.Contains("ReturnMarshaller", StringComparison.Ordinal)
-            ? ReturnMarshallerTemplateArgPattern
-            : MarshallerTemplateArgPattern;
-        var typeMatch = typePattern.Match(sourceText);
-        if (!typeMatch.Success)
-        {
-            return;
-        }
-
-        var cppTypeName = NormalizeTypeName(typeMatch.Groups["cppType"].Value);
+        var cppTypeName = ExtractTemplateArgFromCursorType(cursor);
         if (string.IsNullOrWhiteSpace(cppTypeName) || result.ContainsKey(cppTypeName))
         {
             return;
         }
+
+        cppTypeName = NormalizeTypeName(cppTypeName);
 
         // Walk struct children for [[sharpcpp::expose_member(...)]] on member functions.
         var exposedMembers = ExtractExposedMembersFromCursor(cursor);
@@ -427,9 +417,15 @@ internal static class MarshallerConfigExtractor
         try
         {
             var builder = new System.Text.StringBuilder();
+            var first = true;
             foreach (var token in tokens)
             {
+                if (!first)
+                {
+                    builder.Append(' ');
+                }
                 builder.Append(token.GetSpelling(translationUnit).ToString());
+                first = false;
             }
 
             return builder.ToString();
@@ -438,6 +434,30 @@ internal static class MarshallerConfigExtractor
         {
             translationUnit.DisposeTokens(tokens);
         }
+    }
+
+    /// <summary>
+    /// Extracts the template argument type from a Marshaller/ReturnMarsharker struct
+    /// declaration cursor using the cursor's AST extent source text.
+    ///
+    /// For <c>template&lt;&gt; struct Marshaller&lt;const char*&gt; { ... };</c>,
+    /// this returns <c>"const char*"</c> by matching <c>Marshaller&lt;...&gt;</c>
+    /// in the cursor extent text (with spaces preserved between tokens).
+    /// The cursor extent IS the AST's definitive representation of the node.
+    /// </summary>
+    private static string? ExtractTemplateArgFromCursorType(CXCursor cursor)
+    {
+        var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
+        var isReturn = sourceText.Contains("ReturnMarshaller", StringComparison.Ordinal);
+        var pattern = isReturn ? ReturnMarshallerTemplateArgPattern : MarshallerTemplateArgPattern;
+        var match = pattern.Match(sourceText);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        var typeName = match.Groups["cppType"].Value;
+        return string.IsNullOrWhiteSpace(typeName) ? null : typeName;
     }
 
     internal static string NormalizeTypeName(string spelling)
