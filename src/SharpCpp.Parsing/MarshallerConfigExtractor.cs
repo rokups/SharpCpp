@@ -87,15 +87,15 @@ internal static class MarshallerConfigExtractor
     /// <c>[[sharpcpp::managed_type(...)]]</c> overrides from Marshaller&lt;T&gt;
     /// and ReturnMarshaller&lt;T&gt; specializations.
     /// </summary>
-    public static unsafe IReadOnlyDictionary<string, ManagedTypeOverride> ExtractManagedTypeOverrides(
+    public static IReadOnlyDictionary<string, ManagedTypeOverride> ExtractManagedTypeOverrides(
         IReadOnlyList<string> marshallerFiles,
         IReadOnlyList<string> clangArgs)
     {
         var result = new Dictionary<string, ManagedTypeOverride>(StringComparer.Ordinal);
 
-        PerformClangParse(marshallerFiles, clangArgs, tu =>
+        PerformManagedClangParse(marshallerFiles, clangArgs, rootDecl =>
         {
-            WalkForMarshallerDeclarations(tu.Cursor, result);
+            WalkForMarshallerDeclarations(rootDecl, result);
         });
 
         return result;
@@ -106,15 +106,15 @@ internal static class MarshallerConfigExtractor
     /// from marshaller configuration headers. All method metadata comes from the
     /// ClangSharp AST cursors — no C++ source-text regex.
     /// </summary>
-    public static unsafe IReadOnlyDictionary<string, MarshallerBodyConfig> ExtractMarshallerBodies(
+    public static IReadOnlyDictionary<string, MarshallerBodyConfig> ExtractMarshallerBodies(
         IReadOnlyList<string> marshallerFiles,
         IReadOnlyList<string> clangArgs)
     {
         var result = new Dictionary<string, MarshallerBodyConfig>(StringComparer.Ordinal);
 
-        PerformClangParse(marshallerFiles, clangArgs, tu =>
+        PerformManagedClangParse(marshallerFiles, clangArgs, rootDecl =>
         {
-            WalkForMarshallerBodies(tu.Cursor, result);
+            WalkForMarshallerBodies(rootDecl, result);
         });
 
         return result;
@@ -152,6 +152,47 @@ internal static class MarshallerConfigExtractor
             }
 
             action(translationUnit);
+        }
+        finally
+        {
+            TryDeleteTempFile(tempCppPath);
+        }
+    }
+
+    private static unsafe void PerformManagedClangParse(
+        IReadOnlyList<string> marshallerFiles,
+        IReadOnlyList<string> clangArgs,
+        Action<Decl> action)
+    {
+        var tempCppPath = GenerateTempCpp(marshallerFiles);
+        try
+        {
+            using var index = CXIndex.Create();
+            using var translationUnit = CXTranslationUnit.Parse(
+                index,
+                tempCppPath,
+                clangArgs.ToArray(),
+                Array.Empty<CXUnsavedFile>(),
+                CXTranslationUnit_Flags.CXTranslationUnit_None);
+
+            if (translationUnit.NumDiagnostics > 0)
+            {
+                for (uint diagIndex = 0; diagIndex < translationUnit.NumDiagnostics; diagIndex++)
+                {
+                    using var diagnostic = translationUnit.GetDiagnostic(diagIndex);
+                    if (diagnostic.Severity == CXDiagnosticSeverity.CXDiagnostic_Error ||
+                        diagnostic.Severity == CXDiagnosticSeverity.CXDiagnostic_Fatal)
+                    {
+                        Console.Error.WriteLine(
+                            $"SharpCpp warning: marshaller config parse error: " +
+                            $"{diagnostic.Format(CXDiagnostic.DefaultDisplayOptions).ToString()}");
+                    }
+                }
+            }
+
+            // Get the managed TranslationUnit and its root Decl
+            var managedTu = TranslationUnit.GetOrCreate(translationUnit);
+            action(managedTu.TranslationUnitDecl);
         }
         finally
         {
@@ -198,18 +239,15 @@ internal static class MarshallerConfigExtractor
 
     // ─── Type override extraction (Marshaller<T> / ReturnMarshaller<T>) ─────────
 
-    private static unsafe void WalkForMarshallerDeclarations(
-        CXCursor cursor,
+    private static void WalkForMarshallerDeclarations(
+        Decl decl,
         Dictionary<string, ManagedTypeOverride> result)
     {
-        cursor.VisitChildren((child, _, _) =>
+        foreach (var child in decl.Decls)
         {
-            if (child.Kind is CXCursorKind.CXCursor_StructDecl or
-                             CXCursorKind.CXCursor_ClassDecl or
-                             CXCursorKind.CXCursor_ClassTemplate or
-                             CXCursorKind.CXCursor_ClassTemplatePartialSpecialization)
+            if (child is RecordDecl or ClassTemplateDecl or ClassTemplatePartialSpecializationDecl)
             {
-                var spelling = child.Spelling.ToString();
+                var spelling = child is NamedDecl named ? named.Name ?? named.Spelling.ToString() : child.Spelling.ToString();
                 if (string.Equals(spelling, "Marshaller", StringComparison.Ordinal))
                 {
                     ProcessMarshallerDeclaration(child, isReturn: false, result);
@@ -220,21 +258,19 @@ internal static class MarshallerConfigExtractor
                 }
             }
 
-            if (child.Kind == CXCursorKind.CXCursor_Namespace)
+            if (child is NamespaceDecl)
             {
                 WalkForMarshallerDeclarations(child, result);
             }
-
-            return CXChildVisitResult.CXChildVisit_Continue;
-        }, new CXClientData(IntPtr.Zero));
+        }
     }
 
     private static void ProcessMarshallerDeclaration(
-        CXCursor cursor,
+        Decl decl,
         bool isReturn,
         Dictionary<string, ManagedTypeOverride> result)
     {
-        var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
+        var sourceText = GetSourceText(decl.Handle.TranslationUnit, decl.Extent);
 
         var attrMatch = ManagedTypeAttributeExpression.Match(sourceText);
         if (!attrMatch.Success)
@@ -251,7 +287,7 @@ internal static class MarshallerConfigExtractor
 
         // Extract the C++ template argument type from cursor-extent source text.
         // GetSourceText preserves spaces between tokens so "const char*" stays correct.
-        var cppTypeName = ExtractTemplateArgFromCursorType(cursor);
+        var cppTypeName = ExtractTemplateArgFromCursorType(decl);
         if (string.IsNullOrWhiteSpace(cppTypeName))
         {
             return;
@@ -283,18 +319,15 @@ internal static class MarshallerConfigExtractor
 
     // ─── Body extraction (attribute + exposed members from AST cursors) ─────────
 
-    private static unsafe void WalkForMarshallerBodies(
-        CXCursor cursor,
+    private static void WalkForMarshallerBodies(
+        Decl decl,
         Dictionary<string, MarshallerBodyConfig> result)
     {
-        cursor.VisitChildren((child, _, _) =>
+        foreach (var child in decl.Decls)
         {
-            if (child.Kind is CXCursorKind.CXCursor_StructDecl or
-                             CXCursorKind.CXCursor_ClassDecl or
-                             CXCursorKind.CXCursor_ClassTemplate or
-                             CXCursorKind.CXCursor_ClassTemplatePartialSpecialization)
+            if (child is RecordDecl or ClassTemplateDecl or ClassTemplatePartialSpecializationDecl)
             {
-                var spelling = child.Spelling.ToString();
+                var spelling = child is NamedDecl named ? named.Name ?? named.Spelling.ToString() : child.Spelling.ToString();
                 if (string.Equals(spelling, "Marshaller", StringComparison.Ordinal) ||
                     string.Equals(spelling, "ReturnMarshaller", StringComparison.Ordinal))
                 {
@@ -302,20 +335,18 @@ internal static class MarshallerConfigExtractor
                 }
             }
 
-            if (child.Kind == CXCursorKind.CXCursor_Namespace)
+            if (child is NamespaceDecl)
             {
                 WalkForMarshallerBodies(child, result);
             }
-
-            return CXChildVisitResult.CXChildVisit_Continue;
-        }, new CXClientData(IntPtr.Zero));
+        }
     }
 
     private static void ProcessMarshallerBody(
-        CXCursor cursor,
+        Decl decl,
         Dictionary<string, MarshallerBodyConfig> result)
     {
-        var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
+        var sourceText = GetSourceText(decl.Handle.TranslationUnit, decl.Extent);
 
         var attrMatch = ManagedTypeAttributeExpression.Match(sourceText);
         if (!attrMatch.Success)
@@ -325,7 +356,7 @@ internal static class MarshallerConfigExtractor
 
         var body = attrMatch.Groups["body"].Value;
 
-        var cppTypeName = ExtractTemplateArgFromCursorType(cursor);
+        var cppTypeName = ExtractTemplateArgFromCursorType(decl);
         if (string.IsNullOrWhiteSpace(cppTypeName) || result.ContainsKey(cppTypeName))
         {
             return;
@@ -334,30 +365,30 @@ internal static class MarshallerConfigExtractor
         cppTypeName = NormalizeTypeName(cppTypeName);
 
         // Walk struct children for [[sharpcpp::expose_member(...)]] on member functions.
-        var exposedMembers = ExtractExposedMembersFromCursor(cursor);
+        var exposedMembers = ExtractExposedMembersFromDecl(decl);
 
         result[cppTypeName] = new MarshallerBodyConfig(
             AttributeBody: body,
             ExposedMembers: exposedMembers);
     }
 
-    private static unsafe List<ExposedMemberInfo> ExtractExposedMembersFromCursor(CXCursor structCursor)
+    private static List<ExposedMemberInfo> ExtractExposedMembersFromDecl(Decl structDecl)
     {
         var members = new List<ExposedMemberInfo>();
 
-        structCursor.VisitChildren((child, _, _) =>
+        foreach (var child in structDecl.Decls)
         {
-            if (child.Kind != CXCursorKind.CXCursor_CXXMethod)
+            if (child is not CXXMethodDecl methodDecl)
             {
-                return CXChildVisitResult.CXChildVisit_Continue;
+                continue;
             }
 
             // Check if this method has [[sharpcpp::expose_member(...)]].
-            var childText = GetSourceText(child.TranslationUnit, child.Extent);
+            var childText = GetSourceText(methodDecl.Handle.TranslationUnit, methodDecl.Extent);
             var exposeMatch = ExposeMemberAttributeExpression.Match(childText);
             if (!exposeMatch.Success)
             {
-                return CXChildVisitResult.CXChildVisit_Continue;
+                continue;
             }
 
             var attrBody = exposeMatch.Groups["attr"].Value;
@@ -368,18 +399,17 @@ internal static class MarshallerConfigExtractor
                 ? string.Equals(exposedMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase)
                 : true;
 
-            // Extract method info from the AST cursor (not from source text).
-            var methodName = child.Spelling.ToString();
-            var returnTypeSpelling = child.ResultType.Spelling.ToString();
-            var isConst = clang.CXXMethod_isConst(child) != 0;
+            // Extract method info from the managed CXXMethodDecl.
+            var methodName = methodDecl.Name ?? methodDecl.Spelling.ToString();
+            var returnTypeSpelling = methodDecl.ReturnType.AsString;
+            var isConst = methodDecl.IsConst;
 
-            // Extract parameters from AST.
+            // Extract parameters from managed API.
             var parameters = new List<(string Name, string CppType)>();
-            for (uint paramIndex = 0; paramIndex < child.NumArguments; paramIndex++)
+            foreach (var param in methodDecl.Parameters)
             {
-                var paramCursor = child.GetArgument(paramIndex);
-                var paramName = paramCursor.Spelling.ToString();
-                var paramType = paramCursor.Type.Spelling.ToString();
+                var paramName = param.Name ?? param.Spelling.ToString();
+                var paramType = param.Type.AsString;
                 parameters.Add((paramName, NormalizeTypeName(paramType)));
             }
 
@@ -390,9 +420,7 @@ internal static class MarshallerConfigExtractor
                 Shape: shape,
                 Exposed: exposed,
                 Parameters: parameters.AsReadOnly()));
-
-            return CXChildVisitResult.CXChildVisit_Continue;
-        }, new CXClientData(IntPtr.Zero));
+        }
 
         return members;
     }
@@ -433,26 +461,24 @@ internal static class MarshallerConfigExtractor
     /// in the cursor extent text (with spaces preserved between tokens).
     /// The cursor extent IS the AST's definitive representation of the node.
     /// </summary>
-    private static string? ExtractTemplateArgFromCursorType(CXCursor cursor)
+    private static string? ExtractTemplateArgFromCursorType(Decl decl)
     {
-        // Use the TYPE-level template argument API. clang_Type_getTemplateArgumentAsType
-        // works on the cursor's Type (a TemplateSpecializationType backed by RecordType)
-        // even for CXCursor_StructDecl explicit specializations.
-        // The returned type spelling has correct spacing and handles nested angle brackets.
-        var numArgs = clang.Type_getNumTemplateArguments(cursor.Type);
-        if (numArgs <= 0)
+        // Use the managed ClassTemplateSpecializationDecl API for template argument access.
+        // This handles explicit specializations like template<> struct Marshaller<const char*>.
+        if (decl is ClassTemplateSpecializationDecl specDecl)
         {
-            return null;
+            var templateArgs = specDecl.TemplateArgs;
+            if (templateArgs.Count > 0)
+            {
+                var typeName = templateArgs[0].AsType.AsString;
+                if (!string.IsNullOrWhiteSpace(typeName))
+                {
+                    return NormalizeTypeName(typeName);
+                }
+            }
         }
 
-        var argType = clang.Type_getTemplateArgumentAsType(cursor.Type, 0);
-        var typeName = argType.Spelling.ToString();
-        if (string.IsNullOrWhiteSpace(typeName))
-        {
-            return null;
-        }
-
-        return NormalizeTypeName(typeName);
+        return null;
     }
 
     internal static string NormalizeTypeName(string spelling)
