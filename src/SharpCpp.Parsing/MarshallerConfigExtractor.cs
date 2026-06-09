@@ -120,7 +120,7 @@ internal static class MarshallerConfigExtractor
         return result;
     }
 
-    private static unsafe void PerformClangParse(
+    private static void PerformClangParse(
         IReadOnlyList<string> marshallerFiles,
         IReadOnlyList<string> clangArgs,
         Action<CXTranslationUnit> action)
@@ -159,7 +159,7 @@ internal static class MarshallerConfigExtractor
         }
     }
 
-    private static unsafe void PerformManagedClangParse(
+    private static void PerformManagedClangParse(
         IReadOnlyList<string> marshallerFiles,
         IReadOnlyList<string> clangArgs,
         Action<Decl> action)

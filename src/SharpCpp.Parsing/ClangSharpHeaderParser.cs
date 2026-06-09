@@ -55,7 +55,7 @@ public sealed class ClangSharpHeaderParser
         @"""(?<value>[^""\\]*(?:\\.[^""\\]*)*)""",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
-    public unsafe BindingCompilation Parse(ClangSharpParseRequest request)
+    public BindingCompilation Parse(ClangSharpParseRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.ProjectName);
@@ -2144,7 +2144,7 @@ public sealed class ClangSharpHeaderParser
         }
     }
 
-    private static unsafe void RegisterEnum(EnumDecl enumDecl, BindingCompilation compilation, IDictionary<string, EnumBinding> enumsByName, string? headerIncludePath)
+    private static void RegisterEnum(EnumDecl enumDecl, BindingCompilation compilation, IDictionary<string, EnumBinding> enumsByName, string? headerIncludePath)
     {
         var nativeName = enumDecl.Name ?? enumDecl.Spelling.ToString();
         if (string.IsNullOrWhiteSpace(nativeName) || enumsByName.ContainsKey(nativeName))
@@ -2156,43 +2156,38 @@ public sealed class ClangSharpHeaderParser
             $"enum:{nativeName}",
             nativeName,
             ToPascalCase(nativeName),
-            NormalizeTypeName(enumDecl.IntegerType.Handle.Spelling.ToString()),
+            NormalizeTypeName(enumDecl.IntegerType.AsString),
             GetCppQualifiedName(enumDecl))
         {
-            IsFlags = FlagsAttributeExpression.IsMatch(GetSourceText(enumDecl.Handle.TranslationUnit, enumDecl.Extent))
+            IsFlags = FlagsAttributeExpression.IsMatch(GetSourceText(enumDecl.TranslationUnit.Handle, enumDecl.Extent))
         };
 
         CheckAndApplyIgnoreAttribute(enumDecl, @enum);
         TryApplyRename(enumDecl, @enum);
         ExtractAndApplyDocumentation(enumDecl, @enum);
 
-        enumDecl.Handle.VisitChildren(
-            (child, _, _) =>
+        foreach (var child in enumDecl.Decls)
+        {
+            if (child is EnumConstantDecl enumConstant)
             {
-                if (child.Kind != CXCursorKind.CXCursor_EnumConstantDecl)
-                {
-                    return CXChildVisitResult.CXChildVisit_Continue;
-                }
-
                 @enum.Values.Add(
                     new EnumValueBinding(
-                        child.Spelling.ToString(),
-                        ToPascalCase(child.Spelling.ToString()),
-                        FormatEnumValue(@enum.UnderlyingTypeName, child)));
-                return CXChildVisitResult.CXChildVisit_Continue;
-            },
-            new CXClientData(IntPtr.Zero));
+                        enumConstant.Name ?? enumConstant.Spelling.ToString(),
+                        ToPascalCase(enumConstant.Name ?? enumConstant.Spelling.ToString()),
+                        FormatEnumValue(@enum.UnderlyingTypeName, enumConstant)));
+            }
+        }
 
         enumsByName.Add(nativeName, @enum);
         @enum.HeaderIncludePath = headerIncludePath;
         compilation.Members.Add(@enum);
     }
 
-    private static string FormatEnumValue(string underlyingTypeName, CXCursor cursor)
+    private static string FormatEnumValue(string underlyingTypeName, EnumConstantDecl enumConstant)
     {
         if (underlyingTypeName.StartsWith("unsigned", StringComparison.Ordinal))
         {
-            var value = cursor.EnumConstantDeclUnsignedValue;
+            var value = enumConstant.UnsignedInitVal;
             return underlyingTypeName switch
             {
                 "unsigned int" => $"{value}u",
@@ -2202,7 +2197,7 @@ public sealed class ClangSharpHeaderParser
             };
         }
 
-        return cursor.EnumConstantDeclValue.ToString();
+        return enumConstant.InitVal.ToString();
     }
 
     private static string GetSourceText(CXTranslationUnit translationUnit, CXSourceRange sourceRange)
