@@ -89,6 +89,11 @@ public static partial class BindingOutputRenderer
             .Where(record => interfaceRecordIds.Contains(record.SymbolId))
             .GroupBy(static record => record.SymbolId, StringComparer.Ordinal)
             .Select(static group => group.First())
+            // Exclude concrete generic instantiations from interface rendering.
+            // Each closed instantiation (e.g. IIDFamily<Geometry>, IIDFamily<Material>)
+            // has a ManagedName containing angle brackets. Emitting them as separate
+            // partial interfaces with different type parameter names causes CS0264.
+            .Where(static record => !record.ManagedName.Contains('<'))
             .OrderBy(static record => record.ManagedName, StringComparer.Ordinal)
             .ToArray();
         var polymorphicConcreteRecords = records

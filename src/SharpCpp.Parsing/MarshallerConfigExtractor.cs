@@ -129,7 +129,11 @@ internal static class MarshallerConfigExtractor
         try
         {
             using var index = CXIndex.Create();
-            using var translationUnit = CXTranslationUnit.Parse(
+
+            // NOTE: No `using` on translationUnit — TranslationUnit.GetOrCreate() below
+            // takes ownership of the native handle. Disposing the interop struct would
+            // double-free: the managed TU's finalizer also calls clang_disposeTranslationUnit.
+            var translationUnit = CXTranslationUnit.Parse(
                 index,
                 tempCppPath,
                 clangArgs.ToArray(),

@@ -79,7 +79,11 @@ public sealed class ClangSharpHeaderParser
         PreScanInstantiateAnnotations(annotationFiles);
 
         using var index = CXIndex.Create();
-        using var translationUnit = CXTranslationUnit.Parse(
+
+        // NOTE: No `using` on translationUnit — TranslationUnit.GetOrCreate() below
+        // takes ownership of the native handle. Disposing the interop struct would
+        // double-free: the managed TU's finalizer also calls clang_disposeTranslationUnit.
+        var translationUnit = CXTranslationUnit.Parse(
             index,
             headerFilePath,
             request.ClangArguments.ToArray(),
@@ -536,6 +540,15 @@ public sealed class ClangSharpHeaderParser
     {
         foreach (var child in recordDecl.Decls)
         {
+            // Skip implicit (compiler-generated) declarations — VisitChildren didn't
+            // expose these. Implicit constructors, assignment operators, and destructors
+            // can change generated output and trigger degradation pass false positives.
+            child.Location.GetFileLocation(out var locFile, out _, out _, out _);
+            if (string.IsNullOrWhiteSpace(locFile.Name.CString))
+            {
+                continue;
+            }
+
             if (!ShouldParseRecordMember(record, child.Access))
             {
                 continue;
@@ -543,6 +556,41 @@ public sealed class ClangSharpHeaderParser
 
             switch (child)
             {
+                // Destructors are handled by ApplyDestructorMetadata — skip them here
+                // to avoid leaking the ~Name syntax into method creation (CXXDestructorDecl
+                // extends CXXMethodDecl and would match the method case below).
+                case CXXDestructorDecl:
+                    continue;
+
+                // CXXConstructorDecl must be checked BEFORE CXXMethodDecl since it's
+                // a subclass — the first matching case wins in C# pattern matching.
+                // Implicit copy/move constructors are exposed by Decl.Decls but
+                // were not returned by the old cursor VisitorChildren. Skip them
+                // to avoid generating invalid native thunks (&ConstructorName).
+                case CXXConstructorDecl ctorDecl when ctorDecl.IsCopyConstructor || ctorDecl.IsMoveConstructor:
+                    continue;
+
+                case CXXConstructorDecl ctorDecl:
+                {
+                    var ctor = CreateConstructor(record, ctorDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
+                    CheckAndApplyIgnoreAttribute(ctorDecl, ctor);
+                    ExtractAndApplyDocumentation(ctorDecl, ctor);
+                    ApplyCallableDefinitionMetadata(ctorDecl, ctor);
+
+                    if (record.IsAbstract && !record.IsDirector)
+                    {
+                        ctor.SetIgnoreReason($"constructors on abstract record '{record.CppQualifiedName}' are not materializable in this bootstrap surface");
+                    }
+                    else if (record.GetMetadata<bool>(MetadataKeys.NonPublicDestructor))
+                    {
+                        ctor.SetIgnoreReason($"constructors on record '{record.CppQualifiedName}' with a non-public destructor are not materializable in this bootstrap surface");
+                    }
+
+                    ApplyDeletedCallableIgnore(ctorDecl, ctor);
+                    record.Members.Add(ctor);
+                    break;
+                }
+
                 case CXXConversionDecl conversionMethod:
                 {
                     if (conversionMethod.IsStatic)
@@ -580,27 +628,6 @@ public sealed class ClangSharpHeaderParser
                     ApplyCallableDefinitionMetadata(staticMethod, method);
                     ApplyDeletedCallableIgnore(staticMethod, method);
                     record.Members.Add(method);
-                    break;
-                }
-
-                case CXXConstructorDecl ctorDecl:
-                {
-                    var ctor = CreateConstructor(record, ctorDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
-                    CheckAndApplyIgnoreAttribute(ctorDecl, ctor);
-                    ExtractAndApplyDocumentation(ctorDecl, ctor);
-                    ApplyCallableDefinitionMetadata(ctorDecl, ctor);
-
-                    if (record.IsAbstract && !record.IsDirector)
-                    {
-                        ctor.SetIgnoreReason($"constructors on abstract record '{record.CppQualifiedName}' are not materializable in this bootstrap surface");
-                    }
-                    else if (record.GetMetadata<bool>(MetadataKeys.NonPublicDestructor))
-                    {
-                        ctor.SetIgnoreReason($"constructors on record '{record.CppQualifiedName}' with a non-public destructor are not materializable in this bootstrap surface");
-                    }
-
-                    ApplyDeletedCallableIgnore(ctorDecl, ctor);
-                    record.Members.Add(ctor);
                     break;
                 }
 

@@ -254,8 +254,7 @@ public static class DegradeUnsupportedSurfacePass
                 baseRecord.IsIgnored() ||
                 baseRecord.Members.OfType<FunctionBinding>().Any(static function =>
                     function.OperatorToken is not null ||
-                    function.IsConversionOperator ||
-                    function.HasMetadata(MetadataKeys.IgnoreReason))))
+                    function.IsConversionOperator)))
         {
             reason = "secondary-base interfaces with comparison operators are not yet supported coherently";
             return true;
