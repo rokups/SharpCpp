@@ -116,14 +116,14 @@ public sealed class ClangSharpHeaderParser
                     VisitNamespace(nsChild, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix, ownedFileRoots, request.HeaderIncludePath);
                     break;
 
-                case RecordDecl:
-                    RegisterRecord(child.Handle, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix,
-                        ResolveDeclIncludePath(child, ownedFileRoots, request.HeaderIncludePath));
+                case RecordDecl recordDecl:
+                    RegisterRecord(recordDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix,
+                        ResolveDeclIncludePath(recordDecl, ownedFileRoots, request.HeaderIncludePath));
                     break;
 
-                case ClassTemplateDecl:
-                    RegisterTemplateRecord(child.Handle, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix,
-                        ResolveDeclIncludePath(child, ownedFileRoots, request.HeaderIncludePath));
+                case ClassTemplateDecl classTemplateDecl:
+                    RegisterTemplateRecord(classTemplateDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix,
+                        ResolveDeclIncludePath(classTemplateDecl, ownedFileRoots, request.HeaderIncludePath));
                     break;
 
                 case EnumDecl:
@@ -144,9 +144,9 @@ public sealed class ClangSharpHeaderParser
                     break;
                 }
 
-                case FunctionTemplateDecl:
+                case FunctionTemplateDecl funcTemplateDecl:
                 {
-                    var function = CreateTemplateFunction(child.Handle, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
+                    var function = CreateTemplateFunction(child.Handle, funcTemplateDecl, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
                     if (function is not null)
                     {
                         CheckAndApplyIgnoreAttribute(child.Handle, function);
@@ -399,8 +399,8 @@ public sealed class ClangSharpHeaderParser
         return fallbackHeaderIncludePath;
     }
 
-    private static unsafe void RegisterRecord(
-        CXCursor cursor,
+    private static void RegisterRecord(
+        RecordDecl recordDecl,
         BindingCompilation compilation,
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
@@ -408,14 +408,14 @@ public sealed class ClangSharpHeaderParser
         string entryPointPrefix,
         string? headerIncludePath)
     {
-        var nativeName = cursor.Spelling.ToString();
+        var nativeName = recordDecl.Spelling;
         if (string.IsNullOrWhiteSpace(nativeName))
         {
             return;
         }
 
-        var cppQualifiedName = GetCppQualifiedName(cursor);
-        var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
+        var cppQualifiedName = GetCppQualifiedName(recordDecl);
+        var sourceText = GetSourceText(recordDecl.Handle.TranslationUnit, recordDecl.Extent);
         var braceIndex = sourceText.IndexOf('{');
         var declarationText = braceIndex >= 0
             ? sourceText[..braceIndex]
@@ -439,31 +439,32 @@ public sealed class ClangSharpHeaderParser
         {
             return;
         }
+        var cxxRecord = recordDecl as CXXRecordDecl;
         var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(nativeName), cppQualifiedName)
         {
-            IsAbstract = cursor.CXXRecord_IsAbstract,
+            IsAbstract = cxxRecord?.IsAbstract ?? false,
             IsDirector = DirectorAttributeExpression.IsMatch(declarationText)
         };
         if (isForwardDeclaration)
         {
             record.SetMetadata(MetadataKeys.ForwardDeclaration, true);
         }
-        CheckAndApplyIgnoreAttribute(cursor, record);
-        TryApplyRename(cursor, record);
-        ExtractAndApplyDocumentation(cursor, record);
+        CheckAndApplyIgnoreAttribute(recordDecl.Handle, record);
+        TryApplyRename(recordDecl.Handle, record);
+        ExtractAndApplyDocumentation(recordDecl.Handle, record);
         recordsByName.Add(nativeName, record);
         record.HeaderIncludePath = headerIncludePath;
         compilation.Members.Add(record);
 
-        ApplyDestructorMetadata(cursor, record);
-        PopulateRecordBases(cursor, record, recordsByName);
-        PopulateRecordMembers(cursor, record, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters, entryPointPrefix);
+        ApplyDestructorMetadata(cxxRecord, record);
+        PopulateRecordBases(cxxRecord, record, recordsByName);
+        PopulateRecordMembers(recordDecl, record, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters, entryPointPrefix);
 
         UpdatePolymorphism(record, recordsByName);
     }
 
-    private static unsafe void RegisterTemplateRecord(
-        CXCursor cursor,
+    private static void RegisterTemplateRecord(
+        ClassTemplateDecl classTemplate,
         BindingCompilation compilation,
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
@@ -471,13 +472,13 @@ public sealed class ClangSharpHeaderParser
         string entryPointPrefix,
         string? headerIncludePath)
     {
-        var nativeName = cursor.Spelling.ToString();
+        var nativeName = classTemplate.Spelling;
         if (string.IsNullOrWhiteSpace(nativeName))
         {
             return;
         }
 
-        var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
+        var sourceText = GetSourceText(classTemplate.Handle.TranslationUnit, classTemplate.Extent);
         var braceIndex = sourceText.IndexOf('{');
         var isForwardDeclaration = braceIndex < 0;
 
@@ -499,18 +500,19 @@ public sealed class ClangSharpHeaderParser
             return;
         }
 
-        if (!TryExtractTemplateParameters(cursor, out var templateParameters))
+        if (!TryExtractTemplateParameters(classTemplate, out var templateParameters))
         {
             return;
         }
 
-        var cppQualifiedName = GetCppQualifiedName(cursor);
+        var cppQualifiedName = GetCppQualifiedName(classTemplate);
         var declarationText = braceIndex >= 0
             ? sourceText[..braceIndex]
             : sourceText;
+        var templatedRecord = classTemplate.TemplatedDecl;
         var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(nativeName), cppQualifiedName)
         {
-            IsAbstract = cursor.CXXRecord_IsAbstract,
+            IsAbstract = templatedRecord is CXXRecordDecl cxx && cxx.IsAbstract,
             IsDirector = DirectorAttributeExpression.IsMatch(declarationText)
         };
         if (isForwardDeclaration)
@@ -523,58 +525,54 @@ public sealed class ClangSharpHeaderParser
             record.GenericParameters.Add(templateParameter);
         }
 
-        ApplyExplicitGenericInstantiations(cursor, record, recordsByName, enumsByName, managedTypeOverrides);
-        CheckAndApplyIgnoreAttribute(cursor, record);
-        TryApplyRename(cursor, record);
-        ExtractAndApplyDocumentation(cursor, record);
+        ApplyExplicitGenericInstantiations(classTemplate.Handle, record, recordsByName, enumsByName, managedTypeOverrides);
+        CheckAndApplyIgnoreAttribute(classTemplate.Handle, record);
+        TryApplyRename(classTemplate.Handle, record);
+        ExtractAndApplyDocumentation(classTemplate.Handle, record);
         recordsByName.Add(nativeName, record);
         record.HeaderIncludePath = headerIncludePath;
         compilation.Members.Add(record);
 
         var genericParameters = CreateGenericParameterScope(templateParameters);
-        ApplyDestructorMetadata(cursor, record);
-        PopulateRecordBases(cursor, record, recordsByName);
-        PopulateRecordMembers(cursor, record, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
+        ApplyDestructorMetadata(templatedRecord as CXXRecordDecl, record);
+        PopulateRecordBases(templatedRecord as CXXRecordDecl, record, recordsByName);
+        PopulateRecordMembers(templatedRecord, record, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
 
         UpdatePolymorphism(record, recordsByName);
     }
 
-    private static unsafe void PopulateRecordBases(
-        CXCursor cursor,
+    private static void PopulateRecordBases(
+        CXXRecordDecl? cxxRecord,
         RecordBinding record,
         IDictionary<string, RecordBinding> recordsByName)
     {
-        cursor.VisitChildren(
-            (child, _, _) =>
+        if (cxxRecord is null)
+        {
+            return;
+        }
+
+        foreach (var baseSpec in cxxRecord.Bases)
+        {
+            var baseTypeName = GetRecordQualifiedName(baseSpec.Type.Handle, recordsByName);
+            if (!recordsByName.TryGetValue(baseTypeName, out var baseRecord))
             {
-                if (child.Kind != CXCursorKind.CXCursor_CXXBaseSpecifier)
-                {
-                    return CXChildVisitResult.CXChildVisit_Continue;
-                }
+                var baseQualifiedName = NormalizeNamedTypeName(baseSpec.Type.Handle.Spelling.ToString());
+                baseRecord = new RecordBinding($"record:{baseTypeName}", baseTypeName, ToPascalCase(baseTypeName), baseQualifiedName);
+                baseRecord.SetMetadata(MetadataKeys.PlaceholderRecord, true);
+                recordsByName.Add(baseTypeName, baseRecord);
+            }
 
-                var baseTypeName = GetRecordQualifiedName(child.Type, recordsByName);
-                if (!recordsByName.TryGetValue(baseTypeName, out var baseRecord))
-                {
-                    var baseQualifiedName = NormalizeNamedTypeName(child.Type.Spelling.ToString());
-                    baseRecord = new RecordBinding($"record:{baseTypeName}", baseTypeName, ToPascalCase(baseTypeName), baseQualifiedName);
-                    baseRecord.SetMetadata(MetadataKeys.PlaceholderRecord, true);
-                    recordsByName.Add(baseTypeName, baseRecord);
-                }
+            record.Bases.Add(new RecordBaseBinding(baseRecord.SymbolId, baseRecord.NativeName, baseRecord.ManagedName, baseRecord.CppQualifiedName, baseSpec.IsVirtual));
 
-                record.Bases.Add(new RecordBaseBinding(baseRecord.SymbolId, baseRecord.NativeName, baseRecord.ManagedName, baseRecord.CppQualifiedName, child.IsVirtualBase));
-
-                if (record.ManagedBaseTypeName is null && !child.IsVirtualBase)
-                {
-                    record.ManagedBaseTypeName = baseRecord.ManagedName;
-                }
-
-                return CXChildVisitResult.CXChildVisit_Continue;
-            },
-            new CXClientData(IntPtr.Zero));
+            if (record.ManagedBaseTypeName is null && !baseSpec.IsVirtual)
+            {
+                record.ManagedBaseTypeName = baseRecord.ManagedName;
+            }
+        }
     }
 
-    private static unsafe void PopulateRecordMembers(
-        CXCursor cursor,
+    private static void PopulateRecordMembers(
+        RecordDecl recordDecl,
         RecordBinding record,
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
@@ -582,135 +580,102 @@ public sealed class ClangSharpHeaderParser
         IReadOnlyDictionary<string, BindingType> genericParameters,
         string entryPointPrefix)
     {
-        cursor.VisitChildren(
-            (child, _, _) =>
+        foreach (var child in recordDecl.Decls)
+        {
+            if (!ShouldParseRecordMember(record, child.Access))
             {
-                if ((child.Kind != CXCursorKind.CXCursor_CXXMethod && child.Kind != CXCursorKind.CXCursor_ConversionFunction) ||
-                    child.CXXMethod_IsStatic)
-                {
-                    return CXChildVisitResult.CXChildVisit_Continue;
-                }
+                continue;
+            }
 
-                if (!ShouldParseRecordMember(record, child.CXXAccessSpecifier))
-                {
-                    return CXChildVisitResult.CXChildVisit_Continue;
-                }
-
-                var method = CreateMethod(record, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
-                CheckAndApplyIgnoreAttribute(child, method);
-                TryApplyRename(child, method);
-                ExtractAndApplyDocumentation(child, method);
-                ApplyCallableDefinitionMetadata(child, method);
-                ApplyDeletedCallableIgnore(child, method);
-                ApplyVirtualSpecifiers(child, method);
-                record.Members.Add(method);
-                return CXChildVisitResult.CXChildVisit_Continue;
-            },
-            new CXClientData(IntPtr.Zero));
-
-        cursor.VisitChildren(
-            (child, _, _) =>
+            switch (child)
             {
-                if (child.Kind != CXCursorKind.CXCursor_CXXMethod || !child.CXXMethod_IsStatic)
+                case CXXConversionDecl conversionMethod:
                 {
-                    return CXChildVisitResult.CXChildVisit_Continue;
+                    if (conversionMethod.IsStatic)
+                        continue;
+                    var method = CreateMethod(record, child.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
+                    CheckAndApplyIgnoreAttribute(child.Handle, method);
+                    TryApplyRename(child.Handle, method);
+                    ExtractAndApplyDocumentation(child.Handle, method);
+                    ApplyCallableDefinitionMetadata(child.Handle, method);
+                    ApplyDeletedCallableIgnore(child.Handle, method);
+                    ApplyVirtualSpecifiers(child.Handle, method);
+                    record.Members.Add(method);
+                    break;
                 }
 
-                if (!ShouldParseRecordMember(record, child.CXXAccessSpecifier))
+                case CXXMethodDecl methodDecl when !methodDecl.IsStatic:
                 {
-                    return CXChildVisitResult.CXChildVisit_Continue;
+                    var method = CreateMethod(record, child.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
+                    CheckAndApplyIgnoreAttribute(child.Handle, method);
+                    TryApplyRename(child.Handle, method);
+                    ExtractAndApplyDocumentation(child.Handle, method);
+                    ApplyCallableDefinitionMetadata(child.Handle, method);
+                    ApplyDeletedCallableIgnore(child.Handle, method);
+                    ApplyVirtualSpecifiers(child.Handle, method);
+                    record.Members.Add(method);
+                    break;
                 }
 
-                var staticMethod = CreateStaticMethod(record, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
-                CheckAndApplyIgnoreAttribute(child, staticMethod);
-                TryApplyRename(child, staticMethod);
-                ExtractAndApplyDocumentation(child, staticMethod);
-                ApplyCallableDefinitionMetadata(child, staticMethod);
-                ApplyDeletedCallableIgnore(child, staticMethod);
-                record.Members.Add(staticMethod);
-                return CXChildVisitResult.CXChildVisit_Continue;
-            },
-            new CXClientData(IntPtr.Zero));
-
-        cursor.VisitChildren(
-            (child, _, _) =>
-            {
-                if (child.Kind != CXCursorKind.CXCursor_Constructor)
+                case CXXMethodDecl staticMethod when staticMethod.IsStatic:
                 {
-                    return CXChildVisitResult.CXChildVisit_Continue;
+                    var method = CreateStaticMethod(record, child.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
+                    CheckAndApplyIgnoreAttribute(child.Handle, method);
+                    TryApplyRename(child.Handle, method);
+                    ExtractAndApplyDocumentation(child.Handle, method);
+                    ApplyCallableDefinitionMetadata(child.Handle, method);
+                    ApplyDeletedCallableIgnore(child.Handle, method);
+                    record.Members.Add(method);
+                    break;
                 }
 
-                if (!ShouldParseRecordMember(record, child.CXXAccessSpecifier))
+                case CXXConstructorDecl ctorDecl:
                 {
-                    return CXChildVisitResult.CXChildVisit_Continue;
+                    var ctor = CreateConstructor(record, child.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
+                    CheckAndApplyIgnoreAttribute(child.Handle, ctor);
+                    ExtractAndApplyDocumentation(child.Handle, ctor);
+                    ApplyCallableDefinitionMetadata(child.Handle, ctor);
+
+                    if (record.IsAbstract && !record.IsDirector)
+                    {
+                        ctor.SetIgnoreReason($"constructors on abstract record '{record.CppQualifiedName}' are not materializable in this bootstrap surface");
+                    }
+                    else if (record.GetMetadata<bool>(MetadataKeys.NonPublicDestructor))
+                    {
+                        ctor.SetIgnoreReason($"constructors on record '{record.CppQualifiedName}' with a non-public destructor are not materializable in this bootstrap surface");
+                    }
+
+                    ApplyDeletedCallableIgnore(child.Handle, ctor);
+                    record.Members.Add(ctor);
+                    break;
                 }
 
-                var ctor = CreateConstructor(record, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
-                CheckAndApplyIgnoreAttribute(child, ctor);
-                ExtractAndApplyDocumentation(child, ctor);
-                ApplyCallableDefinitionMetadata(child, ctor);
-
-                if (record.IsAbstract && !record.IsDirector)
+                case FunctionTemplateDecl funcTemplate:
                 {
-                    ctor.SetIgnoreReason($"constructors on abstract record '{record.CppQualifiedName}' are not materializable in this bootstrap surface");
-                }
-                else if (record.GetMetadata<bool>(MetadataKeys.NonPublicDestructor))
-                {
-                    ctor.SetIgnoreReason($"constructors on record '{record.CppQualifiedName}' with a non-public destructor are not materializable in this bootstrap surface");
-                }
-
-                ApplyDeletedCallableIgnore(child, ctor);
-
-                record.Members.Add(ctor);
-                return CXChildVisitResult.CXChildVisit_Continue;
-            },
-            new CXClientData(IntPtr.Zero));
-
-        cursor.VisitChildren(
-            (child, _, _) =>
-            {
-                if (child.Kind != CXCursorKind.CXCursor_FunctionTemplate)
-                {
-                    return CXChildVisitResult.CXChildVisit_Continue;
+                    var templateMethod = CreateTemplateMethod(record, child.Handle, funcTemplate, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
+                    if (templateMethod is not null)
+                    {
+                        CheckAndApplyIgnoreAttribute(child.Handle, templateMethod);
+                        TryApplyRename(child.Handle, templateMethod);
+                        ExtractAndApplyDocumentation(child.Handle, templateMethod);
+                        ApplyCallableDefinitionMetadata(child.Handle, templateMethod);
+                        ApplyDeletedCallableIgnore(child.Handle, templateMethod);
+                        record.Members.Add(templateMethod);
+                    }
+                    break;
                 }
 
-                var templateMethod = CreateTemplateMethod(record, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
-                if (templateMethod is null)
+                case FieldDecl fieldDecl:
                 {
-                    return CXChildVisitResult.CXChildVisit_Continue;
+                    var field = CreateField(record, child.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+                    CheckAndApplyIgnoreAttribute(child.Handle, field);
+                    TryApplyRename(child.Handle, field);
+                    ExtractAndApplyDocumentation(child.Handle, field);
+                    record.Members.Add(field);
+                    break;
                 }
-
-                CheckAndApplyIgnoreAttribute(child, templateMethod);
-                TryApplyRename(child, templateMethod);
-                ExtractAndApplyDocumentation(child, templateMethod);
-                ApplyCallableDefinitionMetadata(child, templateMethod);
-                ApplyDeletedCallableIgnore(child, templateMethod);
-                record.Members.Add(templateMethod);
-                return CXChildVisitResult.CXChildVisit_Continue;
-            },
-            new CXClientData(IntPtr.Zero));
-
-        cursor.VisitChildren(
-            (child, _, _) =>
-            {
-                if (child.Kind != CXCursorKind.CXCursor_FieldDecl)
-                {
-                    return CXChildVisitResult.CXChildVisit_Continue;
-                }
-
-                if (!ShouldParseRecordMember(record, child.CXXAccessSpecifier))
-                {
-                    return CXChildVisitResult.CXChildVisit_Continue;
-                }
-
-                var field = CreateField(record, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
-                CheckAndApplyIgnoreAttribute(child, field);
-                TryApplyRename(child, field);
-                ExtractAndApplyDocumentation(child, field);
-                record.Members.Add(field);
-                return CXChildVisitResult.CXChildVisit_Continue;
-            },
-            new CXClientData(IntPtr.Zero));
+            }
+        }
     }
 
     private static FunctionBinding CreateMethod(
@@ -780,13 +745,14 @@ public sealed class ClangSharpHeaderParser
     private static unsafe FunctionBinding? CreateTemplateMethod(
         RecordBinding record,
         CXCursor templateCursor,
+        TemplateDecl templateDecl,
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         IReadOnlyDictionary<string, BindingType> genericParameters,
         string entryPointPrefix)
     {
-        if (!TryExtractTemplateParameters(templateCursor, out var methodTemplateParameters))
+        if (!TryExtractTemplateParameters(templateDecl, out var methodTemplateParameters))
         {
             return null;
         }
@@ -1078,12 +1044,13 @@ public sealed class ClangSharpHeaderParser
 
     private static unsafe FunctionBinding? CreateTemplateFunction(
         CXCursor templateCursor,
+        TemplateDecl templateDecl,
         string entryPointPrefix,
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
     {
-        if (!TryExtractTemplateParameters(templateCursor, out var templateParameters))
+        if (!TryExtractTemplateParameters(templateDecl, out var templateParameters))
         {
             return null;
         }
@@ -1366,20 +1333,13 @@ public sealed class ClangSharpHeaderParser
         function.SetMetadata(MetadataKeys.HasNativeDefinition, cursor.IsThisDeclarationADefinition);
     }
 
-    private static unsafe void ApplyDestructorMetadata(CXCursor cursor, RecordBinding record)
+    private static void ApplyDestructorMetadata(CXXRecordDecl? cxxRecord, RecordBinding record)
     {
-        cursor.VisitChildren(
-            (child, _, _) =>
-            {
-                if (child.Kind == CXCursorKind.CXCursor_Destructor && child.CXXAccessSpecifier != CX_CXXAccessSpecifier.CX_CXXPublic)
-                {
-                    record.SetMetadata(MetadataKeys.NonPublicDestructor, true);
-                    return CXChildVisitResult.CXChildVisit_Break;
-                }
-
-                return CXChildVisitResult.CXChildVisit_Continue;
-            },
-            new CXClientData(IntPtr.Zero));
+        var destructor = cxxRecord?.Destructor;
+        if (destructor is not null && destructor.Access != CX_CXXAccessSpecifier.CX_CXXPublic)
+        {
+            record.SetMetadata(MetadataKeys.NonPublicDestructor, true);
+        }
     }
 
     private static int s_entrypointCounter;
@@ -2412,14 +2372,14 @@ public sealed class ClangSharpHeaderParser
                     VisitNamespace(nsChild, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, ownedFileRoots, headerIncludePath);
                     break;
 
-                case RecordDecl:
-                    RegisterRecord(child.Handle, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix,
-                        ResolveDeclIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty));
+                case RecordDecl recordDecl:
+                    RegisterRecord(recordDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix,
+                        ResolveDeclIncludePath(recordDecl, ownedFileRoots, headerIncludePath ?? string.Empty));
                     break;
 
-                case ClassTemplateDecl:
-                    RegisterTemplateRecord(child.Handle, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix,
-                        ResolveDeclIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty));
+                case ClassTemplateDecl classTemplateDecl:
+                    RegisterTemplateRecord(classTemplateDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix,
+                        ResolveDeclIncludePath(classTemplateDecl, ownedFileRoots, headerIncludePath ?? string.Empty));
                     break;
 
                 case EnumDecl:
@@ -2440,9 +2400,9 @@ public sealed class ClangSharpHeaderParser
                     break;
                 }
 
-                case FunctionTemplateDecl:
+                case FunctionTemplateDecl funcTemplateDecl:
                 {
-                    var function = CreateTemplateFunction(child.Handle, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
+                    var function = CreateTemplateFunction(child.Handle, funcTemplateDecl, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
                     if (function is not null)
                     {
                         CheckAndApplyIgnoreAttribute(child.Handle, function);
@@ -2482,25 +2442,21 @@ public sealed class ClangSharpHeaderParser
         return templateParameters.ToDictionary(static parameter => parameter.Name, static parameter => BindingType.CreateGenericParameter(parameter.Name), StringComparer.Ordinal);
     }
 
-    private static unsafe bool TryExtractTemplateParameters(CXCursor templateCursor, out IReadOnlyList<BindingGenericParameter> templateParameters)
+    private static bool TryExtractTemplateParameters(TemplateDecl templateDecl, out IReadOnlyList<BindingGenericParameter> templateParameters)
     {
         var parameters = new List<BindingGenericParameter>();
 
-        templateCursor.VisitChildren(
-            (child, _, _) =>
+        foreach (var param in templateDecl.TemplateParameters)
+        {
+            if (param is TemplateTypeParmDecl typeParam)
             {
-                if (child.Kind == CXCursorKind.CXCursor_TemplateTypeParameter)
+                var parameterName = typeParam.Name ?? typeParam.Spelling;
+                if (!string.IsNullOrWhiteSpace(parameterName))
                 {
-                    var parameterName = child.Spelling.ToString();
-                    if (!string.IsNullOrWhiteSpace(parameterName))
-                    {
-                        parameters.Add(new BindingGenericParameter(parameterName, parameters.Count));
-                    }
+                    parameters.Add(new BindingGenericParameter(parameterName, parameters.Count));
                 }
-
-                return CXChildVisitResult.CXChildVisit_Continue;
-            },
-            new CXClientData(IntPtr.Zero));
+            }
+        }
 
         templateParameters = parameters;
         return parameters.Count > 0;
