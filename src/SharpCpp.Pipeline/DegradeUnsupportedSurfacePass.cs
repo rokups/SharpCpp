@@ -221,6 +221,18 @@ public static class DegradeUnsupportedSurfacePass
         IReadOnlyDictionary<string, RecordBinding> recordsById,
         out string reason)
     {
+        // Records with no user-defined members are template utility types
+        // (metafunctions like IndexInTuple) that shouldn't be wrapped.
+        // Their only members would be the synthetic wrapper boilerplate (Handle,
+        // constructors, P/Invoke) which is never useful without API methods.
+        if (!record.Members.OfType<FunctionBinding>().Any(static m => !m.IsConstructor && !m.IsStatic && !m.HasMetadata(MetadataKeys.IgnoreReason)) &&
+            !record.Members.OfType<FieldBinding>().Any() &&
+            !record.Members.OfType<FunctionBinding>().Any(static m => m.IsConstructor && !m.HasMetadata(MetadataKeys.IgnoreReason)))
+        {
+            reason = $"record '{record.CppQualifiedName}' has no user-defined API surface (it is likely a template utility type)";
+            return true;
+        }
+
         var unavailableBases = new List<RecordBaseBinding>();
 
         foreach (var baseBinding in record.Bases)
@@ -430,6 +442,17 @@ public static class DegradeUnsupportedSurfacePass
         var namespaceRoot = cppQualifiedName[..separatorIndex];
         if (allowedNamespaceRoots.Contains(namespaceRoot))
         {
+            // Check for internal detail namespaces — a universal C++ convention
+            // indicating implementation details that should not be wrapped.
+            if (cppQualifiedName.Contains("::detail::", StringComparison.Ordinal) ||
+                cppQualifiedName.Contains("::Detail::", StringComparison.Ordinal) ||
+                cppQualifiedName.EndsWith("::detail", StringComparison.Ordinal) ||
+                cppQualifiedName.EndsWith("::Detail", StringComparison.Ordinal))
+            {
+                reason = $"declaration is in an internal detail namespace: '{cppQualifiedName}'";
+                return true;
+            }
+
             reason = string.Empty;
             return false;
         }

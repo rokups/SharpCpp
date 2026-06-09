@@ -135,19 +135,6 @@ public sealed class ClangSharpHeaderParser
                         ResolveDeclIncludePath(child, ownedFileRoots, request.HeaderIncludePath));
                     break;
 
-                case FunctionDecl functionDecl:
-                {
-                    var function = CreateFunction(functionDecl, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
-                    CheckAndApplyIgnoreAttribute(functionDecl, function);
-                    TryApplyRename(functionDecl, function);
-                    ExtractAndApplyDocumentation(functionDecl, function);
-                    ApplyCallableDefinitionMetadata(functionDecl, function);
-                    ApplyDeletedCallableIgnore(functionDecl, function);
-                    function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, request.HeaderIncludePath);
-                    compilation.Members.Add(function);
-                    break;
-                }
-
                 case FunctionTemplateDecl funcTemplateDecl:
                 {
                     var function = CreateTemplateFunction(funcTemplateDecl, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
@@ -161,6 +148,19 @@ public sealed class ClangSharpHeaderParser
                         function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, request.HeaderIncludePath);
                         compilation.Members.Add(function);
                     }
+                    break;
+                }
+
+                case FunctionDecl functionDecl:
+                {
+                    var function = CreateFunction(functionDecl, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
+                    CheckAndApplyIgnoreAttribute(functionDecl, function);
+                    TryApplyRename(functionDecl, function);
+                    ExtractAndApplyDocumentation(functionDecl, function);
+                    ApplyCallableDefinitionMetadata(functionDecl, function);
+                    ApplyDeletedCallableIgnore(functionDecl, function);
+                    function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, request.HeaderIncludePath);
+                    compilation.Members.Add(function);
                     break;
                 }
             }
@@ -366,6 +366,15 @@ public sealed class ClangSharpHeaderParser
         string entryPointPrefix,
         string? headerIncludePath)
     {
+        // If this record is the templated declaration of a class template,
+        // delegate to RegisterTemplateRecord for proper generic parameter
+        // extraction (RecordDecl.DescribedClassTemplate fills this role).
+        if (recordDecl is CXXRecordDecl cxx && cxx.DescribedClassTemplate is { } classTemplate)
+        {
+            RegisterTemplateRecord(classTemplate, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, headerIncludePath);
+            return;
+        }
+
         var nativeName = recordDecl.Spelling;
         if (string.IsNullOrWhiteSpace(nativeName))
         {
@@ -540,15 +549,6 @@ public sealed class ClangSharpHeaderParser
     {
         foreach (var child in recordDecl.Decls)
         {
-            // Skip implicit (compiler-generated) declarations — VisitChildren didn't
-            // expose these. Implicit constructors, assignment operators, and destructors
-            // can change generated output and trigger degradation pass false positives.
-            child.Location.GetFileLocation(out var locFile, out _, out _, out _);
-            if (string.IsNullOrWhiteSpace(locFile.Name.CString))
-            {
-                continue;
-            }
-
             if (!ShouldParseRecordMember(record, child.Access))
             {
                 continue;
@@ -2358,19 +2358,6 @@ public sealed class ClangSharpHeaderParser
                         ResolveDeclIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty));
                     break;
 
-                case FunctionDecl functionDecl:
-                {
-                    var function = CreateFunction(functionDecl, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
-                    CheckAndApplyIgnoreAttribute(functionDecl, function);
-                    TryApplyRename(functionDecl, function);
-                    ExtractAndApplyDocumentation(functionDecl, function);
-                    ApplyCallableDefinitionMetadata(functionDecl, function);
-                    ApplyDeletedCallableIgnore(functionDecl, function);
-                    function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty);
-                    compilation.Members.Add(function);
-                    break;
-                }
-
                 case FunctionTemplateDecl funcTemplateDecl:
                 {
                     var function = CreateTemplateFunction(funcTemplateDecl, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
@@ -2384,6 +2371,19 @@ public sealed class ClangSharpHeaderParser
                         function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty);
                         compilation.Members.Add(function);
                     }
+                    break;
+                }
+
+                case FunctionDecl functionDecl:
+                {
+                    var function = CreateFunction(functionDecl, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
+                    CheckAndApplyIgnoreAttribute(functionDecl, function);
+                    TryApplyRename(functionDecl, function);
+                    ExtractAndApplyDocumentation(functionDecl, function);
+                    ApplyCallableDefinitionMetadata(functionDecl, function);
+                    ApplyDeletedCallableIgnore(functionDecl, function);
+                    function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty);
+                    compilation.Members.Add(function);
                     break;
                 }
             }

@@ -4,6 +4,8 @@ namespace SharpCpp.Pipeline;
 
 public static class BindingCompilationInheritancePass
 {
+    private static int s_projectedMethodCounter;
+
     public static void Apply(BindingCompilation compilation)
     {
         ArgumentNullException.ThrowIfNull(compilation);
@@ -68,12 +70,13 @@ public static class BindingCompilationInheritancePass
 
     private static FunctionBinding CloneProjectedMethod(RecordBinding targetRecord, RecordBinding dispatchRecord, FunctionBinding sourceMethod)
     {
+        var entrypointName = $"sharpcpp_e2e_{targetRecord.NativeName}_{dispatchRecord.NativeName}_{sourceMethod.NativeName}_projected_{++s_projectedMethodCounter}";
         var projectedMethod = new FunctionBinding(
             $"projected-secondary:{targetRecord.SymbolId}:{dispatchRecord.SymbolId}:{sourceMethod.SymbolId}",
             sourceMethod.NativeName,
             sourceMethod.ManagedName,
             sourceMethod.ReturnType,
-            entryPointName: $"sharpcpp_e2e_{targetRecord.NativeName}_{dispatchRecord.NativeName}_{sourceMethod.NativeName}_projected",
+            entryPointName: entrypointName,
             cppReturnTypeName: sourceMethod.CppReturnTypeName,
             cppQualifiedName: $"{dispatchRecord.CppQualifiedName}::{sourceMethod.NativeName}")
         {
