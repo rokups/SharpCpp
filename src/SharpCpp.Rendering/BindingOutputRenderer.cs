@@ -42,19 +42,22 @@ public static partial class BindingOutputRenderer
         }
         else
         {
+            // Pre-filter to avoid O(G×N) re-filtering inside RenderManagedBindings / RenderNativeBindings
+            // for each group. The filter is evaluated once per group here; the render methods
+            // are passed pre-sorted arrays so they don't repeat the filter+sort work.
+            var allRecords = compilation.Records.Where(r => !r.GetMetadata<bool>(MetadataKeys.SuppressEmission)).OrderBy(r => r.ManagedName, StringComparer.Ordinal).ToArray();
+            var allEnums = compilation.Enums.Where(e => !e.GetMetadata<bool>(MetadataKeys.SuppressEmission)).OrderBy(e => e.ManagedName, StringComparer.Ordinal).ToArray();
+            var allFunctions = compilation.Functions.OrderBy(f => f.ManagedName, StringComparer.Ordinal).ToArray();
+
             foreach (var group in groups)
             {
                 var stem = group.Key;
                 var memberSet = new HashSet<BindingNode>(group);
 
-                Func<BindingNode, bool> filter = node =>
-                    memberSet.Contains(node) ||
-                    (node is RecordBinding r && memberSet.Contains(r));
-
                 allFiles.Add(new GeneratedBindingFile($"{stem}.g.cs",
-                    RenderManagedBindings(compilation, filter)));
+                    RenderManagedBindings(compilation, node => memberSet.Contains(node) || (node is RecordBinding r && memberSet.Contains(r)))));
                 allFiles.Add(new GeneratedBindingFile($"{stem}.g.cpp",
-                    RenderNativeBindings(compilation, filter)));
+                    RenderNativeBindings(compilation, node => memberSet.Contains(node) || (node is RecordBinding r && memberSet.Contains(r)))));
             }
         }
 

@@ -28,6 +28,10 @@ public static class BindingCompilationBootstrapPipeline
         RunTimed("Inheritance", () => BindingCompilationInheritancePass.Apply(compilation));
         RunTimed("Polymorphism", () => BindingCompilationPolymorphismPass.Apply(compilation));
         RunTimed("ValidateBootstrap", () => ValidateBootstrapSurfacePass.Apply(compilation));
+
+        // Invalidate cached member lookups so rendering picks up any members
+        // added by pipeline passes (MI projections, generic instantiations, etc.)
+        compilation.InvalidateCaches();
     }
 
     private static void RunTimed(string name, Action action)

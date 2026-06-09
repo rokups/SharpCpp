@@ -36,9 +36,21 @@ public sealed class BindingCompilation : BindingContainerNode
 
     public IReadOnlyDictionary<string, string> NamespaceMappings { get; set; } = new Dictionary<string, string>();
 
-    public IReadOnlyList<RecordBinding> Records => Descendants<RecordBinding>().ToArray();
+    private IReadOnlyList<RecordBinding>? _records;
+    private IReadOnlyList<EnumBinding>? _enums;
+    private IReadOnlyList<FunctionBinding>? _functions;
 
-    public IReadOnlyList<EnumBinding> Enums => Descendants<EnumBinding>().ToArray();
+    public IReadOnlyList<RecordBinding> Records => _records ??= Descendants<RecordBinding>().ToArray();
 
-    public IReadOnlyList<FunctionBinding> Functions => Descendants<FunctionBinding>().ToArray();
+    public IReadOnlyList<EnumBinding> Enums => _enums ??= Descendants<EnumBinding>().ToArray();
+
+    public IReadOnlyList<FunctionBinding> Functions => _functions ??= Descendants<FunctionBinding>().ToArray();
+
+    /// <summary>Invalidate cached descendants (call after pipeline passes that add members).</summary>
+    public void InvalidateCaches()
+    {
+        _records = null;
+        _enums = null;
+        _functions = null;
+    }
 }
