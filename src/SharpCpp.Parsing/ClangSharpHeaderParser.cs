@@ -596,7 +596,7 @@ public sealed class ClangSharpHeaderParser
 
                 case CXXConversionDecl conversionMethod:
                 {
-                    if (conversionMethod.IsStatic)
+                    if (conversionMethod.Handle.CXXMethod_IsStatic)
                         continue;
                     var method = CreateMethod(record, conversionMethod, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
                     CheckAndApplyIgnoreAttribute(conversionMethod, method);
@@ -609,7 +609,7 @@ public sealed class ClangSharpHeaderParser
                     break;
                 }
 
-                case CXXMethodDecl methodDecl when !methodDecl.IsStatic:
+                case CXXMethodDecl methodDecl when !methodDecl.Handle.CXXMethod_IsStatic:
                 {
                     var method = CreateMethod(record, methodDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
                     CheckAndApplyIgnoreAttribute(methodDecl, method);
@@ -622,12 +622,10 @@ public sealed class ClangSharpHeaderParser
                     break;
                 }
 
-                case CXXMethodDecl staticMethod when staticMethod.IsStatic:
+                case CXXMethodDecl staticMethod when staticMethod.Handle.CXXMethod_IsStatic:
                 {
-                    // Protected static methods can't be called from a public
-                    // native thunk (standalone function is not a friend or
-                    // derived class). Check BOTH the managed Access and the
-                    // Interop CXXAccessSpecifier — they may differ.
+                    // Protected static methods can't be called from a
+                    // standalone function (not a friend or derived class).
                     if (staticMethod.Access == CX_CXXAccessSpecifier.CX_CXXProtected ||
                         staticMethod.Handle.CXXAccessSpecifier == CX_CXXAccessSpecifier.CX_CXXProtected)
                         continue;
