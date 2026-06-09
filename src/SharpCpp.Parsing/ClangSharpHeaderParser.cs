@@ -126,19 +126,19 @@ public sealed class ClangSharpHeaderParser
                         ResolveDeclIncludePath(classTemplateDecl, ownedFileRoots, request.HeaderIncludePath));
                     break;
 
-                case EnumDecl:
-                    RegisterEnum(child.Handle, compilation, enumsByName,
+                case EnumDecl enumChildDecl:
+                    RegisterEnum(enumChildDecl, compilation, enumsByName,
                         ResolveDeclIncludePath(child, ownedFileRoots, request.HeaderIncludePath));
                     break;
 
-                case FunctionDecl:
+                case FunctionDecl functionDecl:
                 {
-                    var function = CreateFunction(child.Handle, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
-                    CheckAndApplyIgnoreAttribute(child.Handle, function);
-                    TryApplyRename(child.Handle, function);
-                    ExtractAndApplyDocumentation(child.Handle, function);
-                    ApplyCallableDefinitionMetadata(child.Handle, function);
-                    ApplyDeletedCallableIgnore(child.Handle, function);
+                    var function = CreateFunction(functionDecl, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
+                    CheckAndApplyIgnoreAttribute(functionDecl, function);
+                    TryApplyRename(functionDecl, function);
+                    ExtractAndApplyDocumentation(functionDecl, function);
+                    ApplyCallableDefinitionMetadata(functionDecl, function);
+                    ApplyDeletedCallableIgnore(functionDecl, function);
                     function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, request.HeaderIncludePath);
                     compilation.Members.Add(function);
                     break;
@@ -146,14 +146,14 @@ public sealed class ClangSharpHeaderParser
 
                 case FunctionTemplateDecl funcTemplateDecl:
                 {
-                    var function = CreateTemplateFunction(child.Handle, funcTemplateDecl, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
+                    var function = CreateTemplateFunction(funcTemplateDecl, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
                     if (function is not null)
                     {
-                        CheckAndApplyIgnoreAttribute(child.Handle, function);
-                        TryApplyRename(child.Handle, function);
-                        ExtractAndApplyDocumentation(child.Handle, function);
-                        ApplyCallableDefinitionMetadata(child.Handle, function);
-                        ApplyDeletedCallableIgnore(child.Handle, function);
+                        CheckAndApplyIgnoreAttribute(funcTemplateDecl, function);
+                        TryApplyRename(funcTemplateDecl, function);
+                        ExtractAndApplyDocumentation(funcTemplateDecl, function);
+                        ApplyCallableDefinitionMetadata(funcTemplateDecl, function);
+                        ApplyDeletedCallableIgnore(funcTemplateDecl.TemplatedDecl, function);
                         function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, request.HeaderIncludePath);
                         compilation.Members.Add(function);
                     }
@@ -449,9 +449,9 @@ public sealed class ClangSharpHeaderParser
         {
             record.SetMetadata(MetadataKeys.ForwardDeclaration, true);
         }
-        CheckAndApplyIgnoreAttribute(recordDecl.Handle, record);
-        TryApplyRename(recordDecl.Handle, record);
-        ExtractAndApplyDocumentation(recordDecl.Handle, record);
+        CheckAndApplyIgnoreAttribute(recordDecl, record);
+        TryApplyRename(recordDecl, record);
+        ExtractAndApplyDocumentation(recordDecl, record);
         recordsByName.Add(nativeName, record);
         record.HeaderIncludePath = headerIncludePath;
         compilation.Members.Add(record);
@@ -526,9 +526,9 @@ public sealed class ClangSharpHeaderParser
         }
 
         ApplyExplicitGenericInstantiations(classTemplate.Handle, record, recordsByName, enumsByName, managedTypeOverrides);
-        CheckAndApplyIgnoreAttribute(classTemplate.Handle, record);
-        TryApplyRename(classTemplate.Handle, record);
-        ExtractAndApplyDocumentation(classTemplate.Handle, record);
+        CheckAndApplyIgnoreAttribute(classTemplate, record);
+        TryApplyRename(classTemplate, record);
+        ExtractAndApplyDocumentation(classTemplate, record);
         recordsByName.Add(nativeName, record);
         record.HeaderIncludePath = headerIncludePath;
         compilation.Members.Add(record);
@@ -593,48 +593,48 @@ public sealed class ClangSharpHeaderParser
                 {
                     if (conversionMethod.IsStatic)
                         continue;
-                    var method = CreateMethod(record, child.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
-                    CheckAndApplyIgnoreAttribute(child.Handle, method);
-                    TryApplyRename(child.Handle, method);
-                    ExtractAndApplyDocumentation(child.Handle, method);
-                    ApplyCallableDefinitionMetadata(child.Handle, method);
-                    ApplyDeletedCallableIgnore(child.Handle, method);
-                    ApplyVirtualSpecifiers(child.Handle, method);
+                    var method = CreateMethod(record, conversionMethod, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
+                    CheckAndApplyIgnoreAttribute(conversionMethod, method);
+                    TryApplyRename(conversionMethod, method);
+                    ExtractAndApplyDocumentation(conversionMethod, method);
+                    ApplyCallableDefinitionMetadata(conversionMethod, method);
+                    ApplyDeletedCallableIgnore(conversionMethod, method);
+                    ApplyVirtualSpecifiers(conversionMethod, method);
                     record.Members.Add(method);
                     break;
                 }
 
                 case CXXMethodDecl methodDecl when !methodDecl.IsStatic:
                 {
-                    var method = CreateMethod(record, child.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
-                    CheckAndApplyIgnoreAttribute(child.Handle, method);
-                    TryApplyRename(child.Handle, method);
-                    ExtractAndApplyDocumentation(child.Handle, method);
-                    ApplyCallableDefinitionMetadata(child.Handle, method);
-                    ApplyDeletedCallableIgnore(child.Handle, method);
-                    ApplyVirtualSpecifiers(child.Handle, method);
+                    var method = CreateMethod(record, methodDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
+                    CheckAndApplyIgnoreAttribute(methodDecl, method);
+                    TryApplyRename(methodDecl, method);
+                    ExtractAndApplyDocumentation(methodDecl, method);
+                    ApplyCallableDefinitionMetadata(methodDecl, method);
+                    ApplyDeletedCallableIgnore(methodDecl, method);
+                    ApplyVirtualSpecifiers(methodDecl, method);
                     record.Members.Add(method);
                     break;
                 }
 
                 case CXXMethodDecl staticMethod when staticMethod.IsStatic:
                 {
-                    var method = CreateStaticMethod(record, child.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
-                    CheckAndApplyIgnoreAttribute(child.Handle, method);
-                    TryApplyRename(child.Handle, method);
-                    ExtractAndApplyDocumentation(child.Handle, method);
-                    ApplyCallableDefinitionMetadata(child.Handle, method);
-                    ApplyDeletedCallableIgnore(child.Handle, method);
+                    var method = CreateStaticMethod(record, staticMethod, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
+                    CheckAndApplyIgnoreAttribute(staticMethod, method);
+                    TryApplyRename(staticMethod, method);
+                    ExtractAndApplyDocumentation(staticMethod, method);
+                    ApplyCallableDefinitionMetadata(staticMethod, method);
+                    ApplyDeletedCallableIgnore(staticMethod, method);
                     record.Members.Add(method);
                     break;
                 }
 
                 case CXXConstructorDecl ctorDecl:
                 {
-                    var ctor = CreateConstructor(record, child.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
-                    CheckAndApplyIgnoreAttribute(child.Handle, ctor);
-                    ExtractAndApplyDocumentation(child.Handle, ctor);
-                    ApplyCallableDefinitionMetadata(child.Handle, ctor);
+                    var ctor = CreateConstructor(record, ctorDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
+                    CheckAndApplyIgnoreAttribute(ctorDecl, ctor);
+                    ExtractAndApplyDocumentation(ctorDecl, ctor);
+                    ApplyCallableDefinitionMetadata(ctorDecl, ctor);
 
                     if (record.IsAbstract && !record.IsDirector)
                     {
@@ -645,21 +645,21 @@ public sealed class ClangSharpHeaderParser
                         ctor.SetIgnoreReason($"constructors on record '{record.CppQualifiedName}' with a non-public destructor are not materializable in this bootstrap surface");
                     }
 
-                    ApplyDeletedCallableIgnore(child.Handle, ctor);
+                    ApplyDeletedCallableIgnore(ctorDecl, ctor);
                     record.Members.Add(ctor);
                     break;
                 }
 
                 case FunctionTemplateDecl funcTemplate:
                 {
-                    var templateMethod = CreateTemplateMethod(record, child.Handle, funcTemplate, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
+                    var templateMethod = CreateTemplateMethod(record, funcTemplate, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
                     if (templateMethod is not null)
                     {
-                        CheckAndApplyIgnoreAttribute(child.Handle, templateMethod);
-                        TryApplyRename(child.Handle, templateMethod);
-                        ExtractAndApplyDocumentation(child.Handle, templateMethod);
-                        ApplyCallableDefinitionMetadata(child.Handle, templateMethod);
-                        ApplyDeletedCallableIgnore(child.Handle, templateMethod);
+                        CheckAndApplyIgnoreAttribute(funcTemplate, templateMethod);
+                        TryApplyRename(funcTemplate, templateMethod);
+                        ExtractAndApplyDocumentation(funcTemplate, templateMethod);
+                        ApplyCallableDefinitionMetadata(funcTemplate, templateMethod);
+                        ApplyDeletedCallableIgnore(funcTemplate.TemplatedDecl, templateMethod);
                         record.Members.Add(templateMethod);
                     }
                     break;
@@ -667,10 +667,10 @@ public sealed class ClangSharpHeaderParser
 
                 case FieldDecl fieldDecl:
                 {
-                    var field = CreateField(record, child.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
-                    CheckAndApplyIgnoreAttribute(child.Handle, field);
-                    TryApplyRename(child.Handle, field);
-                    ExtractAndApplyDocumentation(child.Handle, field);
+                    var field = CreateField(record, fieldDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+                    CheckAndApplyIgnoreAttribute(fieldDecl, field);
+                    TryApplyRename(fieldDecl, field);
+                    ExtractAndApplyDocumentation(fieldDecl, field);
                     record.Members.Add(field);
                     break;
                 }
@@ -680,45 +680,45 @@ public sealed class ClangSharpHeaderParser
 
     private static FunctionBinding CreateMethod(
         RecordBinding record,
-        CXCursor cursor,
+        CXXMethodDecl methodDecl,
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         IReadOnlyDictionary<string, BindingType> genericParameters,
         string entryPointPrefix)
     {
-        var nativeName = cursor.Spelling.ToString();
-        var (returnType, ignoreReason) = TryMapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, genericParameters, isReturn: true);
-        var cppReturnTypeName = ResolveQualifiedTypeName(cursor.ResultType, recordsByName);
+        var nativeName = methodDecl.Name ?? methodDecl.Spelling.ToString();
+        var (returnType, ignoreReason) = TryMapType(methodDecl.ReturnType.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters, isReturn: true);
+        var cppReturnTypeName = ResolveQualifiedTypeName(methodDecl.ReturnType.Handle, recordsByName);
         var function = new FunctionBinding(
             $"method:{record.NativeName}:{nativeName}",
             nativeName,
-            GetManagedMethodName(cursor, nativeName),
+            GetManagedMethodName(methodDecl, nativeName),
             returnType,
-            entryPointName: $"{entryPointPrefix}_{record.NativeName}_{GetEntrypointSuffix(cursor, nativeName)}",
+            entryPointName: $"{entryPointPrefix}_{record.NativeName}_{GetEntrypointSuffix(methodDecl, nativeName)}",
             cppReturnTypeName: cppReturnTypeName,
             cppQualifiedName: $"{record.CppQualifiedName}::{nativeName}")
         {
             IsStatic = false,
-            AccessModifier = MapAccessModifier(cursor.CXXAccessSpecifier),
-            IsVirtual = cursor.CXXMethod_IsVirtual,
-            IsPureVirtual = cursor.CXXMethod_IsPureVirtual,
-            IsConstMethod = clang.CXXMethod_isConst(cursor) != 0,
+            AccessModifier = MapAccessModifier(methodDecl.Access),
+            IsVirtual = methodDecl.IsVirtual,
+            IsPureVirtual = methodDecl.IsPure,
+            IsConstMethod = methodDecl.IsConst,
             OwningRecordCppTypeName = record.CppQualifiedName
         };
-        ApplyOperatorMetadata(function, cursor);
+        ApplyOperatorMetadata(function, methodDecl);
 
-        for (uint parameterIndex = 0; parameterIndex < cursor.NumArguments; parameterIndex++)
+        for (int parameterIndex = 0; parameterIndex < methodDecl.Parameters.Count; parameterIndex++)
         {
-            var parameterCursor = cursor.GetArgument(parameterIndex);
-            var parameterName = parameterCursor.Spelling.ToString();
+            var parameter = methodDecl.Parameters[parameterIndex];
+            var parameterName = parameter.Name ?? parameter.Spelling.ToString();
             if (string.IsNullOrWhiteSpace(parameterName))
             {
                 parameterName = $"arg{parameterIndex}";
             }
             var managedParameterName = EscapeManagedIdentifier(parameterName);
 
-            var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(cursor, parameterCursor, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+            var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(methodDecl.Handle, parameter.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
             ignoreReason ??= parameterIgnoreReason;
             var param = new ParameterBinding(
                 $"parameter:{record.NativeName}:{nativeName}:{parameterName}",
@@ -727,12 +727,12 @@ public sealed class ClangSharpHeaderParser
                 parameterType,
                 direction,
                 abiKind,
-                ResolveQualifiedTypeName(parameterCursor.Type, recordsByName));
-            ApplyManagedDefaultValue(param, parameterCursor, parameterType, managedTypeOverrides);
+                ResolveQualifiedTypeName(parameter.Type.Handle, recordsByName));
+            ApplyManagedDefaultValue(param, parameter, parameterType, managedTypeOverrides);
             function.Parameters.Add(param);
         }
 
-        function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(cursor, nativeName)}");
+        function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(methodDecl, nativeName)}");
 
         if (ignoreReason is not null)
         {
@@ -742,10 +742,9 @@ public sealed class ClangSharpHeaderParser
         return function;
     }
 
-    private static unsafe FunctionBinding? CreateTemplateMethod(
+    private static FunctionBinding? CreateTemplateMethod(
         RecordBinding record,
-        CXCursor templateCursor,
-        TemplateDecl templateDecl,
+        FunctionTemplateDecl templateDecl,
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
@@ -757,7 +756,7 @@ public sealed class ClangSharpHeaderParser
             return null;
         }
 
-        if (!ShouldParseRecordMember(record, templateCursor.CXXAccessSpecifier))
+        if (!ShouldParseRecordMember(record, templateDecl.Access))
         {
             return null;
         }
@@ -768,22 +767,23 @@ public sealed class ClangSharpHeaderParser
             combinedGenericParameters[templateParameter.Name] = BindingType.CreateGenericParameter(templateParameter.Name);
         }
 
-        var nativeName = templateCursor.Spelling.ToString();
-        var (returnType, ignoreReason) = TryMapType(templateCursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, combinedGenericParameters, isReturn: true);
-        var cppReturnTypeName = ResolveQualifiedTypeName(templateCursor.ResultType, recordsByName);
+        var templatedFunction = templateDecl.TemplatedDecl;
+        var nativeName = templateDecl.Name ?? templateDecl.Spelling.ToString();
+        var (returnType, ignoreReason) = TryMapType(templatedFunction.ReturnType.Handle, recordsByName, enumsByName, managedTypeOverrides, combinedGenericParameters, isReturn: true);
+        var cppReturnTypeName = ResolveQualifiedTypeName(templatedFunction.ReturnType.Handle, recordsByName);
         var function = new FunctionBinding(
             $"method:{record.NativeName}:{nativeName}",
             nativeName,
-            GetManagedMethodName(templateCursor, nativeName),
+            GetManagedMethodName(templateDecl, nativeName),
             returnType,
             cppReturnTypeName: cppReturnTypeName,
             cppQualifiedName: $"{record.CppQualifiedName}::{nativeName}")
         {
             IsStatic = false,
-            AccessModifier = MapAccessModifier(templateCursor.CXXAccessSpecifier),
-            IsVirtual = templateCursor.CXXMethod_IsVirtual,
-            IsPureVirtual = templateCursor.CXXMethod_IsPureVirtual,
-            IsConstMethod = clang.CXXMethod_isConst(templateCursor) != 0,
+            AccessModifier = MapAccessModifier(templateDecl.Access),
+            IsVirtual = templatedFunction is CXXMethodDecl cxxMethod && cxxMethod.IsVirtual,
+            IsPureVirtual = templatedFunction is CXXMethodDecl cxxMethod2 && cxxMethod2.IsPure,
+            IsConstMethod = templatedFunction is CXXMethodDecl cxxMethod3 && cxxMethod3.IsConst,
             OwningRecordCppTypeName = record.CppQualifiedName
         };
 
@@ -792,89 +792,85 @@ public sealed class ClangSharpHeaderParser
             function.GenericParameters.Add(templateParameter);
         }
 
-        ApplyExplicitGenericInstantiations(templateCursor, function, recordsByName, enumsByName, managedTypeOverrides);
+        ApplyExplicitGenericInstantiations(templateDecl.Handle, function, recordsByName, enumsByName, managedTypeOverrides);
 
-        templateCursor.VisitChildren(
-            (child, _, _) =>
+        // Use templatedFunction (FunctionDecl) for parameter access and cast for method-specific features
+        for (int parameterIndex = 0; parameterIndex < templatedFunction.Parameters.Count; parameterIndex++)
+        {
+            var parameter = templatedFunction.Parameters[parameterIndex];
+            var parameterName = parameter.Name ?? parameter.Spelling.ToString();
+            if (string.IsNullOrWhiteSpace(parameterName))
             {
-                if (child.Kind != CXCursorKind.CXCursor_ParmDecl)
-                {
-                    return CXChildVisitResult.CXChildVisit_Continue;
-                }
+                parameterName = $"arg{function.Parameters.Count}";
+            }
+            var managedParameterName = EscapeManagedIdentifier(parameterName);
 
-                var parameterName = child.Spelling.ToString();
-                if (string.IsNullOrWhiteSpace(parameterName))
-                {
-                    parameterName = $"arg{function.Parameters.Count}";
-                }
-                var managedParameterName = EscapeManagedIdentifier(parameterName);
+            var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(templatedFunction.Handle, parameter.Handle, recordsByName, enumsByName, managedTypeOverrides, combinedGenericParameters);
+            ignoreReason ??= parameterIgnoreReason;
+            var templateParam = new ParameterBinding(
+                $"parameter:{record.NativeName}:{nativeName}:{parameterName}",
+                parameterName,
+                managedParameterName,
+                parameterType,
+                direction,
+                abiKind,
+                ResolveQualifiedTypeName(parameter.Type.Handle, recordsByName));
+            ApplyManagedDefaultValue(templateParam, parameter, parameterType, managedTypeOverrides);
+            function.Parameters.Add(templateParam);
+        }
 
-                var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(templateCursor, child, recordsByName, enumsByName, managedTypeOverrides, combinedGenericParameters);
-                ignoreReason ??= parameterIgnoreReason;
-                var templateParam = new ParameterBinding(
-                    $"parameter:{record.NativeName}:{nativeName}:{parameterName}",
-                    parameterName,
-                    managedParameterName,
-                    parameterType,
-                    direction,
-                    abiKind,
-                    ResolveQualifiedTypeName(child.Type, recordsByName));
-                ApplyManagedDefaultValue(templateParam, child, parameterType, managedTypeOverrides);
-                function.Parameters.Add(templateParam);
-
-                return CXChildVisitResult.CXChildVisit_Continue;
-            },
-            new CXClientData(IntPtr.Zero));
-
-        function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(templateCursor, nativeName)}");
+        function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(templateDecl, nativeName)}");
 
         if (ignoreReason is not null)
         {
             function.SetIgnoreReason(ignoreReason);
         }
 
-        ApplyVirtualSpecifiers(templateCursor, function);
+        if (templatedFunction is CXXMethodDecl templatedMethod)
+        {
+            ApplyVirtualSpecifiers(templatedMethod, function);
+        }
         return function;
     }
 
     private static FunctionBinding CreateStaticMethod(
         RecordBinding record,
-        CXCursor cursor,
+        CXXMethodDecl methodDecl,
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         IReadOnlyDictionary<string, BindingType> genericParameters,
         string entryPointPrefix)
     {
-        var nativeName = cursor.Spelling.ToString();
-        var (returnType, ignoreReason) = TryMapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, genericParameters, isReturn: true);
-        var cppReturnTypeName = ResolveQualifiedTypeName(cursor.ResultType, recordsByName);
+        var nativeName = methodDecl.Name ?? methodDecl.Spelling.ToString();
+        var (returnType, ignoreReason) = TryMapType(methodDecl.ReturnType.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters, isReturn: true);
+        var cppReturnTypeName = ResolveQualifiedTypeName(methodDecl.ReturnType.Handle, recordsByName);
         var function = new FunctionBinding(
             $"static-method:{record.NativeName}:{nativeName}",
             nativeName,
-            GetManagedMethodName(cursor, nativeName),
+            GetManagedMethodName(methodDecl, nativeName),
             returnType,
-            entryPointName: $"{entryPointPrefix}_{record.NativeName}_{GetEntrypointSuffix(cursor, nativeName)}",
+            entryPointName: $"{entryPointPrefix}_{record.NativeName}_{GetEntrypointSuffix(methodDecl, nativeName)}",
             cppReturnTypeName: cppReturnTypeName,
             cppQualifiedName: $"{record.CppQualifiedName}::{nativeName}")
         {
             IsStatic = true,
-            AccessModifier = MapAccessModifier(cursor.CXXAccessSpecifier),
+            AccessModifier = MapAccessModifier(methodDecl.Access),
             OwningRecordCppTypeName = record.CppQualifiedName
         };
-        ApplyOperatorMetadata(function, cursor);
+        ApplyOperatorMetadata(function, methodDecl);
 
-        for (uint parameterIndex = 0; parameterIndex < cursor.NumArguments; parameterIndex++)
+        for (int parameterIndex = 0; parameterIndex < methodDecl.Parameters.Count; parameterIndex++)
         {
-            var parameterCursor = cursor.GetArgument(parameterIndex);
-            var parameterName = parameterCursor.Spelling.ToString();
+            var parameter = methodDecl.Parameters[parameterIndex];
+            var parameterName = parameter.Name ?? parameter.Spelling.ToString();
             if (string.IsNullOrWhiteSpace(parameterName))
             {
                 parameterName = $"arg{parameterIndex}";
             }
             var managedParameterName = EscapeManagedIdentifier(parameterName);
 
-            var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(cursor, parameterCursor, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+            var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(methodDecl.Handle, parameter.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
             ignoreReason ??= parameterIgnoreReason;
             var staticParam = new ParameterBinding(
                 $"parameter:{record.NativeName}:static:{nativeName}:{parameterName}",
@@ -883,12 +879,12 @@ public sealed class ClangSharpHeaderParser
                 parameterType,
                 direction,
                 abiKind,
-                ResolveQualifiedTypeName(parameterCursor.Type, recordsByName));
-            ApplyManagedDefaultValue(staticParam, parameterCursor, parameterType, managedTypeOverrides);
+                ResolveQualifiedTypeName(parameter.Type.Handle, recordsByName));
+            ApplyManagedDefaultValue(staticParam, parameter, parameterType, managedTypeOverrides);
             function.Parameters.Add(staticParam);
         }
 
-        function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(cursor, nativeName)}");
+        function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(methodDecl, nativeName)}");
 
         if (ignoreReason is not null)
         {
@@ -900,7 +896,7 @@ public sealed class ClangSharpHeaderParser
 
     private static FunctionBinding CreateConstructor(
         RecordBinding record,
-        CXCursor cursor,
+        CXXConstructorDecl ctorDecl,
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
@@ -908,7 +904,7 @@ public sealed class ClangSharpHeaderParser
         string entryPointPrefix)
     {
         var function = new FunctionBinding(
-            $"ctor:{record.NativeName}:{cursor.Hash}",
+            $"ctor:{record.NativeName}:{ctorDecl.GetHashCode()}",
             record.NativeName,
             record.ManagedName,
             record.HandleType,
@@ -917,24 +913,24 @@ public sealed class ClangSharpHeaderParser
             cppQualifiedName: $"{record.CppQualifiedName}::{record.NativeName}")
         {
             IsStatic = false,
-            AccessModifier = MapAccessModifier(cursor.CXXAccessSpecifier),
+            AccessModifier = MapAccessModifier(ctorDecl.Access),
             IsConstructor = true,
             OwningRecordCppTypeName = record.CppQualifiedName
         };
 
         string? ignoreReason = null;
 
-        for (uint parameterIndex = 0; parameterIndex < cursor.NumArguments; parameterIndex++)
+        for (int parameterIndex = 0; parameterIndex < ctorDecl.Parameters.Count; parameterIndex++)
         {
-            var parameterCursor = cursor.GetArgument(parameterIndex);
-            var parameterName = parameterCursor.Spelling.ToString();
+            var parameter = ctorDecl.Parameters[parameterIndex];
+            var parameterName = parameter.Name ?? parameter.Spelling.ToString();
             if (string.IsNullOrWhiteSpace(parameterName))
             {
                 parameterName = $"arg{parameterIndex}";
             }
             var managedParameterName = EscapeManagedIdentifier(parameterName);
 
-            var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(cursor, parameterCursor, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+            var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(ctorDecl.Handle, parameter.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
             ignoreReason ??= parameterIgnoreReason;
             var ctorParam = new ParameterBinding(
                 $"parameter:{record.NativeName}:ctor:{parameterName}",
@@ -943,8 +939,8 @@ public sealed class ClangSharpHeaderParser
                 parameterType,
                 direction,
                 abiKind,
-                ResolveQualifiedTypeName(parameterCursor.Type, recordsByName));
-            ApplyManagedDefaultValue(ctorParam, parameterCursor, parameterType, managedTypeOverrides);
+                ResolveQualifiedTypeName(parameter.Type.Handle, recordsByName));
+            ApplyManagedDefaultValue(ctorParam, parameter, parameterType, managedTypeOverrides);
             function.Parameters.Add(ctorParam);
         }
 
@@ -960,24 +956,24 @@ public sealed class ClangSharpHeaderParser
 
     private static FieldBinding CreateField(
         RecordBinding record,
-        CXCursor cursor,
+        FieldDecl fieldDecl,
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         IReadOnlyDictionary<string, BindingType> genericParameters)
     {
-        var nativeName = cursor.Spelling.ToString();
-        var (fieldType, ignoreReason) = TryMapType(cursor.Type, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        var nativeName = fieldDecl.Name ?? fieldDecl.Spelling.ToString();
+        var (fieldType, ignoreReason) = TryMapType(fieldDecl.Type.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
         var field = new FieldBinding(
             $"field:{record.NativeName}:{nativeName}",
             nativeName,
             ToPascalCase(nativeName),
             fieldType,
-            ResolveQualifiedTypeName(cursor.Type, recordsByName),
+            ResolveQualifiedTypeName(fieldDecl.Type.Handle, recordsByName),
             record.CppQualifiedName,
-            isReadOnly: cursor.Type.IsConstQualified)
+            isReadOnly: fieldDecl.Type.Handle.IsConstQualified)
         {
-            AccessModifier = MapAccessModifier(cursor.CXXAccessSpecifier)
+            AccessModifier = MapAccessModifier(fieldDecl.Access)
         };
 
         if (ignoreReason is not null)
@@ -989,16 +985,16 @@ public sealed class ClangSharpHeaderParser
     }
 
     private static FunctionBinding CreateFunction(
-        CXCursor cursor,
+        FunctionDecl functionDecl,
         string entryPointPrefix,
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         IReadOnlyDictionary<string, BindingType> genericParameters)
     {
-        var nativeName = cursor.Spelling.ToString();
-        var (returnType, ignoreReason) = TryMapType(cursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, genericParameters, isReturn: true);
-        var cppReturnTypeName = ResolveQualifiedTypeName(cursor.ResultType, recordsByName);
+        var nativeName = functionDecl.Name ?? functionDecl.Spelling.ToString();
+        var (returnType, ignoreReason) = TryMapType(functionDecl.ReturnType.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters, isReturn: true);
+        var cppReturnTypeName = ResolveQualifiedTypeName(functionDecl.ReturnType.Handle, recordsByName);
         var function = new FunctionBinding(
             $"function:{nativeName}",
             nativeName,
@@ -1006,19 +1002,19 @@ public sealed class ClangSharpHeaderParser
             returnType,
             entryPointName: $"{entryPointPrefix}_{nativeName}",
             cppReturnTypeName: cppReturnTypeName,
-            cppQualifiedName: GetCppQualifiedName(cursor));
+            cppQualifiedName: GetCppQualifiedName(functionDecl));
 
-        for (uint parameterIndex = 0; parameterIndex < cursor.NumArguments; parameterIndex++)
+        for (int parameterIndex = 0; parameterIndex < functionDecl.Parameters.Count; parameterIndex++)
         {
-            var parameterCursor = cursor.GetArgument(parameterIndex);
-            var parameterName = parameterCursor.Spelling.ToString();
+            var parameter = functionDecl.Parameters[parameterIndex];
+            var parameterName = parameter.Name ?? parameter.Spelling.ToString();
             if (string.IsNullOrWhiteSpace(parameterName))
             {
                 parameterName = $"arg{parameterIndex}";
             }
             var managedParameterName = EscapeManagedIdentifier(parameterName);
 
-            var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(cursor, parameterCursor, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+            var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(functionDecl.Handle, parameter.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
             ignoreReason ??= parameterIgnoreReason;
             var freeParam = new ParameterBinding(
                 $"parameter:{nativeName}:{parameterName}",
@@ -1027,8 +1023,8 @@ public sealed class ClangSharpHeaderParser
                 parameterType,
                 direction,
                 abiKind,
-                ResolveQualifiedTypeName(parameterCursor.Type, recordsByName));
-            ApplyManagedDefaultValue(freeParam, parameterCursor, parameterType, managedTypeOverrides);
+                ResolveQualifiedTypeName(parameter.Type.Handle, recordsByName));
+            ApplyManagedDefaultValue(freeParam, parameter, parameterType, managedTypeOverrides);
             function.Parameters.Add(freeParam);
         }
 
@@ -1042,9 +1038,8 @@ public sealed class ClangSharpHeaderParser
         return function;
     }
 
-    private static unsafe FunctionBinding? CreateTemplateFunction(
-        CXCursor templateCursor,
-        TemplateDecl templateDecl,
+    private static FunctionBinding? CreateTemplateFunction(
+        FunctionTemplateDecl templateDecl,
         string entryPointPrefix,
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
@@ -1056,60 +1051,53 @@ public sealed class ClangSharpHeaderParser
         }
 
         var genericParameters = CreateGenericParameterScope(templateParameters);
-        var nativeName = templateCursor.Spelling.ToString();
+        var templatedFunction = templateDecl.TemplatedDecl;
+        var nativeName = templateDecl.Name ?? templateDecl.Spelling.ToString();
         if (string.IsNullOrWhiteSpace(nativeName))
         {
             return null;
         }
 
-        var (returnType, ignoreReason) = TryMapType(templateCursor.ResultType, recordsByName, enumsByName, managedTypeOverrides, genericParameters, isReturn: true);
-        var cppReturnTypeName = ResolveQualifiedTypeName(templateCursor.ResultType, recordsByName);
+        var (returnType, ignoreReason) = TryMapType(templatedFunction.ReturnType.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters, isReturn: true);
+        var cppReturnTypeName = ResolveQualifiedTypeName(templatedFunction.ReturnType.Handle, recordsByName);
         var function = new FunctionBinding(
             $"function:{nativeName}",
             nativeName,
             ToPascalCase(nativeName),
             returnType,
             cppReturnTypeName: cppReturnTypeName,
-            cppQualifiedName: GetCppQualifiedName(templateCursor));
+            cppQualifiedName: GetCppQualifiedName(templateDecl));
 
         foreach (var templateParameter in templateParameters)
         {
             function.GenericParameters.Add(templateParameter);
         }
 
-        ApplyExplicitGenericInstantiations(templateCursor, function, recordsByName, enumsByName, managedTypeOverrides);
+        ApplyExplicitGenericInstantiations(templateDecl.Handle, function, recordsByName, enumsByName, managedTypeOverrides);
 
-        templateCursor.VisitChildren(
-            (child, _, _) =>
+        for (int parameterIndex = 0; parameterIndex < templatedFunction.Parameters.Count; parameterIndex++)
+        {
+            var parameter = templatedFunction.Parameters[parameterIndex];
+            var parameterName = parameter.Name ?? parameter.Spelling.ToString();
+            if (string.IsNullOrWhiteSpace(parameterName))
             {
-                if (child.Kind != CXCursorKind.CXCursor_ParmDecl)
-                {
-                    return CXChildVisitResult.CXChildVisit_Continue;
-                }
+                parameterName = $"arg{function.Parameters.Count}";
+            }
+            var managedParameterName = EscapeManagedIdentifier(parameterName);
 
-                var parameterName = child.Spelling.ToString();
-                if (string.IsNullOrWhiteSpace(parameterName))
-                {
-                    parameterName = $"arg{function.Parameters.Count}";
-                }
-                var managedParameterName = EscapeManagedIdentifier(parameterName);
-
-                var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(templateCursor, child, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
-                ignoreReason ??= parameterIgnoreReason;
-                var freeTemplateParam = new ParameterBinding(
-                    $"parameter:{nativeName}:{parameterName}",
-                    parameterName,
-                    managedParameterName,
-                    parameterType,
-                    direction,
-                    abiKind,
-                    ResolveQualifiedTypeName(child.Type, recordsByName));
-                ApplyManagedDefaultValue(freeTemplateParam, child, parameterType, managedTypeOverrides);
-                function.Parameters.Add(freeTemplateParam);
-
-                return CXChildVisitResult.CXChildVisit_Continue;
-            },
-            new CXClientData(IntPtr.Zero));
+            var (parameterType, direction, abiKind, parameterIgnoreReason) = TryMapParameter(templatedFunction.Handle, parameter.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+            ignoreReason ??= parameterIgnoreReason;
+            var freeTemplateParam = new ParameterBinding(
+                $"parameter:{nativeName}:{parameterName}",
+                parameterName,
+                managedParameterName,
+                parameterType,
+                direction,
+                abiKind,
+                ResolveQualifiedTypeName(parameter.Type.Handle, recordsByName));
+            ApplyManagedDefaultValue(freeTemplateParam, parameter, parameterType, managedTypeOverrides);
+            function.Parameters.Add(freeTemplateParam);
+        }
 
                 function.EntryPointName = BuildEntrypointName(entryPointPrefix, SanitizeEntrypointNamePart(function.CppQualifiedName));
 
@@ -1236,21 +1224,22 @@ public sealed class ClangSharpHeaderParser
         };
     }
 
-    private static void ApplyOperatorMetadata(FunctionBinding function, CXCursor cursor)
+    private static void ApplyOperatorMetadata(FunctionBinding function, Decl decl)
     {
-        if (cursor.Kind == CXCursorKind.CXCursor_ConversionFunction)
+        if (decl is CXXConversionDecl conversionDecl)
         {
             function.IsConversionOperator = true;
-            function.IsExplicitConversionOperator = clang.CXXMethod_isExplicit(cursor) != 0;
+            function.IsExplicitConversionOperator = conversionDecl.IsExplicit;
             return;
         }
 
-        if (!cursor.IsOverloadedOperator)
+        var functionDecl = decl as FunctionDecl;
+        if (functionDecl is null || !functionDecl.IsOverloadedOperator)
         {
             return;
         }
 
-        function.OperatorToken = cursor.OverloadedOperatorKind switch
+        function.OperatorToken = functionDecl.OverloadedOperator switch
         {
             CX_OverloadedOperatorKind.CX_OO_Plus => "+",
             CX_OverloadedOperatorKind.CX_OO_Minus => "-",
@@ -1263,19 +1252,20 @@ public sealed class ClangSharpHeaderParser
         };
     }
 
-    private static string GetManagedMethodName(CXCursor cursor, string nativeName)
+    private static string GetManagedMethodName(Decl decl, string nativeName)
     {
-        if (cursor.Kind == CXCursorKind.CXCursor_ConversionFunction)
+        if (decl is CXXConversionDecl conversionDecl)
         {
-            return $"OperatorTo{ToPascalCase(SanitizeEntrypointNamePart(cursor.ResultType.Spelling.ToString()))}";
+            return $"OperatorTo{ToPascalCase(SanitizeEntrypointNamePart(conversionDecl.ReturnType.Handle.Spelling.ToString()))}";
         }
 
-        if (cursor.IsOverloadedOperator)
+        var functionDecl = decl as FunctionDecl;
+        if (functionDecl is not null && functionDecl.IsOverloadedOperator)
         {
-            return cursor.OverloadedOperatorKind switch
+            return functionDecl.OverloadedOperator switch
             {
-                CX_OverloadedOperatorKind.CX_OO_Plus => cursor.NumArguments == 0 ? "OperatorUnaryPlus" : "OperatorPlus",
-                CX_OverloadedOperatorKind.CX_OO_Minus => cursor.NumArguments == 0 ? "OperatorUnaryMinus" : "OperatorMinus",
+                CX_OverloadedOperatorKind.CX_OO_Plus => functionDecl.Parameters.Count == 0 ? "OperatorUnaryPlus" : "OperatorPlus",
+                CX_OverloadedOperatorKind.CX_OO_Minus => functionDecl.Parameters.Count == 0 ? "OperatorUnaryMinus" : "OperatorMinus",
                 CX_OverloadedOperatorKind.CX_OO_Exclaim => "OperatorNot",
                 CX_OverloadedOperatorKind.CX_OO_EqualEqual => "OperatorEquals",
                 CX_OverloadedOperatorKind.CX_OO_ExclaimEqual => "OperatorNotEquals",
@@ -1288,21 +1278,23 @@ public sealed class ClangSharpHeaderParser
         return ToPascalCase(nativeName);
     }
 
-    private static string GetEntrypointSuffix(CXCursor cursor, string nativeName)
+    private static string GetEntrypointSuffix(Decl decl, string nativeName)
     {
-        var constSuffix = clang.CXXMethod_isConst(cursor) != 0 ? "_const" : string.Empty;
+        var methodDecl = decl as CXXMethodDecl;
+        var constSuffix = methodDecl?.IsConst == true ? "_const" : string.Empty;
 
-        if (cursor.Kind == CXCursorKind.CXCursor_ConversionFunction)
+        if (decl is CXXConversionDecl)
         {
             return $"operator_to{constSuffix}";
         }
 
-        if (cursor.IsOverloadedOperator)
+        var functionDecl = decl as FunctionDecl;
+        if (functionDecl is not null && functionDecl.IsOverloadedOperator)
         {
-            return (cursor.OverloadedOperatorKind switch
+            return (functionDecl.OverloadedOperator switch
             {
-                CX_OverloadedOperatorKind.CX_OO_Plus => cursor.NumArguments == 0 ? "operator_unary_plus" : "operator_plus",
-                CX_OverloadedOperatorKind.CX_OO_Minus => cursor.NumArguments == 0 ? "operator_unary_minus" : "operator_minus",
+                CX_OverloadedOperatorKind.CX_OO_Plus => functionDecl.Parameters.Count == 0 ? "operator_unary_plus" : "operator_plus",
+                CX_OverloadedOperatorKind.CX_OO_Minus => functionDecl.Parameters.Count == 0 ? "operator_unary_minus" : "operator_minus",
                 CX_OverloadedOperatorKind.CX_OO_Exclaim => "operator_not",
                 CX_OverloadedOperatorKind.CX_OO_EqualEqual => "operator_equal_equal",
                 CX_OverloadedOperatorKind.CX_OO_ExclaimEqual => "operator_not_equal",
@@ -1315,9 +1307,9 @@ public sealed class ClangSharpHeaderParser
         return nativeName + constSuffix;
     }
 
-    private static void ApplyDeletedCallableIgnore(CXCursor cursor, FunctionBinding function)
+    private static void ApplyDeletedCallableIgnore(FunctionDecl functionDecl, FunctionBinding function)
     {
-        if (!cursor.IsDeleted || function.IsIgnored())
+        if (!functionDecl.IsDeleted || function.IsIgnored())
         {
             return;
         }
@@ -1328,9 +1320,9 @@ public sealed class ClangSharpHeaderParser
         function.SetIgnoreReason($"{callableLabel} is deleted in the native surface");
     }
 
-    private static void ApplyCallableDefinitionMetadata(CXCursor cursor, FunctionBinding function)
+    private static void ApplyCallableDefinitionMetadata(Decl decl, FunctionBinding function)
     {
-        function.SetMetadata(MetadataKeys.HasNativeDefinition, cursor.IsThisDeclarationADefinition);
+        function.SetMetadata(MetadataKeys.HasNativeDefinition, (decl as FunctionDecl)?.IsThisDeclarationADefinition ?? false);
     }
 
     private static void ApplyDestructorMetadata(CXXRecordDecl? cxxRecord, RecordBinding record)
@@ -1892,9 +1884,9 @@ public sealed class ClangSharpHeaderParser
         return result;
     }
 
-    private static void CheckAndApplyIgnoreAttribute(CXCursor cursor, BindingNode node)
+    private static void CheckAndApplyIgnoreAttribute(Decl decl, BindingNode node)
     {
-        var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
+        var sourceText = GetSourceText(decl.Handle.TranslationUnit, decl.Extent);
         if (node is RecordBinding || node is EnumBinding)
         {
             var braceIndex = sourceText.IndexOf('{');
@@ -1907,7 +1899,7 @@ public sealed class ClangSharpHeaderParser
         var match = IgnoreAttributeExpression.Match(sourceText);
         if (!match.Success)
         {
-            cursor.Location.GetFileLocation(out var file, out var line, out var column, out _);
+            decl.Location.GetFileLocation(out var file, out var line, out var column, out _);
             var filePath = Path.GetFullPath(file.Name.CString);
 
             if (!string.IsNullOrWhiteSpace(filePath) &&
@@ -2007,11 +1999,11 @@ public sealed class ClangSharpHeaderParser
         }
     }
 
-    private static void TryApplyRename(CXCursor cursor, BindingNode node)
+    private static void TryApplyRename(Decl decl, BindingNode node)
     {
         if (node is RecordBinding or EnumBinding)
         {
-            var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
+            var sourceText = GetSourceText(decl.Handle.TranslationUnit, decl.Extent);
             var braceIndex = FindStructBodyBraceIndex(sourceText);
             if (braceIndex >= 0)
             {
@@ -2024,7 +2016,7 @@ public sealed class ClangSharpHeaderParser
 
         if (node is FunctionBinding or FieldBinding)
         {
-            var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
+            var sourceText = GetSourceText(decl.Handle.TranslationUnit, decl.Extent);
             var braceIndex = FindStructBodyBraceIndex(sourceText);
             if (braceIndex >= 0)
             {
@@ -2045,7 +2037,7 @@ public sealed class ClangSharpHeaderParser
             }
             else
             {
-                ApplyRenameFromPreScan(cursor, node);
+                ApplyRenameFromPreScan(decl, node);
             }
         }
     }
@@ -2079,9 +2071,9 @@ public sealed class ClangSharpHeaderParser
         ApplyRename(node, match.Groups["value"].Value);
     }
 
-    private static void ApplyRenameFromPreScan(CXCursor cursor, BindingNode node)
+    private static void ApplyRenameFromPreScan(Decl decl, BindingNode node)
     {
-        cursor.Location.GetFileLocation(out var file, out var line, out var column, out _);
+        decl.Location.GetFileLocation(out var file, out var line, out var column, out _);
         var filePath = Path.GetFullPath(file.Name.CString);
 
         if (string.IsNullOrWhiteSpace(filePath) || !s_renameAnnotations.TryGetValue(filePath, out var annotations))
@@ -2135,9 +2127,9 @@ public sealed class ClangSharpHeaderParser
         return genericStart >= 0 ? managedTypeFormat[..genericStart].Trim() : managedTypeFormat;
     }
 
-    private static void ExtractAndApplyDocumentation(CXCursor cursor, BindingNode node)
+    private static void ExtractAndApplyDocumentation(Decl decl, BindingNode node)
     {
-        var briefComment = cursor.BriefCommentText;
+        var briefComment = decl.Handle.BriefCommentText;
         try
         {
             var commentText = briefComment.CString;
@@ -2152,9 +2144,9 @@ public sealed class ClangSharpHeaderParser
         }
     }
 
-    private static unsafe void RegisterEnum(CXCursor cursor, BindingCompilation compilation, IDictionary<string, EnumBinding> enumsByName, string? headerIncludePath)
+    private static unsafe void RegisterEnum(EnumDecl enumDecl, BindingCompilation compilation, IDictionary<string, EnumBinding> enumsByName, string? headerIncludePath)
     {
-        var nativeName = cursor.Spelling.ToString();
+        var nativeName = enumDecl.Name ?? enumDecl.Spelling.ToString();
         if (string.IsNullOrWhiteSpace(nativeName) || enumsByName.ContainsKey(nativeName))
         {
             return;
@@ -2164,17 +2156,17 @@ public sealed class ClangSharpHeaderParser
             $"enum:{nativeName}",
             nativeName,
             ToPascalCase(nativeName),
-            NormalizeTypeName(cursor.EnumDecl_IntegerType.Spelling.ToString()),
-            GetCppQualifiedName(cursor))
+            NormalizeTypeName(enumDecl.IntegerType.Handle.Spelling.ToString()),
+            GetCppQualifiedName(enumDecl))
         {
-            IsFlags = FlagsAttributeExpression.IsMatch(GetSourceText(cursor.TranslationUnit, cursor.Extent))
+            IsFlags = FlagsAttributeExpression.IsMatch(GetSourceText(enumDecl.Handle.TranslationUnit, enumDecl.Extent))
         };
 
-        CheckAndApplyIgnoreAttribute(cursor, @enum);
-        TryApplyRename(cursor, @enum);
-        ExtractAndApplyDocumentation(cursor, @enum);
+        CheckAndApplyIgnoreAttribute(enumDecl, @enum);
+        TryApplyRename(enumDecl, @enum);
+        ExtractAndApplyDocumentation(enumDecl, @enum);
 
-        cursor.VisitChildren(
+        enumDecl.Handle.VisitChildren(
             (child, _, _) =>
             {
                 if (child.Kind != CXCursorKind.CXCursor_EnumConstantDecl)
@@ -2236,14 +2228,14 @@ public sealed class ClangSharpHeaderParser
 
     private static void ApplyManagedDefaultValue(
         ParameterBinding parameter,
-        CXCursor parameterCursor,
+        ParmVarDecl parameterDecl,
         BindingType parameterType,
         IReadOnlyDictionary<string, ManagedTypeOverride>? managedTypeOverrides = null)
     {
-        var defaultValue = GetManagedDefaultValueExpression(parameterCursor, parameterType);
+        var defaultValue = GetManagedDefaultValueExpression(parameterDecl, parameterType);
         parameter.ManagedDefaultValueExpression = defaultValue;
 
-        if (defaultValue is null && parameterCursor.HasDefaultArg)
+        if (defaultValue is null && parameterDecl.HasDefaultArg)
         {
             parameter.SetMetadata(MetadataKeys.UnexpressibleDefault, true);
         }
@@ -2251,7 +2243,7 @@ public sealed class ClangSharpHeaderParser
         // Only mark as undefaultable if the parameter actually has a C++ default value.
         // If there's no default at all, the overload split is unnecessary — the parameter
         // is already required.
-        if (parameterCursor.HasDefaultArg &&
+        if (parameterDecl.HasDefaultArg &&
             managedTypeOverrides is not null &&
             managedTypeOverrides.TryGetValue(parameterType.CppTypeName, out var overrideInfo) &&
             overrideInfo.Undefaultable)
@@ -2260,17 +2252,20 @@ public sealed class ClangSharpHeaderParser
         }
     }
 
-    private static string? GetManagedDefaultValueExpression(CXCursor parameterCursor, BindingType parameterType)
+    private static string? GetManagedDefaultValueExpression(ParmVarDecl parameterDecl, BindingType parameterType)
     {
-        if (!parameterCursor.HasDefaultArg)
+        if (!parameterDecl.HasDefaultArg)
         {
             return null;
         }
 
+        // Use the CXCursor handle for expression-level operations since
+        // Expr doesn't fully expose the SubExprAsWritten/kind pattern.
+        var parameterCursor = parameterDecl.Handle;
         var defaultArgumentCursor = parameterCursor.DefaultArg;
-        if (defaultArgumentCursor.Kind == CXCursorKind.CXCursor_FirstInvalid && parameterCursor.HasUninstantiatedDefaultArg)
+        if (defaultArgumentCursor.Kind == CXCursorKind.CXCursor_FirstInvalid && parameterDecl.HasUninstantiatedDefaultArg)
         {
-            defaultArgumentCursor = parameterCursor.UninstantiatedDefaultArg;
+            defaultArgumentCursor = parameterDecl.UninstantiatedDefaultArg.Handle;
         }
 
         if (defaultArgumentCursor.Kind == CXCursorKind.CXCursor_FirstInvalid)
@@ -2382,19 +2377,19 @@ public sealed class ClangSharpHeaderParser
                         ResolveDeclIncludePath(classTemplateDecl, ownedFileRoots, headerIncludePath ?? string.Empty));
                     break;
 
-                case EnumDecl:
-                    RegisterEnum(child.Handle, compilation, enumsByName,
+                case EnumDecl enumChildDecl:
+                    RegisterEnum(enumChildDecl, compilation, enumsByName,
                         ResolveDeclIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty));
                     break;
 
-                case FunctionDecl:
+                case FunctionDecl functionDecl:
                 {
-                    var function = CreateFunction(child.Handle, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
-                    CheckAndApplyIgnoreAttribute(child.Handle, function);
-                    TryApplyRename(child.Handle, function);
-                    ExtractAndApplyDocumentation(child.Handle, function);
-                    ApplyCallableDefinitionMetadata(child.Handle, function);
-                    ApplyDeletedCallableIgnore(child.Handle, function);
+                    var function = CreateFunction(functionDecl, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
+                    CheckAndApplyIgnoreAttribute(functionDecl, function);
+                    TryApplyRename(functionDecl, function);
+                    ExtractAndApplyDocumentation(functionDecl, function);
+                    ApplyCallableDefinitionMetadata(functionDecl, function);
+                    ApplyDeletedCallableIgnore(functionDecl, function);
                     function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty);
                     compilation.Members.Add(function);
                     break;
@@ -2402,14 +2397,14 @@ public sealed class ClangSharpHeaderParser
 
                 case FunctionTemplateDecl funcTemplateDecl:
                 {
-                    var function = CreateTemplateFunction(child.Handle, funcTemplateDecl, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
+                    var function = CreateTemplateFunction(funcTemplateDecl, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
                     if (function is not null)
                     {
-                        CheckAndApplyIgnoreAttribute(child.Handle, function);
-                        TryApplyRename(child.Handle, function);
-                        ExtractAndApplyDocumentation(child.Handle, function);
-                        ApplyCallableDefinitionMetadata(child.Handle, function);
-                        ApplyDeletedCallableIgnore(child.Handle, function);
+                        CheckAndApplyIgnoreAttribute(funcTemplateDecl, function);
+                        TryApplyRename(funcTemplateDecl, function);
+                        ExtractAndApplyDocumentation(funcTemplateDecl, function);
+                        ApplyCallableDefinitionMetadata(funcTemplateDecl, function);
+                        ApplyDeletedCallableIgnore(funcTemplateDecl.TemplatedDecl, function);
                         function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty);
                         compilation.Members.Add(function);
                     }
@@ -2695,7 +2690,7 @@ public sealed class ClangSharpHeaderParser
         return true;
     }
 
-    private static unsafe void ApplyVirtualSpecifiers(CXCursor cursor, FunctionBinding function)
+    private static void ApplyVirtualSpecifiers(CXXMethodDecl methodDecl, FunctionBinding function)
     {
         if (!function.IsVirtual)
         {
@@ -2705,23 +2700,19 @@ public sealed class ClangSharpHeaderParser
         bool isOverride = false;
         bool isFinal = false;
 
-        cursor.VisitChildren(
-            (child, _, _) =>
+        foreach (var attr in methodDecl.Decls)
+        {
+            if ((int)attr.Kind == 417) // CXCursor_CXXOverrideAttr
             {
-                if ((int)child.Kind == 417) // CXCursor_CXXOverrideAttr
-                {
-                    isOverride = true;
-                }
-                else if ((int)child.Kind == 418) // CXCursor_CXXFinalAttr
-                {
-                    isFinal = true;
-                }
+                isOverride = true;
+            }
+            else if ((int)attr.Kind == 418) // CXCursor_CXXFinalAttr
+            {
+                isFinal = true;
+            }
+        }
 
-                return CXChildVisitResult.CXChildVisit_Continue;
-            },
-            new CXClientData(IntPtr.Zero));
-
-        var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
+        var sourceText = GetSourceText(methodDecl.Handle.TranslationUnit, methodDecl.Extent);
         var declarationText = sourceText.IndexOf('{') is var braceIndex and >= 0
             ? sourceText[..braceIndex]
             : sourceText;
