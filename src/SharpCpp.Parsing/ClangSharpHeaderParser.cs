@@ -549,7 +549,10 @@ public sealed class ClangSharpHeaderParser
     {
         foreach (var child in recordDecl.Decls)
         {
-            if (!ShouldParseRecordMember(record, child.Access))
+            // Use Interop cursor's access specifier — the managed Decl.Access
+            // may not reflect the true C++ access for members in protected
+            // sections of template-context classes.
+            if (!ShouldParseRecordMember(record, child.Handle.CXXAccessSpecifier))
             {
                 continue;
             }
@@ -621,6 +624,14 @@ public sealed class ClangSharpHeaderParser
 
                 case CXXMethodDecl staticMethod when staticMethod.IsStatic:
                 {
+                    // Protected static methods can't be called from a public
+                    // native thunk (standalone function is not a friend or
+                    // derived class). Check BOTH the managed Access and the
+                    // Interop CXXAccessSpecifier — they may differ.
+                    if (staticMethod.Access == CX_CXXAccessSpecifier.CX_CXXProtected ||
+                        staticMethod.Handle.CXXAccessSpecifier == CX_CXXAccessSpecifier.CX_CXXProtected)
+                        continue;
+
                     var method = CreateStaticMethod(record, staticMethod, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
                     CheckAndApplyIgnoreAttribute(staticMethod, method);
                     TryApplyRename(staticMethod, method);

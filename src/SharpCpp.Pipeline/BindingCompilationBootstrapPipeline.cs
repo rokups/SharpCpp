@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using SharpCpp.Model.Ast;
 using SharpCpp.Parsing;
 
@@ -20,12 +21,35 @@ public static class BindingCompilationBootstrapPipeline
         ArgumentNullException.ThrowIfNull(compilation);
         ArgumentNullException.ThrowIfNull(marshallerConfigFiles);
 
-        NormalizeManagedNamespacesPass.Apply(compilation);
-        MarshallerMetadataPhase2.ApplyWithClang(compilation, marshallerConfigFiles, clangArgs);
-        DegradeUnsupportedSurfacePass.Apply(compilation);
-        BindingCompilationGenericInstantiationPass.Apply(compilation);
-        BindingCompilationInheritancePass.Apply(compilation);
-        BindingCompilationPolymorphismPass.Apply(compilation);
-        ValidateBootstrapSurfacePass.Apply(compilation);
+        RunTimed("NormalizeManagedNamespaces", () => NormalizeManagedNamespacesPass.Apply(compilation));
+        RunTimed("MarshallerMetadataPhase2", () => MarshallerMetadataPhase2.ApplyWithClang(compilation, marshallerConfigFiles, clangArgs));
+        RunTimed("DegradeUnsupportedSurface", () => DegradeUnsupportedSurfacePass.Apply(compilation));
+        RunTimed("GenericInstantiation", () => BindingCompilationGenericInstantiationPass.Apply(compilation));
+        RunTimed("Inheritance", () => BindingCompilationInheritancePass.Apply(compilation));
+        RunTimed("Polymorphism", () => BindingCompilationPolymorphismPass.Apply(compilation));
+        RunTimed("ValidateBootstrap", () => ValidateBootstrapSurfacePass.Apply(compilation));
+    }
+
+    private static void RunTimed(string name, Action action)
+    {
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            action();
+        }
+        catch
+        {
+            DebugWrite($"[pipeline] {name}: FAILED after {sw.Elapsed.TotalSeconds:F1}s");
+            throw;
+        }
+        if (sw.Elapsed.TotalSeconds >= 1)
+        {
+            DebugWrite($"[pipeline] {name}: {sw.Elapsed.TotalSeconds:F1}s");
+        }
+    }
+
+    private static void DebugWrite(string message)
+    {
+        Console.WriteLine(message);
     }
 }

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using SharpCpp.Metadata.Export;
 using SharpCpp.Model.Ast;
 using SharpCpp.Parsing;
@@ -8,6 +9,9 @@ namespace SharpCpp.Rbfx.Generator;
 
 internal static class Program
 {
+    private static readonly Stopwatch s_sw = Stopwatch.StartNew();
+
+    private static string Elapsed() => $"{s_sw.Elapsed.TotalSeconds:F1}s";
     private static readonly string[] ParseCompatibilityDefines =
     [
         "SDL_DISABLE_MM3DNOW_H=1",
@@ -84,7 +88,7 @@ internal static class Program
                 throw new InvalidOperationException($"rbfx umbrella header was not found at '{umbrellaHeaderPath}'.");
             }
 
-            Log(logWriter, $"Parsing umbrella header '{NativeOutputHeader}' with owned declaration root '{urhoIncludeRoot}'.");
+            Log(logWriter, $"[{Elapsed()}] Parsing umbrella header '{NativeOutputHeader}' with owned declaration root '{urhoIncludeRoot}'.");
 
             var parser = new ClangSharpHeaderParser();
             var compilation = parser.Parse(
@@ -99,12 +103,19 @@ internal static class Program
                     marshallerConfigurationFiles,
                     EntryPointPrefix,
                     OwnedFileRoots: new[] { urhoIncludeRoot }));
+            Log(logWriter, $"[{Elapsed()}] Parse complete: {compilation.Records.Count} records, {compilation.Functions.Count} functions.");
             compilation.NamespaceMappings = BuildNamespaceMappings(compilation);
 
+            Log(logWriter, $"[{Elapsed()}] Applying pipeline passes...");
             BindingCompilationBootstrapPipeline.Apply(compilation, marshallerConfigurationFiles, clangArguments);
-            ApplySdkExportFilter(compilation, options.SdkLibraryPath, logWriter);
+            Log(logWriter, $"[{Elapsed()}] Pipeline complete: {compilation.Records.Count(r => !r.IsIgnored())}/{compilation.Records.Count} records retained.");
 
+            ApplySdkExportFilter(compilation, options.SdkLibraryPath, logWriter);
+            Log(logWriter, $"[{Elapsed()}] SDK filter complete.");
+
+            Log(logWriter, $"[{Elapsed()}] Rendering...");
             var renderedBindings = BindingOutputRenderer.Render(compilation, GeneratedFileStem, DeriveGroupStem);
+            Log(logWriter, $"[{Elapsed()}] Rendering complete.");
             var metadataDocument = BindingMetadataExporter.Export(
                 compilation,
                 new BindingMetadataExportOptions(
