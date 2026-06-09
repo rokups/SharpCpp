@@ -26,19 +26,6 @@ internal static class MarshallerConfigExtractor
         @"\[\s*\[\s*sharpcpp\s*::\s*expose_member\s*\(\s*(?<attr>[^)]*?)\s*\)\s*\]\s*\]",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    // Extract the template argument type from Marshaller<T> in cursor-extent source text.
-    // Uses the cursor's AST extent (definitive representation) — this IS AST-based.
-    // Separate patterns for Marshaller vs ReturnMarshaller to avoid matching base-class
-    // Marshaller<T> in declarations like ReturnMarshaller<X> : Marshaller<X> {}.
-    // GetSourceText preserves spaces between tokens so const char* stays correct.
-    private static readonly Regex MarshallerTemplateArgPattern = new(
-        @"\bMarshaller\s*<\s*(?<cppType>[^>]+)\s*>",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
-    private static readonly Regex ReturnMarshallerTemplateArgPattern = new(
-        @"\bReturnMarshaller\s*<\s*(?<cppType>[^>]+)\s*>",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
     // Key=value extractors (attribute body parsing only — NOT C++ code parsing).
     private static readonly Regex PublicTypeExpression = new(
         @"public_type\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
@@ -448,22 +435,55 @@ internal static class MarshallerConfigExtractor
     private static string? ExtractTemplateArgFromCursorType(CXCursor cursor)
     {
         var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
-        var isReturn = sourceText.Contains("ReturnMarshaller", StringComparison.Ordinal);
-        var pattern = isReturn ? ReturnMarshallerTemplateArgPattern : MarshallerTemplateArgPattern;
-        var match = pattern.Match(sourceText);
-        if (!match.Success)
-        {
+
+        // Determine which prefix to look for (Marshaller vs ReturnMarshaller).
+        var prefix = sourceText.Contains("ReturnMarshaller", StringComparison.Ordinal)
+            ? "ReturnMarshaller"
+            : "Marshaller";
+
+        // Find the prefix word, then locate the first '<' after it.
+        var prefixIndex = sourceText.IndexOf(prefix, StringComparison.Ordinal);
+        if (prefixIndex < 0)
             return null;
+
+        var openIndex = sourceText.IndexOf('<', prefixIndex);
+        if (openIndex < 0)
+            return null;
+
+        // Walk forward from after '<', tracking angle bracket depth.
+        var depth = 0;
+        var start = openIndex + 1;
+        var i = start;
+        for (; i < sourceText.Length; i++)
+        {
+            if (sourceText[i] == '<')
+                depth++;
+            else if (sourceText[i] == '>')
+            {
+                if (depth == 0)
+                    break; // matching closing bracket
+                depth--;
+            }
         }
 
-        var typeName = match.Groups["cppType"].Value;
-        return string.IsNullOrWhiteSpace(typeName) ? null : typeName;
+        if (i >= sourceText.Length || sourceText[i] != '>')
+            return null;
+
+        var typeName = sourceText.Substring(start, i - start);
+        if (string.IsNullOrWhiteSpace(typeName))
+            return null;
+
+        return NormalizeTypeName(typeName);
     }
 
     internal static string NormalizeTypeName(string spelling)
     {
         return Regex.Replace(spelling.Trim(), @"\s+", " ")
             .Replace(" *", "*", StringComparison.Ordinal)
-            .Replace(" &", "&", StringComparison.Ordinal);
+            .Replace(" &", "&", StringComparison.Ordinal)
+            .Replace(":: ", "::", StringComparison.Ordinal)
+            .Replace(" ::", "::", StringComparison.Ordinal)
+            .Replace(" <", "<", StringComparison.Ordinal)
+            .Replace("> ", ">", StringComparison.Ordinal);
     }
 }

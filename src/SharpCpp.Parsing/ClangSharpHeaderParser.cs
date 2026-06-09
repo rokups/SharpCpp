@@ -1705,7 +1705,11 @@ public sealed class ClangSharpHeaderParser
     {
         return Regex.Replace(spelling.Trim(), @"\s+", " ")
             .Replace(" *", "*", StringComparison.Ordinal)
-            .Replace(" &", "&", StringComparison.Ordinal);
+            .Replace(" &", "&", StringComparison.Ordinal)
+            .Replace(":: ", "::", StringComparison.Ordinal)
+            .Replace(" ::", "::", StringComparison.Ordinal)
+            .Replace(" <", "<", StringComparison.Ordinal)
+            .Replace("> ", ">", StringComparison.Ordinal);
     }
 
     private static bool TryGetPassKindOverride(CXCursor functionCursor, CXCursor parameterCursor, out BindingParameterDirection direction)
