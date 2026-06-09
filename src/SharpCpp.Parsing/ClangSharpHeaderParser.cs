@@ -1,4 +1,5 @@
 using ClangSharp.Interop;
+using ClangSharp;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -309,6 +310,85 @@ public sealed class ClangSharpHeaderParser
         }
 
         var filePath = Path.GetFullPath(fileName);
+        foreach (var ownedFileRoot in ownedFileRoots)
+        {
+            if (!Directory.Exists(ownedFileRoot) ||
+                !filePath.StartsWith(ownedFileRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            return Path.GetRelativePath(ownedFileRoot, filePath).Replace('\\', '/');
+        }
+
+        return fallbackHeaderIncludePath;
+    }
+
+    // ─── Decl-based helpers (ClangSharp managed API overloads) ──────────────────
+
+    private static string GetCppQualifiedName(Decl decl)
+    {
+        var names = new List<string>();
+        var current = decl.SemanticParentCursor;
+
+        while (current is NamespaceDecl or RecordDecl)
+        {
+            var parentName = current is NamedDecl named ? named.Name ?? named.Spelling.ToString() : string.Empty;
+            if (!string.IsNullOrWhiteSpace(parentName))
+            {
+                names.Add(parentName);
+            }
+            current = current.SemanticParentCursor;
+        }
+
+        var ownName = decl is NamedDecl declNamed ? declNamed.Name ?? declNamed.Spelling.ToString() : decl.Spelling.ToString();
+        if (names.Count == 0)
+        {
+            return ownName;
+        }
+
+        names.Reverse();
+        names.Add(ownName);
+        return string.Join("::", names);
+    }
+
+    private static bool IsOwnedDecl(Decl decl, IReadOnlyList<string> ownedFileRoots)
+    {
+        decl.Location.GetFileLocation(out var file, out _, out _, out _);
+        var location = file.Name.CString;
+        if (string.IsNullOrWhiteSpace(location))
+        {
+            return false;
+        }
+
+        var filePath = Path.GetFullPath(location);
+        foreach (var ownedFileRoot in ownedFileRoots)
+        {
+            if (File.Exists(ownedFileRoot) && string.Equals(filePath, ownedFileRoot, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (Directory.Exists(ownedFileRoot) &&
+                filePath.StartsWith(ownedFileRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string ResolveDeclIncludePath(Decl decl, IReadOnlyList<string> ownedFileRoots, string fallbackHeaderIncludePath)
+    {
+        decl.Location.GetFileLocation(out var file, out _, out _, out _);
+        var location = file.Name.CString;
+        if (string.IsNullOrWhiteSpace(location))
+        {
+            return fallbackHeaderIncludePath;
+        }
+
+        var filePath = Path.GetFullPath(location);
         foreach (var ownedFileRoot in ownedFileRoots)
         {
             if (!Directory.Exists(ownedFileRoot) ||
@@ -1081,6 +1161,24 @@ public sealed class ClangSharpHeaderParser
 
 
 
+    // ─── CXType-kind-based type-check helpers ──────────────────────────────
+    // These bridge toward managed Type pattern matching (Phase 2a+).
+    // In ClangSharp v20 the managed Type/Decl hierarchy constructors are
+    // internal, preventing CXType→Type conversion from outside the assembly.
+    // Once a public Type.From(CXType) or equivalent API ships, replace these
+    // with:
+    //   var mt = Type.From(type);
+    //   if (mt is RecordType)  …  if (mt is EnumType)  …
+    // For now, CX_TypeClass provides the same classification exposed as a
+    // property on CXType (the public face of the managed type system).
+
+    private static bool TypeIsLValueReference(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_LValueReference;
+    private static bool TypeIsRValueReference(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_RValueReference;
+    private static bool TypeIsAnyReference(CXType type) => type.TypeClass is CX_TypeClass.CX_TypeClass_LValueReference or CX_TypeClass.CX_TypeClass_RValueReference;
+    private static bool TypeIsPointer(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_Pointer;
+    private static bool TypeIsRecord(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_Record;
+    private static bool TypeIsEnum(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_Enum;
+
     private static (BindingType Type, string? IgnoreReason) TryMapType(
         CXType type,
         IDictionary<string, RecordBinding> recordsByName,
@@ -1127,22 +1225,22 @@ public sealed class ClangSharpHeaderParser
             ? overrideDirection
             : (BindingParameterDirection?)null;
 
-        if (normalizedType.kind == CXTypeKind.CXType_LValueReference)
+        if (TypeIsLValueReference(normalizedType))
         {
             var sourcePointeeType = type.PointeeType;
             var normalizedPointeeType = normalizedType.PointeeType.CanonicalType;
             return (
                 explicitDirection ?? (sourcePointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Ref),
-                normalizedPointeeType.kind == CXTypeKind.CXType_Record ? BindingParameterAbiKind.Value : BindingParameterAbiKind.Reference);
+                TypeIsRecord(normalizedPointeeType) ? BindingParameterAbiKind.Value : BindingParameterAbiKind.Reference);
         }
 
-        if (normalizedType.kind == CXTypeKind.CXType_Pointer)
+        if (TypeIsPointer(normalizedType))
         {
             var sourcePointeeType = type.PointeeType;
             var normalizedPointeeType = normalizedType.PointeeType.CanonicalType;
             return (
                 explicitDirection ?? (sourcePointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Out),
-                normalizedPointeeType.kind is CXTypeKind.CXType_Void or CXTypeKind.CXType_Record ? BindingParameterAbiKind.Value : BindingParameterAbiKind.Pointer);
+                normalizedPointeeType.kind == CXTypeKind.CXType_Void || TypeIsRecord(normalizedPointeeType) ? BindingParameterAbiKind.Value : BindingParameterAbiKind.Pointer);
         }
 
         return (explicitDirection ?? BindingParameterDirection.In, BindingParameterAbiKind.Value);
@@ -1323,12 +1421,12 @@ public sealed class ClangSharpHeaderParser
             ? overrideDirection
             : (BindingParameterDirection?)null;
 
-        if (normalizedType.kind == CXTypeKind.CXType_LValueReference)
+        if (TypeIsLValueReference(normalizedType))
         {
             var sourcePointeeType = type.PointeeType;
             var normalizedPointeeType = normalizedType.PointeeType.CanonicalType;
 
-            if (normalizedPointeeType.kind == CXTypeKind.CXType_Record)
+            if (TypeIsRecord(normalizedPointeeType))
             {
                 return (
                     MapType(normalizedPointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
@@ -1337,7 +1435,7 @@ public sealed class ClangSharpHeaderParser
             }
 
             var pointeeTypeName = NormalizeTypeName(sourcePointeeType.Spelling.ToString());
-            if (normalizedPointeeType.kind == CXTypeKind.CXType_Pointer &&
+            if (TypeIsPointer(normalizedPointeeType) &&
                 managedTypeOverrides.TryGetValue(pointeeTypeName, out var pointeeOverride) &&
                 pointeeOverride.PublicTypeName.Contains("ReadOnlySpan", StringComparison.Ordinal))
             {
@@ -1353,15 +1451,16 @@ public sealed class ClangSharpHeaderParser
                 BindingParameterAbiKind.Reference);
         }
 
-        if (normalizedType.kind == CXTypeKind.CXType_Pointer)
+        if (TypeIsPointer(normalizedType))
         {
             var normalizedTypeName = NormalizeTypeName(type.Spelling.ToString());
             if (managedTypeOverrides.TryGetValue(normalizedTypeName, out _))
             {
-                var pointeeKind = normalizedType.PointeeType.CanonicalType.kind;
+                var pointeeIsVoidOrRecord = TypeIsRecord(normalizedType.PointeeType.CanonicalType) ||
+                    normalizedType.PointeeType.CanonicalType.kind == CXTypeKind.CXType_Void;
                 return (
                     MapType(type, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
-                    explicitDirection ?? (pointeeKind is CXTypeKind.CXType_Void or CXTypeKind.CXType_Record
+                    explicitDirection ?? (pointeeIsVoidOrRecord
                         ? BindingParameterDirection.In
                         : (type.PointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Out)),
                     BindingParameterAbiKind.Value);
@@ -1370,7 +1469,7 @@ public sealed class ClangSharpHeaderParser
             var sourcePointeeType = type.PointeeType;
             var normalizedPointeeType = normalizedType.PointeeType.CanonicalType;
 
-            if (normalizedPointeeType.kind is CXTypeKind.CXType_Void or CXTypeKind.CXType_Record)
+            if (normalizedPointeeType.kind == CXTypeKind.CXType_Void || TypeIsRecord(normalizedPointeeType))
             {
                 return (
                     MapType(type, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
@@ -1419,12 +1518,12 @@ public sealed class ClangSharpHeaderParser
                 managedTypeOverride.PublicTypeName);
         }
 
-        if (normalizedType.kind == CXTypeKind.CXType_LValueReference)
+        if (TypeIsLValueReference(normalizedType))
         {
             return MapType(normalizedType.PointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
         }
 
-        if (normalizedType.kind == CXTypeKind.CXType_Pointer)
+        if (TypeIsPointer(normalizedType))
         {
             var pointeeType = normalizedType.PointeeType.CanonicalType;
             if (TryCreateSpecializedRecordHandleType(
@@ -1447,7 +1546,7 @@ public sealed class ClangSharpHeaderParser
                     voidPointerOverride.PublicTypeName);
             }
 
-            if (pointeeType.kind == CXTypeKind.CXType_Record)
+            if (TypeIsRecord(pointeeType))
             {
                 var recordName = GetRecordQualifiedName(pointeeType, recordsByName);
                 if (!recordsByName.TryGetValue(recordName, out var record))
@@ -1466,7 +1565,7 @@ public sealed class ClangSharpHeaderParser
             }
         }
 
-        if (normalizedType.kind == CXTypeKind.CXType_Record)
+        if (TypeIsRecord(normalizedType))
         {
             if (TryCreateSpecializedRecordHandleType(
                     $"{normalizedTypeName}*",
@@ -1496,7 +1595,7 @@ public sealed class ClangSharpHeaderParser
                 : BindingType.CreateHandle($"{NormalizeTypeName(normalizedType.Spelling.ToString())}*", record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments);
         }
 
-        if (normalizedType.kind == CXTypeKind.CXType_Enum)
+        if (TypeIsEnum(normalizedType))
         {
             var enumName = NormalizeNamedTypeName(normalizedType.Spelling.ToString());
             if (enumsByName.TryGetValue(enumName, out var @enum))
@@ -1594,7 +1693,7 @@ public sealed class ClangSharpHeaderParser
     private static bool TryGetQualifiedNamedType(CXType type, out string unqualifiedName, out string qualifiedName)
     {
         var resolvedType = type.CanonicalType;
-        while (resolvedType.kind is CXTypeKind.CXType_LValueReference or CXTypeKind.CXType_RValueReference or CXTypeKind.CXType_Pointer)
+        while (TypeIsAnyReference(resolvedType) || TypeIsPointer(resolvedType))
         {
             resolvedType = resolvedType.PointeeType.CanonicalType;
         }

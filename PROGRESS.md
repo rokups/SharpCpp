@@ -36,6 +36,8 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 
 ## Current Focus
 
+- [x] Phase 2a of CXType → managed Type migration: Converted LValueReference/Pointer/Record/Enum type checks in MapType, MapParameter, InferFallbackParameterPassing, and TryGetQualifiedNamedType from raw CXTypeKind field comparisons to CX_TypeClass-based helper methods (TypeIsLValueReference, TypeIsPointer, TypeIsRecord, TypeIsEnum, TypeIsAnyReference). The full managed Type `is`-pattern migration (e.g. `GetManagedType(type) is RecordType`) is blocked by ClangSharp v20 not exposing public constructors on the managed Type/Decl hierarchy — CX_TypeClass is the closest public API available. Contingency: once ClangSharp ships a public `Type.From(CXType)` or equivalent, replace the helpers with direct managed Type pattern matching.
+
 1. Broaden the ClangSharp-backed parser beyond the current fixture-driven set: more top-level template shapes, richer default-argument forms, more attribute-placement variants, and additional real-world header patterns.
 2. Extend the generic slice beyond the current free-function / record / member-template support: richer type families, more complete phase-2 metadata extraction, and additional generic member shapes.
 3. Extend the multiple-inheritance policy from projected methods plus first-pass interfaces toward fuller interface inheritance / reference-type policy and more secondary-base virtual edge cases.

@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using ClangSharp;
 using ClangSharp.Interop;
 
 namespace SharpCpp.Parsing;
