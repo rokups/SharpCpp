@@ -6,7 +6,7 @@ public sealed class CodeWriter
 {
     private readonly StringBuilder _builder = new();
     private const int IndentSize = 4;
-    private static readonly string[] IndentStrings = GenerateIndentStrings(32);
+    private static readonly string[] IndentStrings = GenerateIndentStrings(MaxIndentLevel);
     private const int MaxIndentLevel = 128;
 
     private static string[] GenerateIndentStrings(int maxLevel)
@@ -35,13 +35,12 @@ public sealed class CodeWriter
             _isAtStartOfLine = true;
         }
 
-        // Fast path: single line without trailing closing brace — avoids Split entirely
-        if (!EndsWithClosingBrace(code))
+        // Fast path: single line — avoids Split entirely
         {
             var newlineIndex = code.IndexOf('\n', StringComparison.Ordinal);
             if (newlineIndex < 0)
             {
-                WriteNormalizedLine(NormalizeIndentation(code), false);
+                WriteNormalizedLine(NormalizeIndentation(code), EndsWithClosingBrace(code));
                 return;
             }
         }

@@ -50,11 +50,11 @@ public static class BindingCompilationBootstrapPipeline
             Logger.LogWarning("Pass '{Name}' FAILED after {Duration}", name, FormatDuration(sw.Elapsed));
             throw;
         }
-        if (sw.Elapsed.TotalSeconds >= 1)
+        if (sw.Elapsed.TotalMilliseconds >= 200)
         {
             Logger.LogInformation("Pass '{Name}' completed in {Duration}", name, FormatDuration(sw.Elapsed));
         }
     }
 
-    private static string FormatDuration(TimeSpan elapsed) => $"{elapsed.TotalSeconds:F1}s";
+    private static string FormatDuration(TimeSpan elapsed) => elapsed.TotalSeconds < 1 ? $"{elapsed.TotalMilliseconds:F0}ms" : $"{elapsed.TotalSeconds:F1}s";
 }

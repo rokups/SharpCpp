@@ -1,5 +1,6 @@
 using SharpCpp.Model.Ast;
 using SharpCpp.Model.Utilities;
+using System.Diagnostics;
 using System.Text;
 
 namespace SharpCpp.Rendering;
@@ -12,6 +13,8 @@ public static partial class BindingOutputRenderer
         ArgumentNullException.ThrowIfNull(compilation);
         ArgumentException.ThrowIfNullOrWhiteSpace(fileStem);
 
+        var sw = Stopwatch.StartNew();
+
         AssignImportMethodNames(compilation);
 
         if (deriveGroupStem is null)
@@ -22,6 +25,8 @@ public static partial class BindingOutputRenderer
                 new GeneratedBindingFile($"{fileStem}.Bindings.Aliases.g.cs", RenderAliasBindings()),
                 new GeneratedBindingFile($"{fileStem}.Bindings.g.cpp", RenderNativeBindings(compilation))
             };
+            sw.Stop();
+            System.Console.Error.WriteLine($"[PERF] Render completed in {sw.Elapsed.TotalSeconds:F1}s");
             return new GeneratedBindingSet(files);
         }
 
@@ -42,15 +47,11 @@ public static partial class BindingOutputRenderer
         }
         else
         {
-            // Pre-filter to avoid O(G×N) re-filtering inside RenderManagedBindings / RenderNativeBindings
-            // for each group. The filter is evaluated once per group here; the render methods
-            // are passed pre-sorted arrays so they don't repeat the filter+sort work.
-            var allRecords = compilation.Records.Where(r => !r.GetMetadata<bool>(MetadataKeys.SuppressEmission)).OrderBy(r => r.ManagedName, StringComparer.Ordinal).ToArray();
-            var allEnums = compilation.Enums.Where(e => !e.GetMetadata<bool>(MetadataKeys.SuppressEmission)).OrderBy(e => e.ManagedName, StringComparer.Ordinal).ToArray();
-            var allFunctions = compilation.Functions.OrderBy(f => f.ManagedName, StringComparer.Ordinal).ToArray();
+            var groupSw = new Stopwatch();
 
             foreach (var group in groups)
             {
+                groupSw.Restart();
                 var stem = group.Key;
                 var memberSet = new HashSet<BindingNode>(group);
 
@@ -58,11 +59,14 @@ public static partial class BindingOutputRenderer
                     RenderManagedBindings(compilation, node => memberSet.Contains(node) || (node is RecordBinding r && memberSet.Contains(r)))));
                 allFiles.Add(new GeneratedBindingFile($"{stem}.g.cpp",
                     RenderNativeBindings(compilation, node => memberSet.Contains(node) || (node is RecordBinding r && memberSet.Contains(r)))));
+                System.Console.Error.WriteLine($"[PERF]   Rendered group '{stem}' in {groupSw.Elapsed.TotalSeconds:F2}s");
             }
         }
 
         allFiles.Add(new GeneratedBindingFile($"{fileStem}.Bindings.Aliases.g.cs",
             RenderAliasBindings(compilation, deriveGroupStem is not null)));
+        sw.Stop();
+        System.Console.Error.WriteLine($"[PERF] Render completed in {sw.Elapsed.TotalSeconds:F1}s");
         return new GeneratedBindingSet(allFiles);
     }
 

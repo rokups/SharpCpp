@@ -11,7 +11,7 @@ using ManagedTypeOverride = SharpCpp.Parsing.MarshallerConfigExtractor.ManagedTy
 
 namespace SharpCpp.Parsing;
 
-public sealed class ClangSharpHeaderParser
+public sealed partial class ClangSharpHeaderParser
 {
     private static readonly HashSet<string> CSharpKeywords = new(StringComparer.Ordinal)
     {
@@ -27,33 +27,27 @@ public sealed class ClangSharpHeaderParser
     private static readonly IReadOnlyDictionary<string, BindingType> EmptyGenericParameters =
         new Dictionary<string, BindingType>(StringComparer.Ordinal);
 
-    private static readonly Regex PassKindAttributeExpression = new(
-        @"\[\[\s*sharpcpp::(?<kind>in|out|ref)\s*\]\]",
-        RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex FlagsAttributeExpression = new(
-        @"\[\[\s*sharpcpp::flags\s*\]\]",
-        RegexOptions.CultureInvariant | RegexOptions.Compiled);
     // Note: ManagedTypeMarshallerExpression, ReturnMarshallerExpression, and the
     // attribute-body regex patterns (PublicTypeExpression, UndefaultableExpression,
     // MarshallerTypeInAttributeExpression, ManagedMarshallerInAttributeExpression)
     // have been removed. They were replaced by MarshallerConfigExtractor which uses
     // ClangSharp AST walking to find Marshaller/ReturnMarsharker declarations and
     // extracts attribute body data from cursor source text instead of whole-file regex.
-    private static readonly Regex IgnoreAttributeExpression = new(
-        @"\[\[\s*sharpcpp::ignore(?:\s*\(\s*""(?<reason>[^""]*)""\s*\))?\s*\]\]",
-        RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex DirectorAttributeExpression = new(
-        @"\[\[\s*sharpcpp::director\s*\]\]",
-        RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex RenameAttributeExpression = new(
-        @"\[\[\s*sharpcpp::rename\s*\(\s*""(?<value>[^""]*)""\s*\)\s*\]\]",
-        RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex InstantiateAttributeExpression = new(
-        @"\[\[\s*sharpcpp::instantiate\s*\((?<body>.*?)\)\s*\]\]",
-        RegexOptions.CultureInvariant | RegexOptions.Compiled | RegexOptions.Singleline);
-    private static readonly Regex InstantiateArgumentExpression = new(
-        @"""(?<value>[^""\\]*(?:\\.[^""\\]*)*)""",
-        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    [GeneratedRegex(@"\[\[\s*sharpcpp::(?<kind>in|out|ref)\s*\]\]", RegexOptions.CultureInvariant)]
+    private static partial Regex PassKindAttributeExpression();
+    [GeneratedRegex(@"\[\[\s*sharpcpp::flags\s*\]\]", RegexOptions.CultureInvariant)]
+    private static partial Regex FlagsAttributeExpression();
+    [GeneratedRegex(@"\[\[\s*sharpcpp::ignore(?:\s*\(\s*""(?<reason>[^""]*)""\s*\))?\s*\]\]", RegexOptions.CultureInvariant)]
+    private static partial Regex IgnoreAttributeExpression();
+    [GeneratedRegex(@"\[\[\s*sharpcpp::director\s*\]\]", RegexOptions.CultureInvariant)]
+    private static partial Regex DirectorAttributeExpression();
+    [GeneratedRegex(@"\[\[\s*sharpcpp::rename\s*\(\s*""(?<value>[^""]*)""\s*\)\s*\]\]", RegexOptions.CultureInvariant)]
+    private static partial Regex RenameAttributeExpression();
+    [GeneratedRegex(@"\[\[\s*sharpcpp::instantiate\s*\((?<body>.*?)\)\s*\]\]", RegexOptions.CultureInvariant | RegexOptions.Singleline)]
+    private static partial Regex InstantiateAttributeExpression();
+    [GeneratedRegex(@"""(?<value>[^""\\]*(?:\\.[^""\\]*)*)""", RegexOptions.CultureInvariant)]
+    private static partial Regex InstantiateArgumentExpression();
 
     public BindingCompilation Parse(ClangSharpParseRequest request)
     {
@@ -88,7 +82,7 @@ public sealed class ClangSharpHeaderParser
             headerFilePath,
             request.ClangArguments.ToArray(),
             Array.Empty<CXUnsavedFile>(),
-            CXTranslationUnit_Flags.CXTranslationUnit_None);
+            CXTranslationUnit_Flags.CXTranslationUnit_SkipFunctionBodies);
 
         ValidateDiagnostics(translationUnit, headerFilePath);
 
@@ -410,7 +404,7 @@ public sealed class ClangSharpHeaderParser
         var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(nativeName), cppQualifiedName)
         {
             IsAbstract = cxxRecord?.IsAbstract ?? false,
-            IsDirector = DirectorAttributeExpression.IsMatch(declarationText)
+            IsDirector = DirectorAttributeExpression().IsMatch(declarationText)
         };
         if (isForwardDeclaration)
         {
@@ -480,7 +474,7 @@ public sealed class ClangSharpHeaderParser
         var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(nativeName), cppQualifiedName)
         {
             IsAbstract = templatedRecord is CXXRecordDecl cxx && cxx.IsAbstract,
-            IsDirector = DirectorAttributeExpression.IsMatch(declarationText)
+            IsDirector = DirectorAttributeExpression().IsMatch(declarationText)
         };
         if (isForwardDeclaration)
         {
@@ -1751,10 +1745,10 @@ public sealed class ClangSharpHeaderParser
 
     private static bool TryGetPassKindOverride(CXCursor functionCursor, CXCursor parameterCursor, out BindingParameterDirection direction)
     {
-        var match = PassKindAttributeExpression.Match(GetSourceText(parameterCursor.TranslationUnit, parameterCursor.Extent));
+        var match = PassKindAttributeExpression().Match(GetSourceText(parameterCursor.TranslationUnit, parameterCursor.Extent));
         if (!match.Success && TryGetParameterDeclarationSourceText(functionCursor, parameterCursor, out var parameterSourceText))
         {
-            match = PassKindAttributeExpression.Match(parameterSourceText);
+            match = PassKindAttributeExpression().Match(parameterSourceText);
         }
 
         if (!match.Success)
@@ -1886,7 +1880,7 @@ public sealed class ClangSharpHeaderParser
             }
         }
 
-        var match = IgnoreAttributeExpression.Match(sourceText);
+        var match = IgnoreAttributeExpression().Match(sourceText);
         if (!match.Success)
         {
             decl.Location.GetFileLocation(out var file, out var line, out var column, out _);
@@ -1939,7 +1933,7 @@ public sealed class ClangSharpHeaderParser
             for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
             {
                 var lineText = lines[lineIndex];
-                foreach (Match match in IgnoreAttributeExpression.Matches(lineText))
+                foreach (Match match in IgnoreAttributeExpression().Matches(lineText))
                 {
                     var column = match.Index + 1;
                     var reason = match.Groups["reason"].Success ? match.Groups["reason"].Value : null;
@@ -1975,7 +1969,7 @@ public sealed class ClangSharpHeaderParser
             for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
             {
                 var lineText = lines[lineIndex];
-                foreach (Match match in RenameAttributeExpression.Matches(lineText))
+                foreach (Match match in RenameAttributeExpression().Matches(lineText))
                 {
                     var column = match.Index + 1;
                     annotations.Add(new RenameAnnotation(lineIndex + 1, column, match.Groups["value"].Value));
@@ -2021,7 +2015,7 @@ public sealed class ClangSharpHeaderParser
                 }
             }
 
-            if (RenameAttributeExpression.Match(sourceText) is { Success: true })
+            if (RenameAttributeExpression().Match(sourceText) is { Success: true })
             {
                 ApplyRenameFromSource(node, sourceText);
             }
@@ -2052,7 +2046,7 @@ public sealed class ClangSharpHeaderParser
 
     private static void ApplyRenameFromSource(BindingNode node, string sourceText)
     {
-        var match = RenameAttributeExpression.Match(sourceText);
+        var match = RenameAttributeExpression().Match(sourceText);
         if (!match.Success)
         {
             return;
@@ -2149,7 +2143,7 @@ public sealed class ClangSharpHeaderParser
             NormalizeTypeName(enumDecl.IntegerType.AsString),
             GetCppQualifiedName(enumDecl))
         {
-            IsFlags = FlagsAttributeExpression.IsMatch(GetSourceText(enumDecl.TranslationUnit.Handle, enumDecl.Extent))
+            IsFlags = FlagsAttributeExpression().IsMatch(GetSourceText(enumDecl.TranslationUnit.Handle, enumDecl.Extent))
         };
 
         CheckAndApplyIgnoreAttribute(enumDecl, @enum);
@@ -2570,7 +2564,7 @@ public sealed class ClangSharpHeaderParser
             }
         }
 
-        var instantiations = ParseInstantiationMatches(InstantiateAttributeExpression.Matches(sourceText), recordsByName, enumsByName, managedTypeOverrides);
+        var instantiations = ParseInstantiationMatches(InstantiateAttributeExpression().Matches(sourceText), recordsByName, enumsByName, managedTypeOverrides);
 
         if (instantiations.Count == 0)
         {
@@ -2618,7 +2612,7 @@ public sealed class ClangSharpHeaderParser
 
             for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
             {
-                var instantiations = ParseInstantiationMatches(InstantiateAttributeExpression.Matches(lines[lineIndex]), new Dictionary<string, RecordBinding>(StringComparer.Ordinal), new Dictionary<string, EnumBinding>(StringComparer.Ordinal), new Dictionary<string, ManagedTypeOverride>(StringComparer.Ordinal));
+                var instantiations = ParseInstantiationMatches(InstantiateAttributeExpression().Matches(lines[lineIndex]), new Dictionary<string, RecordBinding>(StringComparer.Ordinal), new Dictionary<string, EnumBinding>(StringComparer.Ordinal), new Dictionary<string, ManagedTypeOverride>(StringComparer.Ordinal));
                 if (instantiations.Count == 0)
                 {
                     continue;
@@ -2641,7 +2635,7 @@ public sealed class ClangSharpHeaderParser
 
         foreach (Match match in matches)
         {
-            var arguments = InstantiateArgumentExpression.Matches(match.Groups["body"].Value)
+            var arguments = InstantiateArgumentExpression().Matches(match.Groups["body"].Value)
                 .Select(argumentMatch => ParseTypeToken(argumentMatch.Groups["value"].Value, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters))
                 .ToArray();
 

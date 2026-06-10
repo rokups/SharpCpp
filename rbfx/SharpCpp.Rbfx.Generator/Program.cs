@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using SharpCpp.Metadata.Export;
 using SharpCpp.Model.Logging;
@@ -66,6 +67,8 @@ internal static class Program
 
         try
         {
+            Logger.LogInformation("=== SharpCpp rbfx generator started ===");
+            var mainSw = Stopwatch.StartNew();
             var sdkRoot = Path.GetFullPath(options.SdkRoot);
             var includeRoot = Path.Combine(sdkRoot, "include");
             var urhoIncludeRoot = Path.Combine(includeRoot, "Urho3D");
@@ -93,6 +96,7 @@ internal static class Program
 
             Logger.LogInformation("Parsing umbrella header '{Header}' with owned declaration root '{Root}'.", NativeOutputHeader, urhoIncludeRoot);
 
+            var parseSw = Stopwatch.StartNew();
             var parser = new ClangSharpHeaderParser();
             var compilation = parser.Parse(
                 new ClangSharpParseRequest(
@@ -107,18 +111,25 @@ internal static class Program
                     EntryPointPrefix,
                     OwnedFileRoots: new[] { urhoIncludeRoot }));
             Logger.LogInformation("Parse complete: {Records} records, {Functions} functions.", compilation.Records.Count, compilation.Functions.Count);
+            Logger.LogInformation("Parse completed in {Duration}", FormatDuration(parseSw.Elapsed));
             compilation.NamespaceMappings = BuildNamespaceMappings(compilation);
 
             Logger.LogInformation("Applying pipeline passes...");
+            var pipelineSw = Stopwatch.StartNew();
             BindingCompilationBootstrapPipeline.Apply(compilation, marshallerConfigurationFiles, clangArguments);
             Logger.LogInformation("Pipeline complete: {Retained}/{Total} records retained.", compilation.Records.Count(r => !r.IsIgnored()), compilation.Records.Count);
+            Logger.LogInformation("Pipeline completed in {Duration}", FormatDuration(pipelineSw.Elapsed));
 
+            var sdkFilterSw = Stopwatch.StartNew();
             ApplySdkExportFilter(compilation, options.SdkLibraryPath);
             Logger.LogInformation("SDK filter complete.");
+            Logger.LogInformation("SDK filter completed in {Duration}", FormatDuration(sdkFilterSw.Elapsed));
 
             Logger.LogInformation("Rendering...");
+            var renderSw = Stopwatch.StartNew();
             var renderedBindings = BindingOutputRenderer.Render(compilation, GeneratedFileStem, DeriveGroupStem);
             Logger.LogInformation("Rendering complete.");
+            Logger.LogInformation("Render completed in {Duration}", FormatDuration(renderSw.Elapsed));
             var metadataDocument = BindingMetadataExporter.Export(
                 compilation,
                 new BindingMetadataExportOptions(
@@ -126,11 +137,13 @@ internal static class Program
                     Phase2ClosureHash: "rbfx-bootstrap-phase2",
                     ClangArgsHash: "rbfx-bootstrap-clang"));
 
+            var exportSw = Stopwatch.StartNew();
             Directory.CreateDirectory(options.GeneratedRoot);
             renderedBindings.WriteToDirectory(options.GeneratedRoot);
             File.WriteAllText(
                 Path.Combine(options.GeneratedRoot, $"{GeneratedFileStem}.Bindings.json"),
                 BindingMetadataSerializer.Serialize(metadataDocument));
+            Logger.LogInformation("Metadata export + file write completed in {Duration}", FormatDuration(exportSw.Elapsed));
 
             Logger.LogInformation("Generated rbfx bindings for {Retained} retained record(s) from {Total} ingested record declaration(s).", compilation.Records.Count(record => !record.IsIgnored()), compilation.Records.Count);
 
@@ -143,6 +156,7 @@ internal static class Program
                 }
             }
 
+            Logger.LogInformation("Total generation completed in {Duration}", FormatDuration(mainSw.Elapsed));
             return 0;
         }
         catch (Exception exception)
@@ -152,6 +166,8 @@ internal static class Program
             return 1;
         }
     }
+
+    private static string FormatDuration(TimeSpan elapsed) => $"{elapsed.TotalSeconds:F1}s";
 
     private static IReadOnlyList<string> BuildClangArguments(string includeRoot, SdkParseFlags sdkFlags)
     {
