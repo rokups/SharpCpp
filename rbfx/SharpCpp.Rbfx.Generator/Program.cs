@@ -278,22 +278,6 @@ internal static class Program
             function.SetIgnoreReason($"function '{function.CppQualifiedName}' is not exported by the linked rbfx SDK library");
             removedCount++;
         }
-
-        foreach (var function in compilation.Functions.Where(static function =>
-                     function.Parent is RecordBinding &&
-                     !function.IsIgnored() &&
-                     !function.GetMetadata<bool>(MetadataKeys.HasNativeDefinition) &&
-                     function.CppQualifiedName.Contains("::", StringComparison.Ordinal)))
-        {
-            if (exportedSignatures.Contains(function.CppQualifiedName))
-            {
-                continue;
-            }
-
-            function.SetIgnoreReason($"member function '{function.CppQualifiedName}' is declared in headers but not exported by the linked rbfx SDK library");
-            removedCount++;
-        }
-
         if (removedCount > 0)
         {
             Logger.LogInformation("Ignored {Count} top-level function(s) that are not exported by '{LibraryPath}'.", removedCount, sdkLibraryPath);

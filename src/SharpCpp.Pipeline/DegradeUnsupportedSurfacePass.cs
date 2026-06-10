@@ -225,7 +225,11 @@ public static class DegradeUnsupportedSurfacePass
         // (metafunctions like IndexInTuple) that shouldn't be wrapped.
         // Their only members would be the synthetic wrapper boilerplate (Handle,
         // constructors, P/Invoke) which is never useful without API methods.
-        if (!record.Members.OfType<FunctionBinding>().Any(static m => !m.IsConstructor && !m.IsStatic && !m.HasMetadata(MetadataKeys.IgnoreReason)) &&
+        // Exception: records with a managed base type or type format are
+        // configured by marshallers (e.g. std::string → StringBase).
+        if (string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
+            (record.ManagedTypeFormat is null || record.ManagedTypeFormat == record.ManagedName) &&
+            !record.Members.OfType<FunctionBinding>().Any(static m => !m.IsConstructor && !m.IsStatic && !m.HasMetadata(MetadataKeys.IgnoreReason)) &&
             !record.Members.OfType<FieldBinding>().Any() &&
             !record.Members.OfType<FunctionBinding>().Any(static m => m.IsConstructor && !m.HasMetadata(MetadataKeys.IgnoreReason)))
         {

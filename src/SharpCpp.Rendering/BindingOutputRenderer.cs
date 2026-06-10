@@ -857,7 +857,8 @@ public static partial class BindingOutputRenderer
         }
 
         WriteDocumentationComment(writer, record);
-        var classModifier = record.IsAbstract ? "abstract " : string.Empty;
+        var hasAbstractMembers = record.Members.OfType<FunctionBinding>().Any(static f => f.IsPureVirtual);
+        var classModifier = (record.IsAbstract || hasAbstractMembers) ? "abstract " : string.Empty;
         var hidesStaticHelpers = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) && 
             !record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal);
         var staticHelperModifier = hidesStaticHelpers ? "new " : string.Empty;
