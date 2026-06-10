@@ -89,7 +89,7 @@ internal static class Program
             Logger.LogInformation("Generated output root: {GeneratedRoot}", options.GeneratedRoot);
 
             var sdkFlags = SdkParseFlags.Load(options.FlagsFilePath);
-            var clangArguments = BuildClangArguments(includeRoot, sdkFlags);
+            var clangArguments = BuildClangArguments(projectRoot, includeRoot, sdkFlags);
             var umbrellaHeaderPath = Path.Combine(urhoIncludeRoot, "Urho3DAll.h");
             if (!File.Exists(umbrellaHeaderPath))
             {
@@ -176,7 +176,7 @@ internal static class Program
 
     private static string FormatDuration(TimeSpan elapsed) => $"{elapsed.TotalSeconds:F1}s";
 
-    private static IReadOnlyList<string> BuildClangArguments(string includeRoot, SdkParseFlags sdkFlags)
+    private static IReadOnlyList<string> BuildClangArguments(string projectRoot, string includeRoot, SdkParseFlags sdkFlags)
     {
         var arguments = new List<string>
         {
@@ -194,6 +194,14 @@ internal static class Program
         foreach (var includeDirectory in sdkFlags.IncludeDirectories)
         {
             arguments.Add($"-I{includeDirectory}");
+        }
+
+        // Add SharpCpp project include path so marshaller config headers can resolve
+        // <SharpCpp/Marshaller.hpp> and similar project-relative includes.
+        var projectInclude = Path.Combine(projectRoot, "include");
+        if (!arguments.Contains($"-I{projectInclude}", StringComparer.Ordinal))
+        {
+            arguments.Add($"-I{projectInclude}");
         }
 
         foreach (var define in sdkFlags.Defines)

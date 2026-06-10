@@ -7,14 +7,45 @@ namespace SharpCpp
 {
 
 // ═════════════════════════════════════════════════════════════════════
-// Urho3D::Vector3
+// Parameter ABI: pointer-to-original-type via Marshaller<const T&> specialization.
+//   The generic Marshaller<const T&> dereferences through Marshaller<T>::abi_type,
+//   which would double-indirect if Marshaller<T>::abi_type is also a pointer.
+//   Keeping Marshaller<T>::abi_type = T (value) avoids this.
+// Return ABI: ABI struct via ReturnMarshaller<T> specialization.
 // ═════════════════════════════════════════════════════════════════════
-//
-// Parameter: identity marshalling (C# Vector3 is layout-compatible with
-// Urho3D::Vector3: both are [StructLayout(Sequential)] with three floats).
-//
-// Return: uses Vector3Abi (separate ABI struct) with a C# custom
-// marshaller for the Vector3Abi → Vector3 conversion.
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::Urho3D.Math.Vector2",
+    marshaller_type = "global::Urho3D.Math.Vector2",
+    suppress_emission = true
+)]]
+Marshaller<Urho3D::Vector2>
+{
+    using cpp_type = Urho3D::Vector2;
+    using abi_type = Urho3D::Vector2;
+    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+};
+
+template <>
+struct Marshaller<const Urho3D::Vector2&>
+{
+    using cpp_type = const Urho3D::Vector2&;
+    using abi_type = const Urho3D::Vector2*;
+    abi_type ConvertToAbi(cpp_type v) const noexcept { return &v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return *v; }
+};
+
+template <>
+struct ReturnMarshaller<Urho3D::Vector2>
+{
+    using cpp_type = Urho3D::Vector2;
+    using abi_type = Vector2Abi;
+    abi_type ConvertToAbi(const cpp_type& v) const { return ToAbi(v); }
+    cpp_type ConvertToCpp(const abi_type& v) const { return ToCpp(v); }
+};
+
 // ═════════════════════════════════════════════════════════════════════
 
 template <>
@@ -27,38 +58,405 @@ Marshaller<Urho3D::Vector3>
 {
     using cpp_type = Urho3D::Vector3;
     using abi_type = Urho3D::Vector3;
+    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+};
 
-    constexpr abi_type ConvertToAbi(const cpp_type& value) const noexcept
-    {
-        return value;
-    }
+template <>
+struct Marshaller<const Urho3D::Vector3&>
+{
+    using cpp_type = const Urho3D::Vector3&;
+    using abi_type = const Urho3D::Vector3*;
+    abi_type ConvertToAbi(cpp_type v) const noexcept { return &v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return *v; }
+};
 
-    constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
-    {
-        return value;
-    }
+template <>
+struct ReturnMarshaller<Urho3D::Vector3>
+{
+    using cpp_type = Urho3D::Vector3;
+    using abi_type = Vector3Abi;
+    abi_type ConvertToAbi(const cpp_type& v) const { return ToAbi(v); }
+    cpp_type ConvertToCpp(const abi_type& v) const { return ToCpp(v); }
+};
+
+// ═════════════════════════════════════════════════════════════════════
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::Urho3D.Math.Vector4",
+    marshaller_type = "global::Urho3D.Math.Vector4",
+    suppress_emission = true
+)]]
+Marshaller<Urho3D::Vector4>
+{
+    using cpp_type = Urho3D::Vector4;
+    using abi_type = Urho3D::Vector4;
+    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+};
+
+template <>
+struct Marshaller<const Urho3D::Vector4&>
+{
+    using cpp_type = const Urho3D::Vector4&;
+    using abi_type = const Urho3D::Vector4*;
+    abi_type ConvertToAbi(cpp_type v) const noexcept { return &v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return *v; }
+};
+
+template <>
+struct ReturnMarshaller<Urho3D::Vector4>
+{
+    using cpp_type = Urho3D::Vector4;
+    using abi_type = Vector4Abi;
+    abi_type ConvertToAbi(const cpp_type& v) const { return ToAbi(v); }
+    cpp_type ConvertToCpp(const abi_type& v) const { return ToCpp(v); }
+};
+
+// ═════════════════════════════════════════════════════════════════════
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::Urho3D.Math.IntVector2",
+    marshaller_type = "global::Urho3D.Math.IntVector2",
+    suppress_emission = true
+)]]
+Marshaller<Urho3D::IntVector2>
+{
+    using cpp_type = Urho3D::IntVector2;
+    using abi_type = Urho3D::IntVector2;
+    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+};
+
+template <>
+struct Marshaller<const Urho3D::IntVector2&>
+{
+    using cpp_type = const Urho3D::IntVector2&;
+    using abi_type = const Urho3D::IntVector2*;
+    abi_type ConvertToAbi(cpp_type v) const noexcept { return &v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return *v; }
+};
+
+// ═════════════════════════════════════════════════════════════════════
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::Urho3D.Math.IntVector3",
+    marshaller_type = "global::Urho3D.Math.IntVector3",
+    suppress_emission = true
+)]]
+Marshaller<Urho3D::IntVector3>
+{
+    using cpp_type = Urho3D::IntVector3;
+    using abi_type = Urho3D::IntVector3;
+    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+};
+
+template <>
+struct Marshaller<const Urho3D::IntVector3&>
+{
+    using cpp_type = const Urho3D::IntVector3&;
+    using abi_type = const Urho3D::IntVector3*;
+    abi_type ConvertToAbi(cpp_type v) const noexcept { return &v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return *v; }
+};
+
+// ═════════════════════════════════════════════════════════════════════
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::Urho3D.Math.DoubleVector2",
+    marshaller_type = "global::Urho3D.Math.DoubleVector2",
+    suppress_emission = true
+)]]
+Marshaller<Urho3D::DoubleVector2>
+{
+    using cpp_type = Urho3D::DoubleVector2;
+    using abi_type = Urho3D::DoubleVector2;
+    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+};
+
+template <>
+struct Marshaller<const Urho3D::DoubleVector2&>
+{
+    using cpp_type = const Urho3D::DoubleVector2&;
+    using abi_type = const Urho3D::DoubleVector2*;
+    abi_type ConvertToAbi(cpp_type v) const noexcept { return &v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return *v; }
+};
+
+// ═════════════════════════════════════════════════════════════════════
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::Urho3D.Math.DoubleVector3",
+    marshaller_type = "global::Urho3D.Math.DoubleVector3",
+    suppress_emission = true
+)]]
+Marshaller<Urho3D::DoubleVector3>
+{
+    using cpp_type = Urho3D::DoubleVector3;
+    using abi_type = Urho3D::DoubleVector3;
+    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+};
+
+template <>
+struct Marshaller<const Urho3D::DoubleVector3&>
+{
+    using cpp_type = const Urho3D::DoubleVector3&;
+    using abi_type = const Urho3D::DoubleVector3*;
+    abi_type ConvertToAbi(cpp_type v) const noexcept { return &v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return *v; }
+};
+
+// ═════════════════════════════════════════════════════════════════════
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::Urho3D.Math.Quaternion",
+    marshaller_type = "global::Urho3D.Math.Quaternion",
+    suppress_emission = true
+)]]
+Marshaller<Urho3D::Quaternion>
+{
+    using cpp_type = Urho3D::Quaternion;
+    using abi_type = Urho3D::Quaternion;
+    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+};
+
+template <>
+struct Marshaller<const Urho3D::Quaternion&>
+{
+    using cpp_type = const Urho3D::Quaternion&;
+    using abi_type = const Urho3D::Quaternion*;
+    abi_type ConvertToAbi(cpp_type v) const noexcept { return &v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return *v; }
+};
+
+template <>
+struct ReturnMarshaller<Urho3D::Quaternion>
+{
+    using cpp_type = Urho3D::Quaternion;
+    using abi_type = QuaternionAbi;
+    abi_type ConvertToAbi(const cpp_type& v) const { return ToAbi(v); }
+    cpp_type ConvertToCpp(const abi_type& v) const { return ToCpp(v); }
+};
+
+// ═════════════════════════════════════════════════════════════════════
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::Urho3D.Math.Color",
+    marshaller_type = "global::Urho3D.Math.Color",
+    suppress_emission = true
+)]]
+Marshaller<Urho3D::Color>
+{
+    using cpp_type = Urho3D::Color;
+    using abi_type = Urho3D::Color;
+    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+};
+
+// ═════════════════════════════════════════════════════════════════════
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::Urho3D.Math.StringHash",
+    marshaller_type = "global::System.UInt32",
+    suppress_emission = true
+)]]
+Marshaller<Urho3D::StringHash>
+{
+    using cpp_type = Urho3D::StringHash;
+    using abi_type = unsigned int;
+    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v.Value(); }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return static_cast<cpp_type>(v); }
+};
+
+template <>
+struct Marshaller<const Urho3D::StringHash&>
+{
+    using cpp_type = const Urho3D::StringHash&;
+    using abi_type = const unsigned int*;
+    abi_type ConvertToAbi(cpp_type v) const noexcept { return reinterpret_cast<abi_type>(&v); }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return *reinterpret_cast<const Urho3D::StringHash*>(v); }
+};
+
+// Generic Marshaller<T&> produces abi_type = Marshaller<T>::abi_type* and
+// ConvertToCpp(abi_type) → return *value.  Since StringHash's abi_type is
+// unsigned int, that would try to return an unsigned int as
+// Urho3D::StringHash&, which fails.  StringHash wraps unsigned int so
+// pointer reinterpretation is safe — no mutable state needed.
+template <>
+struct Marshaller<Urho3D::StringHash&>
+{
+    using cpp_type = Urho3D::StringHash&;
+    using abi_type = unsigned int*;
+    abi_type ConvertToAbi(cpp_type v) const noexcept { return reinterpret_cast<abi_type>(&v); }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return *reinterpret_cast<Urho3D::StringHash*>(v); }
+};
+
+// ═════════════════════════════════════════════════════════════════════
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::Urho3D.Math.BoundingBox",
+    marshaller_type = "global::Urho3D.Math.BoundingBox",
+    suppress_emission = true
+)]]
+Marshaller<Urho3D::BoundingBox>
+{
+    using cpp_type = Urho3D::BoundingBox;
+    using abi_type = Urho3D::BoundingBox;
+    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
 };
 
 template <>
 struct [[sharpcpp::managed_type(
-    public_type = "global::Urho3D.Math.Vector3",
-    marshaller_type = "global::Urho3D.Interop.Vector3Abi",
-    managed_marshaller = "global::Urho3D.Interop.Vector3ReturnMarshaller"
+    public_type = "global::Urho3D.Math.Matrix2",
+    marshaller_type = "global::Urho3D.Math.Matrix2",
+    suppress_emission = true
 )]]
-ReturnMarshaller<Urho3D::Vector3>
+Marshaller<Urho3D::Matrix2>
 {
-    using cpp_type = Urho3D::Vector3;
-    using abi_type = Vector3Abi;
+    using cpp_type = Urho3D::Matrix2;
+    using abi_type = Urho3D::Matrix2;
+    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+};
 
-    abi_type ConvertToAbi(const cpp_type& value) const
-    {
-        return ToAbi(value);
-    }
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::Urho3D.Math.Matrix3",
+    marshaller_type = "global::Urho3D.Math.Matrix3",
+    suppress_emission = true
+)]]
+Marshaller<Urho3D::Matrix3>
+{
+    using cpp_type = Urho3D::Matrix3;
+    using abi_type = Urho3D::Matrix3;
+    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+};
 
-    cpp_type ConvertToCpp(const abi_type& value) const
-    {
-        return ToCpp(value);
-    }
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::Urho3D.Math.Matrix3x4",
+    marshaller_type = "global::Urho3D.Math.Matrix3x4",
+    suppress_emission = true
+)]]
+Marshaller<Urho3D::Matrix3x4>
+{
+    using cpp_type = Urho3D::Matrix3x4;
+    using abi_type = Urho3D::Matrix3x4;
+    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+};
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::Urho3D.Math.Matrix4",
+    marshaller_type = "global::Urho3D.Math.Matrix4",
+    suppress_emission = true
+)]]
+Marshaller<Urho3D::Matrix4>
+{
+    using cpp_type = Urho3D::Matrix4;
+    using abi_type = Urho3D::Matrix4;
+    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+};
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::Urho3D.Math.Plane",
+    marshaller_type = "global::Urho3D.Math.Plane",
+    suppress_emission = true
+)]]
+Marshaller<Urho3D::Plane>
+{
+    using cpp_type = Urho3D::Plane;
+    using abi_type = Urho3D::Plane;
+    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+};
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::Urho3D.Math.Ray",
+    marshaller_type = "global::Urho3D.Math.Ray",
+    suppress_emission = true
+)]]
+Marshaller<Urho3D::Ray>
+{
+    using cpp_type = Urho3D::Ray;
+    using abi_type = Urho3D::Ray;
+    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+};
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::Urho3D.Math.Sphere",
+    marshaller_type = "global::Urho3D.Math.Sphere",
+    suppress_emission = true
+)]]
+Marshaller<Urho3D::Sphere>
+{
+    using cpp_type = Urho3D::Sphere;
+    using abi_type = Urho3D::Sphere;
+    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+};
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::Urho3D.Math.Rect",
+    marshaller_type = "global::Urho3D.Math.Rect",
+    suppress_emission = true
+)]]
+Marshaller<Urho3D::Rect>
+{
+    using cpp_type = Urho3D::Rect;
+    using abi_type = Urho3D::Rect;
+    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+};
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::Urho3D.Math.IntRect",
+    marshaller_type = "global::Urho3D.Math.IntRect",
+    suppress_emission = true
+)]]
+Marshaller<Urho3D::IntRect>
+{
+    using cpp_type = Urho3D::IntRect;
+    using abi_type = Urho3D::IntRect;
+    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+};
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::Urho3D.Math.Transform",
+    marshaller_type = "global::Urho3D.Math.Transform",
+    suppress_emission = true
+)]]
+Marshaller<Urho3D::Transform>
+{
+    using cpp_type = Urho3D::Transform;
+    using abi_type = Urho3D::Transform;
+    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
 };
 
 } // namespace SharpCpp

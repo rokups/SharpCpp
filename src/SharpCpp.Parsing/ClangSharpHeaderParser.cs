@@ -1385,10 +1385,14 @@ public sealed partial class ClangSharpHeaderParser
 
             if (TypeIsRecord(normalizedPointeeType))
             {
+                var mappedType = MapType(normalizedPointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+                var abiKind = mappedType.Kind == BindingTypeKind.Primitive
+                    ? BindingParameterAbiKind.Reference
+                    : BindingParameterAbiKind.Value;
                 return (
-                    MapType(normalizedPointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
+                    mappedType,
                     explicitDirection ?? BindingParameterDirection.In,
-                    BindingParameterAbiKind.Value);
+                    abiKind);
             }
 
             var pointeeTypeName = NormalizeTypeName(sourcePointeeType.Spelling.ToString());
@@ -1459,6 +1463,15 @@ public sealed partial class ClangSharpHeaderParser
             return genericParameterType;
         }
 
+        if (isReturn && managedTypeOverrides.TryGetValue("return:" + normalizedTypeName, out var returnOverride))
+        {
+            return BindingType.CreateConfigured(
+                returnOverride.CppTypeName,
+                returnOverride.PublicTypeName,
+                returnOverride.MarshallerTypeName,
+                returnOverride.ManagedMarshaller);
+        }
+
         if (!managedTypeOverrides.TryGetValue(normalizedTypeName, out var managedTypeOverride)
             && normalizedTypeName.StartsWith("const ", StringComparison.Ordinal))
         {
@@ -1494,15 +1507,6 @@ public sealed partial class ClangSharpHeaderParser
                 managedTypeOverride.PublicTypeName,
                 managedTypeOverride.MarshallerTypeName,
                 managedTypeOverride.ManagedMarshaller);
-        }
-
-        if (isReturn && managedTypeOverrides.TryGetValue("return:" + normalizedTypeName, out var returnOverride))
-        {
-            return BindingType.CreateConfigured(
-                returnOverride.CppTypeName,
-                returnOverride.PublicTypeName,
-                returnOverride.MarshallerTypeName,
-                returnOverride.ManagedMarshaller);
         }
 
         if (TypeIsLValueReference(normalizedType))

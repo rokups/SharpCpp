@@ -80,6 +80,25 @@ public static class MarshallerMetadataPhase2
                 continue;
             }
 
+            // When a Marshaller<T> attribute provides metadata for a
+            // placeholder record (e.g., std::basic_string<char> from system
+            // headers whose definition is not in the owned include tree),
+            // promote the placeholder to a "real" record so the renderer
+            // emits its wrapper class instead of degrading it.
+            if (record.HasMetadata(MetadataKeys.PlaceholderRecord))
+            {
+                record.SetMetadata(MetadataKeys.PlaceholderRecord, false);
+                record.SetMetadata(MetadataKeys.ForwardDeclaration, false);
+                // Assign a header include path so the renderer places this
+                // record in a valid output file (system headers aren't in
+                // the owned include tree, so they'd get no output file).
+                if (string.IsNullOrWhiteSpace(record.HeaderIncludePath) ||
+                    !record.HeaderIncludePath.Contains('/', StringComparison.Ordinal))
+                {
+                    record.HeaderIncludePath = $"foreign/{record.NativeName}.hpp";
+                }
+            }
+
             var body = config.AttributeBody;
 
             // public_type → ManagedTypeFormat / ManagedName
