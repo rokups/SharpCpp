@@ -104,7 +104,7 @@ public static partial class BindingOutputRenderer
             .OrderBy(static record => record.ManagedName, StringComparer.Ordinal)
             .ToArray();
         var polymorphicConcreteRecords = records
-            .Where(static record => record.IsPolymorphic && !record.IsAbstract && !record.HasMetadata(MetadataKeys.IgnoreReason))
+            .Where(static record => record.IsPolymorphic && !record.IsEffectivelyAbstract && !record.HasMetadata(MetadataKeys.IgnoreReason))
             .ToArray();
         var genericImportDeclarations = new List<string>();
 
@@ -799,7 +799,7 @@ public static partial class BindingOutputRenderer
         }
 
         var polymorphicConcreteRecords = compilation.Records
-            .Where(static record => record.IsPolymorphic && !record.IsAbstract && !record.HasMetadata(MetadataKeys.IgnoreReason))
+            .Where(static record => record.IsPolymorphic && !record.IsEffectivelyAbstract && !record.HasMetadata(MetadataKeys.IgnoreReason))
             .ToArray();
         if (polymorphicConcreteRecords.Length == 0)
         {
@@ -857,8 +857,7 @@ public static partial class BindingOutputRenderer
         }
 
         WriteDocumentationComment(writer, record);
-        var hasAbstractMembers = record.Members.OfType<FunctionBinding>().Any(static f => f.IsPureVirtual);
-        var classModifier = (record.IsAbstract || hasAbstractMembers) ? "abstract " : string.Empty;
+        var classModifier = record.IsEffectivelyAbstract ? "abstract " : string.Empty;
         var hidesStaticHelpers = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) && 
             !record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal);
         var staticHelperModifier = hidesStaticHelpers ? "new " : string.Empty;
@@ -900,7 +899,7 @@ public static partial class BindingOutputRenderer
             {{staticHelperModifier}}public static {{record.ManagedName}} CreateManagedWrapper(nint handle, bool ownsHandle)
             {
             if (handle == 0)
-                {{(record.IsAbstract ? "return null!;" : $"return new {record.ManagedName}(0, ownsHandle);")}}
+                {{(record.IsEffectivelyAbstract ? "return null!;" : $"return new {record.ManagedName}(0, ownsHandle);")}}
 
             {{(record.IsPolymorphic ? $"{compilation.ManagedClassName}.__NativeObjectRegistryInitializer.EnsureRegistered();" : string.Empty)}}
             if (s_instanceCache.TryGetExisting(handle, ownsHandle, out var existing) && existing is {{record.ManagedName}} cached)
@@ -908,7 +907,7 @@ public static partial class BindingOutputRenderer
 
             {{(record.IsPolymorphic
                 ? $"return ({record.ManagedName})global::SharpCpp.Support.NativeObjectRegistry.Create<{record.ManagedName}>(handle, ownsHandle);"
-                : record.IsAbstract
+                : record.IsEffectivelyAbstract
                     ? "return null!;"
                     : $"return new {record.ManagedName}(handle, ownsHandle);")}}
             }
@@ -1075,7 +1074,7 @@ public static partial class BindingOutputRenderer
 
                 static global::SharpCpp.Support.INativeInstanceCache global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationInstanceCache => s_instanceCache;
 
-                static global::System.Func<nint, bool, global::SharpCpp.Support.NativeObject>? global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationCreateFactory => {{(record.IsAbstract ? "null" : $"static (handle, ownsHandle) => new {record.ManagedName}(handle, ownsHandle)")}};
+                static global::System.Func<nint, bool, global::SharpCpp.Support.NativeObject>? global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationCreateFactory => {{(record.IsEffectivelyAbstract ? "null" : $"static (handle, ownsHandle) => new {record.ManagedName}(handle, ownsHandle)")}};
 
                 static global::SharpCpp.Support.NativeObjectMetadata global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationGetMetadata(nint handle)
                 {

@@ -30,6 +30,9 @@ public sealed class RecordBinding : BindingNamedContainerNode
 
     public bool IsAbstract { get; set; }
 
+    public bool HasPureVirtualMembers => Members.OfType<FunctionBinding>().Any(static f => f.IsPureVirtual);
+    public bool IsEffectivelyAbstract => IsAbstract || HasPureVirtualMembers;
+
     public bool IsPolymorphic { get; set; }
 
     public IList<RecordBaseBinding> Bases => _bases;
