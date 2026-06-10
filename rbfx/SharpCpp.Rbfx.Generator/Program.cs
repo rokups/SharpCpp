@@ -77,9 +77,11 @@ internal static class Program
                 throw new InvalidOperationException($"rbfx SDK include directory was not found at '{urhoIncludeRoot}'.");
             }
 
+            var projectRoot = Path.GetFullPath(options.ProjectRoot);
             var marshallerConfigurationFiles = new[]
             {
-                Path.Combine(Path.GetFullPath(options.ProjectRoot), "include", "SharpCpp", "Marshaller.hpp")
+                Path.Combine(projectRoot, "include", "SharpCpp", "Marshaller.hpp"),
+                Path.Combine(projectRoot, "include", "SharpCpp", "detail", "RbfxValueTypeMarshallers.hpp")
             };
 
             Logger.LogInformation("rbfx SDK root: {SdkRoot}", sdkRoot);
@@ -112,6 +114,11 @@ internal static class Program
                     OwnedFileRoots: new[] { urhoIncludeRoot }));
             Logger.LogInformation("Parse complete: {Records} records, {Functions} functions.", compilation.Records.Count, compilation.Functions.Count);
             Logger.LogInformation("Parse completed in {Duration}", FormatDuration(parseSw.Elapsed));
+
+            // Add rbfx value-type marshaller headers so generated native code
+            // can resolve arg_t<T>/ret_t<T> for math types like Urho3D::Vector3.
+            compilation.HeaderFiles.Add("SharpCpp/detail/RbfxValueTypeMarshallers.hpp");
+
             compilation.NamespaceMappings = BuildNamespaceMappings(compilation);
 
             Logger.LogInformation("Applying pipeline passes...");

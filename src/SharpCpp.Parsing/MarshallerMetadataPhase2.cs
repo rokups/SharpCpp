@@ -31,6 +31,10 @@ public static class MarshallerMetadataPhase2
         @"managed_base_type\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+    private static readonly Regex SuppressEmissionExpression = new(
+        @"suppress_emission\s*=\s*true",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     /// <summary>
     /// Apply record-level metadata using ClangSharp AST extraction.
     /// </summary>
@@ -101,6 +105,12 @@ public static class MarshallerMetadataPhase2
             if (MarshallerTypeExpression.Match(body) is { Success: true } marshallerTypeMatch)
             {
                 record.HandleMarshallerTypeName = marshallerTypeMatch.Groups["value"].Value;
+            }
+
+            // suppress_emission = true → SuppressEmission metadata
+            if (SuppressEmissionExpression.IsMatch(body))
+            {
+                record.SetMetadata(MetadataKeys.SuppressEmission, true);
             }
 
             // managed_base_type → ManagedBaseTypeName

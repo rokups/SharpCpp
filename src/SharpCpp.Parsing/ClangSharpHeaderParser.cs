@@ -1459,6 +1459,43 @@ public sealed partial class ClangSharpHeaderParser
             return genericParameterType;
         }
 
+        if (!managedTypeOverrides.TryGetValue(normalizedTypeName, out var managedTypeOverride)
+            && normalizedTypeName.StartsWith("const ", StringComparison.Ordinal))
+        {
+            // Strip leading "const " from the type name when the exact key
+            // isn't found, so "const Urho3D::Vector3" resolves to the
+            // "Urho3D::Vector3" override for configured value types.
+            var strippedName = normalizedTypeName["const ".Length..].TrimStart();
+            managedTypeOverrides.TryGetValue(strippedName, out managedTypeOverride);
+        }
+
+        if (isReturn && managedTypeOverride is null &&
+            normalizedTypeName.StartsWith("const ", StringComparison.Ordinal))
+        {
+            // For const-qualified return types, also try the return:-prefixed key
+            // with const stripped (e.g., "return:Urho3D::Vector3" for
+            // "const Urho3D::Vector3" returns).
+            var strippedName = normalizedTypeName["const ".Length..].TrimStart();
+            managedTypeOverrides.TryGetValue("return:" + strippedName, out var strippedReturnOverride);
+            if (strippedReturnOverride is not null)
+            {
+                return BindingType.CreateConfigured(
+                    strippedReturnOverride.CppTypeName,
+                    strippedReturnOverride.PublicTypeName,
+                    strippedReturnOverride.MarshallerTypeName,
+                    strippedReturnOverride.ManagedMarshaller);
+            }
+        }
+
+        if (managedTypeOverride is not null)
+        {
+            return BindingType.CreateConfigured(
+                managedTypeOverride.CppTypeName,
+                managedTypeOverride.PublicTypeName,
+                managedTypeOverride.MarshallerTypeName,
+                managedTypeOverride.ManagedMarshaller);
+        }
+
         if (isReturn && managedTypeOverrides.TryGetValue("return:" + normalizedTypeName, out var returnOverride))
         {
             return BindingType.CreateConfigured(
@@ -1466,13 +1503,6 @@ public sealed partial class ClangSharpHeaderParser
                 returnOverride.PublicTypeName,
                 returnOverride.MarshallerTypeName,
                 returnOverride.ManagedMarshaller);
-        }
-
-        if (managedTypeOverrides.TryGetValue(normalizedTypeName, out var managedTypeOverride))
-        {
-            return BindingType.CreateConfigured(
-                managedTypeOverride.CppTypeName,
-                managedTypeOverride.PublicTypeName);
         }
 
         if (TypeIsLValueReference(normalizedType))
