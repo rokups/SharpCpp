@@ -131,6 +131,10 @@ public sealed partial class ClangSharpHeaderParser
 
                 case FunctionTemplateDecl funcTemplateDecl:
                 {
+                    // Skip out-of-line template member definitions — the class-body
+                    // declaration is authoritative for access and static/virtual status.
+                    if (funcTemplateDecl.TemplatedDecl is CXXMethodDecl)
+                        break;
                     var function = CreateTemplateFunction(funcTemplateDecl, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
                     if (function is not null)
                     {
@@ -147,6 +151,13 @@ public sealed partial class ClangSharpHeaderParser
 
                 case FunctionDecl functionDecl:
                 {
+                    // Out-of-line member definitions (CXXMethodDecl) at translation-unit
+                    // scope belong to a record — the class-body declaration (inside
+                    // RecordDecl.Decls) is the authoritative source for access and
+                    // virtual/static status. Skip to avoid generating invalid thunks
+                    // for non-public members.
+                    if (functionDecl is CXXMethodDecl)
+                        break;
                     var function = CreateFunction(functionDecl, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
                     CheckAndApplyIgnoreAttribute(functionDecl, function);
                     TryApplyRename(functionDecl, function);
@@ -2377,6 +2388,10 @@ public sealed partial class ClangSharpHeaderParser
 
                 case FunctionTemplateDecl funcTemplateDecl:
                 {
+                    // Skip out-of-line template member definitions — the class-body
+                    // declaration is authoritative for access and static/virtual status.
+                    if (funcTemplateDecl.TemplatedDecl is CXXMethodDecl)
+                        break;
                     var function = CreateTemplateFunction(funcTemplateDecl, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
                     if (function is not null)
                     {
@@ -2393,6 +2408,13 @@ public sealed partial class ClangSharpHeaderParser
 
                 case FunctionDecl functionDecl:
                 {
+                    // Out-of-line member definitions (CXXMethodDecl) at namespace
+                    // scope belong to a record — the class-body declaration (inside
+                    // RecordDecl.Decls) is the authoritative source for access and
+                    // virtual/static status. Skip to avoid generating invalid thunks
+                    // for non-public members.
+                    if (functionDecl is CXXMethodDecl)
+                        break;
                     var function = CreateFunction(functionDecl, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
                     CheckAndApplyIgnoreAttribute(functionDecl, function);
                     TryApplyRename(functionDecl, function);
