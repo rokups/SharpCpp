@@ -6,6 +6,19 @@ public sealed class CodeWriter
 {
     private readonly StringBuilder _builder = new();
     private const int IndentSize = 4;
+    private static readonly string[] IndentStrings = GenerateIndentStrings(32);
+    private const int MaxIndentLevel = 128;
+
+    private static string[] GenerateIndentStrings(int maxLevel)
+    {
+        var result = new string[maxLevel + 1];
+        for (var i = 0; i <= maxLevel; i++)
+        {
+            result[i] = new string(' ', i * IndentSize);
+        }
+        return result;
+    }
+
     private int _indentLevel;
     private bool _isAtStartOfLine = true;
 
@@ -22,13 +35,29 @@ public sealed class CodeWriter
             _isAtStartOfLine = true;
         }
 
-        var endsWithClosingBraceWithoutTrailingNewLine = EndsWithClosingBrace(code) && !EndsWithNewLine(code);
-        var lines = code.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
+        // Fast path: single line without trailing closing brace — avoids Split entirely
+        if (!EndsWithClosingBrace(code))
+        {
+            var newlineIndex = code.IndexOf('\n', StringComparison.Ordinal);
+            if (newlineIndex < 0)
+            {
+                WriteNormalizedLine(NormalizeIndentation(code), false);
+                return;
+            }
+        }
+
+        // Normalize \r\n and \r to \n only when needed (most renderer output uses \n consistently)
+        if (code.Contains('\r'))
+        {
+            code = code.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        }
+
+        var lines = code.Split('\n');
 
         for (var index = 0; index < lines.Length; index++)
         {
             var line = NormalizeIndentation(lines[index]);
-            var appendNewLine = index < lines.Length - 1 || index == lines.Length - 1 && endsWithClosingBraceWithoutTrailingNewLine;
+            var appendNewLine = index < lines.Length - 1 || (index == lines.Length - 1 && EndsWithClosingBrace(line));
             WriteNormalizedLine(line, appendNewLine);
         }
     }
@@ -60,7 +89,17 @@ public sealed class CodeWriter
         var leadingClosingBraceCount = CountLeadingClosingBraces(line, firstContentIndex);
         var effectiveIndentLevel = Math.Max(0, _indentLevel - leadingClosingBraceCount);
 
-        _builder.Append(' ', effectiveIndentLevel * IndentSize);
+        if (effectiveIndentLevel > 0)
+        {
+            if (effectiveIndentLevel < IndentStrings.Length)
+            {
+                _builder.Append(IndentStrings[effectiveIndentLevel]);
+            }
+            else
+            {
+                _builder.Append(' ', effectiveIndentLevel * IndentSize);
+            }
+        }
         _builder.Append(line);
 
         if (appendNewLine)
@@ -189,11 +228,6 @@ public sealed class CodeWriter
         }
 
         return false;
-    }
-
-    private static bool EndsWithNewLine(string code)
-    {
-        return code.EndsWith('\n') || code.EndsWith('\r');
     }
 
     private static bool StartsWithNewLine(string code)

@@ -212,6 +212,8 @@ Bootstrap an independent SharpCpp line from the design docs in `doc/`, while sel
 
 - [x] Nested angle bracket bug fix in `MarshallerConfigExtractor`: replaced regex `[^>]+` template argument capture with a balanced-angle-bracket parser that tracks `<`/`>` depth, so `Marshaller<std::basic_string<char>>` correctly extracts the full `std::basic_string<char>` instead of clipping at the inner `>`. Also expanded `NormalizeTypeName` in both `MarshallerConfigExtractor` and `ClangSharpHeaderParser` to strip tokenization-inserted spaces around `::`, `<`, and `>`, so extracted type names match Clang's native type spellings. Removed debug `Console.Error.WriteLine` diagnostics. The `Std.String` managed type override now applies correctly — generated output maps `basic_string<char>` to `String` instead of `BasicString<char>`.
 
+- [x] **CodeWriter string allocation optimization**: Added cached `IndentStrings` array to avoid per-line `' '` repeat allocations in `WriteNormalizedLine`. Added fast-path in `Write()` that skips `Split` entirely for single-line non-brace code (common in renderers). Replaced unconditional two-pass line-ending normalization with conditional `\r`-only path, avoiding allocations when renderer output already uses `\n`. Removed now-dead `EndsWithNewLine` helper. All 6 model tests pass, cmake build clean.
+
 ## Verification Commands
 
 ```bash
