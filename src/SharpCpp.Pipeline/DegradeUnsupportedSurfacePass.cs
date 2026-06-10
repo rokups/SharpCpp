@@ -255,6 +255,17 @@ public static class DegradeUnsupportedSurfacePass
             if (string.Equals(record.ManagedBaseTypeName, baseBinding.ManagedName, StringComparison.Ordinal))
             {
                 record.ManagedBaseTypeName = null;
+                // Re-pick managed base from remaining non-virtual, non-ignored bases
+                foreach (var remainingBase in record.Bases)
+                {
+                    if (!remainingBase.IsVirtual &&
+                        recordsById.TryGetValue(remainingBase.RecordId, out var remainingBaseRecord) &&
+                        !remainingBaseRecord.IsIgnored())
+                    {
+                        record.ManagedBaseTypeName = remainingBase.ManagedName;
+                        break;
+                    }
+                }
             }
         }
 

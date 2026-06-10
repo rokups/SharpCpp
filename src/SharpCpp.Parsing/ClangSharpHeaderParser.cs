@@ -536,7 +536,7 @@ public sealed partial class ClangSharpHeaderParser
 
             record.Bases.Add(new RecordBaseBinding(baseRecord.SymbolId, baseRecord.NativeName, baseRecord.ManagedName, baseRecord.CppQualifiedName, baseSpec.IsVirtual));
 
-            if (record.ManagedBaseTypeName is null && !baseSpec.IsVirtual)
+            if (record.ManagedBaseTypeName is null && !baseSpec.IsVirtual && !baseRecord.HasMetadata(MetadataKeys.PlaceholderRecord))
             {
                 record.ManagedBaseTypeName = baseRecord.ManagedName;
             }
