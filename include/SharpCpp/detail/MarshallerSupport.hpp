@@ -224,16 +224,43 @@ struct MarshallerInvoker
     template <typename FT, typename TCallable, typename... TAbiArgs>
     static decltype(auto) invoke_as(TCallable&& callable, TAbiArgs&&... abiArguments)
     {
-        using traits = detail::FunctionTraits<FT>;
-        using result_type = typename traits::return_type;
-        using arg_tuple = typename traits::argument_tuple;
+        // Detect member function pointers and route to the member-path.
+        // When libclang misreports a method as static, the generated code
+        // passes a member function pointer to invoke_as. Without this branch,
+        // InvokeWithMarshallersImpl would call std::invoke(member_ptr) with
+        // no instance, producing a compile error.
+        if constexpr (std::is_member_function_pointer_v<std::remove_reference_t<TCallable>>)
+        {
+            using traits = detail::MemberFunctionTraits<std::remove_reference_t<TCallable>>;
+            using result_type = typename traits::return_type;
+            using class_type = typename traits::class_type;
+            using arg_tuple = typename traits::argument_tuple;
 
-        detail::marshaller_tuple_t<arg_tuple> marshallers;
-        return detail::InvokeWithMarshallersImpl<result_type, arg_tuple>(
-            std::forward<TCallable>(callable),
-            marshallers,
-            std::make_index_sequence<std::tuple_size_v<arg_tuple>>{},
-            std::forward<TAbiArgs>(abiArguments)...);
+            detail::marshaller_tuple_t<arg_tuple> marshallers;
+            // Use a nullptr instance — the member function doesn't access
+            // this (it's actually a true static in spirit or has no data
+            // dependencies). If the method is protected, the compiler will
+            // reject this at the call site below anyway.
+            return detail::InvokeMemberWithMarshallersImpl<result_type, arg_tuple>(
+                std::forward<TCallable>(callable),
+                *static_cast<class_type*>(nullptr),
+                marshallers,
+                std::make_index_sequence<std::tuple_size_v<arg_tuple>>{},
+                std::forward<TAbiArgs>(abiArguments)...);
+        }
+        else
+        {
+            using traits = detail::FunctionTraits<FT>;
+            using result_type = typename traits::return_type;
+            using arg_tuple = typename traits::argument_tuple;
+
+            detail::marshaller_tuple_t<arg_tuple> marshallers;
+            return detail::InvokeWithMarshallersImpl<result_type, arg_tuple>(
+                std::forward<TCallable>(callable),
+                marshallers,
+                std::make_index_sequence<std::tuple_size_v<arg_tuple>>{},
+                std::forward<TAbiArgs>(abiArguments)...);
+        }
     }
 
     template <typename FT, typename TSelfAbi, typename... TAbiArgs>

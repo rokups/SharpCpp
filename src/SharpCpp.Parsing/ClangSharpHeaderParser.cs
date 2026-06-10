@@ -618,6 +618,15 @@ public sealed partial class ClangSharpHeaderParser
 
                 case CXXMethodDecl staticMethod when staticMethod.Handle.CXXMethod_IsStatic:
                 {
+                    // libclang may misreport instance methods as static.
+                    // Cross-check: read the declaration text from the Interop
+                    // cursor extent. If the source lacks 'static', the method
+                    // is really an instance method — skip it.
+                    var handle = staticMethod.Handle;
+                    var staticSrc = GetSourceText(handle.TranslationUnit, handle.Extent);
+                    if (!staticSrc.Contains("static", StringComparison.Ordinal))
+                        continue;
+
                     // Protected static methods can't be called from a
                     // standalone function (not a friend or derived class).
                     if (staticMethod.Access == CX_CXXAccessSpecifier.CX_CXXProtected ||
