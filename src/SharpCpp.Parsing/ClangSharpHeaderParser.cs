@@ -605,6 +605,12 @@ public sealed partial class ClangSharpHeaderParser
 
                 case CXXMethodDecl methodDecl when !methodDecl.Handle.CXXMethod_IsStatic:
                 {
+                    // Prefer class-body declarations over out-of-line definitions.
+                    // Decl.Decls may include both; only class-body declarations
+                    // (with the RecordDecl as lexical parent) have correct access.
+                    if (methodDecl.Handle.Kind != CXCursorKind.CXCursor_CXXMethod)
+                        continue;
+
                     var method = CreateMethod(record, methodDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
                     CheckAndApplyIgnoreAttribute(methodDecl, method);
                     TryApplyRename(methodDecl, method);
@@ -618,13 +624,12 @@ public sealed partial class ClangSharpHeaderParser
 
                 case CXXMethodDecl staticMethod when staticMethod.Handle.CXXMethod_IsStatic:
                 {
-                    // libclang may misreport instance methods as static.
-                    // Cross-check: read the declaration text from the Interop
-                    // cursor extent. If the source lacks 'static', the method
-                    // is really an instance method — skip it.
-                    var handle = staticMethod.Handle;
-                    var staticSrc = GetSourceText(handle.TranslationUnit, handle.Extent);
-                    if (!staticSrc.Contains("static", StringComparison.Ordinal))
+                    // Decl.Decls may include out-of-line inline definitions
+                    // (CXCursor_FunctionDecl) in addition to class-body
+                    // declarations (CXCursor_CXXMethod). Only the class-body
+                    // declarations have correct access specifiers. Out-of-
+                    // line definitions are for the linker, not the class API.
+                    if (staticMethod.Handle.Kind != CXCursorKind.CXCursor_CXXMethod)
                         continue;
 
                     // Protected static methods can't be called from a
@@ -632,7 +637,7 @@ public sealed partial class ClangSharpHeaderParser
                     if (staticMethod.Access == CX_CXXAccessSpecifier.CX_CXXProtected ||
                         staticMethod.Handle.CXXAccessSpecifier == CX_CXXAccessSpecifier.CX_CXXProtected)
                         continue;
-
+                    
                     var method = CreateStaticMethod(record, staticMethod, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
                     CheckAndApplyIgnoreAttribute(staticMethod, method);
                     TryApplyRename(staticMethod, method);
