@@ -1,5 +1,3 @@
-using System.Diagnostics;
-
 namespace SharpCpp.Rendering;
 
 public sealed class GeneratedBindingSet
@@ -15,8 +13,6 @@ public sealed class GeneratedBindingSet
     public void WriteToDirectory(string outputDirectory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
-
-        var sw = Stopwatch.StartNew();
 
         var desiredRelativePaths = Files
             .Select(static file => file.RelativePath.Replace('\\', '/'))
@@ -46,8 +42,5 @@ public sealed class GeneratedBindingSet
 
             File.WriteAllText(outputPath, file.Content);
         }
-
-        sw.Stop();
-        System.Console.Error.WriteLine($"[PERF] WriteToDirectory({outputDirectory}) completed in {sw.Elapsed.TotalSeconds:F2}s");
     }
 }
