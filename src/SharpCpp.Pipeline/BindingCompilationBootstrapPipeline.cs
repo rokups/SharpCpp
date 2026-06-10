@@ -1,11 +1,15 @@
 using System.Diagnostics;
+using Microsoft.Extensions.Logging;
 using SharpCpp.Model.Ast;
+using SharpCpp.Model.Logging;
 using SharpCpp.Parsing;
 
 namespace SharpCpp.Pipeline;
 
 public static class BindingCompilationBootstrapPipeline
 {
+    private static readonly ILogger Logger = SharpCppLog.For(nameof(BindingCompilationBootstrapPipeline));
+
     /// <summary>
     /// Apply the bootstrap pipeline using ClangSharp-backed Phase 2 metadata extraction.
     /// The C++ compiler resolves template specializations; the AST walk replaces
@@ -43,17 +47,14 @@ public static class BindingCompilationBootstrapPipeline
         }
         catch
         {
-            DebugWrite($"[pipeline] {name}: FAILED after {sw.Elapsed.TotalSeconds:F1}s");
+            Logger.LogWarning("Pass '{Name}' FAILED after {Duration}", name, FormatDuration(sw.Elapsed));
             throw;
         }
         if (sw.Elapsed.TotalSeconds >= 1)
         {
-            DebugWrite($"[pipeline] {name}: {sw.Elapsed.TotalSeconds:F1}s");
+            Logger.LogInformation("Pass '{Name}' completed in {Duration}", name, FormatDuration(sw.Elapsed));
         }
     }
 
-    private static void DebugWrite(string message)
-    {
-        Console.WriteLine(message);
-    }
+    private static string FormatDuration(TimeSpan elapsed) => $"{elapsed.TotalSeconds:F1}s";
 }

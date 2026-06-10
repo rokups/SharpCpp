@@ -1,6 +1,8 @@
 using System.Text.RegularExpressions;
 
 using SharpCpp.Model.Ast;
+using Microsoft.Extensions.Logging;
+using SharpCpp.Model.Logging;
 
 namespace SharpCpp.Parsing;
 
@@ -22,6 +24,8 @@ public static class MarshallerMetadataPhase2
     private static readonly Regex MarshallerTypeExpression = new(
         @"marshaller_type\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static readonly ILogger Logger = SharpCppLog.For(nameof(MarshallerMetadataPhase2));
 
     private static readonly Regex ManagedBaseTypeExpression = new(
         @"managed_base_type\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
@@ -80,10 +84,11 @@ public static class MarshallerMetadataPhase2
                 var publicType = publicTypeMatch.Groups["value"].Value;
                 if (record.ManagedTypeFormat is not null && !string.Equals(record.ManagedTypeFormat, publicType, StringComparison.Ordinal))
                 {
-                    Console.Error.WriteLine(
-                        $"SharpCpp warning: record '{record.NativeName}' has [[sharpcpp::rename(\"{record.ManagedTypeFormat}\")]] " +
-                        $"but marshaller declares managed_type(public_type = \"{publicType}\"). " +
-                        $"The rename attribute takes precedence.");
+                    Logger.LogWarning(
+                        "Record '{NativeName}' has [[sharpcpp::rename(\"{ManagedTypeFormat}\")]] " +
+                        "but marshaller declares managed_type(public_type = \"{PublicType}\"). " +
+                        "The rename attribute takes precedence.",
+                        record.NativeName, record.ManagedTypeFormat, publicType);
                 }
                 else if (record.ManagedTypeFormat is null)
                 {

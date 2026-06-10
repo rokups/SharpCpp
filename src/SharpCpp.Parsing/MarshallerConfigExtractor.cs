@@ -1,6 +1,8 @@
 using System.Text.RegularExpressions;
 using ClangSharp;
 using ClangSharp.Interop;
+using Microsoft.Extensions.Logging;
+using SharpCpp.Model.Logging;
 
 namespace SharpCpp.Parsing;
 
@@ -148,9 +150,8 @@ internal static class MarshallerConfigExtractor
                     if (diagnostic.Severity == CXDiagnosticSeverity.CXDiagnostic_Error ||
                         diagnostic.Severity == CXDiagnosticSeverity.CXDiagnostic_Fatal)
                     {
-                        Console.Error.WriteLine(
-                            $"SharpCpp warning: marshaller config parse error: " +
-                            $"{diagnostic.Format(CXDiagnostic.DefaultDisplayOptions).ToString()}");
+                        Logger.LogWarning("Marshaller config parse error: {Error}",
+                            diagnostic.Format(CXDiagnostic.DefaultDisplayOptions).ToString());
                     }
                 }
             }
@@ -389,6 +390,8 @@ internal static class MarshallerConfigExtractor
 
         return members;
     }
+
+    private static readonly ILogger Logger = SharpCppLog.For(nameof(MarshallerConfigExtractor));
 
     // ─── Utilities ───────────────────────────────────────────────────────────
 

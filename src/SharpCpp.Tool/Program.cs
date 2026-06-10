@@ -3,11 +3,15 @@ using SharpCpp.Model.Ast;
 using SharpCpp.Parsing;
 using SharpCpp.Pipeline;
 using SharpCpp.Rendering;
+using Microsoft.Extensions.Logging;
+using SharpCpp.Model.Logging;
 
 namespace SharpCpp.Tool;
 
 internal static class Program
 {
+    private static readonly ILogger Logger = SharpCppLog.For(nameof(Program));
+
     private static int Main(string[] args)
     {
         if (args.Length == 0 || args[0] is "-h" or "--help")
@@ -15,6 +19,8 @@ internal static class Program
             PrintUsage();
             return 0;
         }
+
+        SharpCppLog.Configure();
 
         return args[0] switch
         {
@@ -50,7 +56,7 @@ internal static class Program
         }
 
         File.WriteAllText(outputPath, json);
-        Console.WriteLine($"Wrote sample metadata to {outputPath}");
+        Logger.LogInformation("Wrote sample metadata to {OutputPath}", outputPath);
         return 0;
     }
 
@@ -59,10 +65,15 @@ internal static class Program
         var generatedRoot = GetPathOption(args, "--generated-root");
         if (string.IsNullOrWhiteSpace(generatedRoot))
         {
-            Console.Error.WriteLine("Missing required option '--generated-root'.");
+            Logger.LogError("Missing required option '--generated-root'.");
             PrintUsage();
             return 1;
         }
+
+        var logFilePath = GetPathOption(args, "--log-file");
+        using var logWriter = string.IsNullOrWhiteSpace(logFilePath) ? null
+            : new StreamWriter(logFilePath, append: false) { AutoFlush = true };
+        SharpCppLog.Configure(fileWriter: logWriter);
 
         var fileStem = GetOptionValue(args, "--file-stem") ?? "SharpCppTestsE2E";
         var projectRoot = GetPathOption(args, "--project-root") ?? Environment.CurrentDirectory;
@@ -141,13 +152,13 @@ internal static class Program
         File.WriteAllText(
             Path.Combine(generatedRoot, $"{fileStem}.Bindings.json"),
             BindingMetadataSerializer.Serialize(metadataDocument));
-        Console.WriteLine($"Wrote sample bindings to {generatedRoot}");
+        Logger.LogInformation("Wrote sample bindings to {GeneratedRoot}", generatedRoot);
         return 0;
     }
 
     private static int UnknownCommand(string command)
     {
-        Console.Error.WriteLine($"Unknown command '{command}'.");
+        Logger.LogError("Unknown command '{Command}'.", command);
         PrintUsage();
         return 1;
     }
@@ -158,7 +169,7 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine("Commands:");
         Console.WriteLine("  sample-metadata [output-path]   Emit deterministic sample metadata.");
-        Console.WriteLine("  generate-sample --generated-root <dir> [--project-root <dir>] [--file-stem <stem>]   Emit sample bindings artifacts.");
+        Console.WriteLine("  generate-sample --generated-root <dir> [--project-root <dir>] [--file-stem <stem>] [--log-file <path>]   Emit sample bindings artifacts.");
     }
 
     private static string? GetOptionValue(IReadOnlyList<string> args, string name)

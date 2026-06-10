@@ -1,5 +1,6 @@
-using System.Diagnostics;
+using Microsoft.Extensions.Logging;
 using SharpCpp.Metadata.Export;
+using SharpCpp.Model.Logging;
 using SharpCpp.Model.Ast;
 using SharpCpp.Parsing;
 using SharpCpp.Pipeline;
@@ -9,9 +10,8 @@ namespace SharpCpp.Rbfx.Generator;
 
 internal static class Program
 {
-    private static readonly Stopwatch s_sw = Stopwatch.StartNew();
+    private static readonly ILogger Logger = SharpCppLog.For(nameof(Program));
 
-    private static string Elapsed() => $"{s_sw.Elapsed.TotalSeconds:F1}s";
     private static readonly string[] ParseCompatibilityDefines =
     [
         "SDL_DISABLE_MM3DNOW_H=1",
@@ -59,7 +59,10 @@ internal static class Program
     public static int Main(string[] args)
     {
         var options = GeneratorOptions.Parse(args);
-        using var logWriter = CreateLogWriter(options.LogFilePath);
+        var fileWriter = options.LogFilePath is not null
+            ? new StreamWriter(options.LogFilePath, append: false) { AutoFlush = true }
+            : null;
+        SharpCppLog.Configure(minLevel: LogLevel.Information, fileWriter: fileWriter);
 
         try
         {
@@ -76,9 +79,9 @@ internal static class Program
                 Path.Combine(Path.GetFullPath(options.ProjectRoot), "include", "SharpCpp", "Marshaller.hpp")
             };
 
-            Log(logWriter, $"rbfx SDK root: {sdkRoot}");
-            Log(logWriter, $"SDK flags file: {options.FlagsFilePath}");
-            Log(logWriter, $"Generated output root: {options.GeneratedRoot}");
+            Logger.LogInformation("rbfx SDK root: {SdkRoot}", sdkRoot);
+            Logger.LogInformation("SDK flags file: {FlagsFilePath}", options.FlagsFilePath);
+            Logger.LogInformation("Generated output root: {GeneratedRoot}", options.GeneratedRoot);
 
             var sdkFlags = SdkParseFlags.Load(options.FlagsFilePath);
             var clangArguments = BuildClangArguments(includeRoot, sdkFlags);
@@ -88,7 +91,7 @@ internal static class Program
                 throw new InvalidOperationException($"rbfx umbrella header was not found at '{umbrellaHeaderPath}'.");
             }
 
-            Log(logWriter, $"[{Elapsed()}] Parsing umbrella header '{NativeOutputHeader}' with owned declaration root '{urhoIncludeRoot}'.");
+            Logger.LogInformation("Parsing umbrella header '{Header}' with owned declaration root '{Root}'.", NativeOutputHeader, urhoIncludeRoot);
 
             var parser = new ClangSharpHeaderParser();
             var compilation = parser.Parse(
@@ -103,19 +106,19 @@ internal static class Program
                     marshallerConfigurationFiles,
                     EntryPointPrefix,
                     OwnedFileRoots: new[] { urhoIncludeRoot }));
-            Log(logWriter, $"[{Elapsed()}] Parse complete: {compilation.Records.Count} records, {compilation.Functions.Count} functions.");
+            Logger.LogInformation("Parse complete: {Records} records, {Functions} functions.", compilation.Records.Count, compilation.Functions.Count);
             compilation.NamespaceMappings = BuildNamespaceMappings(compilation);
 
-            Log(logWriter, $"[{Elapsed()}] Applying pipeline passes...");
+            Logger.LogInformation("Applying pipeline passes...");
             BindingCompilationBootstrapPipeline.Apply(compilation, marshallerConfigurationFiles, clangArguments);
-            Log(logWriter, $"[{Elapsed()}] Pipeline complete: {compilation.Records.Count(r => !r.IsIgnored())}/{compilation.Records.Count} records retained.");
+            Logger.LogInformation("Pipeline complete: {Retained}/{Total} records retained.", compilation.Records.Count(r => !r.IsIgnored()), compilation.Records.Count);
 
-            ApplySdkExportFilter(compilation, options.SdkLibraryPath, logWriter);
-            Log(logWriter, $"[{Elapsed()}] SDK filter complete.");
+            ApplySdkExportFilter(compilation, options.SdkLibraryPath);
+            Logger.LogInformation("SDK filter complete.");
 
-            Log(logWriter, $"[{Elapsed()}] Rendering...");
+            Logger.LogInformation("Rendering...");
             var renderedBindings = BindingOutputRenderer.Render(compilation, GeneratedFileStem, DeriveGroupStem);
-            Log(logWriter, $"[{Elapsed()}] Rendering complete.");
+            Logger.LogInformation("Rendering complete.");
             var metadataDocument = BindingMetadataExporter.Export(
                 compilation,
                 new BindingMetadataExportOptions(
@@ -129,14 +132,14 @@ internal static class Program
                 Path.Combine(options.GeneratedRoot, $"{GeneratedFileStem}.Bindings.json"),
                 BindingMetadataSerializer.Serialize(metadataDocument));
 
-            Log(logWriter, $"Generated rbfx bindings for {compilation.Records.Count(record => !record.IsIgnored())} retained record(s) from {compilation.Records.Count} ingested record declaration(s).");
+            Logger.LogInformation("Generated rbfx bindings for {Retained} retained record(s) from {Total} ingested record declaration(s).", compilation.Records.Count(record => !record.IsIgnored()), compilation.Records.Count);
 
             var warnedRecords = compilation.Records.Where(record => record.GetWarnings().Count > 0).ToArray();
             foreach (var record in warnedRecords)
             {
                 foreach (var warning in record.GetWarnings())
                 {
-                    Log(logWriter, $"warning: record '{record.CppQualifiedName}': {warning}");
+                    Logger.LogWarning("Record '{CppQualifiedName}': {Warning}", record.CppQualifiedName, warning);
                 }
             }
 
@@ -144,7 +147,7 @@ internal static class Program
         }
         catch (Exception exception)
         {
-            Log(logWriter, exception.ToString());
+            Logger.LogError(exception, "Unhandled exception in rbfx generator");
             Console.Error.WriteLine(exception);
             return 1;
         }
@@ -208,35 +211,7 @@ internal static class Program
         return arguments.Distinct(StringComparer.Ordinal).ToArray();
     }
 
-    private static StreamWriter? CreateLogWriter(string? logFilePath)
-    {
-        if (string.IsNullOrWhiteSpace(logFilePath))
-        {
-            return null;
-        }
-
-        var directory = Path.GetDirectoryName(logFilePath);
-        if (!string.IsNullOrWhiteSpace(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
-
-        return new StreamWriter(logFilePath, append: false);
-    }
-
-    private static void Log(TextWriter? logWriter, string message)
-    {
-        Console.WriteLine(message);
-        if (logWriter is null)
-        {
-            return;
-        }
-
-        logWriter.WriteLine(message);
-        logWriter.Flush();
-    }
-
-    private static void ApplySdkExportFilter(BindingCompilation compilation, string? sdkLibraryPath, TextWriter? logWriter)
+    private static void ApplySdkExportFilter(BindingCompilation compilation, string? sdkLibraryPath)
     {
         if (string.IsNullOrWhiteSpace(sdkLibraryPath) || !File.Exists(sdkLibraryPath))
         {
@@ -305,7 +280,7 @@ internal static class Program
 
         if (removedCount > 0)
         {
-            Log(logWriter, $"Ignored {removedCount} top-level function(s) that are not exported by '{sdkLibraryPath}'.");
+            Logger.LogInformation("Ignored {Count} top-level function(s) that are not exported by '{LibraryPath}'.", removedCount, sdkLibraryPath);
         }
     }
 

@@ -1,6 +1,8 @@
+using Microsoft.Extensions.Logging;
 using SharpCpp.Metadata.Export;
 using SharpCpp.Metadata.Import;
 using SharpCpp.Model.Ast;
+using SharpCpp.Model.Logging;
 using SharpCpp.Parsing;
 using SharpCpp.Pipeline;
 using SharpCpp.Rendering;
@@ -45,6 +47,8 @@ internal static class Program
         "-Wno-pragma-once-outside-header"
     ];
 
+    private static readonly ILogger Logger = SharpCppLog.For(nameof(Program));
+
     private const string ProjectName = "Rbfx.UserCode.Bindings";
     private const string ManagedNamespace = "RbfxUserCode";
     private const string ManagedClassName = "Bindings";
@@ -56,7 +60,10 @@ internal static class Program
     public static int Main(string[] args)
     {
         var options = GeneratorOptions.Parse(args);
-        using var logWriter = CreateLogWriter(options.LogFilePath);
+        var fileWriter = options.LogFilePath is not null
+            ? new StreamWriter(options.LogFilePath, append: false) { AutoFlush = true }
+            : null;
+        SharpCppLog.Configure(minLevel: LogLevel.Information, fileWriter: fileWriter);
 
         try
         {
@@ -76,15 +83,15 @@ internal static class Program
                 Path.Combine(projectRoot, "include", "SharpCpp", "Marshaller.hpp")
             }.Select(Path.GetFullPath).ToArray();
 
-            Log(logWriter, $"rbfx SDK root: {sdkRoot}");
-            Log(logWriter, $"Flags file: {options.FlagsFilePath}");
-            Log(logWriter, $"User code root: {userCodeRoot}");
-            Log(logWriter, $"Generated output root: {options.GeneratedRoot}");
+            Logger.LogInformation("rbfx SDK root: {SdkRoot}", sdkRoot);
+            Logger.LogInformation("Flags file: {FlagsFilePath}", options.FlagsFilePath);
+            Logger.LogInformation("User code root: {UserCodeRoot}", userCodeRoot);
+            Logger.LogInformation("Generated output root: {GeneratedRoot}", options.GeneratedRoot);
 
             var importedBindings = BindingMetadataImportCatalog.Load(options.ImportedBindingMetadataFiles);
             foreach (var metadataFile in options.ImportedBindingMetadataFiles)
             {
-                Log(logWriter, $"Imported binding metadata: '{metadataFile}'");
+                Logger.LogInformation("Imported binding metadata: '{MetadataFile}'", metadataFile);
             }
 
             var sdkFlags = SdkParseFlags.Load(options.FlagsFilePath);
@@ -127,12 +134,12 @@ internal static class Program
                 Path.Combine(options.GeneratedRoot, $"{GeneratedFileStem}.Bindings.json"),
                 BindingMetadataSerializer.Serialize(metadataDocument));
 
-            Log(logWriter, $"Generated user-code bindings for {compilation.Records.Count(record => !record.IsIgnored() && !record.GetMetadata<bool>(MetadataKeys.SuppressEmission))} retained local record(s).");
+            Logger.LogInformation("Generated user-code bindings for {Retained} retained local record(s).", compilation.Records.Count(record => !record.IsIgnored() && !record.GetMetadata<bool>(MetadataKeys.SuppressEmission)));
             return 0;
         }
         catch (Exception exception)
         {
-            Log(logWriter, exception.ToString());
+            Logger.LogError(exception, "Unhandled exception in user-code generator");
             Console.Error.WriteLine(exception);
             return 1;
         }
@@ -195,26 +202,5 @@ internal static class Program
         }
 
         return arguments.Distinct(StringComparer.Ordinal).ToArray();
-    }
-
-    private static StreamWriter? CreateLogWriter(string? logFilePath)
-    {
-        if (string.IsNullOrWhiteSpace(logFilePath))
-        {
-            return null;
-        }
-
-        var fullPath = Path.GetFullPath(logFilePath);
-        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-        return new StreamWriter(fullPath, append: false, System.Text.Encoding.UTF8) { AutoFlush = true };
-    }
-
-    private static void Log(TextWriter? logWriter, string message)
-    {
-        logWriter?.WriteLine(message);
-        if (logWriter is null)
-        {
-            Console.WriteLine(message);
-        }
     }
 }
