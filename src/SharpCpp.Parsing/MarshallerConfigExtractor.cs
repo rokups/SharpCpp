@@ -1,8 +1,8 @@
-using System.Text.RegularExpressions;
 using ClangSharp;
 using ClangSharp.Interop;
 using Microsoft.Extensions.Logging;
 using SharpCpp.Model.Logging;
+using System.Text.RegularExpressions;
 
 namespace SharpCpp.Parsing;
 
@@ -18,17 +18,6 @@ namespace SharpCpp.Parsing;
 /// </summary>
 internal static class MarshallerConfigExtractor
 {
-    // Extract [[sharpcpp::managed_type(body)]] from a declaration's source text.
-    // \s* handles spacing between tokens (GetSourceText adds spaces).
-    private static readonly Regex ManagedTypeAttributeExpression = new(
-        @"\[\s*\[\s*sharpcpp\s*::\s*managed_type\s*\((?<body>[^)]*)\)\s*\]\s*\]",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
-    // Extract [[sharpcpp::expose_member(attr)]] from a member function cursor extent text.
-    private static readonly Regex ExposeMemberAttributeExpression = new(
-        @"\[\s*\[\s*sharpcpp\s*::\s*expose_member\s*\(\s*(?<attr>[^)]*?)\s*\)\s*\]\s*\]",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
     // Key=value extractors (attribute body parsing only — NOT C++ code parsing).
     private static readonly Regex PublicTypeExpression = new(
         @"public_type\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
@@ -243,13 +232,14 @@ internal static class MarshallerConfigExtractor
     {
         var sourceText = GetSourceText(decl.Handle.TranslationUnit, decl.Extent);
 
-        var attrMatch = ManagedTypeAttributeExpression.Match(sourceText);
-        if (!attrMatch.Success)
+        var attrMatch = SharpCppAttributeScanner.Scan(sourceText)
+            .FirstOrDefault(static match => string.Equals(match.Name, "managed_type", StringComparison.Ordinal));
+        if (attrMatch is null)
         {
             return;
         }
 
-        var body = attrMatch.Groups["body"].Value;
+        var body = attrMatch.Body;
         var publicTypeMatch = PublicTypeExpression.Match(body);
         if (!publicTypeMatch.Success)
         {
@@ -321,13 +311,14 @@ internal static class MarshallerConfigExtractor
     {
         var sourceText = GetSourceText(decl.Handle.TranslationUnit, decl.Extent);
 
-        var attrMatch = ManagedTypeAttributeExpression.Match(sourceText);
-        if (!attrMatch.Success)
+        var attrMatch = SharpCppAttributeScanner.Scan(sourceText)
+            .FirstOrDefault(static match => string.Equals(match.Name, "managed_type", StringComparison.Ordinal));
+        if (attrMatch is null)
         {
             return;
         }
 
-        var body = attrMatch.Groups["body"].Value;
+        var body = attrMatch.Body;
 
         var cppTypeName = ExtractTemplateArgFromCursorType(decl);
         if (string.IsNullOrWhiteSpace(cppTypeName) || result.ContainsKey(cppTypeName))
@@ -358,13 +349,14 @@ internal static class MarshallerConfigExtractor
 
             // Check if this method has [[sharpcpp::expose_member(...)]].
             var childText = GetSourceText(methodDecl.Handle.TranslationUnit, methodDecl.Extent);
-            var exposeMatch = ExposeMemberAttributeExpression.Match(childText);
-            if (!exposeMatch.Success)
+            var exposeMatch = SharpCppAttributeScanner.Scan(childText)
+                .FirstOrDefault(static match => string.Equals(match.Name, "expose_member", StringComparison.Ordinal));
+            if (exposeMatch is null)
             {
                 continue;
             }
 
-            var attrBody = exposeMatch.Groups["attr"].Value;
+            var attrBody = exposeMatch.Body;
             var shape = ShapeExpression.Match(attrBody) is { Success: true } shapeMatch
                 ? shapeMatch.Groups["value"].Value
                 : "method";

@@ -27,6 +27,14 @@ public sealed partial class ClangSharpHeaderParser
     private static readonly IReadOnlyDictionary<string, BindingType> EmptyGenericParameters =
         new Dictionary<string, BindingType>(StringComparer.Ordinal);
 
+    private static bool HasSharpCppAttribute(string sourceText, string attributeName)
+        => SharpCppAttributeScanner.Scan(sourceText)
+            .Any(match => string.Equals(match.Name, attributeName, StringComparison.Ordinal));
+
+    private static SharpCppAttributeScanner.AttributeMatch? FindSharpCppAttribute(string sourceText, string attributeName)
+        => SharpCppAttributeScanner.Scan(sourceText)
+            .FirstOrDefault(match => string.Equals(match.Name, attributeName, StringComparison.Ordinal));
+
     // Note: ManagedTypeMarshallerExpression, ReturnMarshallerExpression, and the
     // attribute-body regex patterns (PublicTypeExpression, UndefaultableExpression,
     // MarshallerTypeInAttributeExpression, ManagedMarshallerInAttributeExpression)
@@ -34,20 +42,6 @@ public sealed partial class ClangSharpHeaderParser
     // ClangSharp AST walking to find Marshaller/ReturnMarsharker declarations and
     // extracts attribute body data from cursor source text instead of whole-file regex.
 
-    [GeneratedRegex(@"\[\[\s*sharpcpp::(?<kind>in|out|ref)\s*\]\]", RegexOptions.CultureInvariant)]
-    private static partial Regex PassKindAttributeExpression();
-    [GeneratedRegex(@"\[\[\s*sharpcpp::flags\s*\]\]", RegexOptions.CultureInvariant)]
-    private static partial Regex FlagsAttributeExpression();
-    [GeneratedRegex(@"\[\[\s*sharpcpp::ignore(?:\s*\(\s*""(?<reason>[^""]*)""\s*\))?\s*\]\]", RegexOptions.CultureInvariant)]
-    private static partial Regex IgnoreAttributeExpression();
-    [GeneratedRegex(@"^\s*\[\[\s*sharpcpp::ignore(?:\s*\(\s*""[^""]*""\s*\))?\s*\]\]\s*$", RegexOptions.CultureInvariant)]
-    private static partial Regex StandaloneIgnoreAttributeLineExpression();
-    [GeneratedRegex(@"\[\[\s*sharpcpp::director\s*\]\]", RegexOptions.CultureInvariant)]
-    private static partial Regex DirectorAttributeExpression();
-    [GeneratedRegex(@"\[\[\s*sharpcpp::rename\s*\(\s*""(?<value>[^""]*)""\s*\)\s*\]\]", RegexOptions.CultureInvariant)]
-    private static partial Regex RenameAttributeExpression();
-    [GeneratedRegex(@"\[\[\s*sharpcpp::instantiate\s*\((?<body>.*?)\)\s*\]\]", RegexOptions.CultureInvariant | RegexOptions.Singleline)]
-    private static partial Regex InstantiateAttributeExpression();
     [GeneratedRegex(@"""(?<value>[^""\\]*(?:\\.[^""\\]*)*)""", RegexOptions.CultureInvariant)]
     private static partial Regex InstantiateArgumentExpression();
 
@@ -417,7 +411,7 @@ public sealed partial class ClangSharpHeaderParser
         var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(nativeName), cppQualifiedName)
         {
             IsAbstract = cxxRecord?.IsAbstract ?? false,
-            IsDirector = DirectorAttributeExpression().IsMatch(declarationText)
+            IsDirector = HasSharpCppAttribute(declarationText, "director")
         };
         record.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(recordDecl));
         if (isForwardDeclaration)
@@ -488,7 +482,7 @@ public sealed partial class ClangSharpHeaderParser
         var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(nativeName), cppQualifiedName)
         {
             IsAbstract = templatedRecord is CXXRecordDecl cxx && cxx.IsAbstract,
-            IsDirector = DirectorAttributeExpression().IsMatch(declarationText)
+            IsDirector = HasSharpCppAttribute(declarationText, "director")
         };
         record.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(classTemplate));
         if (isForwardDeclaration)
@@ -1822,24 +1816,29 @@ public sealed partial class ClangSharpHeaderParser
 
     private static bool TryGetPassKindOverride(CXCursor functionCursor, CXCursor parameterCursor, out BindingParameterDirection direction)
     {
-        var match = PassKindAttributeExpression().Match(GetSourceText(parameterCursor.TranslationUnit, parameterCursor.Extent));
-        if (!match.Success && TryGetParameterDeclarationSourceText(functionCursor, parameterCursor, out var parameterSourceText))
+        var match = FindSharpCppAttribute(GetSourceText(parameterCursor.TranslationUnit, parameterCursor.Extent), "in")
+            ?? FindSharpCppAttribute(GetSourceText(parameterCursor.TranslationUnit, parameterCursor.Extent), "out")
+            ?? FindSharpCppAttribute(GetSourceText(parameterCursor.TranslationUnit, parameterCursor.Extent), "ref");
+        string parameterSourceText = string.Empty;
+        if (match is null && TryGetParameterDeclarationSourceText(functionCursor, parameterCursor, out parameterSourceText))
         {
-            match = PassKindAttributeExpression().Match(parameterSourceText);
+            match = FindSharpCppAttribute(parameterSourceText, "in")
+                ?? FindSharpCppAttribute(parameterSourceText, "out")
+                ?? FindSharpCppAttribute(parameterSourceText, "ref");
         }
 
-        if (!match.Success)
+        if (match is null)
         {
             direction = default;
             return false;
         }
 
-        direction = match.Groups["kind"].Value switch
+        direction = match.Name switch
         {
             "in" => BindingParameterDirection.In,
             "ref" => BindingParameterDirection.Ref,
             "out" => BindingParameterDirection.Out,
-            _ => throw new NotSupportedException($"Unsupported pass-kind attribute '{match.Groups["kind"].Value}'.")
+            _ => throw new NotSupportedException($"Unsupported pass-kind attribute '{match.Name}'.")
         };
         return true;
     }
@@ -1957,8 +1956,8 @@ public sealed partial class ClangSharpHeaderParser
             }
         }
 
-        var match = IgnoreAttributeExpression().Match(sourceText);
-        if (!match.Success)
+        var match = FindSharpCppAttribute(sourceText, "ignore");
+        if (match is null)
         {
             decl.Location.GetFileLocation(out var file, out var line, out var column, out _);
             var filePath = Path.GetFullPath(file.Name.CString);
@@ -1983,10 +1982,7 @@ public sealed partial class ClangSharpHeaderParser
             return;
         }
 
-        var reasonFromMatch = match.Groups["reason"].Success
-            ? match.Groups["reason"].Value
-            : "marked [[sharpcpp::ignore]]";
-        node.SetMetadata(MetadataKeys.IgnoreReason, reasonFromMatch);
+        node.SetMetadata(MetadataKeys.IgnoreReason, NormalizeIgnoreReason(match.Body) ?? "marked [[sharpcpp::ignore]]");
     }
 
     private static readonly Dictionary<string, List<IgnoreAnnotation>> s_ignoreAnnotations = new(StringComparer.Ordinal);
@@ -2010,10 +2006,10 @@ public sealed partial class ClangSharpHeaderParser
             for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
             {
                 var lineText = lines[lineIndex];
-                foreach (Match match in IgnoreAttributeExpression().Matches(lineText))
+                foreach (var match in SharpCppAttributeScanner.Scan(lineText).Where(match => string.Equals(match.Name, "ignore", StringComparison.Ordinal)))
                 {
-                    var column = match.Index + 1;
-                    var reason = match.Groups["reason"].Success ? match.Groups["reason"].Value : null;
+                    var column = match.StartIndex + 1;
+                    var reason = NormalizeIgnoreReason(match.Body);
                     annotations.Add(new IgnoreAnnotation(lineIndex + 1, column, reason));
                 }
             }
@@ -2046,10 +2042,10 @@ public sealed partial class ClangSharpHeaderParser
             for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
             {
                 var lineText = lines[lineIndex];
-                foreach (Match match in RenameAttributeExpression().Matches(lineText))
+                foreach (var match in SharpCppAttributeScanner.Scan(lineText).Where(match => string.Equals(match.Name, "rename", StringComparison.Ordinal)))
                 {
-                    var column = match.Index + 1;
-                    annotations.Add(new RenameAnnotation(lineIndex + 1, column, match.Groups["value"].Value));
+                    var column = match.StartIndex + 1;
+                    annotations.Add(new RenameAnnotation(lineIndex + 1, column, match.Body.Trim().Trim('(', ')').Trim().Trim('"')));
                 }
             }
 
@@ -2092,7 +2088,7 @@ public sealed partial class ClangSharpHeaderParser
                 }
             }
 
-            if (RenameAttributeExpression().Match(sourceText) is { Success: true })
+            if (FindSharpCppAttribute(sourceText, "rename") is not null)
             {
                 ApplyRenameFromSource(node, sourceText);
             }
@@ -2123,13 +2119,36 @@ public sealed partial class ClangSharpHeaderParser
 
     private static void ApplyRenameFromSource(BindingNode node, string sourceText)
     {
-        var match = RenameAttributeExpression().Match(sourceText);
-        if (!match.Success)
+        var match = FindSharpCppAttribute(sourceText, "rename");
+        if (match is null)
         {
             return;
         }
 
-        ApplyRename(node, match.Groups["value"].Value);
+        ApplyRename(node, match.Body.Trim().Trim('(', ')').Trim().Trim('"'));
+    }
+
+    private static string? NormalizeIgnoreReason(string body)
+    {
+        var reason = body.Trim();
+        if (reason.Length == 0)
+        {
+            return null;
+        }
+
+        if (reason.StartsWith("(", StringComparison.Ordinal) && reason.EndsWith(")", StringComparison.Ordinal))
+        {
+            reason = reason[1..^1].Trim();
+        }
+
+        if (reason.Length == 0)
+        {
+            return null;
+        }
+
+        return reason.Length >= 2 && reason.StartsWith('"') && reason.EndsWith('"')
+            ? reason[1..^1]
+            : reason;
     }
 
     private static void ApplyRenameFromPreScan(Decl decl, BindingNode node)
@@ -2220,7 +2239,7 @@ public sealed partial class ClangSharpHeaderParser
             NormalizeTypeName(enumDecl.IntegerType.AsString),
             GetCppQualifiedName(enumDecl))
         {
-            IsFlags = FlagsAttributeExpression().IsMatch(GetSourceText(enumDecl.TranslationUnit.Handle, enumDecl.Extent))
+            IsFlags = HasSharpCppAttribute(GetSourceText(enumDecl.TranslationUnit.Handle, enumDecl.Extent), "flags")
         };
         @enum.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(enumDecl));
 
@@ -2694,7 +2713,7 @@ public sealed partial class ClangSharpHeaderParser
             }
         }
 
-        var instantiations = ParseInstantiationMatches(InstantiateAttributeExpression().Matches(sourceText), recordsByName, enumsByName, managedTypeOverrides);
+        var instantiations = ParseInstantiationMatches(SharpCppAttributeScanner.Scan(sourceText).Where(match => string.Equals(match.Name, "instantiate", StringComparison.Ordinal)), recordsByName, enumsByName, managedTypeOverrides);
 
         if (instantiations.Count == 0)
         {
@@ -2742,7 +2761,7 @@ public sealed partial class ClangSharpHeaderParser
 
             for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
             {
-                var instantiations = ParseInstantiationMatches(InstantiateAttributeExpression().Matches(lines[lineIndex]), new Dictionary<string, RecordBinding>(StringComparer.Ordinal), new Dictionary<string, EnumBinding>(StringComparer.Ordinal), new Dictionary<string, ManagedTypeOverride>(StringComparer.Ordinal));
+                var instantiations = ParseInstantiationMatches(SharpCppAttributeScanner.Scan(lines[lineIndex]).Where(match => string.Equals(match.Name, "instantiate", StringComparison.Ordinal)), new Dictionary<string, RecordBinding>(StringComparer.Ordinal), new Dictionary<string, EnumBinding>(StringComparer.Ordinal), new Dictionary<string, ManagedTypeOverride>(StringComparer.Ordinal));
                 if (instantiations.Count == 0)
                 {
                     continue;
@@ -2756,16 +2775,16 @@ public sealed partial class ClangSharpHeaderParser
     }
 
     private static List<RecordGenericInstantiationBinding> ParseInstantiationMatches(
-        MatchCollection matches,
+        IEnumerable<SharpCppAttributeScanner.AttributeMatch> matches,
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
     {
         var instantiations = new List<RecordGenericInstantiationBinding>();
 
-        foreach (Match match in matches)
+        foreach (var match in matches)
         {
-            var arguments = InstantiateArgumentExpression().Matches(match.Groups["body"].Value)
+            var arguments = InstantiateArgumentExpression().Matches(match.Body)
                 .Select(argumentMatch => ParseTypeToken(argumentMatch.Groups["value"].Value, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters))
                 .ToArray();
 
