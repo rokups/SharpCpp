@@ -46,6 +46,10 @@ internal static class MarshallerConfigExtractor
         @"managed_marshaller\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    private static readonly Regex ManagedNamespaceInAttributeExpression = new(
+        @"managed_namespace\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private static readonly Regex ShapeExpression = new(
         @"shape\s*=\s*\""(?<value>[^\""]+)\""",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -61,6 +65,7 @@ internal static class MarshallerConfigExtractor
         public bool Undefaultable { get; init; }
         public string? MarshallerTypeName { get; init; }
         public string? ManagedMarshaller { get; init; }
+        public string? ManagedNamespace { get; init; }
     }
 
     /// <summary>
@@ -271,6 +276,7 @@ internal static class MarshallerConfigExtractor
         var undefaultableMatch = UndefaultableExpression.Match(body);
         var marshallerTypeMatch = MarshallerTypeInAttributeExpression.Match(body);
         var managedMarshallerMatch = ManagedMarshallerInAttributeExpression.Match(body);
+        var managedNamespaceMatch = ManagedNamespaceInAttributeExpression.Match(body);
 
         result[key] = new ManagedTypeOverride(
             cppTypeName,
@@ -279,7 +285,8 @@ internal static class MarshallerConfigExtractor
             Undefaultable = undefaultableMatch.Success &&
                 string.Equals(undefaultableMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase),
             MarshallerTypeName = marshallerTypeMatch.Success ? marshallerTypeMatch.Groups["value"].Value : null,
-            ManagedMarshaller = managedMarshallerMatch.Success ? managedMarshallerMatch.Groups["value"].Value : null
+            ManagedMarshaller = managedMarshallerMatch.Success ? managedMarshallerMatch.Groups["value"].Value : null,
+            ManagedNamespace = managedNamespaceMatch.Success ? managedNamespaceMatch.Groups["value"].Value : null
         };
     }
 

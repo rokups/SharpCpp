@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Marshalling;
 using System.Text;
 
-namespace Urho3D.Container;
+namespace Urho3D.Math;
 
 [Serializable]
 [StructLayout(LayoutKind.Sequential)]

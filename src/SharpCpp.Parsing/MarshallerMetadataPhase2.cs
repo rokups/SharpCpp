@@ -35,6 +35,10 @@ public static class MarshallerMetadataPhase2
         @"suppress_emission\s*=\s*true",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+    private static readonly Regex ManagedNamespaceExpression = new(
+        @"managed_namespace\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     /// <summary>
     /// Apply record-level metadata using ClangSharp AST extraction.
     /// </summary>
@@ -56,13 +60,14 @@ public static class MarshallerMetadataPhase2
         }
 
         var configs = MarshallerConfigExtractor.ExtractMarshallerBodies(marshallerFilesList, clangArgs);
-        ApplyRecordMetadata(configs, recordsByNativeName);
+        ApplyRecordMetadata(compilation, configs, recordsByNativeName);
 
         SyncPlaceholderRecords(compilation, recordsByNativeName);
         ApplyManagedTypeFormats(compilation, recordsByNativeName);
     }
 
     private static void ApplyRecordMetadata(
+        BindingCompilation compilation,
         IReadOnlyDictionary<string, MarshallerConfigExtractor.MarshallerBodyConfig> configs,
         IDictionary<string, RecordBinding> recordsByNativeName)
     {
@@ -77,7 +82,40 @@ public static class MarshallerMetadataPhase2
             var record = FindRecordByName(recordsByNativeName, recordName);
             if (record is null)
             {
-                continue;
+                // Only create a synthetic record when the Marshaller config
+                // specifies managed_base_type (indicating a Handle-type record
+                // like std::string).  Primitive configured types (const char*,
+                // char**, etc.) do not need RecordBindings.
+                if (!ManagedBaseTypeExpression.IsMatch(config.AttributeBody))
+                {
+                    continue;
+                }
+
+                // System header types (e.g., std::basic_string<char>) may not
+                // have a RecordBinding in the compilation because the parser
+                // only creates local placeholders.  Create a record so the
+                // marshaller metadata can be applied and the wrapper class
+                // emitted.
+                // Derive a simple managed name from the native type name.
+                // e.g. "std::basic_string" → "BasicString"
+                var lastNs = recordName.LastIndexOf("::", StringComparison.Ordinal);
+                var shortName = lastNs >= 0 ? recordName[(lastNs + 2)..] : recordName;
+                var pascalName = string.Concat(
+                    shortName.Split('_', StringSplitOptions.RemoveEmptyEntries)
+                        .Select(static part => char.ToUpperInvariant(part[0]) + part[1..]));
+                record = new RecordBinding(
+                    $"record:{recordName}",
+                    recordName,
+                    pascalName,
+                    cppTypeName)
+                {
+                    HeaderIncludePath = $"foreign/{recordName}.hpp"
+                };
+                record.SetMetadata(MetadataKeys.PlaceholderRecord, false);
+                record.SetMetadata(MetadataKeys.ForwardDeclaration, false);
+                // ManagedNamespace will be set below from managed_namespace.
+                compilation.Members.Add(record);
+                recordsByNativeName[recordName] = record;
             }
 
             // When a Marshaller<T> attribute provides metadata for a
@@ -130,6 +168,12 @@ public static class MarshallerMetadataPhase2
             if (SuppressEmissionExpression.IsMatch(body))
             {
                 record.SetMetadata(MetadataKeys.SuppressEmission, true);
+            }
+
+            // managed_namespace → ManagedNamespace
+            if (ManagedNamespaceExpression.Match(body) is { Success: true } nsMatch)
+            {
+                record.ManagedNamespace = nsMatch.Groups["value"].Value;
             }
 
             // managed_base_type → ManagedBaseTypeName
