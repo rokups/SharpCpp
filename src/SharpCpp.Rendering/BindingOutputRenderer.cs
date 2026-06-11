@@ -182,11 +182,18 @@ public static partial class BindingOutputRenderer
             """);
 
         var freeFunctionDeclarations = new List<string>();
+        var lastFreeFunctionWasIgnoredStub = false;
 
         foreach (var function in functions.Where(static function => function.Parent is not RecordBinding && !function.IsConstructor))
         {
+            var isIgnoredStub = function.HasMetadata(MetadataKeys.IgnoreReason);
             writer.WriteLine();
-            if (function.HasMetadata(MetadataKeys.IgnoreReason))
+            if (lastFreeFunctionWasIgnoredStub && !isIgnoredStub)
+            {
+                writer.WriteLine();
+            }
+
+            if (isIgnoredStub)
             {
                 writer.Write(RenderIgnoredStub(function));
             }
@@ -206,6 +213,13 @@ public static partial class BindingOutputRenderer
                         freeFunctionDeclarations.Add(RenderUnexpressibleDefaultFreeFunctionImport(compilation, function));
                 }
             }
+
+            lastFreeFunctionWasIgnoredStub = isIgnoredStub;
+        }
+
+        if (lastFreeFunctionWasIgnoredStub)
+        {
+            writer.WriteLine();
         }
 
         if (memberFilter is null && polymorphicConcreteRecords.Length > 0)
@@ -927,11 +941,33 @@ public static partial class BindingOutputRenderer
             .SelectMany(static property => new[] { property.Getter?.SymbolId, property.Setter?.SymbolId })
             .Where(static symbolId => !string.IsNullOrWhiteSpace(symbolId))
             .ToHashSet(StringComparer.Ordinal);
+        var lastRecordMemberWasIgnoredStub = false;
+
+        void WriteRecordMemberSeparator(bool isIgnoredStub)
+        {
+            writer.WriteLine();
+            if (lastRecordMemberWasIgnoredStub && !isIgnoredStub)
+            {
+                writer.WriteLine();
+            }
+
+            lastRecordMemberWasIgnoredStub = isIgnoredStub;
+        }
+
+        void CloseIgnoredStubCluster()
+        {
+            if (lastRecordMemberWasIgnoredStub)
+            {
+                writer.WriteLine();
+                lastRecordMemberWasIgnoredStub = false;
+            }
+        }
 
         foreach (var constructor in record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor).OrderBy(static function => function.Parameters.Count))
         {
-            writer.WriteLine();
-            if (constructor.HasMetadata(MetadataKeys.IgnoreReason))
+            var isIgnoredStub = constructor.HasMetadata(MetadataKeys.IgnoreReason);
+            WriteRecordMemberSeparator(isIgnoredStub);
+            if (isIgnoredStub)
             {
                 writer.Write(RenderIgnoredStub(constructor));
             }
@@ -948,8 +984,8 @@ public static partial class BindingOutputRenderer
 
         foreach (var property in accessorProperties.OrderBy(static property => property.PropertyName, StringComparer.Ordinal))
         {
-            writer.WriteLine();
-                writer.Write(RenderManagedAccessorProperty(compilation, property));
+            WriteRecordMemberSeparator(isIgnoredStub: false);
+            writer.Write(RenderManagedAccessorProperty(compilation, property));
 
             if (property.Getter is not null)
             {
@@ -964,8 +1000,9 @@ public static partial class BindingOutputRenderer
 
         foreach (var method in record.Members.OfType<FunctionBinding>().Where(function => !function.IsConstructor && !function.IsStatic && !function.IsConversionOperator && function.OperatorToken is null && !accessorMethodIds.Contains(function.SymbolId)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
-            writer.WriteLine();
-            if (method.HasMetadata(MetadataKeys.IgnoreReason))
+            var isIgnoredStub = method.HasMetadata(MetadataKeys.IgnoreReason);
+            WriteRecordMemberSeparator(isIgnoredStub);
+            if (isIgnoredStub)
             {
                 writer.Write(RenderIgnoredStub(method));
             }
@@ -994,8 +1031,9 @@ public static partial class BindingOutputRenderer
 
         foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic && !function.IsConversionOperator && function.OperatorToken is null).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
-            writer.WriteLine();
-            if (method.HasMetadata(MetadataKeys.IgnoreReason))
+            var isIgnoredStub = method.HasMetadata(MetadataKeys.IgnoreReason);
+            WriteRecordMemberSeparator(isIgnoredStub);
+            if (isIgnoredStub)
             {
                 writer.Write(RenderIgnoredStub(method));
             }
@@ -1012,8 +1050,9 @@ public static partial class BindingOutputRenderer
 
         foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => function.IsConversionOperator || function.OperatorToken is not null).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
-            writer.WriteLine();
-            if (method.HasMetadata(MetadataKeys.IgnoreReason))
+            var isIgnoredStub = method.HasMetadata(MetadataKeys.IgnoreReason);
+            WriteRecordMemberSeparator(isIgnoredStub);
+            if (isIgnoredStub)
             {
                 writer.Write(RenderIgnoredStub(method));
             }
@@ -1031,8 +1070,9 @@ public static partial class BindingOutputRenderer
                 continue;
             }
 
-            writer.WriteLine();
-            if (field.HasMetadata(MetadataKeys.IgnoreReason))
+            var isIgnoredStub = field.HasMetadata(MetadataKeys.IgnoreReason);
+            WriteRecordMemberSeparator(isIgnoredStub);
+            if (isIgnoredStub)
             {
                 writer.Write(RenderIgnoredStub(field));
             }
@@ -1047,6 +1087,8 @@ public static partial class BindingOutputRenderer
                 }
             }
         }
+
+        CloseIgnoredStubCluster();
 
         writer.WriteLine();
         if (record.IsPolymorphic)
@@ -3167,33 +3209,49 @@ public static partial class BindingOutputRenderer
         var reason = node.TryGetMetadata(MetadataKeys.IgnoreReason, out string? metadataReason)
             ? metadataReason!
             : "excluded";
+        var declarationText = node.TryGetMetadata(MetadataKeys.DeclarationDisplayText, out string? metadataDeclaration)
+            ? metadataDeclaration
+            : string.Empty;
 
         return node switch
         {
-            RecordBinding record => $"// class {record.ManagedName}; // excluded: {reason}",
-            EnumBinding @enum => $"// enum {@enum.ManagedName}; // excluded: {reason}",
-            FunctionBinding function => RenderIgnoredFunctionStub(function, reason),
-            FieldBinding field => $"// public {GetManagedWrapperTypeName(field.Type)} {field.ManagedName}; // excluded: {reason}",
+            RecordBinding record => RenderIgnoredDeclarationStub(declarationText, $"{record.NativeName};", reason),
+            EnumBinding @enum => RenderIgnoredDeclarationStub(declarationText, $"enum {@enum.NativeName};", reason),
+            FunctionBinding function => RenderIgnoredFunctionStub(function, declarationText, reason),
+            FieldBinding field => RenderIgnoredDeclarationStub(declarationText, $"{field.Type.CppTypeName} {field.NativeName};", reason),
             _ => $"// {node.Kind}; // excluded: {reason}"
         };
     }
 
-    private static string RenderIgnoredFunctionStub(FunctionBinding function, string reason)
+    private static string RenderIgnoredDeclarationStub(string? declarationText, string fallback, string reason)
     {
-        var parameterList = string.Join(
-            ", ",
-            function.Parameters.Select(RenderManagedPublicParameter));
-        var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType);
+        var declaration = string.IsNullOrWhiteSpace(declarationText) ? fallback : declarationText;
+        return $"// {declaration} // excluded: {reason}";
+    }
+
+    private static string RenderIgnoredFunctionStub(FunctionBinding function, string? declarationText, string reason)
+    {
+        if (!string.IsNullOrWhiteSpace(declarationText))
+        {
+            return $"// {declarationText} // excluded: {reason}";
+        }
+
+        var parameterList = string.Join(", ", function.Parameters.Select(RenderIgnoredNativeParameter));
+        var returnTypeName = function.CppReturnTypeName ?? function.ReturnType.CppTypeName;
 
         if (function.IsConstructor)
         {
-            return $"// public {function.ManagedName}({parameterList}); // excluded: {reason}";
+            var constructorName = function.CppQualifiedName[(function.CppQualifiedName.LastIndexOf("::", StringComparison.Ordinal) + 2)..];
+            return $"// {constructorName}({parameterList}); // excluded: {reason}";
         }
 
-        var isStatic = function.IsStatic || function.Parent is null;
-        var staticModifier = isStatic ? "static " : string.Empty;
-        return $"// public {staticModifier}{returnTypeName} {function.ManagedName}({parameterList}); // excluded: {reason}";
+        var staticModifier = function.IsStatic || function.Parent is null ? "static " : string.Empty;
+        var qualifier = function.Parent is RecordBinding record ? $"{record.CppQualifiedName}::" : string.Empty;
+        return $"// {staticModifier}{returnTypeName} {qualifier}{function.NativeName}({parameterList}); // excluded: {reason}";
     }
+
+    private static string RenderIgnoredNativeParameter(ParameterBinding parameter)
+        => $"{parameter.CppTypeName} {parameter.NativeName}";
 
     private static void WriteDocumentationComment(CodeWriter writer, BindingNode node)
     {

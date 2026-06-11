@@ -9,6 +9,7 @@ public static class MetadataKeys
     public const string IgnoreReason = "ignore_reason";
     public const string Warnings = "warnings";
     public const string DocumentationComment = "documentation_comment";
+    public const string DeclarationDisplayText = "declaration_display_text";
     public const string ExplicitGenericInstantiations = "explicit_generic_instantiations";
     public const string ForwardDeclaration = "forward_declaration";
     public const string PlaceholderRecord = "placeholder_record";

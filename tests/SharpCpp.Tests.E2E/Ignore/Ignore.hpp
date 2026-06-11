@@ -41,3 +41,9 @@ enum class [[sharpcpp::ignore]] skipped_enum
     value_a = 0,
     value_b = 1
 };
+
+#define SHARPCPP_IGNORED_PAIR(NAME) \
+    struct [[sharpcpp::ignore]] NAME##_macro_record { int value; }; \
+    enum class [[sharpcpp::ignore]] NAME##_macro_enum { first = 0, second = 1 };
+
+SHARPCPP_IGNORED_PAIR(macro_generated)

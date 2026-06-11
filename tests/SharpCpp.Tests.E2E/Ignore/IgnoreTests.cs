@@ -9,7 +9,9 @@ public sealed class IgnoreTests
     {
         var content = ReadAllGeneratedCSharpContent();
 
-        Assert.Contains("// class SkippedRecord; // excluded: marked [[sharpcpp::ignore]]", content, StringComparison.Ordinal);
+        var lines = content.Replace("\r\n", "\n").Split('\n');
+
+        Assert.Contains("    // struct skipped_record { int value; int get_value() const; } // excluded: marked [[sharpcpp::ignore]]", lines);
         Assert.DoesNotContain("public partial class SkippedRecord", content, StringComparison.Ordinal);
     }
 
@@ -18,7 +20,9 @@ public sealed class IgnoreTests
     {
         var content = ReadAllGeneratedCSharpContent();
 
-        Assert.Contains("// public static int SkippedFreeFunction(int x); // excluded: manual stub", content, StringComparison.Ordinal);
+        var lines = content.Replace("\r\n", "\n").Split('\n');
+
+        Assert.Contains("        // inline int skipped_free_function(int x) // excluded: manual stub", lines);
         Assert.DoesNotContain("\n    public static int SkippedFreeFunction(", content, StringComparison.Ordinal);
     }
 
@@ -27,7 +31,21 @@ public sealed class IgnoreTests
     {
         var content = ReadAllGeneratedCSharpContent();
 
-        Assert.Contains("// enum SkippedEnum; // excluded: marked [[sharpcpp::ignore]]", content, StringComparison.Ordinal);
+        var lines = content.Replace("\r\n", "\n").Split('\n');
+
+        Assert.Contains("    // enum class skipped_enum : int { value_a = 0, value_b = 1 } // excluded: marked [[sharpcpp::ignore]]", lines);
+    }
+
+    [Fact]
+    public void Macro_backed_ignored_declarations_use_decl_spelling_not_macro_invocation()
+    {
+        var content = ReadAllGeneratedCSharpContent();
+
+        var lines = content.Replace("\r\n", "\n").Split('\n');
+
+        Assert.Contains(lines, static line => line.Contains("macro_generated_macro_record", StringComparison.Ordinal) && line.Contains("excluded: marked [[sharpcpp::ignore]]", StringComparison.Ordinal));
+        Assert.Contains(lines, static line => line.Contains("macro_generated_macro_enum", StringComparison.Ordinal) && line.Contains("excluded: marked [[sharpcpp::ignore]]", StringComparison.Ordinal));
+        Assert.DoesNotContain("SHARPCPP_IGNORED_PAIR", content, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -35,7 +53,9 @@ public sealed class IgnoreTests
     {
         var content = ReadAllGeneratedCSharpContent();
 
-        Assert.Contains("// class SkippedRecordWithReason; // excluded: not yet supported", content, StringComparison.Ordinal);
+        var lines = content.Replace("\r\n", "\n").Split('\n');
+
+        Assert.Contains("    // struct skipped_record_with_reason { int count; } // excluded: not yet supported", lines);
     }
 
     [Fact]
@@ -43,10 +63,13 @@ public sealed class IgnoreTests
     {
         var content = ReadAllGeneratedCSharpContent();
 
-        Assert.Contains("// public int InternalMethod(); // excluded: internal use only", content, StringComparison.Ordinal);
-        Assert.Contains("// public int SkippedField; // excluded: marked [[sharpcpp::ignore]]", content, StringComparison.Ordinal);
-        Assert.Contains("// public static int SkippedStatic(); // excluded: marked [[sharpcpp::ignore]]", content, StringComparison.Ordinal);
-        Assert.Contains("// public PartiallyIgnoredRecord(int debug_value); // excluded: debug constructor", content, StringComparison.Ordinal);
+        var lines = content.Replace("\r\n", "\n").Split('\n');
+
+        Assert.Contains("        // int internal_method() // excluded: internal use only", lines);
+        Assert.Contains("        // int skipped_field // excluded: marked [[sharpcpp::ignore]]", lines);
+        Assert.Contains("        // static int skipped_static() // excluded: marked [[sharpcpp::ignore]]", lines);
+        Assert.Contains("        // partially_ignored_record(int debug_value) // excluded: debug constructor", lines);
+        Assert.Contains("        // partially_ignored_record operator+(const partially_ignored_record &other) const // excluded: marked [[sharpcpp::ignore]]", lines);
     }
 
     private static string ReadAllGeneratedCSharpContent()

@@ -40,6 +40,8 @@ public sealed partial class ClangSharpHeaderParser
     private static partial Regex FlagsAttributeExpression();
     [GeneratedRegex(@"\[\[\s*sharpcpp::ignore(?:\s*\(\s*""(?<reason>[^""]*)""\s*\))?\s*\]\]", RegexOptions.CultureInvariant)]
     private static partial Regex IgnoreAttributeExpression();
+    [GeneratedRegex(@"^\s*\[\[\s*sharpcpp::ignore(?:\s*\(\s*""[^""]*""\s*\))?\s*\]\]\s*$", RegexOptions.CultureInvariant)]
+    private static partial Regex StandaloneIgnoreAttributeLineExpression();
     [GeneratedRegex(@"\[\[\s*sharpcpp::director\s*\]\]", RegexOptions.CultureInvariant)]
     private static partial Regex DirectorAttributeExpression();
     [GeneratedRegex(@"\[\[\s*sharpcpp::rename\s*\(\s*""(?<value>[^""]*)""\s*\)\s*\]\]", RegexOptions.CultureInvariant)]
@@ -417,6 +419,7 @@ public sealed partial class ClangSharpHeaderParser
             IsAbstract = cxxRecord?.IsAbstract ?? false,
             IsDirector = DirectorAttributeExpression().IsMatch(declarationText)
         };
+        record.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(recordDecl));
         if (isForwardDeclaration)
         {
             record.SetMetadata(MetadataKeys.ForwardDeclaration, true);
@@ -487,6 +490,7 @@ public sealed partial class ClangSharpHeaderParser
             IsAbstract = templatedRecord is CXXRecordDecl cxx && cxx.IsAbstract,
             IsDirector = DirectorAttributeExpression().IsMatch(declarationText)
         };
+        record.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(classTemplate));
         if (isForwardDeclaration)
         {
             record.SetMetadata(MetadataKeys.ForwardDeclaration, true);
@@ -748,6 +752,8 @@ public sealed partial class ClangSharpHeaderParser
             function.SetIgnoreReason(ignoreReason);
         }
 
+        function.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(methodDecl));
+
         return function;
     }
 
@@ -835,6 +841,8 @@ public sealed partial class ClangSharpHeaderParser
             function.SetIgnoreReason(ignoreReason);
         }
 
+        function.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(templateDecl));
+
         if (templatedFunction is CXXMethodDecl templatedMethod)
         {
             ApplyVirtualSpecifiers(templatedMethod, function);
@@ -900,6 +908,8 @@ public sealed partial class ClangSharpHeaderParser
             function.SetIgnoreReason(ignoreReason);
         }
 
+        function.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(methodDecl));
+
         return function;
     }
 
@@ -960,6 +970,8 @@ public sealed partial class ClangSharpHeaderParser
             function.SetIgnoreReason(ignoreReason);
         }
 
+        function.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(ctorDecl));
+
         return function;
     }
 
@@ -989,6 +1001,8 @@ public sealed partial class ClangSharpHeaderParser
         {
             field.SetIgnoreReason(ignoreReason);
         }
+
+        field.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(fieldDecl));
 
         return field;
     }
@@ -1043,6 +1057,8 @@ public sealed partial class ClangSharpHeaderParser
         {
             function.SetIgnoreReason(ignoreReason);
         }
+
+        function.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(functionDecl));
 
         return function;
     }
@@ -1114,6 +1130,8 @@ public sealed partial class ClangSharpHeaderParser
         {
             function.SetIgnoreReason(ignoreReason);
         }
+
+        function.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(templateDecl));
 
         return function;
     }
@@ -2204,6 +2222,7 @@ public sealed partial class ClangSharpHeaderParser
         {
             IsFlags = FlagsAttributeExpression().IsMatch(GetSourceText(enumDecl.TranslationUnit.Handle, enumDecl.Extent))
         };
+        @enum.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(enumDecl));
 
         CheckAndApplyIgnoreAttribute(enumDecl, @enum);
         TryApplyRename(enumDecl, @enum);
@@ -2263,6 +2282,47 @@ public sealed partial class ClangSharpHeaderParser
             translationUnit.DisposeTokens(tokens);
         }
     }
+
+    private static string GetDeclarationDisplayText(Decl decl)
+    {
+        if (!TryGetPrettyPrintedDeclarationText(decl, out var declarationText))
+        {
+            return string.Empty;
+        }
+
+        return NormalizeDeclarationDisplayText(declarationText);
+    }
+
+    private static unsafe bool TryGetPrettyPrintedDeclarationText(Decl decl, out string declarationText)
+    {
+        declarationText = string.Empty;
+
+        try
+        {
+            var cursor = decl.Handle;
+            var printingPolicy = clang.getCursorPrintingPolicy(cursor);
+            try
+            {
+                declarationText = clang.getCursorPrettyPrinted(cursor, printingPolicy).ToString();
+            }
+            finally
+            {
+                clang.PrintingPolicy_dispose(printingPolicy);
+            }
+
+            return !string.IsNullOrWhiteSpace(declarationText);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string NormalizeDeclarationDisplayText(string declarationText)
+        => string.Join(" ", declarationText
+            .Replace("\r", string.Empty)
+            .Replace("\n", " ")
+            .Split(['\t', ' '], StringSplitOptions.RemoveEmptyEntries));
 
     private static void ApplyManagedDefaultValue(
         ParameterBinding parameter,

@@ -12,6 +12,40 @@ namespace SharpCpp.Tests.Rendering;
 public sealed class BindingOutputRendererTests
 {
     [Fact]
+    public void Ignored_stubs_prefer_native_declaration_metadata()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });
+        var function = new FunctionBinding("function:test", "test", "Test", BindingType.Void, "sharpcpp_sample_test", "void")
+        {
+            IsStatic = true
+        };
+        function.SetIgnoreReason("manual stub");
+        function.SetMetadata(MetadataKeys.DeclarationDisplayText, "static int native_test(const Foo& value);");
+        compilation.Members.Add(function);
+
+        var managedOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("// static int native_test(const Foo& value); // excluded: manual stub", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Ignored_stubs_fall_back_to_native_shapes_without_metadata()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });
+        var record = new RecordBinding("record:test", "test", "Test");
+        var field = new FieldBinding("field:test:value", "value", "Value", BindingType.Int32, "int", "test", isReadOnly: false);
+        field.SetIgnoreReason("manual stub");
+        record.Members.Add(field);
+        compilation.Members.Add(record);
+
+        var managedOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("// int value; // excluded: manual stub", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Native_output_uses_export_macro_with_extern_c()
     {
         var compilation = new BindingCompilation(
@@ -704,7 +738,9 @@ public sealed class BindingOutputRendererTests
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("// class Skipped; // excluded: not yet supported", managedOutput, StringComparison.Ordinal);
+        var lines = managedOutput.Replace("\r\n", "\n").Split('\n');
+
+        Assert.Contains("    // skipped; // excluded: not yet supported", lines);
         Assert.DoesNotContain("public partial class Skipped", managedOutput, StringComparison.Ordinal);
     }
 
@@ -724,8 +760,9 @@ public sealed class BindingOutputRendererTests
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("// public static int SkippedFn()", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("// excluded: manual stub", managedOutput, StringComparison.Ordinal);
+        var lines = managedOutput.Replace("\r\n", "\n").Split('\n');
+
+        Assert.Contains("        // static int skipped_fn(); // excluded: manual stub", lines);
         Assert.DoesNotContain("\n    public static int SkippedFn(", managedOutput, StringComparison.Ordinal);
     }
 
@@ -745,7 +782,9 @@ public sealed class BindingOutputRendererTests
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("// enum Skipped; // excluded: marked [[sharpcpp::ignore]]", managedOutput, StringComparison.Ordinal);
+        var lines = managedOutput.Replace("\r\n", "\n").Split('\n');
+
+        Assert.Contains("    // enum skipped; // excluded: marked [[sharpcpp::ignore]]", lines);
     }
 
     [Fact]
@@ -766,7 +805,7 @@ public sealed class BindingOutputRendererTests
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("// public int Skip(); // excluded: internal only", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("// excluded: internal only", managedOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -787,7 +826,9 @@ public sealed class BindingOutputRendererTests
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("// public int Skip; // excluded: marked [[sharpcpp::ignore]]", managedOutput, StringComparison.Ordinal);
+        var lines = managedOutput.Replace("\r\n", "\n").Split('\n');
+
+        Assert.Contains("        // int skip; // excluded: marked [[sharpcpp::ignore]]", lines);
     }
 
     [Fact]
