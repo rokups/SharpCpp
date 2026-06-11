@@ -80,6 +80,22 @@ public static class MarshallerMetadataPhase2
             }
 
             var record = FindRecordByName(recordsByNativeName, recordName);
+
+            // When the record found is a generic template (e.g., BaseVector2<T>)
+            // and the Marshaller config targets a concrete typedef (e.g.,
+            // DoubleVector2 = BaseVector2<double>), Clang resolves the template
+            // argument to the canonical type.  Skip the generic record and
+            // create a synthetic one for the concrete type instead.
+            if (record is not null && record.IsGeneric)
+            {
+                // Check cppTypeName from config — if it's a concrete (non-generic)
+                // type, create a synthetic record for it.
+                var configIsGeneric = cppTypeName.Contains('<', StringComparison.Ordinal);
+                if (!configIsGeneric)
+                {
+                    record = null;
+                }
+            }
             if (record is null)
             {
                 // Create a synthetic record when the Marshaller config

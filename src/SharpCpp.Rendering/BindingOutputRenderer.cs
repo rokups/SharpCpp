@@ -2742,6 +2742,19 @@ public static partial class BindingOutputRenderer
             ? $"global::SharpCpp.Support.NativeObject.GetHandle({parameter.ManagedName})"
             : parameter.ManagedName;
 
+        // For value-type (Primitive) parameters, pass by value — the
+        // runtime creates temporaries as needed.  Handle types pass as
+        // nint (value pointer).  Only use ref/out for explicit pass-kind.
+        if (parameter.Type.Kind != BindingTypeKind.Handle)
+        {
+            return parameter.Direction switch
+            {
+                BindingParameterDirection.Ref => $"ref {valueExpression}",
+                BindingParameterDirection.Out => $"out {valueExpression}",
+                _ => valueExpression
+            };
+        }
+
         return parameter.Direction switch
         {
             BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => $"in {valueExpression}",
@@ -3533,6 +3546,18 @@ public static partial class BindingOutputRenderer
         }
 
         var valueExpression = $"{parameter.ManagedName}.Value";
+        // For value-type (Primitive) params, pass by value — the runtime
+        // creates temporaries as needed, avoiding CS8156 for property
+        // accesses like Nullable<T>.Value.
+        if (parameter.Type.Kind != BindingTypeKind.Handle)
+        {
+            return parameter.Direction switch
+            {
+                BindingParameterDirection.Ref => $"ref {valueExpression}",
+                BindingParameterDirection.Out => $"out {valueExpression}",
+                _ => valueExpression
+            };
+        }
         return parameter.Direction switch
         {
             BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => $"in {valueExpression}",
