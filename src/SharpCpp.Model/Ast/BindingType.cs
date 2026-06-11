@@ -192,12 +192,22 @@ public sealed class BindingType
 
     private string FormatManagedTypeName()
     {
-        if (GenericArguments.Count == 0)
+        // When an explicit managed type format override is set (via
+        // Marshaller<T> attributes) and contains no format placeholders,
+        // use it as-is — C++ template arguments don't apply to the
+        // configured managed type.
+        if (_managedTypeFormatOverride is not null &&
+            !_managedTypeFormatOverride.Contains('{', StringComparison.Ordinal))
         {
-            return _managedTypeFormatOverride ?? Marshaller.PublicTypeName;
+            return _managedTypeFormatOverride;
         }
 
         var managedTypeFormat = _managedTypeFormatOverride ?? Marshaller.PublicTypeName;
+        if (GenericArguments.Count == 0)
+        {
+            return managedTypeFormat;
+        }
+
         var argumentNames = GenericArguments.Select(static argument => argument.ManagedTypeName).Cast<object>().ToArray();
         return managedTypeFormat.Contains('{', StringComparison.Ordinal)
             ? string.Format(System.Globalization.CultureInfo.InvariantCulture, managedTypeFormat, argumentNames)

@@ -2696,20 +2696,22 @@ public static partial class BindingOutputRenderer
         {
             if (parameter.HasMetadata(MetadataKeys.UnexpressibleDefault))
             {
-                signature += " = null";
+                signature += " = default";
             }
             else if (isNullableHandleDefault)
             {
-                signature += " = null";
+                signature += " = default";
             }
             else if (parameter.Direction == BindingParameterDirection.In &&
                 parameter.AbiKind == BindingParameterAbiKind.Value &&
                 parameter.ManagedDefaultValueExpression is { Length: > 0 } defaultValueExpression)
             {
-                signature += $" = {defaultValueExpression}";
+                var fallbackDefault = defaultValueExpression == "null"
+                    ? "default"
+                    : defaultValueExpression;
+                signature += $" = {fallbackDefault}";
             }
         }
-
         return signature;
     }
 

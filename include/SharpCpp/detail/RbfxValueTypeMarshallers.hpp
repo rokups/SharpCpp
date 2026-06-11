@@ -269,7 +269,7 @@ Marshaller<Urho3D::Color>
 template <>
 struct [[sharpcpp::managed_type(
     public_type = "global::Urho3D.Math.StringHash",
-    marshaller_type = "global::System.UInt32",
+    marshaller_type = "global::Urho3D.Math.StringHash",
     suppress_emission = true
 )]]
 Marshaller<Urho3D::StringHash>

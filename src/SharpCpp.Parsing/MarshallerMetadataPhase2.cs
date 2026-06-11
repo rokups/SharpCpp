@@ -82,11 +82,12 @@ public static class MarshallerMetadataPhase2
             var record = FindRecordByName(recordsByNativeName, recordName);
             if (record is null)
             {
-                // Only create a synthetic record when the Marshaller config
-                // specifies managed_base_type (indicating a Handle-type record
-                // like std::string).  Primitive configured types (const char*,
-                // char**, etc.) do not need RecordBindings.
-                if (!ManagedBaseTypeExpression.IsMatch(config.AttributeBody))
+                // Create a synthetic record when the Marshaller config
+                // references a type with no RecordBinding in the compilation.
+                // Gate on managed_base_type OR suppress_emission — both
+                // indicate the type needs a wrapper class.
+                if (!ManagedBaseTypeExpression.IsMatch(config.AttributeBody) &&
+                    !SuppressEmissionExpression.IsMatch(config.AttributeBody))
                 {
                     continue;
                 }
@@ -143,7 +144,16 @@ public static class MarshallerMetadataPhase2
             if (PublicTypeExpression.Match(body) is { Success: true } publicTypeMatch)
             {
                 var publicType = publicTypeMatch.Groups["value"].Value;
-                if (record.ManagedTypeFormat is not null && !string.Equals(record.ManagedTypeFormat, publicType, StringComparison.Ordinal))
+                // When suppress_emission is set on this record (hand-written
+                // C# struct replaces the auto-generated wrapper), the
+                // public_type from the Marshaller takes precedence over any
+                // rename attribute — the two represent different types.
+                var overrideRename = SuppressEmissionExpression.IsMatch(body) &&
+                    !string.Equals(record.ManagedTypeFormat, publicType, StringComparison.Ordinal);
+
+                if (!overrideRename &&
+                    record.ManagedTypeFormat is not null &&
+                    !string.Equals(record.ManagedTypeFormat, publicType, StringComparison.Ordinal))
                 {
                     Logger.LogWarning(
                         "Record '{NativeName}' has [[sharpcpp::rename(\"{ManagedTypeFormat}\")]] " +
@@ -151,7 +161,7 @@ public static class MarshallerMetadataPhase2
                         "The rename attribute takes precedence.",
                         record.NativeName, record.ManagedTypeFormat, publicType);
                 }
-                else if (record.ManagedTypeFormat is null)
+                else if (record.ManagedTypeFormat is null || overrideRename)
                 {
                     record.ManagedTypeFormat = publicType;
                     record.ManagedName = GetManagedTypeHead(publicType);
@@ -168,6 +178,12 @@ public static class MarshallerMetadataPhase2
             if (SuppressEmissionExpression.IsMatch(body))
             {
                 record.SetMetadata(MetadataKeys.SuppressEmission, true);
+                // Clear generic parameters so type references use the
+                // simple non-generic name (e.g. "Vector3" not "Vector3<T>").
+                // The hand-written C# struct replaces the auto-generated
+                // generic wrapper.
+                record.GenericParameters.Clear();
+                record.SupportedGenericInstantiations.Clear();
             }
 
             // managed_namespace → ManagedNamespace
@@ -341,38 +357,40 @@ public static class MarshallerMetadataPhase2
     {
         foreach (var function in compilation.Functions)
         {
-            ApplyManagedTypeFormat(function.ReturnType, recordsByNativeName);
-            foreach (var parameter in function.Parameters)
+            function.ReturnType = ApplyManagedTypeFormat(function.ReturnType, recordsByNativeName);
+            for (var i = 0; i < function.Parameters.Count; i++)
             {
-                ApplyManagedTypeFormat(parameter.Type, recordsByNativeName);
+                function.Parameters[i].Type = ApplyManagedTypeFormat(function.Parameters[i].Type, recordsByNativeName);
             }
         }
 
         foreach (var field in compilation.Descendants<FieldBinding>())
         {
-            ApplyManagedTypeFormat(field.Type, recordsByNativeName);
+            field.Type = ApplyManagedTypeFormat(field.Type, recordsByNativeName);
         }
 
         foreach (var method in compilation.Records.SelectMany(static record => record.Members.OfType<FunctionBinding>()))
         {
-            ApplyManagedTypeFormat(method.ReturnType, recordsByNativeName);
-            foreach (var parameter in method.Parameters)
+            method.ReturnType = ApplyManagedTypeFormat(method.ReturnType, recordsByNativeName);
+            for (var i = 0; i < method.Parameters.Count; i++)
             {
-                ApplyManagedTypeFormat(parameter.Type, recordsByNativeName);
+                method.Parameters[i].Type = ApplyManagedTypeFormat(method.Parameters[i].Type, recordsByNativeName);
             }
         }
     }
 
-    private static void ApplyManagedTypeFormat(BindingType type, IReadOnlyDictionary<string, RecordBinding> recordsByNativeName)
+    private static BindingType ApplyManagedTypeFormat(BindingType type, IReadOnlyDictionary<string, RecordBinding> recordsByNativeName)
     {
-        foreach (var genericArgument in type.GenericArguments)
-        {
-            ApplyManagedTypeFormat(genericArgument, recordsByNativeName);
-        }
-
         if (type.Kind != BindingTypeKind.Handle || string.IsNullOrWhiteSpace(type.RecordId))
         {
-            return;
+            return type;
+        }
+
+        // Recurse into generic arguments (in-place mutation via override,
+        // since GenericArguments is IReadOnlyList and can't be reassigned).
+        foreach (var genericArg in type.GenericArguments)
+        {
+            var _ = ApplyManagedTypeFormat(genericArg, recordsByNativeName);
         }
 
         var record = recordsByNativeName.Values.FirstOrDefault(candidate => string.Equals(candidate.SymbolId, type.RecordId, StringComparison.Ordinal));
@@ -388,10 +406,23 @@ public static class MarshallerMetadataPhase2
 
         if (record is null)
         {
-            return;
+            return type;
+        }
+
+        // When the backing record is suppressed (hand-written C# struct
+        // replaces the auto-generated wrapper), convert the Handle type to
+        // a Primitive configured type so the renderer treats it as a
+        // value type rather than a NativeObject-derived handle.
+        if (record.GetMetadata<bool>(MetadataKeys.SuppressEmission))
+        {
+            return BindingType.CreateConfigured(
+                type.CppTypeName,
+                record.ManagedTypeFormat ?? record.ManagedName,
+                record.HandleMarshallerTypeName);
         }
 
         type.SetManagedTypeFormatOverride(record.ManagedTypeFormat ?? record.ManagedName);
+        return type;
     }
 
     private static string StripGenericArguments(string name)
