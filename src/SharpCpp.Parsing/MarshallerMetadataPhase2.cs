@@ -124,10 +124,7 @@ public static class MarshallerMetadataPhase2
                     $"record:{recordName}",
                     recordName,
                     pascalName,
-                    cppTypeName)
-                {
-                    HeaderIncludePath = $"foreign/{recordName}.hpp"
-                };
+                    cppTypeName);
                 record.SetMetadata(MetadataKeys.PlaceholderRecord, false);
                 record.SetMetadata(MetadataKeys.ForwardDeclaration, false);
                 // ManagedNamespace will be set below from managed_namespace.
@@ -144,14 +141,6 @@ public static class MarshallerMetadataPhase2
             {
                 record.SetMetadata(MetadataKeys.PlaceholderRecord, false);
                 record.SetMetadata(MetadataKeys.ForwardDeclaration, false);
-                // Assign a header include path so the renderer places this
-                // record in a valid output file (system headers aren't in
-                // the owned include tree, so they'd get no output file).
-                if (string.IsNullOrWhiteSpace(record.HeaderIncludePath) ||
-                    !record.HeaderIncludePath.Contains('/', StringComparison.Ordinal))
-                {
-                    record.HeaderIncludePath = $"foreign/{record.NativeName}.hpp";
-                }
             }
 
             var body = config.AttributeBody;

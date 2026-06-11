@@ -1058,6 +1058,33 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Render_routes_null_header_ignored_records_into_main_bindings_file()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Rbfx.Bindings",
+            "Urho3D",
+            "Bindings",
+            "SharpCpp.Rbfx.Native",
+            new[] { "Urho3D/Urho3DAll.h" });
+
+        var foreignRecord = new RecordBinding(
+            "record:std::basic_string<char>",
+            "std::basic_string<char>",
+            "BasicString",
+            "std::basic_string<char>");
+        foreignRecord.SetIgnoreReason("outside bindings api");
+        compilation.Members.Add(foreignRecord);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCpp.Rbfx", DeriveRbfxGroupStem).Files;
+
+        Assert.Contains(files, static file => file.RelativePath == "SharpCpp.Rbfx.Bindings.g.cs");
+        Assert.DoesNotContain(files, static file => file.RelativePath.Contains("basic_string", StringComparison.Ordinal));
+
+        var managedOutput = files.Single(static file => file.RelativePath == "SharpCpp.Rbfx.Bindings.g.cs").Content;
+        Assert.Contains("// std::basic_string<char>; // excluded: outside bindings api", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Generated_binding_set_removes_stale_generated_files_when_rewriting_directory()
     {
         var outputDirectory = Path.Combine(Path.GetTempPath(), $"SharpCpp.Tests.Rendering.{Guid.NewGuid():N}");

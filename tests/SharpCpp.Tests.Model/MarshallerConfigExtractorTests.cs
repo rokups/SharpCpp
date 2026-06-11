@@ -91,4 +91,36 @@ public sealed class MarshallerConfigExtractorTests
         Assert.True(function.IsConstMethod);
         Assert.Empty(function.Parameters);
     }
+
+    [Fact]
+    public void ApplyRecordMetadata_leaves_synthetic_record_header_path_null()
+    {
+        var compilation = new SharpCpp.Model.Ast.BindingCompilation("TestProject", "Test.Namespace", "Bindings", "Test.Native", new[] { "MarshallerConfig.hpp" });
+
+        var extractorType = Type.GetType("SharpCpp.Parsing.MarshallerConfigExtractor, SharpCpp.Parsing", throwOnError: true)!;
+        var exposedMemberType = extractorType.GetNestedType("ExposedMemberInfo", BindingFlags.NonPublic)!;
+        var configType = extractorType.GetNestedType("MarshallerBodyConfig", BindingFlags.NonPublic)!;
+
+        var configCtor = configType.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            .Single(ctor => ctor.GetParameters().Length == 2);
+        var exposedMembers = Array.CreateInstance(exposedMemberType, 0);
+        var config = configCtor.Invoke(["[[sharpcpp::managed_type(managed_base_type = \"global::SharpCpp.Support.StringBase\")]]", exposedMembers])!;
+
+        var applyMethod = Type.GetType("SharpCpp.Parsing.MarshallerMetadataPhase2, SharpCpp.Parsing", throwOnError: true)!
+            .GetMethod("ApplyRecordMetadata", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var configs = (System.Collections.IDictionary)Activator.CreateInstance(
+            typeof(Dictionary<,>).MakeGenericType(typeof(string), configType),
+            StringComparer.Ordinal)!;
+        configs["std::basic_string<char>"] = config;
+
+        var recordsByNativeName = (System.Collections.IDictionary)Activator.CreateInstance(
+            typeof(Dictionary<,>).MakeGenericType(typeof(string), typeof(SharpCpp.Model.Ast.RecordBinding)),
+            StringComparer.Ordinal)!;
+
+        applyMethod.Invoke(null, [compilation, configs, recordsByNativeName]);
+
+        var record = Assert.Single(compilation.Members.OfType<SharpCpp.Model.Ast.RecordBinding>());
+        Assert.Equal("std::basic_string", record.NativeName);
+        Assert.Null(record.HeaderIncludePath);
+    }
 }
