@@ -26,6 +26,14 @@ public sealed class RecordBinding : BindingNamedContainerNode
 
     public string? ManagedBaseTypeName { get; set; }
 
+    /// <summary>
+    /// Format string for generic constraints on the managed base class declaration.
+    /// Uses {0}, {1} placeholders referencing <see cref="GenericParameters"/> by position.
+    /// Example: "where {0} : notnull"
+    /// Set by the marshaller from the <c>managed_base_type_constraints</c> annotation field.
+    /// </summary>
+    public string? ManagedBaseTypeConstraints { get; set; }
+
     public bool IsDirector { get; set; }
 
     public bool IsAbstract { get; set; }

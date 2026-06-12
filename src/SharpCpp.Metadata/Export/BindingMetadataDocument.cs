@@ -28,6 +28,7 @@ public sealed record BindingMetadataType(
     string? ManagedNamespace,
     string? ManagedBaseTypeName,
     BindingMetadataTypeReference Projection,
+    string? ManagedBaseTypeConstraints = null,
     bool IsFlags = false,
     IReadOnlyList<BindingMetadataEnumValue>? Values = null,
     IReadOnlyList<BindingMetadataRecordMember>? Members = null);

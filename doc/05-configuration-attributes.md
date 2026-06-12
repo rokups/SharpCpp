@@ -66,6 +66,7 @@ Applied to `Marshaller<T>` specializations. Declares how the C++ type maps to ma
 | `parameter_marshaller_type` | string | `marshaller_type` | Override for parameter context |
 | `return_marshaller_type` | string | `marshaller_type` | Override for return context |
 | `managed_base_type` | string | null | C# base class override |
+| `managed_base_type_constraints` | string | null | C# generic constraints for the managed base class. Uses `{0}`, `{1}` placeholders referencing generic type arguments. Example: `"where {0} : notnull"` |
 | `projection` | bool | false | The managed type is a generic argument, not the wrapper type itself |
 | `polymorphic` | bool | false | Enable runtime wrapper selection for this surface when the native type is structurally polymorphic |
 | `suppress_emission` | bool | false | Don't emit the managed type itself (imported from support library or upstream) |

@@ -92,7 +92,8 @@ public sealed class BindingMetadataImportCatalog
             cppQualifiedName)
         {
             ManagedNamespace = importedType.ManagedNamespace ?? document.Source.ManagedNamespace,
-            ManagedBaseTypeName = managedBaseTypeName
+            ManagedBaseTypeName = managedBaseTypeName,
+            ManagedBaseTypeConstraints = importedType.ManagedBaseTypeConstraints
         };
         record.SetMetadata(MetadataKeys.SuppressEmission, true);
 

@@ -85,6 +85,7 @@ template <typename TKey, typename TValue, typename TCompare, typename TAllocator
 struct [[sharpcpp::managed_type(
     public_type = "Ea.Map<{0}, {1}>",
     managed_base_type = "global::SharpCpp.Support.MapBase<{0}, {1}>",
+    managed_base_type_constraints = "where {0} : notnull",
     managed_namespace = "Ea"
 )]]
 Marshaller<eastl::map<TKey, TValue, TCompare, TAllocator>> : MapCollectionMarshallerBase<eastl::map<TKey, TValue, TCompare, TAllocator>, TKey, TValue> {};
@@ -108,6 +109,7 @@ template <typename TKey, typename TValue, typename THash, typename TPredicate, t
 struct [[sharpcpp::managed_type(
     public_type = "Ea.UnorderedMap<{0}, {1}>",
     managed_base_type = "global::SharpCpp.Support.UnorderedMapBase<{0}, {1}>",
+    managed_base_type_constraints = "where {0} : notnull",
     managed_namespace = "Ea"
 )]]
 Marshaller<eastl::unordered_map<TKey, TValue, THash, TPredicate, TAllocator, CacheHashCode>> : MapCollectionMarshallerBase<eastl::unordered_map<TKey, TValue, THash, TPredicate, TAllocator, CacheHashCode>, TKey, TValue> {};

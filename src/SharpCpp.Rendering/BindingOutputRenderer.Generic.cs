@@ -299,19 +299,13 @@ public static partial class BindingOutputRenderer
 
     private static string GetGenericRecordConstraints(RecordBinding record)
     {
-        if (string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) || record.GenericParameters.Count == 0)
+        if (string.IsNullOrWhiteSpace(record.ManagedBaseTypeConstraints) || record.GenericParameters.Count == 0)
         {
             return string.Empty;
         }
 
-        if (record.ManagedBaseTypeName.Contains("MapBase<", StringComparison.Ordinal) ||
-            record.ManagedBaseTypeName.Contains("UnorderedMapBase<", StringComparison.Ordinal) ||
-            record.ManagedBaseTypeName.Contains("DictionaryBase<", StringComparison.Ordinal))
-        {
-            return $" where {record.GenericParameters[0].Name} : notnull";
-        }
-
-        return string.Empty;
+        var typeArguments = record.GenericParameters.Select(static parameter => parameter.Name).Cast<object>().ToArray();
+        return string.Format(System.Globalization.CultureInfo.InvariantCulture, record.ManagedBaseTypeConstraints, typeArguments);
     }
 
     private static string GetGenericImportAccessor(BindingCompilation compilation)
@@ -857,6 +851,7 @@ public static partial class BindingOutputRenderer
         var usedIndices = new HashSet<int>();
         CollectManagedFormatPlaceholderIndices(record.ManagedTypeFormat, usedIndices);
         CollectManagedFormatPlaceholderIndices(record.ManagedBaseTypeName, usedIndices);
+        CollectManagedFormatPlaceholderIndices(record.ManagedBaseTypeConstraints, usedIndices);
 
         if (usedIndices.Count == 0)
         {

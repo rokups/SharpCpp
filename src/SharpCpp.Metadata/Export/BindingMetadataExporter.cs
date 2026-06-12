@@ -63,6 +63,7 @@ public static class BindingMetadataExporter
             record.ManagedNamespace,
             record.ManagedBaseTypeName,
             CreateTypeReference(record.HandleType),
+            ManagedBaseTypeConstraints: record.ManagedBaseTypeConstraints,
             Members: record.Members
                 .Where(static member => !member.IsIgnored())
                 .Select(CreateRecordMember)

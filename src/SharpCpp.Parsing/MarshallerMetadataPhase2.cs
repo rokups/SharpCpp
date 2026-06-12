@@ -31,6 +31,10 @@ public static class MarshallerMetadataPhase2
         @"managed_base_type\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+    private static readonly Regex ManagedBaseTypeConstraintsExpression = new(
+        @"managed_base_type_constraints\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     private static readonly Regex SuppressEmissionExpression = new(
         @"suppress_emission\s*=\s*true",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -217,6 +221,12 @@ public static class MarshallerMetadataPhase2
                 }
             }
 
+            // managed_base_type_constraints → ManagedBaseTypeConstraints
+            if (ManagedBaseTypeConstraintsExpression.Match(body) is { Success: true } constraintsMatch)
+            {
+                record.ManagedBaseTypeConstraints = constraintsMatch.Groups["value"].Value;
+            }
+
             // expose_member methods — metadata comes from AST cursors, not source regex.
             foreach (var member in config.ExposedMembers)
             {
@@ -306,6 +316,7 @@ public static class MarshallerMetadataPhase2
             }
 
             realRecord.ManagedBaseTypeName ??= placeholder.ManagedBaseTypeName;
+            realRecord.ManagedBaseTypeConstraints ??= placeholder.ManagedBaseTypeConstraints;
             realRecord.ManagedTypeFormat ??= placeholder.ManagedTypeFormat;
             if (!string.Equals(realRecord.ManagedName, placeholder.ManagedName, StringComparison.Ordinal) &&
                 realRecord.ManagedTypeFormat is null)
@@ -374,6 +385,11 @@ public static class MarshallerMetadataPhase2
             score += 10;
         }
 
+        if (!string.IsNullOrWhiteSpace(record.ManagedBaseTypeConstraints))
+        {
+            score += 5;
+        }
+
         score += record.Members.Count;
         score += record.GenericParameters.Count;
 
@@ -383,6 +399,7 @@ public static class MarshallerMetadataPhase2
     private static void MergeRecordInto(RecordBinding target, RecordBinding source)
     {
         target.ManagedBaseTypeName ??= source.ManagedBaseTypeName;
+        target.ManagedBaseTypeConstraints ??= source.ManagedBaseTypeConstraints;
         target.ManagedTypeFormat ??= source.ManagedTypeFormat;
         target.ManagedNamespace ??= source.ManagedNamespace;
         target.HandleMarshallerTypeName ??= source.HandleMarshallerTypeName;
