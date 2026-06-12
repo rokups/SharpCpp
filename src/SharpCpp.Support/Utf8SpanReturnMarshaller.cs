@@ -6,14 +6,19 @@ using System.Runtime.InteropServices.Marshalling;
 namespace SharpCpp.Support;
 
 /// <summary>
-/// Custom marshaller for [LibraryImport] that converts a native const char*
-/// (received as IntPtr) to a ReadOnlySpan&lt;byte&gt; by scanning for the
-/// null terminator. The span wraps the native memory directly — zero copy.
-/// The native pointer must remain valid for the span's lifetime.
+/// Custom LibraryImport marshaller that converts a native const char* to a <see cref="ReadOnlySpan{T}"/> of <see cref="byte"/>
+/// by scanning for the null terminator. Zero-copy — the span wraps native memory directly.
 /// </summary>
 [CustomMarshaller(typeof(ReadOnlySpan<byte>), MarshalMode.ManagedToUnmanagedOut, typeof(Utf8SpanReturnMarshaller))]
 public static unsafe class Utf8SpanReturnMarshaller
 {
+    /// <summary>
+    /// Converts a native <c>const char*</c> pointer to a <see cref="ReadOnlySpan{T}"/> of <see cref="byte"/>
+    /// by scanning for the null terminator. The returned span wraps native memory directly — zero copy.
+    /// The native pointer must remain valid for the span's lifetime.
+    /// </summary>
+    /// <param name="unmanaged">A native pointer to a null-terminated UTF-8 string, or <see cref="IntPtr.Zero"/>.</param>
+    /// <returns>A <see cref="ReadOnlySpan{T}"/> wrapping the native memory, or <see cref="ReadOnlySpan{T}.Empty"/> if <paramref name="unmanaged"/> is <see cref="IntPtr.Zero"/>.</returns>
     public static ReadOnlySpan<byte> ConvertToManaged(IntPtr unmanaged)
     {
         if (unmanaged == IntPtr.Zero)

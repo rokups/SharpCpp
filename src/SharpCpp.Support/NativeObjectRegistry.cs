@@ -2,6 +2,10 @@ using System.Collections.Concurrent;
 
 namespace SharpCpp.Support;
 
+/// <summary>
+/// Static type registry mapping native dynamic type IDs to managed wrapper factories,
+/// enabling polymorphic wrapper creation when the exact derived type is only known at runtime.
+/// </summary>
 public abstract class NativeObjectRegistry
 {
     private readonly record struct RegisteredType(
@@ -11,6 +15,11 @@ public abstract class NativeObjectRegistry
 
     private static readonly ConcurrentDictionary<nuint, RegisteredType> s_types = new();
 
+    /// <summary>
+    /// Registers the given wrapper type by reading its <see cref="INativeObjectRegistration{T}"/> static abstract members.
+    /// </summary>
+    /// <typeparam name="T">The wrapper type to register. Must implement <see cref="INativeObjectRegistration{T}"/>.</typeparam>
+    /// <exception cref="InvalidOperationException">Thrown when <c>T.RegistrationCreateFactory</c> is <see langword="null"/>.</exception>
     public static void RegisterType<T>()
         where T : NativeObject, INativeObjectRegistration<T>
     {
@@ -20,6 +29,14 @@ public abstract class NativeObjectRegistry
         RegisterType(T.RegistrationDynamicTypeId, T.RegistrationExpectedType, createFactory, T.RegistrationInstanceCache);
     }
 
+    /// <summary>
+    /// Registers a factory for the given native dynamic type ID.
+    /// </summary>
+    /// <param name="dynamicTypeId">The C++ runtime type identifier to map.</param>
+    /// <param name="expectedType">The expected CLR wrapper <see cref="Type"/>.</param>
+    /// <param name="createFactory">A factory delegate that creates a managed wrapper for a given native handle and ownership flag.</param>
+    /// <param name="instanceCache">The per-type instance cache for tracking live wrappers.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="expectedType"/>, <paramref name="createFactory"/>, or <paramref name="instanceCache"/> is <see langword="null"/>.</exception>
     public static void RegisterType(
         nuint dynamicTypeId,
         Type expectedType,
@@ -33,6 +50,15 @@ public abstract class NativeObjectRegistry
         s_types[dynamicTypeId] = new RegisteredType(expectedType, createFactory, instanceCache);
     }
 
+    /// <summary>
+    /// Primary entry point for generated P/Invoke wrappers. Resolves the most derived registered wrapper type
+    /// for the given native handle via cache lookup, native metadata query, and registry resolution.
+    /// </summary>
+    /// <typeparam name="T">The expected wrapper type. Must implement <see cref="INativeObjectRegistration{T}"/>.</typeparam>
+    /// <param name="handle">The native object pointer.</param>
+    /// <param name="ownsHandle">Whether the wrapper should own the native handle.</param>
+    /// <returns>A managed wrapper instance for the native object.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when no factory is available for the resolved type.</exception>
     public static NativeObject Create<T>(
         nint handle,
         bool ownsHandle)
