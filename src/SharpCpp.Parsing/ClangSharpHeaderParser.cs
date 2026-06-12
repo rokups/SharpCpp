@@ -394,18 +394,31 @@ public sealed partial class ClangSharpHeaderParser
             : sourceText;
         var isForwardDeclaration = braceIndex < 0;
 
-        if (recordsByName.TryGetValue(nativeName, out var ghostRecord) &&
-            ghostRecord.GetMetadata<bool>(MetadataKeys.PlaceholderRecord))
+        // Look up ghost records under both the unqualified spelling and the fully
+        // qualified name — placeholders created by MapType may be keyed by either.
+        RecordBinding? ghostRecord = null;
+        var ghostKey = nativeName;
+        if (!recordsByName.TryGetValue(nativeName, out ghostRecord) &&
+            !string.IsNullOrWhiteSpace(cppQualifiedName) &&
+            !string.Equals(nativeName, cppQualifiedName, StringComparison.Ordinal))
+        {
+            if (recordsByName.TryGetValue(cppQualifiedName, out ghostRecord))
+            {
+                ghostKey = cppQualifiedName;
+            }
+        }
+
+        if (ghostRecord?.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) == true)
         {
             ghostRecord.Detach();
-            recordsByName.Remove(nativeName);
+            recordsByName.Remove(ghostKey);
         }
         else if (ghostRecord is not null &&
                  ghostRecord.GetMetadata<bool>(MetadataKeys.ForwardDeclaration) &&
                  !isForwardDeclaration)
         {
             ghostRecord.Detach();
-            recordsByName.Remove(nativeName);
+            recordsByName.Remove(ghostKey);
         }
         else if (ghostRecord is not null)
         {
@@ -454,19 +467,33 @@ public sealed partial class ClangSharpHeaderParser
         var sourceText = GetSourceText(classTemplate.Handle.TranslationUnit, classTemplate.Extent);
         var braceIndex = sourceText.IndexOf('{');
         var isForwardDeclaration = braceIndex < 0;
+        var cppQualifiedName = GetCppQualifiedName(classTemplate);
 
-        if (recordsByName.TryGetValue(nativeName, out var ghostRecord) &&
-            ghostRecord.GetMetadata<bool>(MetadataKeys.PlaceholderRecord))
+        // Look up ghost records under both the unqualified spelling and the fully
+        // qualified name — placeholders created by MapType may be keyed by either.
+        RecordBinding? ghostRecord = null;
+        var ghostKey = nativeName;
+        if (!recordsByName.TryGetValue(nativeName, out ghostRecord) &&
+            !string.IsNullOrWhiteSpace(cppQualifiedName) &&
+            !string.Equals(nativeName, cppQualifiedName, StringComparison.Ordinal))
+        {
+            if (recordsByName.TryGetValue(cppQualifiedName, out ghostRecord))
+            {
+                ghostKey = cppQualifiedName;
+            }
+        }
+
+        if (ghostRecord?.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) == true)
         {
             ghostRecord.Detach();
-            recordsByName.Remove(nativeName);
+            recordsByName.Remove(ghostKey);
         }
         else if (ghostRecord is not null &&
                  ghostRecord.GetMetadata<bool>(MetadataKeys.ForwardDeclaration) &&
                  !isForwardDeclaration)
         {
             ghostRecord.Detach();
-            recordsByName.Remove(nativeName);
+            recordsByName.Remove(ghostKey);
         }
         else if (ghostRecord is not null)
         {
@@ -477,8 +504,6 @@ public sealed partial class ClangSharpHeaderParser
         {
             return;
         }
-
-        var cppQualifiedName = GetCppQualifiedName(classTemplate);
         var declarationText = braceIndex >= 0
             ? sourceText[..braceIndex]
             : sourceText;
@@ -1717,7 +1742,9 @@ public sealed partial class ClangSharpHeaderParser
                 var recordName = GetRecordQualifiedName(pointeeType, recordsByName);
                 if (!recordsByName.TryGetValue(recordName, out var record))
                 {
-                    record = new RecordBinding($"record:{recordName}", recordName, ToPascalCase(recordName), NormalizeNamedTypeName(pointeeType.Spelling.ToString()));
+                    // Use the resolved qualified name for CppQualifiedName so the
+                    // placeholder passes namespace-exclusion checks in the pipeline.
+                    record = new RecordBinding($"record:{recordName}", recordName, ToPascalCase(recordName), recordName);
                     record.SetMetadata(MetadataKeys.PlaceholderRecord, true);
                     recordsByName.Add(recordName, record);
                 }
@@ -1749,7 +1776,7 @@ public sealed partial class ClangSharpHeaderParser
             var recordName = GetRecordQualifiedName(normalizedType, recordsByName);
             if (!recordsByName.TryGetValue(recordName, out var record))
             {
-                record = new RecordBinding($"record:{recordName}", recordName, ToPascalCase(recordName), NormalizeNamedTypeName(normalizedType.Spelling.ToString()));
+                record = new RecordBinding($"record:{recordName}", recordName, ToPascalCase(recordName), recordName);
                 record.SetMetadata(MetadataKeys.PlaceholderRecord, true);
                 recordsByName.Add(recordName, record);
             }
