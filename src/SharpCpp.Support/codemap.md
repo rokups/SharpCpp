@@ -14,6 +14,76 @@
 - **Assembly name**: `SharpCpp.Support` (netstandard2.0-compatible, no external NuGet dependencies).
 - **Marker type**: `AssemblyMarker` — an empty static class serving as a reflection-level assembly identity token (used by the toolchain to locate the support assembly at build time).
 
+## Public Types
+
+### Core Infrastructure
+
+| Type | Kind | File | Description |
+|---|---|---|---|
+| `NativeObject` | `abstract class` | `NativeObject.cs:6` | Root of the binding model. Extends `SafeHandle` to provide deterministic native resource lifetime, instance caching, dual-path disposal (managed `Dispose` vs native `DisposeFromNativeRuntimeCore`), managed keep-alive for child objects (`SetManagedKeepAliveCore`), and static helpers (`GetObject`, `GetHandle`, `RequireHandle`, `RequireObject`, `HasManagedOverride`). |
+| `INativeObjectRegistration<TSelf>` | `interface` (static abstract) | `INativeObjectRegistration.cs:3` | Contract implemented by generated wrapper types (`where TSelf : NativeObject`). Provides per-type metadata without reflection: `RegistrationDynamicTypeId` (`nuint`), `RegistrationExpectedType`, `RegistrationInstanceCache`, `RegistrationCreateFactory`, and `RegistrationGetMetadata(nint)`. |
+| `NativeObjectMetadata` | `readonly struct` | `NativeObjectMetadata.cs:6` | Blittable value type (`[StructLayout(LayoutKind.Sequential)]`) flowing across P/Invoke. Carries native pointer (`Handle`) and C++ runtime type ID (`DynamicTypeId`). `Normalize(nint)` replaces a null handle with a fallback. |
+| `NativeObjectRegistry` | `abstract class` (all static) | `NativeObjectRegistry.cs:5` | Static type registry mapping native dynamic type IDs → (expected CLR type, factory delegate, instance cache). `Create<T>(nint, bool)` resolves polymorphic wrappers: cache lookup → native metadata query → registry resolution → factory invocation. `RegisterType<T>()` reads from `INativeObjectRegistration<T>`; also exposes a direct `RegisterType(...)` overload. |
+| `INativeInstanceCache` | `interface` | `INativeInstanceCache.cs:3` | Contract for per-type instance caches keyed by native handle. `TryGetExisting(nint, bool, out NativeObject?)` performs ownership-compatible lookup; `Register(NativeObject)` and `Unregister(NativeObject)` manage entries. |
+| `DefaultNativeInstanceCache` | `sealed class` | `DefaultNativeInstanceCache.cs:6` | Thread-safe `ConcurrentDictionary<nint, WeakReference<NativeObject>>` implementation. Uses weak references so the cache never prevents GC. On registration, silently drops non-owning duplicates when an owning entry already exists. On lookup, purges stale entries. |
+
+### String Bridge
+
+| Type | Kind | File | Description |
+|---|---|---|---|
+| `StringBase` | `abstract class` | `StringBase.cs:8` | UTF-8 string bridge extending `NativeObject`, implementing `IReadOnlyList<char>` and `IEquatable<string>`. Protected abstract core methods (`GetCountCore`, `ClearCore`, `GetAtCore`, `AddCore`) are overridden by generated code to call native `std::string` operations. Public surface: `Assign(string?/ReadOnlySpan<byte>)`, `ToUtf8Bytes()`, `AsUtf8Span()`, `ToString()`, `Equals(string?)`. |
+
+### Collection Hierarchy
+
+All collection bases extend `NativeObject`. Protected abstract `*Core` methods are overridden by generated code to call native container operations. Public surface implements standard .NET collection interfaces.
+
+| Type | Kind | File | Implements | Description |
+|---|---|---|---|---|
+| `IndexableCollectionBase<T>` | `abstract class` | `CollectionBases.cs:41` | `IList<T>` | Sequence container base for `std::vector`/`std::list`-family wrappers. Core methods: `GetCountCore`, `ClearCore`, `GetAtCore`, `SetAtCore`, `AddCore`, `InsertAtCore`, `RemoveAtCore`. Indexed access with bounds validation. |
+| `VectorBase<T>` | `abstract class` | `CollectionBases.cs:7` | (inherits `IList<T>`) | Marker for native `std::vector<T>` wrappers. Constructor only. |
+| `ListBase<T>` | `abstract class` | `CollectionBases.cs:15` | (inherits `IList<T>`) | Marker for native `std::list<T>` wrappers. Constructor only. |
+| `DictionaryBase<TKey, TValue>` | `abstract class` | `CollectionBases.cs:177` | `IDictionary<TKey,TValue>`, `IReadOnlyDictionary<TKey,TValue>` | Associative container base for map-family wrappers (`where TKey : notnull`). Core methods: `GetCountCore`, `ClearCore`, `ContainsKeyCore`, `GetValueCore`, `SetValueCore`, `AddCore`, `RemoveCore`, `GetKeyAtCore`, `GetValueAtCore`. Indexer throws `KeyNotFoundException` on missing key. |
+| `MapBase<TKey, TValue>` | `abstract class` | `CollectionBases.cs:23` | (inherits dictionary interfaces) | Marker for native `std::map<TKey, TValue>` ordered map wrappers. |
+| `UnorderedMapBase<TKey, TValue>` | `abstract class` | `CollectionBases.cs:32` | (inherits dictionary interfaces) | Marker for native `std::unordered_map<TKey, TValue>` wrappers. |
+
+### LibraryImport Marshalling
+
+| Type | Kind | File | Description |
+|---|---|---|---|
+| `Utf8SpanReturnMarshaller` | `static unsafe class` | `Utf8SpanReturnMarshaller.cs:15` | `[CustomMarshaller]` for `ReadOnlySpan<byte>` in `ManagedToUnmanagedOut` mode. `ConvertToManaged(IntPtr)` creates a null-terminated span from a native `const char*` using `MemoryMarshal.CreateReadOnlySpanFromNullTerminated` — zero-copy. |
+
+### Assembly Identity
+
+| Type | Kind | File | Description |
+|---|---|---|---|
+| `AssemblyMarker` | `static class` | `AssemblyMarker.cs:3` | Empty marker for reflection-level assembly identity lookups by the toolchain. |
+
+### Type Dependency Graph
+
+```
+NativeObject (SafeHandle)
+ ├── INativeInstanceCache (interface)
+ │    └── DefaultNativeInstanceCache (sealed)
+ │         └── uses ConcurrentDictionary<nint, WeakReference<NativeObject>>
+ ├── INativeObjectRegistration<TSelf> (static abstract interface)
+ │    └── implemented by generated wrapper types
+ ├── NativeObjectRegistry (static)
+ │    ├── uses NativeObjectMetadata (blittable struct)
+ │    ├── uses INativeInstanceCache
+ │    └── uses INativeObjectRegistration<T>
+ ├── StringBase (implements IReadOnlyList<char>, IEquatable<string>)
+ │    └── uses Encoding.UTF8 for encode/decode
+ ├── IndexableCollectionBase<T> (implements IList<T>)
+ │    ├── VectorBase<T>
+ │    └── ListBase<T>
+ └── DictionaryBase<TKey,TValue> (implements IDictionary<TKey,TValue>, IReadOnlyDictionary<TKey,TValue>)
+      ├── MapBase<TKey,TValue>
+      └── UnorderedMapBase<TKey,TValue>
+
+Utf8SpanReturnMarshaller (standalone — CustomMarshaller for [LibraryImport])
+AssemblyMarker (standalone — reflection target only)
+```
+
 ## Design Patterns
 
 ### 1. Instance Cache via Weak References
