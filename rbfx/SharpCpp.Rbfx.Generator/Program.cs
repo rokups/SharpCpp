@@ -81,7 +81,7 @@ internal static class Program
             var marshallerConfigurationFiles = new[]
             {
                 Path.Combine(projectRoot, "include", "SharpCpp", "Marshaller.hpp"),
-                Path.Combine(projectRoot, "include", "SharpCpp", "detail", "RbfxValueTypeMarshallers.hpp")
+                Path.Combine(projectRoot, "rbfx", "include", "SharpCpp", "detail", "RbfxValueTypeMarshallers.hpp")
             };
 
             Logger.LogInformation("rbfx SDK root: {SdkRoot}", sdkRoot);
@@ -115,9 +115,10 @@ internal static class Program
             Logger.LogInformation("Parse complete: {Records} records, {Functions} functions.", compilation.Records.Count, compilation.Functions.Count);
             Logger.LogInformation("Parse completed in {Duration}", FormatDuration(parseSw.Elapsed));
 
-            // Add rbfx value-type marshaller headers so generated native code
-            // can resolve arg_t<T>/ret_t<T> for math types like Urho3D::Vector3.
-            compilation.HeaderFiles.Add("SharpCpp/detail/RbfxValueTypeMarshallers.hpp");
+            foreach (var marshallerHeader in marshallerConfigurationFiles)
+            {
+                compilation.NativeSupportHeaders.Add(marshallerHeader.Replace('\\', '/'));
+            }
 
             compilation.NamespaceMappings = BuildNamespaceMappings(compilation);
 

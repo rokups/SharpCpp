@@ -50,3 +50,32 @@ inline int measure_std_string(const std::string& value)
 {
     return static_cast<int>(value.size());
 }
+
+class ea_compat_string
+{
+public:
+    ea_compat_string() = default;
+
+    std::size_t size() const
+    {
+        return value_.size();
+    }
+
+    void push_back(char value)
+    {
+        value_.push_back(value);
+    }
+
+    void clear()
+    {
+        value_.clear();
+    }
+
+private:
+    std::string value_;
+};
+
+inline int measure_ea_string(const ea_compat_string& value)
+{
+    return static_cast<int>(value.size());
+}

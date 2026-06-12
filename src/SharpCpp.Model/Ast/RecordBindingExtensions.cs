@@ -197,6 +197,31 @@ public static class RecordBindingExtensions
             || record.Members.OfType<FieldBinding>().Any(field => string.Equals(field.ManagedName, managedName, StringComparison.Ordinal));
     }
 
+    public static bool HasUnimplementedAbstractBaseMethods(this RecordBinding record, BindingCompilation compilation)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentNullException.ThrowIfNull(compilation);
+
+        var chain = record.EnumeratePrimaryBaseChain(compilation).Append(record).ToArray();
+        var concreteImplementations = chain
+            .SelectMany(static candidate => candidate.Members.OfType<FunctionBinding>())
+            .Where(static method => !method.IsIgnored() && !method.IsPureVirtual)
+            .ToArray();
+
+        foreach (var baseRecord in chain.Take(chain.Length - 1))
+        {
+            foreach (var abstractMethod in baseRecord.Members.OfType<FunctionBinding>().Where(static method => !method.IsIgnored() && method.IsPureVirtual))
+            {
+                if (!concreteImplementations.Any(candidate => SignaturesMatch(candidate, abstractMethod)))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     private static IReadOnlyList<RecordBinding> EnumeratePrimaryBaseChain(this RecordBinding record, BindingCompilation compilation)
     {
         var baseChain = new List<RecordBinding>();

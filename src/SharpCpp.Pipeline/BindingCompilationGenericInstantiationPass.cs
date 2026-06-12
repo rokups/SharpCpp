@@ -82,7 +82,19 @@ public static class BindingCompilationGenericInstantiationPass
         }
 
         var record = compilation.Records.FirstOrDefault(candidate => string.Equals(candidate.SymbolId, type.RecordId, StringComparison.Ordinal));
-        if (record is null || record.IsIgnored() || !record.IsGeneric || record.GenericParameters.Count != type.GenericArguments.Count)
+        if (record is null || record.IsIgnored() || !record.IsGeneric)
+        {
+            return;
+        }
+
+        var visibleGenericParameterCount = GetVisibleGenericParameterCount(record);
+        if (type.GenericArguments.Count != record.GenericParameters.Count &&
+            type.GenericArguments.Count != visibleGenericParameterCount)
+        {
+            return;
+        }
+
+        if (type.GenericArguments.Any(argument => ContainsRecordGenericParameterReference(record, argument)))
         {
             return;
         }
@@ -112,5 +124,62 @@ public static class BindingCompilationGenericInstantiationPass
         }
 
         return true;
+    }
+
+    private static int GetVisibleGenericParameterCount(RecordBinding record)
+    {
+        var usedIndices = new HashSet<int>();
+        CollectManagedFormatPlaceholderIndices(record.ManagedTypeFormat, usedIndices);
+        CollectManagedFormatPlaceholderIndices(record.ManagedBaseTypeName, usedIndices);
+
+        return usedIndices.Count == 0
+            ? record.GenericParameters.Count
+            : usedIndices.Count(index => index >= 0 && index < record.GenericParameters.Count);
+    }
+
+    private static bool ContainsRecordGenericParameterReference(RecordBinding record, BindingType type)
+    {
+        if (type.IsGenericParameter &&
+            record.GenericParameters.Any(parameter => string.Equals(parameter.Name, type.GenericParameterName, StringComparison.Ordinal)))
+        {
+            return true;
+        }
+
+        var trimmedTypeName = type.CppTypeName.Trim().TrimEnd('*', '&').Trim();
+        if (record.GenericParameters.Any(parameter => string.Equals(parameter.Name, trimmedTypeName, StringComparison.Ordinal)))
+        {
+            return true;
+        }
+
+        return type.GenericArguments.Any(argument => ContainsRecordGenericParameterReference(record, argument));
+    }
+
+    private static void CollectManagedFormatPlaceholderIndices(string? format, ISet<int> target)
+    {
+        if (string.IsNullOrWhiteSpace(format))
+        {
+            return;
+        }
+
+        for (var index = 0; index < format.Length; index++)
+        {
+            if (format[index] != '{')
+            {
+                continue;
+            }
+
+            var closeIndex = format.IndexOf('}', index + 1);
+            if (closeIndex <= index + 1)
+            {
+                continue;
+            }
+
+            if (int.TryParse(format[(index + 1)..closeIndex], out var placeholderIndex))
+            {
+                target.Add(placeholderIndex);
+            }
+
+            index = closeIndex;
+        }
     }
 }

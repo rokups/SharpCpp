@@ -55,6 +55,10 @@ internal static class MarshallerConfigExtractor
         public string? MarshallerTypeName { get; init; }
         public string? ManagedMarshaller { get; init; }
         public string? ManagedNamespace { get; init; }
+        public bool HasManagedBaseType { get; init; }
+        public bool HasExposedMembers { get; init; }
+        public IReadOnlyList<string> TemplateParameterNames { get; init; } = Array.Empty<string>();
+        public IReadOnlyList<int> VisibleTemplateParameterIndices { get; init; } = Array.Empty<int>();
     }
 
     /// <summary>
@@ -76,7 +80,8 @@ internal static class MarshallerConfigExtractor
     /// </summary>
     internal sealed record MarshallerBodyConfig(
         string AttributeBody,
-        IReadOnlyList<ExposedMemberInfo> ExposedMembers);
+        IReadOnlyList<ExposedMemberInfo> ExposedMembers,
+        IReadOnlyList<string> TemplateParameterNames);
 
     /// <summary>
     /// Parse marshaller configuration headers via ClangSharp and extract
@@ -91,7 +96,8 @@ internal static class MarshallerConfigExtractor
 
         PerformManagedClangParse(marshallerFiles, clangArgs, rootDecl =>
         {
-            WalkForMarshallerDeclarations(rootDecl, result);
+            var declIndex = BuildRecordLikeDeclIndex(rootDecl);
+            WalkForMarshallerDeclarations(rootDecl, declIndex, result);
         });
 
         return result;
@@ -110,7 +116,8 @@ internal static class MarshallerConfigExtractor
 
         PerformManagedClangParse(marshallerFiles, clangArgs, rootDecl =>
         {
-            WalkForMarshallerBodies(rootDecl, result);
+            var declIndex = BuildRecordLikeDeclIndex(rootDecl);
+            WalkForMarshallerBodies(rootDecl, declIndex, result);
         });
 
         return result;
@@ -201,6 +208,7 @@ internal static class MarshallerConfigExtractor
 
     private static void WalkForMarshallerDeclarations(
         Decl decl,
+        IReadOnlyDictionary<string, Decl> declIndex,
         Dictionary<string, ManagedTypeOverride> result)
     {
         foreach (var child in decl.Decls)
@@ -210,23 +218,24 @@ internal static class MarshallerConfigExtractor
                 var spelling = child is NamedDecl named ? named.Name ?? named.Spelling.ToString() : child.Spelling.ToString();
                 if (string.Equals(spelling, "Marshaller", StringComparison.Ordinal))
                 {
-                    ProcessMarshallerDeclaration(child, isReturn: false, result);
+                    ProcessMarshallerDeclaration(child, declIndex, isReturn: false, result);
                 }
                 else if (string.Equals(spelling, "ReturnMarshaller", StringComparison.Ordinal))
                 {
-                    ProcessMarshallerDeclaration(child, isReturn: true, result);
+                    ProcessMarshallerDeclaration(child, declIndex, isReturn: true, result);
                 }
             }
 
             if (child is NamespaceDecl)
             {
-                WalkForMarshallerDeclarations(child, result);
+                WalkForMarshallerDeclarations(child, declIndex, result);
             }
         }
     }
 
     private static void ProcessMarshallerDeclaration(
         Decl decl,
+        IReadOnlyDictionary<string, Decl> declIndex,
         bool isReturn,
         Dictionary<string, ManagedTypeOverride> result)
     {
@@ -267,6 +276,10 @@ internal static class MarshallerConfigExtractor
         var marshallerTypeMatch = MarshallerTypeInAttributeExpression.Match(body);
         var managedMarshallerMatch = ManagedMarshallerInAttributeExpression.Match(body);
         var managedNamespaceMatch = ManagedNamespaceInAttributeExpression.Match(body);
+        var hasManagedBaseType = body.Contains("managed_base_type", StringComparison.Ordinal);
+        var hasExposedMembers = ExtractExposedMembersFromDecl(decl, declIndex).Count > 0;
+        var templateParameterNames = ExtractTemplateParameterNames(decl, cppTypeName);
+        var visibleTemplateParameterIndices = ExtractVisibleTemplateParameterIndices(publicTypeMatch.Groups["value"].Value, templateParameterNames.Count);
 
         result[key] = new ManagedTypeOverride(
             cppTypeName,
@@ -276,7 +289,11 @@ internal static class MarshallerConfigExtractor
                 string.Equals(undefaultableMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase),
             MarshallerTypeName = marshallerTypeMatch.Success ? marshallerTypeMatch.Groups["value"].Value : null,
             ManagedMarshaller = managedMarshallerMatch.Success ? managedMarshallerMatch.Groups["value"].Value : null,
-            ManagedNamespace = managedNamespaceMatch.Success ? managedNamespaceMatch.Groups["value"].Value : null
+            ManagedNamespace = managedNamespaceMatch.Success ? managedNamespaceMatch.Groups["value"].Value : null,
+            HasManagedBaseType = hasManagedBaseType,
+            HasExposedMembers = hasExposedMembers,
+            TemplateParameterNames = templateParameterNames,
+            VisibleTemplateParameterIndices = visibleTemplateParameterIndices
         };
     }
 
@@ -284,6 +301,7 @@ internal static class MarshallerConfigExtractor
 
     private static void WalkForMarshallerBodies(
         Decl decl,
+        IReadOnlyDictionary<string, Decl> declIndex,
         Dictionary<string, MarshallerBodyConfig> result)
     {
         foreach (var child in decl.Decls)
@@ -294,19 +312,20 @@ internal static class MarshallerConfigExtractor
                 if (string.Equals(spelling, "Marshaller", StringComparison.Ordinal) ||
                     string.Equals(spelling, "ReturnMarshaller", StringComparison.Ordinal))
                 {
-                    ProcessMarshallerBody(child, result);
+                    ProcessMarshallerBody(child, declIndex, result);
                 }
             }
 
             if (child is NamespaceDecl)
             {
-                WalkForMarshallerBodies(child, result);
+                WalkForMarshallerBodies(child, declIndex, result);
             }
         }
     }
 
     private static void ProcessMarshallerBody(
         Decl decl,
+        IReadOnlyDictionary<string, Decl> declIndex,
         Dictionary<string, MarshallerBodyConfig> result)
     {
         var sourceText = GetSourceText(decl.Handle.TranslationUnit, decl.Extent);
@@ -329,65 +348,430 @@ internal static class MarshallerConfigExtractor
         cppTypeName = NormalizeTypeName(cppTypeName);
 
         // Walk struct children for [[sharpcpp::expose_member(...)]] on member functions.
-        var exposedMembers = ExtractExposedMembersFromDecl(decl);
+        var exposedMembers = ExtractExposedMembersFromDecl(decl, declIndex);
 
         result[cppTypeName] = new MarshallerBodyConfig(
             AttributeBody: body,
-            ExposedMembers: exposedMembers);
+            ExposedMembers: exposedMembers,
+            TemplateParameterNames: ExtractTemplateParameterNames(decl, cppTypeName));
     }
 
-    private static List<ExposedMemberInfo> ExtractExposedMembersFromDecl(Decl structDecl)
+    private static List<ExposedMemberInfo> ExtractExposedMembersFromDecl(
+        Decl structDecl,
+        IReadOnlyDictionary<string, Decl> declIndex)
     {
-        var members = new List<ExposedMemberInfo>();
+        var members = new Dictionary<string, ExposedMemberInfo>(StringComparer.Ordinal);
+        var visitedDecls = new HashSet<string>(StringComparer.Ordinal);
+        CollectExposedMembers(structDecl, declIndex, members, visitedDecls);
+        return members.Values.ToList();
+    }
 
-        foreach (var child in structDecl.Decls)
+    private static void CollectExposedMembers(
+        Decl decl,
+        IReadOnlyDictionary<string, Decl> declIndex,
+        IDictionary<string, ExposedMemberInfo> members,
+        ISet<string> visitedDecls)
+    {
+        var recordDecl = ResolveRecordDecl(decl);
+        if (recordDecl is null)
         {
-            if (child is not CXXMethodDecl methodDecl)
-            {
-                continue;
-            }
-
-            // Check if this method has [[sharpcpp::expose_member(...)]].
-            var childText = GetSourceText(methodDecl.Handle.TranslationUnit, methodDecl.Extent);
-            var exposeMatch = SharpCppAttributeScanner.Scan(childText)
-                .FirstOrDefault(static match => string.Equals(match.Name, "expose_member", StringComparison.Ordinal));
-            if (exposeMatch is null)
-            {
-                continue;
-            }
-
-            var attrBody = exposeMatch.Body;
-            var shape = ShapeExpression.Match(attrBody) is { Success: true } shapeMatch
-                ? shapeMatch.Groups["value"].Value
-                : "method";
-            var exposed = ExposedExpression.Match(attrBody) is { Success: true } exposedMatch
-                ? string.Equals(exposedMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase)
-                : true;
-
-            // Extract method info from the managed CXXMethodDecl.
-            var methodName = methodDecl.Name ?? methodDecl.Spelling.ToString();
-            var returnTypeSpelling = methodDecl.ReturnType.AsString;
-            var isConst = methodDecl.IsConst;
-
-            // Extract parameters from managed API.
-            var parameters = new List<(string Name, string CppType)>();
-            foreach (var param in methodDecl.Parameters)
-            {
-                var paramName = param.Name ?? param.Spelling.ToString();
-                var paramType = param.Type.AsString;
-                parameters.Add((paramName, NormalizeTypeName(paramType)));
-            }
-
-            members.Add(new ExposedMemberInfo(
-                MethodName: methodName,
-                CppReturnType: NormalizeTypeName(returnTypeSpelling),
-                IsConst: isConst,
-                Shape: shape,
-                Exposed: exposed,
-                Parameters: parameters.AsReadOnly()));
+            return;
         }
 
-        return members;
+        var visitedKey = GetDeclLocationKey(recordDecl.Handle);
+        if (visitedKey is not null && !visitedDecls.Add(visitedKey))
+        {
+            return;
+        }
+
+        if (recordDecl is CXXRecordDecl cxxRecordDecl)
+        {
+            foreach (var baseSpec in cxxRecordDecl.Bases)
+            {
+                if (!TryResolveBaseDecl(baseSpec, declIndex, out var baseDecl))
+                {
+                    continue;
+                }
+
+                CollectExposedMembers(baseDecl, declIndex, members, visitedDecls);
+            }
+        }
+
+        foreach (var child in recordDecl.Decls)
+        {
+            if (child is not CXXMethodDecl methodDecl || !TryExtractExposedMember(methodDecl, out var member))
+            {
+                continue;
+            }
+
+            members[GetExposedMemberSignature(member)] = member;
+        }
+    }
+
+    private static string GetExposedMemberSignature(ExposedMemberInfo member)
+    {
+        var effectiveParameters = member.Parameters.Skip(1).Select(static parameter => parameter.CppType);
+        return $"{member.MethodName}({string.Join(',', effectiveParameters)})::{member.IsConst}";
+    }
+
+    private static bool TryExtractExposedMember(CXXMethodDecl methodDecl, out ExposedMemberInfo member)
+    {
+        var exposeMatch = SharpCppAttributeScanner.Scan(GetMethodAttributeSearchText(methodDecl))
+            .FirstOrDefault(static match => string.Equals(match.Name, "expose_member", StringComparison.Ordinal));
+        if (exposeMatch is null)
+        {
+            member = null!;
+            return false;
+        }
+
+        var attrBody = exposeMatch.Body;
+        var shape = ShapeExpression.Match(attrBody) is { Success: true } shapeMatch
+            ? shapeMatch.Groups["value"].Value
+            : "method";
+        var exposed = ExposedExpression.Match(attrBody) is { Success: true } exposedMatch
+            ? string.Equals(exposedMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase)
+            : true;
+
+        var methodName = methodDecl.Name ?? methodDecl.Spelling.ToString();
+        var parameters = new List<(string Name, string CppType)>();
+        foreach (var param in methodDecl.Parameters)
+        {
+            var paramName = param.Name ?? param.Spelling.ToString();
+            parameters.Add((paramName, NormalizeTypeName(param.Type.AsString)));
+        }
+
+        member = new ExposedMemberInfo(
+            MethodName: methodName,
+            CppReturnType: NormalizeTypeName(methodDecl.ReturnType.AsString),
+            IsConst: methodDecl.IsConst,
+            Shape: shape,
+            Exposed: exposed,
+            Parameters: parameters.AsReadOnly());
+        return true;
+    }
+
+    private static string GetMethodAttributeSearchText(CXXMethodDecl methodDecl)
+    {
+        var sourceText = GetSourceText(methodDecl.Handle.TranslationUnit, methodDecl.Extent);
+        if (SharpCppAttributeScanner.Scan(sourceText).Any(static match => string.Equals(match.Name, "expose_member", StringComparison.Ordinal)))
+        {
+            return sourceText;
+        }
+
+        methodDecl.Location.GetFileLocation(out var file, out var line, out _, out _);
+        var filePath = file.Name.CString;
+        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+        {
+            return sourceText;
+        }
+
+        var lines = File.ReadAllLines(filePath);
+        var currentLineIndex = Math.Max(0, (int)line - 1);
+        if (currentLineIndex >= lines.Length)
+        {
+            return sourceText;
+        }
+
+        var collectedLines = new List<string>();
+        var sawExposeAttribute = false;
+        for (var index = currentLineIndex - 1; index >= 0; index--)
+        {
+            var trimmed = lines[index].Trim();
+            if (!sawExposeAttribute)
+            {
+                if (trimmed.Contains("[[sharpcpp::", StringComparison.Ordinal) || trimmed.Contains("]]", StringComparison.Ordinal))
+                {
+                    collectedLines.Insert(0, lines[index]);
+                    sawExposeAttribute = true;
+                    if (trimmed.Contains("[[sharpcpp::", StringComparison.Ordinal))
+                    {
+                        break;
+                    }
+
+                    continue;
+                }
+
+                break;
+            }
+
+            if (string.IsNullOrWhiteSpace(trimmed))
+            {
+                break;
+            }
+
+            collectedLines.Insert(0, lines[index]);
+            if (trimmed.Contains("[[sharpcpp::", StringComparison.Ordinal))
+            {
+                break;
+            }
+        }
+
+        if (collectedLines.Count == 0)
+        {
+            return sourceText;
+        }
+
+        collectedLines.Add(sourceText);
+        return string.Join(Environment.NewLine, collectedLines);
+    }
+
+    private static IReadOnlyDictionary<string, Decl> BuildRecordLikeDeclIndex(Decl rootDecl)
+    {
+        var declIndex = new Dictionary<string, Decl>(StringComparer.Ordinal);
+        IndexRecordLikeDecls(rootDecl, declIndex);
+        return declIndex;
+    }
+
+    private static void IndexRecordLikeDecls(Decl decl, IDictionary<string, Decl> declIndex)
+    {
+        foreach (var child in decl.Decls)
+        {
+            switch (child)
+            {
+                case NamespaceDecl namespaceDecl:
+                    IndexRecordLikeDecls(namespaceDecl, declIndex);
+                    break;
+
+                case ClassTemplateDecl classTemplateDecl:
+                    AddDeclIndexEntry(classTemplateDecl, declIndex);
+                    if (classTemplateDecl.TemplatedDecl is not null)
+                    {
+                        AddDeclIndexEntry(classTemplateDecl.TemplatedDecl, declIndex);
+                    }
+                    break;
+
+                case RecordDecl:
+                    AddDeclIndexEntry(child, declIndex);
+                    break;
+            }
+        }
+    }
+
+    private static void AddDeclIndexEntry(Decl decl, IDictionary<string, Decl> declIndex)
+    {
+        var locationKey = GetDeclLocationKey(decl.Handle);
+        if (locationKey is not null)
+        {
+            declIndex[locationKey] = decl;
+        }
+    }
+
+    private static bool TryResolveBaseDecl(
+        CXXBaseSpecifier baseSpec,
+        IReadOnlyDictionary<string, Decl> declIndex,
+        out Decl baseDecl)
+    {
+        var locationKey = GetDeclLocationKey(baseSpec.Type.Handle.Declaration);
+        if (locationKey is not null && declIndex.TryGetValue(locationKey, out baseDecl!))
+        {
+            return true;
+        }
+
+        baseDecl = null!;
+        return false;
+    }
+
+    private static RecordDecl? ResolveRecordDecl(Decl decl)
+    {
+        return decl switch
+        {
+            ClassTemplateDecl classTemplateDecl => classTemplateDecl.TemplatedDecl as RecordDecl,
+            _ => decl as RecordDecl
+        };
+    }
+
+    private static string? GetDeclLocationKey(CXCursor cursor)
+    {
+        cursor.Location.GetFileLocation(out var file, out var line, out var column, out _);
+        var filePath = file.Name.CString;
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return null;
+        }
+
+        return $"{Path.GetFullPath(filePath)}:{line}:{column}";
+    }
+
+    private static IReadOnlyList<string> ExtractTemplateParameterNames(Decl decl, string cppTypeName)
+    {
+        if (decl is TemplateDecl templateDecl)
+        {
+            var parameters = new List<string>();
+            foreach (var parameter in templateDecl.TemplateParameters)
+            {
+                if (parameter is TemplateTypeParmDecl typeParameter)
+                {
+                    var name = typeParameter.Name ?? typeParameter.Spelling.ToString();
+                    if (!string.IsNullOrWhiteSpace(name))
+                    {
+                        parameters.Add(name);
+                    }
+                }
+            }
+
+            if (parameters.Count > 0)
+            {
+                return parameters;
+            }
+        }
+
+        var patternParameters = ExtractTemplateParameterNamesFromTypePattern(cppTypeName);
+        if (patternParameters.Count > 0)
+        {
+            return patternParameters;
+        }
+
+        var sourceText = GetSourceText(decl.Handle.TranslationUnit, decl.Extent);
+        return TryExtractTemplateParameterNamesFromSource(sourceText, out var sourceParameters)
+            ? sourceParameters
+            : Array.Empty<string>();
+    }
+
+    private static IReadOnlyList<int> ExtractVisibleTemplateParameterIndices(string publicTypeName, int parameterCount)
+    {
+        if (parameterCount == 0)
+        {
+            return Array.Empty<int>();
+        }
+
+        var usedIndices = new HashSet<int>();
+        for (var index = 0; index < publicTypeName.Length; index++)
+        {
+            if (publicTypeName[index] != '{')
+            {
+                continue;
+            }
+
+            var closeIndex = publicTypeName.IndexOf('}', index + 1);
+            if (closeIndex <= index + 1)
+            {
+                continue;
+            }
+
+            if (int.TryParse(publicTypeName[(index + 1)..closeIndex], out var placeholderIndex) &&
+                placeholderIndex >= 0 &&
+                placeholderIndex < parameterCount)
+            {
+                usedIndices.Add(placeholderIndex);
+            }
+
+            index = closeIndex;
+        }
+
+        return usedIndices.Count == 0
+            ? Enumerable.Range(0, parameterCount).ToArray()
+            : usedIndices.OrderBy(static index => index).ToArray();
+    }
+
+    private static IReadOnlyList<string> ExtractTemplateParameterNamesFromTypePattern(string cppTypeName)
+    {
+        if (!cppTypeName.Contains('<', StringComparison.Ordinal))
+        {
+            return Array.Empty<string>();
+        }
+
+        if (!TryExtractTemplateArgumentFromSource($"Marshaller<{cppTypeName}>", out var argumentText))
+        {
+            return Array.Empty<string>();
+        }
+
+        var builtinTokens = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "bool", "char", "signed char", "unsigned char", "short", "unsigned short",
+            "int", "unsigned int", "long", "unsigned long", "long long", "unsigned long long",
+            "float", "double", "size_t", "std::size_t", "void"
+        };
+
+        return SplitTopLevelTypeArguments(argumentText)
+            .Where(static token => !token.Contains("::", StringComparison.Ordinal))
+            .Where(static token => !token.Contains('<', StringComparison.Ordinal))
+            .Where(token => !builtinTokens.Contains(token))
+            .Where(static token => Regex.IsMatch(token, "^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.CultureInvariant))
+            .ToArray();
+    }
+
+    private static bool TryExtractTemplateParameterNamesFromSource(string sourceText, out IReadOnlyList<string> parameterNames)
+    {
+        parameterNames = Array.Empty<string>();
+        var templateIndex = sourceText.IndexOf("template", StringComparison.Ordinal);
+        if (templateIndex < 0)
+        {
+            return false;
+        }
+
+        var genericStart = sourceText.IndexOf('<', templateIndex);
+        if (genericStart < 0)
+        {
+            return false;
+        }
+
+        var depth = 0;
+        for (var index = genericStart; index < sourceText.Length; index++)
+        {
+            switch (sourceText[index])
+            {
+                case '<':
+                    depth++;
+                    break;
+
+                case '>':
+                    depth--;
+                    if (depth == 0)
+                    {
+                        var parameterText = sourceText[(genericStart + 1)..index];
+                        parameterNames = SplitTemplateParameterNames(parameterText);
+                        return parameterNames.Count > 0;
+                    }
+                    break;
+            }
+        }
+
+        return false;
+    }
+
+    private static IReadOnlyList<string> SplitTemplateParameterNames(string parameterText)
+    {
+        return parameterText
+            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(static part => part.Trim())
+            .Select(static part => part.Split(' ', StringSplitOptions.RemoveEmptyEntries).LastOrDefault())
+            .Where(static name => !string.IsNullOrWhiteSpace(name))
+            .Cast<string>()
+            .ToArray();
+    }
+
+    private static IReadOnlyList<string> SplitTopLevelTypeArguments(string parameterText)
+    {
+        var result = new List<string>();
+        var segmentStart = 0;
+        var angleDepth = 0;
+        var parenDepth = 0;
+
+        for (var index = 0; index < parameterText.Length; index++)
+        {
+            switch (parameterText[index])
+            {
+                case '<':
+                    angleDepth++;
+                    break;
+                case '>':
+                    angleDepth = Math.Max(0, angleDepth - 1);
+                    break;
+                case '(':
+                    parenDepth++;
+                    break;
+                case ')':
+                    parenDepth = Math.Max(0, parenDepth - 1);
+                    break;
+                case ',' when angleDepth == 0 && parenDepth == 0:
+                    result.Add(NormalizeTypeName(parameterText[segmentStart..index]));
+                    segmentStart = index + 1;
+                    break;
+            }
+        }
+
+        result.Add(NormalizeTypeName(parameterText[segmentStart..]));
+        return result;
     }
 
     private static readonly ILogger Logger = SharpCppLog.For(nameof(MarshallerConfigExtractor));
@@ -430,6 +814,12 @@ internal static class MarshallerConfigExtractor
     /// </summary>
     private static string? ExtractTemplateArgFromCursorType(Decl decl)
     {
+        var sourceText = GetSourceText(decl.Handle.TranslationUnit, decl.Extent);
+        if (TryExtractTemplateArgumentFromSource(sourceText, out var sourceTypeName))
+        {
+            return NormalizeTypeName(sourceTypeName);
+        }
+
         // Use the managed ClassTemplateSpecializationDecl API for template argument access.
         // This handles explicit specializations like template<> struct Marshaller<const char*>.
         if (decl is ClassTemplateSpecializationDecl specDecl)
@@ -448,10 +838,53 @@ internal static class MarshallerConfigExtractor
         return null;
     }
 
+    private static bool TryExtractTemplateArgumentFromSource(string sourceText, out string typeName)
+    {
+        typeName = string.Empty;
+        var marshallerIndex = sourceText.IndexOf("Marshaller", StringComparison.Ordinal);
+        if (marshallerIndex < 0)
+        {
+            return false;
+        }
+
+        var genericStart = sourceText.IndexOf('<', marshallerIndex);
+        if (genericStart < 0)
+        {
+            return false;
+        }
+
+        var depth = 0;
+        for (var index = genericStart; index < sourceText.Length; index++)
+        {
+            switch (sourceText[index])
+            {
+                case '<':
+                    depth++;
+                    break;
+
+                case '>':
+                    depth--;
+                    if (depth == 0)
+                    {
+                        typeName = sourceText[(genericStart + 1)..index];
+                        return true;
+                    }
+                    break;
+            }
+        }
+
+        return false;
+    }
+
     internal static string NormalizeTypeName(string spelling)
     {
         return Regex.Replace(spelling.Trim(), @"\s+", " ")
+            .Replace("__cxx11::", string.Empty, StringComparison.Ordinal)
             .Replace(" *", "*", StringComparison.Ordinal)
-            .Replace(" &", "&", StringComparison.Ordinal);
+            .Replace(" &", "&", StringComparison.Ordinal)
+            .Replace(":: ", "::", StringComparison.Ordinal)
+            .Replace(" ::", "::", StringComparison.Ordinal)
+            .Replace(" <", "<", StringComparison.Ordinal)
+            .Replace("> ", ">", StringComparison.Ordinal);
     }
 }

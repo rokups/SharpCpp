@@ -12,7 +12,9 @@ public static class DegradeUnsupportedSurfacePass
         while (changed)
         {
             changed = false;
-            var recordsById = compilation.Records.ToDictionary(static record => record.SymbolId, StringComparer.Ordinal);
+            var recordsById = compilation.Records
+                .GroupBy(static record => record.SymbolId, StringComparer.Ordinal)
+                .ToDictionary(static group => group.Key, static group => group.Last(), StringComparer.Ordinal);
             var allowedNamespaceRoots = compilation.NamespaceMappings.Keys.ToHashSet(StringComparer.Ordinal);
 
             foreach (var duplicateGroup in compilation.Functions
@@ -74,7 +76,8 @@ public static class DegradeUnsupportedSurfacePass
                     continue;
                 }
 
-                if (TryGetNamespaceExclusionReason(record.CppQualifiedName, allowedNamespaceRoots, out var namespaceReason))
+                if (!IsMarshallerBackedWrapperSurface(record) &&
+                    TryGetNamespaceExclusionReason(record.CppQualifiedName, allowedNamespaceRoots, out var namespaceReason))
                 {
                     record.SetIgnoreReason(namespaceReason);
                     changed = true;
@@ -156,6 +159,14 @@ public static class DegradeUnsupportedSurfacePass
         IReadOnlyDictionary<string, RecordBinding> recordsById,
         out string reason)
     {
+        var functionAllowsOpenGenericTypes = function.IsGeneric || (function.Parent as RecordBinding)?.IsGeneric == true;
+
+        if (!functionAllowsOpenGenericTypes && function.ReturnType.ContainsGenericParameters)
+        {
+            reason = $"return type is unsupported in this bootstrap surface: open generic parameter usage is not renderer-ready in a non-generic callable";
+            return true;
+        }
+
         if (TryGetUnsupportedTypeReason(function.ReturnType, function.CppReturnTypeName, recordsById, disallowNonPointerHandles: true, out reason))
         {
             reason = $"return type is unsupported in this bootstrap surface: {reason}";
@@ -164,6 +175,12 @@ public static class DegradeUnsupportedSurfacePass
 
         foreach (var parameter in function.Parameters)
         {
+            if (!functionAllowsOpenGenericTypes && parameter.Type.ContainsGenericParameters)
+            {
+                reason = $"parameter '{parameter.ManagedName}' is unsupported in this bootstrap surface: open generic parameter usage is not renderer-ready in a non-generic callable";
+                return true;
+            }
+
             if (TryGetUnsupportedTypeReason(parameter.Type, parameter.CppTypeName, recordsById, disallowNonPointerHandles: false, out reason))
             {
                 reason = $"parameter '{parameter.ManagedName}' is unsupported in this bootstrap surface: {reason}";
@@ -296,6 +313,18 @@ public static class DegradeUnsupportedSurfacePass
         IReadOnlyDictionary<string, RecordBinding> recordsById,
         out string reason)
     {
+        if ((field.Parent as RecordBinding)?.IsGeneric != true && field.Type.ContainsGenericParameters)
+        {
+            reason = "field type is unsupported in this bootstrap surface: open generic parameter usage is not renderer-ready in a non-generic record";
+            return true;
+        }
+
+        if (field.CppTypeName.Contains('&', StringComparison.Ordinal))
+        {
+            reason = "reference fields are not yet supported coherently";
+            return true;
+        }
+
         if (TryGetUnsupportedTypeReason(field.Type, field.CppTypeName, recordsById, disallowNonPointerHandles: true, out reason))
         {
             reason = $"field type is unsupported in this bootstrap surface: {reason}";
@@ -371,8 +400,12 @@ public static class DegradeUnsupportedSurfacePass
 
         if (disallowNonPointerHandles && type.Kind == BindingTypeKind.Handle && !rawCppTypeName.Contains('*', StringComparison.Ordinal))
         {
-            reason = $"record value/reference type '{rawCppTypeName}' is not yet supported";
-            return true;
+            if (!recordsById.TryGetValue(type.RecordId ?? string.Empty, out var wrapperRecord) ||
+                !IsMarshallerBackedWrapperSurface(wrapperRecord))
+            {
+                reason = $"record value/reference type '{rawCppTypeName}' is not yet supported";
+                return true;
+            }
         }
 
         if (rawCppTypeName.Contains('<', StringComparison.Ordinal) && !IsSupportedGenericHandleType(type, recordsById))
@@ -434,6 +467,12 @@ public static class DegradeUnsupportedSurfacePass
             .Replace("const ", string.Empty, StringComparison.Ordinal)
             .Replace("&", string.Empty, StringComparison.Ordinal)
             .Replace(" ", string.Empty, StringComparison.Ordinal);
+    }
+
+    private static bool IsMarshallerBackedWrapperSurface(RecordBinding record)
+    {
+        return !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ||
+            record.Members.OfType<FunctionBinding>().Any(static member => member.HasMetadata(MetadataKeys.MarshallerExposedMethod));
     }
 
     private static bool TryGetNamespaceExclusionReason(

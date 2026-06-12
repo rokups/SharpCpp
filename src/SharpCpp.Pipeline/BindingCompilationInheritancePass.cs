@@ -42,7 +42,7 @@ public static class BindingCompilationInheritancePass
                     continue;
                 }
 
-                record.Members.Add(CloneProjectedMethod(record, secondaryBase, method));
+                record.Members.Add(CloneProjectedMethod(compilation, record, secondaryBase, method));
             }
         }
     }
@@ -68,9 +68,9 @@ public static class BindingCompilationInheritancePass
         }
     }
 
-    private static FunctionBinding CloneProjectedMethod(RecordBinding targetRecord, RecordBinding dispatchRecord, FunctionBinding sourceMethod)
+    private static FunctionBinding CloneProjectedMethod(BindingCompilation compilation, RecordBinding targetRecord, RecordBinding dispatchRecord, FunctionBinding sourceMethod)
     {
-        var entrypointName = $"sharpcpp_e2e_{targetRecord.NativeName}_{dispatchRecord.NativeName}_{sourceMethod.NativeName}_projected_{++s_projectedMethodCounter}";
+        var entrypointName = $"{compilation.EntryPointPrefix}_{targetRecord.NativeName}_{dispatchRecord.NativeName}_{sourceMethod.NativeName}_projected_{++s_projectedMethodCounter}";
         var projectedMethod = new FunctionBinding(
             $"projected-secondary:{targetRecord.SymbolId}:{dispatchRecord.SymbolId}:{sourceMethod.SymbolId}",
             sourceMethod.NativeName,

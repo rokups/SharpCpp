@@ -27,6 +27,8 @@ public sealed partial class ClangSharpHeaderParser
     private static readonly IReadOnlyDictionary<string, BindingType> EmptyGenericParameters =
         new Dictionary<string, BindingType>(StringComparer.Ordinal);
 
+    private static readonly Dictionary<string, string> s_typeAliases = new(StringComparer.Ordinal);
+
     private static bool HasSharpCppAttribute(string sourceText, string attributeName)
         => SharpCppAttributeScanner.Scan(sourceText)
             .Any(match => string.Equals(match.Name, attributeName, StringComparison.Ordinal));
@@ -88,6 +90,7 @@ public sealed partial class ClangSharpHeaderParser
             request.ManagedClassName,
             request.NativeLibraryName,
             new[] { request.HeaderIncludePath });
+        compilation.EntryPointPrefix = request.EntryPointPrefix;
         var recordsByName = new Dictionary<string, RecordBinding>(StringComparer.Ordinal);
         var enumsByName = new Dictionary<string, EnumBinding>(StringComparer.Ordinal);
         var managedTypeOverrides = MarshallerConfigExtractor.ExtractManagedTypeOverrides(
@@ -97,6 +100,7 @@ public sealed partial class ClangSharpHeaderParser
         request.ImportedBindingMetadata?.Seed(compilation, recordsByName, enumsByName);
 
         var managedTranslationUnit = TranslationUnit.GetOrCreate(translationUnit);
+        BuildTypeAliasIndex(managedTranslationUnit.TranslationUnitDecl);
         foreach (var child in managedTranslationUnit.TranslationUnitDecl.Decls)
         {
             if (!IsOwnedDecl(child, ownedFileRoots))
@@ -978,7 +982,11 @@ public sealed partial class ClangSharpHeaderParser
         IReadOnlyDictionary<string, BindingType> genericParameters)
     {
         var nativeName = fieldDecl.Name ?? fieldDecl.Spelling.ToString();
+        var initialIgnoreReason = IsArrayType(fieldDecl.Type.Handle.CanonicalType)
+            ? "fixed-size array fields are not yet supported in this bootstrap surface"
+            : null;
         var (fieldType, ignoreReason) = TryMapType(fieldDecl.Type.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        ignoreReason ??= initialIgnoreReason;
         var field = new FieldBinding(
             $"field:{record.NativeName}:{nativeName}",
             nativeName,
@@ -999,6 +1007,11 @@ public sealed partial class ClangSharpHeaderParser
         field.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(fieldDecl));
 
         return field;
+    }
+
+    private static bool IsArrayType(CXType type)
+    {
+        return type.kind is CXTypeKind.CXType_ConstantArray or CXTypeKind.CXType_IncompleteArray;
     }
 
     private static FunctionBinding CreateFunction(
@@ -1344,6 +1357,17 @@ public sealed partial class ClangSharpHeaderParser
     private static void ApplyCallableDefinitionMetadata(Decl decl, FunctionBinding function)
     {
         function.SetMetadata(MetadataKeys.HasNativeDefinition, (decl as FunctionDecl)?.IsThisDeclarationADefinition ?? false);
+
+        if (function.IsIgnored())
+        {
+            return;
+        }
+
+        var declarationText = GetDeclarationDisplayText(decl);
+        if (declarationText.Contains("...", StringComparison.Ordinal))
+        {
+            function.SetIgnoreReason("variadic callables are not yet supported in this bootstrap surface");
+        }
     }
 
     private static void ApplyDestructorMetadata(CXXRecordDecl? cxxRecord, RecordBinding record)
@@ -1427,7 +1451,7 @@ public sealed partial class ClangSharpHeaderParser
         if (TypeIsPointer(normalizedType))
         {
             var normalizedTypeName = NormalizeTypeName(type.Spelling.ToString());
-            if (managedTypeOverrides.TryGetValue(normalizedTypeName, out _))
+            if (TryGetManagedTypeOverride(normalizedTypeName, normalizedTypeName, managedTypeOverrides, isReturn: false, out _))
             {
                 var pointeeIsVoidOrRecord = TypeIsRecord(normalizedType.PointeeType.CanonicalType) ||
                     normalizedType.PointeeType.CanonicalType.kind == CXTypeKind.CXType_Void;
@@ -1459,6 +1483,172 @@ public sealed partial class ClangSharpHeaderParser
         return (MapType(type, recordsByName, enumsByName, managedTypeOverrides, genericParameters), explicitDirection ?? BindingParameterDirection.In, BindingParameterAbiKind.Value);
     }
 
+    private static bool TryGetManagedTypeOverride(
+        string spelledTypeName,
+        string canonicalTypeName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        bool isReturn,
+        out ManagedTypeOverride? managedTypeOverride)
+    {
+        foreach (var candidate in EnumerateManagedTypeOverrideKeys(spelledTypeName, canonicalTypeName, isReturn))
+        {
+            if (managedTypeOverrides.TryGetValue(candidate, out managedTypeOverride))
+            {
+                return true;
+            }
+        }
+
+        foreach (var (key, candidateOverride) in managedTypeOverrides)
+        {
+            var isCandidateReturn = key.StartsWith("return:", StringComparison.Ordinal);
+            if (isCandidateReturn != isReturn || candidateOverride.TemplateParameterNames.Count != 0)
+            {
+                continue;
+            }
+
+            if (ConcreteTypePrefixMatches(spelledTypeName, candidateOverride.CppTypeName) ||
+                ConcreteTypePrefixMatches(canonicalTypeName, candidateOverride.CppTypeName))
+            {
+                managedTypeOverride = candidateOverride;
+                return true;
+            }
+        }
+
+        foreach (var (key, candidateOverride) in managedTypeOverrides)
+        {
+            var isCandidateReturn = key.StartsWith("return:", StringComparison.Ordinal);
+            if (isCandidateReturn != isReturn || candidateOverride.TemplateParameterNames.Count == 0)
+            {
+                continue;
+            }
+
+            if (GenericTypePatternMatches(
+                    spelledTypeName,
+                    canonicalTypeName,
+                    candidateOverride.CppTypeName,
+                    candidateOverride.TemplateParameterNames.Count,
+                    GetVisibleTemplateArgumentCount(candidateOverride)))
+            {
+                managedTypeOverride = candidateOverride;
+                return true;
+            }
+        }
+
+        managedTypeOverride = null;
+        return false;
+    }
+
+    private static bool ConcreteTypePrefixMatches(string candidateTypeName, string configuredTypeName)
+    {
+        if (!TryGetTopLevelTemplateArguments(candidateTypeName, out var candidateHead, out var candidateArguments) ||
+            !TryGetTopLevelTemplateArguments(configuredTypeName, out var configuredHead, out var configuredArguments))
+        {
+            return false;
+        }
+
+        if (!string.Equals(candidateHead, configuredHead, StringComparison.Ordinal) ||
+            candidateArguments.Count < configuredArguments.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < configuredArguments.Count; index++)
+        {
+            if (!string.Equals(candidateArguments[index], configuredArguments[index], StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool GenericTypePatternMatches(
+        string spelledTypeName,
+        string canonicalTypeName,
+        string patternTypeName,
+        int expectedArgumentCount,
+        int visibleArgumentCount)
+    {
+        if (!TryGetTopLevelTemplateArguments(patternTypeName, out var patternHead, out var patternArguments))
+        {
+            return false;
+        }
+
+        foreach (var candidateTypeName in new[] { spelledTypeName, canonicalTypeName })
+        {
+            if (!TryGetTopLevelTemplateArguments(candidateTypeName, out var candidateHead, out var candidateArguments))
+            {
+                continue;
+            }
+
+            if (string.Equals(candidateHead, patternHead, StringComparison.Ordinal) &&
+                patternArguments.Count == expectedArgumentCount &&
+                candidateArguments.Count >= visibleArgumentCount &&
+                candidateArguments.Count <= expectedArgumentCount)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static int GetVisibleTemplateArgumentCount(ManagedTypeOverride managedTypeOverride)
+    {
+        return managedTypeOverride.VisibleTemplateParameterIndices.Count == 0
+            ? managedTypeOverride.TemplateParameterNames.Count
+            : managedTypeOverride.VisibleTemplateParameterIndices.Count;
+    }
+
+    private static bool TryGetTopLevelTemplateArguments(string typeName, out string head, out IReadOnlyList<string> arguments)
+    {
+        var genericStart = typeName.IndexOf('<');
+        var genericEnd = typeName.LastIndexOf('>');
+        if (genericStart < 0 || genericEnd <= genericStart)
+        {
+            head = string.Empty;
+            arguments = Array.Empty<string>();
+            return false;
+        }
+
+        head = NormalizeNamedTypeName(typeName[..genericStart]);
+        arguments = SplitTopLevelParameters(typeName[(genericStart + 1)..genericEnd])
+            .Select(argument => NormalizeTypeName(argument))
+            .ToArray();
+        return true;
+    }
+
+    private static IEnumerable<string> EnumerateManagedTypeOverrideKeys(string spelledTypeName, string canonicalTypeName, bool isReturn)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var name in new[] { spelledTypeName, canonicalTypeName })
+        {
+            foreach (var variant in EnumerateManagedTypeOverrideNameVariants(name))
+            {
+                var candidate = isReturn ? "return:" + variant : variant;
+                if (seen.Add(candidate))
+                {
+                    yield return candidate;
+                }
+            }
+        }
+    }
+
+    private static IEnumerable<string> EnumerateManagedTypeOverrideNameVariants(string typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName))
+        {
+            yield break;
+        }
+
+        yield return typeName;
+        if (typeName.StartsWith("const ", StringComparison.Ordinal))
+        {
+            yield return typeName["const ".Length..].TrimStart();
+        }
+    }
+
     private static BindingType MapType(
         CXType type,
         IDictionary<string, RecordBinding> recordsByName,
@@ -1469,56 +1659,26 @@ public sealed partial class ClangSharpHeaderParser
     {
         var normalizedType = type.CanonicalType;
         var normalizedTypeName = NormalizeTypeName(type.Spelling.ToString());
+        var canonicalTypeName = NormalizeTypeName(normalizedType.Spelling.ToString());
+        normalizedTypeName = SelectConcreteTemplateTypeName(normalizedTypeName, ResolveAliasTypeName(normalizedTypeName));
+        canonicalTypeName = SelectConcreteTemplateTypeName(canonicalTypeName, GetUnderlyingTypeName(type));
+        var resolvedTypeName = SelectConcreteTemplateTypeName(normalizedTypeName, canonicalTypeName);
 
         if (TryMapGenericParameterType(normalizedTypeName, genericParameters, out var genericParameterType))
         {
             return genericParameterType;
         }
 
-        if (isReturn && managedTypeOverrides.TryGetValue("return:" + normalizedTypeName, out var returnOverride))
+        if (isReturn && TryGetManagedTypeOverride(normalizedTypeName, canonicalTypeName, managedTypeOverrides, isReturn: true, out var returnOverride))
         {
-            return BindingType.CreateConfigured(
-                returnOverride.CppTypeName,
-                returnOverride.PublicTypeName,
-                returnOverride.MarshallerTypeName,
-                returnOverride.ManagedMarshaller);
+            return CreateConfiguredOrWrapperType(returnOverride!, recordsByName, enumsByName, managedTypeOverrides, genericParameters, resolvedTypeName);
         }
 
-        if (!managedTypeOverrides.TryGetValue(normalizedTypeName, out var managedTypeOverride)
-            && normalizedTypeName.StartsWith("const ", StringComparison.Ordinal))
-        {
-            // Strip leading "const " from the type name when the exact key
-            // isn't found, so "const Urho3D::Vector3" resolves to the
-            // "Urho3D::Vector3" override for configured value types.
-            var strippedName = normalizedTypeName["const ".Length..].TrimStart();
-            managedTypeOverrides.TryGetValue(strippedName, out managedTypeOverride);
-        }
-
-        if (isReturn && managedTypeOverride is null &&
-            normalizedTypeName.StartsWith("const ", StringComparison.Ordinal))
-        {
-            // For const-qualified return types, also try the return:-prefixed key
-            // with const stripped (e.g., "return:Urho3D::Vector3" for
-            // "const Urho3D::Vector3" returns).
-            var strippedName = normalizedTypeName["const ".Length..].TrimStart();
-            managedTypeOverrides.TryGetValue("return:" + strippedName, out var strippedReturnOverride);
-            if (strippedReturnOverride is not null)
-            {
-                return BindingType.CreateConfigured(
-                    strippedReturnOverride.CppTypeName,
-                    strippedReturnOverride.PublicTypeName,
-                    strippedReturnOverride.MarshallerTypeName,
-                    strippedReturnOverride.ManagedMarshaller);
-            }
-        }
+        TryGetManagedTypeOverride(normalizedTypeName, canonicalTypeName, managedTypeOverrides, isReturn: false, out var managedTypeOverride);
 
         if (managedTypeOverride is not null)
         {
-            return BindingType.CreateConfigured(
-                managedTypeOverride.CppTypeName,
-                managedTypeOverride.PublicTypeName,
-                managedTypeOverride.MarshallerTypeName,
-                managedTypeOverride.ManagedMarshaller);
+            return CreateConfiguredOrWrapperType(managedTypeOverride, recordsByName, enumsByName, managedTypeOverrides, genericParameters, resolvedTypeName);
         }
 
         if (TypeIsLValueReference(normalizedType))
@@ -1529,9 +1689,12 @@ public sealed partial class ClangSharpHeaderParser
         if (TypeIsPointer(normalizedType))
         {
             var pointeeType = normalizedType.PointeeType.CanonicalType;
+            var concretePointeeTypeName = SelectConcreteTemplateTypeName(
+                NormalizeTypeName(pointeeType.Spelling.ToString()),
+                NormalizeTypeName(type.PointeeType.Spelling.ToString()));
             if (TryCreateSpecializedRecordHandleType(
                     normalizedTypeName,
-                    NormalizeTypeName(pointeeType.Spelling.ToString()),
+                    concretePointeeTypeName,
                     recordsByName,
                     enumsByName,
                     managedTypeOverrides,
@@ -1561,7 +1724,7 @@ public sealed partial class ClangSharpHeaderParser
 
                 var genericArguments = record.HasMetadata(MetadataKeys.PlaceholderRecord)
                     ? Array.Empty<BindingType>()
-                    : TryParseGenericArguments(pointeeType.Spelling.ToString(), recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+                    : TryParseGenericArguments(concretePointeeTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
                 return genericArguments.Count == 0
                     ? record.HandleType
                     : BindingType.CreateHandle(normalizedTypeName, record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments);
@@ -1570,9 +1733,10 @@ public sealed partial class ClangSharpHeaderParser
 
         if (TypeIsRecord(normalizedType))
         {
+            var concreteRecordTypeName = SelectConcreteTemplateTypeName(normalizedTypeName, canonicalTypeName);
             if (TryCreateSpecializedRecordHandleType(
                     $"{normalizedTypeName}*",
-                    NormalizeTypeName(normalizedType.Spelling.ToString()),
+                    concreteRecordTypeName,
                     recordsByName,
                     enumsByName,
                     managedTypeOverrides,
@@ -1592,7 +1756,7 @@ public sealed partial class ClangSharpHeaderParser
 
             var genericArguments = record.HasMetadata(MetadataKeys.PlaceholderRecord)
                 ? Array.Empty<BindingType>()
-                : TryParseGenericArguments(normalizedType.Spelling.ToString(), recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+                : TryParseGenericArguments(concreteRecordTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
             return genericArguments.Count == 0
                 ? record.HandleType
                 : BindingType.CreateHandle($"{NormalizeTypeName(normalizedType.Spelling.ToString())}*", record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments);
@@ -1631,6 +1795,148 @@ public sealed partial class ClangSharpHeaderParser
         };
     }
 
+    private static BindingType CreateConfiguredOrWrapperType(
+        ManagedTypeOverride managedTypeOverride,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        IReadOnlyDictionary<string, BindingType> genericParameters,
+        string? resolvedCppTypeName = null)
+    {
+        var effectiveCppTypeName = string.IsNullOrWhiteSpace(resolvedCppTypeName)
+            ? managedTypeOverride.CppTypeName
+            : NormalizeTypeName(resolvedCppTypeName);
+
+        if (!managedTypeOverride.HasManagedBaseType && !managedTypeOverride.HasExposedMembers)
+        {
+            return BindingType.CreateConfigured(
+                effectiveCppTypeName,
+                managedTypeOverride.PublicTypeName,
+                managedTypeOverride.MarshallerTypeName,
+                managedTypeOverride.ManagedMarshaller);
+        }
+
+        var recordName = StripGenericArguments(NormalizeTypeName(managedTypeOverride.CppTypeName));
+        if (!recordsByName.TryGetValue(recordName, out var record))
+        {
+            record = new RecordBinding(
+                $"record:{recordName}",
+                recordName,
+                GetSimpleManagedTypeName(managedTypeOverride.PublicTypeName),
+                managedTypeOverride.TemplateParameterNames.Count > 0 ? recordName : managedTypeOverride.CppTypeName)
+            {
+                ManagedTypeFormat = managedTypeOverride.PublicTypeName,
+                ManagedNamespace = managedTypeOverride.ManagedNamespace
+            };
+            ApplySyntheticGenericParameters(record, managedTypeOverride.TemplateParameterNames);
+            record.SetMetadata(MetadataKeys.PlaceholderRecord, true);
+            recordsByName[recordName] = record;
+        }
+        else
+        {
+            record.ManagedTypeFormat ??= managedTypeOverride.PublicTypeName;
+            record.ManagedNamespace ??= managedTypeOverride.ManagedNamespace;
+            if (record.HasMetadata(MetadataKeys.PlaceholderRecord))
+            {
+                record.ManagedName = GetSimpleManagedTypeName(managedTypeOverride.PublicTypeName);
+            }
+
+            ApplySyntheticGenericParameters(record, managedTypeOverride.TemplateParameterNames);
+        }
+
+        var genericArguments = managedTypeOverride.TemplateParameterNames.Count == 0
+            ? Array.Empty<BindingType>()
+            : ProjectVisibleTemplateArguments(
+                ParseConcreteTemplateArgumentsOrOpaque(effectiveCppTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
+                managedTypeOverride.VisibleTemplateParameterIndices);
+
+        return genericArguments.Count == 0
+            ? record.HandleType
+            : BindingType.CreateHandle($"{effectiveCppTypeName}*", record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments);
+    }
+
+    private static IReadOnlyList<BindingType> ProjectVisibleTemplateArguments(
+        IReadOnlyList<BindingType> genericArguments,
+        IReadOnlyList<int> visibleIndices)
+    {
+        if (genericArguments.Count == 0 || visibleIndices.Count == 0)
+        {
+            return genericArguments;
+        }
+
+        var projected = new List<BindingType>(visibleIndices.Count);
+        foreach (var index in visibleIndices)
+        {
+            if (index >= 0 && index < genericArguments.Count)
+            {
+                projected.Add(genericArguments[index]);
+            }
+        }
+
+        return projected.Count == 0 ? genericArguments : projected;
+    }
+
+    private static void ApplySyntheticGenericParameters(RecordBinding record, IReadOnlyList<string> templateParameterNames)
+    {
+        if (templateParameterNames.Count == 0)
+        {
+            return;
+        }
+
+        record.CppQualifiedName = StripGenericArguments(record.CppQualifiedName);
+
+        if (record.GenericParameters.Count > 0)
+        {
+            return;
+        }
+
+        foreach (var (name, index) in templateParameterNames.Select((name, index) => (name, index)))
+        {
+            record.GenericParameters.Add(new BindingGenericParameter(name, index));
+        }
+    }
+
+    private static IReadOnlyList<BindingType> ParseConcreteTemplateArgumentsOrOpaque(
+        string cppTypeName,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        IReadOnlyDictionary<string, BindingType> genericParameters)
+    {
+        if (!TryGetTopLevelTemplateArguments(cppTypeName, out _, out var arguments))
+        {
+            return Array.Empty<BindingType>();
+        }
+
+        var result = new List<BindingType>(arguments.Count);
+        foreach (var argument in arguments)
+        {
+            try
+            {
+                result.Add(ParseTypeToken(argument, recordsByName, enumsByName, managedTypeOverrides, genericParameters));
+            }
+            catch (NotSupportedException)
+            {
+                result.Add(BindingType.CreateConfigured(argument, argument));
+            }
+        }
+
+        return result;
+    }
+
+    private static string StripGenericArguments(string name)
+    {
+        var genericStart = name.IndexOf('<');
+        return genericStart >= 0 ? name[..genericStart] : name;
+    }
+
+    private static string GetSimpleManagedTypeName(string managedTypeName)
+    {
+        var typeHead = StripGenericArguments(managedTypeName);
+        var lastDot = typeHead.LastIndexOf('.');
+        return lastDot >= 0 ? typeHead[(lastDot + 1)..] : typeHead;
+    }
+
     private static string ToPascalCase(string nativeName)
     {
         return string.Concat(
@@ -1663,11 +1969,12 @@ public sealed partial class ClangSharpHeaderParser
             return unqualifiedName;
         }
 
-        foreach (var candidate in recordsByName.Values)
+        if (TryGetQualifiedNamedType(type, out _, out var qualifiedName))
         {
-            if (spelling.Contains(candidate.CppQualifiedName, StringComparison.Ordinal))
+            var strippedQualifiedName = NormalizeNamedTypeName(StripGenericArguments(qualifiedName));
+            if (!string.IsNullOrWhiteSpace(strippedQualifiedName))
             {
-                return candidate.NativeName;
+                return strippedQualifiedName;
             }
         }
 
@@ -1680,12 +1987,24 @@ public sealed partial class ClangSharpHeaderParser
 
         if (TryGetQualifiedNamedType(type, out var unqualifiedName, out var qualifiedName))
         {
-            var pattern = $@"(?<![:\w]){Regex.Escape(unqualifiedName)}(?![:\w])";
-            spelling = Regex.Replace(spelling, pattern, qualifiedName, RegexOptions.CultureInvariant);
+            var replacementSource = qualifiedName.Contains('<', StringComparison.Ordinal)
+                ? StripGenericArguments(unqualifiedName)
+                : unqualifiedName;
+            var replacementTarget = qualifiedName.Contains('<', StringComparison.Ordinal)
+                ? StripGenericArguments(qualifiedName)
+                : qualifiedName;
+
+            var pattern = $@"(?<![:\w]){Regex.Escape(replacementSource)}(?![:\w])";
+            spelling = Regex.Replace(spelling, pattern, replacementTarget, RegexOptions.CultureInvariant);
         }
 
         foreach (var record in recordsByName.Values.OrderByDescending(static record => record.NativeName.Length))
         {
+            if (record.IsGeneric)
+            {
+                continue;
+            }
+
             var pattern = $@"(?<![:\w]){Regex.Escape(record.NativeName)}(?![:\w])";
             spelling = Regex.Replace(spelling, pattern, record.CppQualifiedName, RegexOptions.CultureInvariant);
         }
@@ -1695,13 +2014,28 @@ public sealed partial class ClangSharpHeaderParser
 
     private static bool TryGetQualifiedNamedType(CXType type, out string unqualifiedName, out string qualifiedName)
     {
-        var resolvedType = type.CanonicalType;
+        var sourceType = type;
+        while (TypeIsAnyReference(sourceType) || TypeIsPointer(sourceType))
+        {
+            sourceType = sourceType.PointeeType;
+        }
+
+        if (TryPopulateQualifiedNamedType(sourceType.Declaration, out unqualifiedName, out qualifiedName))
+        {
+            return true;
+        }
+
+        var resolvedType = sourceType.CanonicalType;
         while (TypeIsAnyReference(resolvedType) || TypeIsPointer(resolvedType))
         {
             resolvedType = resolvedType.PointeeType.CanonicalType;
         }
 
-        var declaration = resolvedType.Declaration;
+        return TryPopulateQualifiedNamedType(resolvedType.Declaration, out unqualifiedName, out qualifiedName);
+    }
+
+    private static bool TryPopulateQualifiedNamedType(CXCursor declaration, out string unqualifiedName, out string qualifiedName)
+    {
         if (string.IsNullOrWhiteSpace(declaration.Spelling.ToString()))
         {
             unqualifiedName = string.Empty;
@@ -1709,7 +2043,13 @@ public sealed partial class ClangSharpHeaderParser
             return false;
         }
 
-        if (declaration.Kind is not (CXCursorKind.CXCursor_StructDecl or CXCursorKind.CXCursor_ClassDecl or CXCursorKind.CXCursor_ClassTemplate or CXCursorKind.CXCursor_EnumDecl))
+        if (declaration.Kind is not (CXCursorKind.CXCursor_StructDecl or
+                                     CXCursorKind.CXCursor_ClassDecl or
+                                     CXCursorKind.CXCursor_ClassTemplate or
+                                     CXCursorKind.CXCursor_ClassTemplatePartialSpecialization or
+                                     CXCursorKind.CXCursor_EnumDecl or
+                                     CXCursorKind.CXCursor_TypedefDecl or
+                                     CXCursorKind.CXCursor_TypeAliasDecl))
         {
             unqualifiedName = string.Empty;
             qualifiedName = string.Empty;
@@ -1795,6 +2135,7 @@ public sealed partial class ClangSharpHeaderParser
     private static string NormalizeNamedTypeName(string spelling)
     {
         return spelling
+            .Replace("__cxx11::", string.Empty, StringComparison.Ordinal)
             .Replace("enum class ", string.Empty, StringComparison.Ordinal)
             .Replace("enum ", string.Empty, StringComparison.Ordinal)
             .Replace("const ", string.Empty, StringComparison.Ordinal)
@@ -1806,6 +2147,7 @@ public sealed partial class ClangSharpHeaderParser
     private static string NormalizeTypeName(string spelling)
     {
         return Regex.Replace(spelling.Trim(), @"\s+", " ")
+            .Replace("__cxx11::", string.Empty, StringComparison.Ordinal)
             .Replace(" *", "*", StringComparison.Ordinal)
             .Replace(" &", "&", StringComparison.Ordinal)
             .Replace(":: ", "::", StringComparison.Ordinal)
@@ -2414,6 +2756,11 @@ public sealed partial class ClangSharpHeaderParser
             return parameterType.Kind == BindingTypeKind.Handle ? "null" : "default";
         }
 
+        if (parameterType.Kind == BindingTypeKind.Handle)
+        {
+            return null;
+        }
+
         if (parameterType.Kind == BindingTypeKind.Enum)
         {
             return NormalizeManagedEnumDefaultExpression(parameterType.ManagedTypeName, expression);
@@ -2613,7 +2960,7 @@ public sealed partial class ClangSharpHeaderParser
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         IReadOnlyDictionary<string, BindingType> genericParameters)
     {
-        var normalized = NormalizeTypeName(token);
+        var normalized = SelectConcreteTemplateTypeName(NormalizeTypeName(token), ResolveAliasTypeName(token));
 
         if (TryMapGenericParameterType(normalized, genericParameters, out var genericParameterType))
         {
@@ -2631,13 +2978,13 @@ public sealed partial class ClangSharpHeaderParser
             var pointeeName = NormalizeNamedTypeName(referredTypeName);
             if (recordsByName.TryGetValue(pointeeName, out var record))
             {
-                return BindingType.CreateHandle(normalized, record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName);
+                return record.HandleType;
             }
         }
 
-        if (managedTypeOverrides.TryGetValue(normalized, out var managedTypeOverride))
+        if (TryGetManagedTypeOverride(normalized, normalized, managedTypeOverrides, isReturn: false, out var managedTypeOverride))
         {
-            return BindingType.CreateConfigured(managedTypeOverride.CppTypeName, managedTypeOverride.PublicTypeName);
+            return CreateConfiguredOrWrapperType(managedTypeOverride!, recordsByName, enumsByName, managedTypeOverrides, genericParameters, normalized);
         }
 
         return normalized switch
@@ -2645,19 +2992,27 @@ public sealed partial class ClangSharpHeaderParser
             "bool" => BindingType.Boolean,
             "signed char" => BindingType.Int8,
             "unsigned char" => BindingType.UInt8,
+            "int8_t" => BindingType.Int8,
+            "uint8_t" => BindingType.UInt8,
             "short" => BindingType.Int16,
             "unsigned short" => BindingType.UInt16,
+            "int16_t" => BindingType.Int16,
+            "uint16_t" => BindingType.UInt16,
             "int" => BindingType.Int32,
             "unsigned int" => BindingType.UInt32,
+            "int32_t" => BindingType.Int32,
+            "uint32_t" => BindingType.UInt32,
             "long long" => BindingType.Int64,
             "unsigned long long" => BindingType.UInt64,
+            "int64_t" => BindingType.Int64,
+            "uint64_t" => BindingType.UInt64,
             "float" => BindingType.Single,
             "double" => BindingType.Double,
             "long" => BindingType.NativeInt,
             "unsigned long" => BindingType.NativeUInt,
             "char" => BindingType.Int8,
             _ when enumsByName.TryGetValue(NormalizeNamedTypeName(normalized), out var @enum) => BindingType.CreateEnum(@enum.NativeName, @enum.ManagedName),
-            _ when recordsByName.TryGetValue(NormalizeNamedTypeName(normalized), out var record) => BindingType.CreateHandle($"{normalized}*", record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName),
+            _ when recordsByName.TryGetValue(NormalizeNamedTypeName(normalized), out var record) => record.HandleType,
             _ => throw new NotSupportedException($"ClangSharp sample parser does not support generic argument token '{normalized}'.")
         };
     }
@@ -2689,6 +3044,130 @@ public sealed partial class ClangSharpHeaderParser
         var genericArguments = TryParseGenericArguments(referredTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
         type = BindingType.CreateHandle(handleCppTypeName, record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments);
         return true;
+    }
+
+    private static string SelectConcreteTemplateTypeName(string preferredTypeName, string fallbackTypeName)
+    {
+        var normalizedPreferred = NormalizeTypeName(preferredTypeName);
+        var normalizedFallback = NormalizeTypeName(fallbackTypeName);
+
+        if (string.IsNullOrWhiteSpace(normalizedPreferred))
+        {
+            return normalizedFallback;
+        }
+
+        if (string.IsNullOrWhiteSpace(normalizedFallback))
+        {
+            return normalizedPreferred;
+        }
+
+        var preferredHasTemplateArguments = normalizedPreferred.Contains('<', StringComparison.Ordinal);
+        var fallbackHasTemplateArguments = normalizedFallback.Contains('<', StringComparison.Ordinal);
+
+        if (!preferredHasTemplateArguments && fallbackHasTemplateArguments)
+        {
+            return normalizedFallback;
+        }
+
+        if (preferredHasTemplateArguments &&
+            fallbackHasTemplateArguments &&
+            GetTemplateSpecificityScore(normalizedFallback) > GetTemplateSpecificityScore(normalizedPreferred))
+        {
+            return normalizedFallback;
+        }
+
+        return normalizedPreferred;
+    }
+
+    private static string GetUnderlyingTypeName(CXType type)
+    {
+        var underlyingType = type.UnderlyingType;
+        if (underlyingType.kind == CXTypeKind.CXType_Invalid)
+        {
+            return string.Empty;
+        }
+
+        return NormalizeTypeName(underlyingType.Spelling.ToString());
+    }
+
+    private static void BuildTypeAliasIndex(Decl decl)
+    {
+        s_typeAliases.Clear();
+        CollectTypeAliases(decl);
+    }
+
+    private static void CollectTypeAliases(Decl decl)
+    {
+        foreach (var child in decl.Decls)
+        {
+            if (child is TypedefNameDecl typedefNameDecl)
+            {
+                RegisterTypeAlias(typedefNameDecl);
+            }
+
+            CollectTypeAliases(child);
+        }
+    }
+
+    private static void RegisterTypeAlias(TypedefNameDecl typedefNameDecl)
+    {
+        var aliasName = GetCppQualifiedName(typedefNameDecl);
+        var shortAliasName = typedefNameDecl.Name ?? typedefNameDecl.Spelling.ToString();
+        var underlyingTypeName = NormalizeTypeName(typedefNameDecl.UnderlyingType.Handle.Spelling.ToString());
+
+        if (string.IsNullOrWhiteSpace(underlyingTypeName))
+        {
+            return;
+        }
+
+        AddTypeAlias(aliasName, underlyingTypeName);
+        AddTypeAlias(shortAliasName, underlyingTypeName);
+    }
+
+    private static void AddTypeAlias(string aliasName, string underlyingTypeName)
+    {
+        var normalizedAlias = NormalizeTypeName(aliasName);
+        if (string.IsNullOrWhiteSpace(normalizedAlias))
+        {
+            return;
+        }
+
+        s_typeAliases[normalizedAlias] = underlyingTypeName;
+    }
+
+    private static string ResolveAliasTypeName(string typeName)
+    {
+        var normalizedTypeName = NormalizeTypeName(typeName);
+        if (string.IsNullOrWhiteSpace(normalizedTypeName))
+        {
+            return string.Empty;
+        }
+
+        var suffix = string.Empty;
+        var baseTypeName = normalizedTypeName;
+        while (baseTypeName.EndsWith("*", StringComparison.Ordinal) || baseTypeName.EndsWith("&", StringComparison.Ordinal))
+        {
+            suffix = baseTypeName[^1] + suffix;
+            baseTypeName = baseTypeName[..^1].TrimEnd();
+        }
+
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        while (s_typeAliases.TryGetValue(baseTypeName, out var aliasedTypeName) && visited.Add(baseTypeName))
+        {
+            baseTypeName = NormalizeTypeName(aliasedTypeName);
+        }
+
+        return baseTypeName + suffix;
+    }
+
+    private static int GetTemplateSpecificityScore(string typeName)
+    {
+        var score = 0;
+
+        score += Regex.Matches(typeName, "::", RegexOptions.CultureInvariant).Count * 2;
+        score += Regex.Matches(typeName, @"(?<![:\w])T[A-Za-z0-9_]*(?![:\w])", RegexOptions.CultureInvariant).Count * -10;
+
+        return score;
     }
 
     private static void ApplyExplicitGenericInstantiations(

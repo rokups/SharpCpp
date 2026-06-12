@@ -116,6 +116,10 @@ internal static class Program
                 ["Urho3D"] = "Urho3D",
                 ["RbfxUserCode"] = "RbfxUserCode"
             };
+            foreach (var marshallerHeader in marshallerConfigurationFiles)
+            {
+                compilation.NativeSupportHeaders.Add(marshallerHeader.Replace('\\', '/'));
+            }
 
             BindingCompilationBootstrapPipeline.Apply(compilation, marshallerConfigurationFiles, clangArguments);
 

@@ -51,7 +51,9 @@ public static class MarshallerMetadataPhase2
         ArgumentNullException.ThrowIfNull(marshallerFiles);
         ArgumentNullException.ThrowIfNull(clangArgs);
 
-        var recordsByNativeName = compilation.Records.ToDictionary(static record => record.NativeName, StringComparer.Ordinal);
+        var recordsByNativeName = compilation.Records
+            .GroupBy(static record => record.NativeName, StringComparer.Ordinal)
+            .ToDictionary(static group => group.Key, static group => group.Last(), StringComparer.Ordinal);
 
         var marshallerFilesList = marshallerFiles.Where(f => File.Exists(Path.GetFullPath(f))).ToArray();
         if (marshallerFilesList.Length == 0)
@@ -63,6 +65,7 @@ public static class MarshallerMetadataPhase2
         ApplyRecordMetadata(compilation, configs, recordsByNativeName);
 
         SyncPlaceholderRecords(compilation, recordsByNativeName);
+        DeduplicateRecords(compilation, recordsByNativeName);
         ApplyManagedTypeFormats(compilation, recordsByNativeName);
     }
 
@@ -103,6 +106,7 @@ public static class MarshallerMetadataPhase2
                 // Gate on managed_base_type OR suppress_emission — both
                 // indicate the type needs a wrapper class.
                 if (!ManagedBaseTypeExpression.IsMatch(config.AttributeBody) &&
+                    config.ExposedMembers.Count == 0 &&
                     !SuppressEmissionExpression.IsMatch(config.AttributeBody))
                 {
                     continue;
@@ -124,9 +128,10 @@ public static class MarshallerMetadataPhase2
                     $"record:{recordName}",
                     recordName,
                     pascalName,
-                    cppTypeName);
+                    config.TemplateParameterNames.Count > 0 ? recordName : cppTypeName);
                 record.SetMetadata(MetadataKeys.PlaceholderRecord, false);
                 record.SetMetadata(MetadataKeys.ForwardDeclaration, false);
+                ApplyTemplateParameters(record, config.TemplateParameterNames);
                 // ManagedNamespace will be set below from managed_namespace.
                 compilation.Members.Add(record);
                 recordsByNativeName[recordName] = record;
@@ -142,6 +147,8 @@ public static class MarshallerMetadataPhase2
                 record.SetMetadata(MetadataKeys.PlaceholderRecord, false);
                 record.SetMetadata(MetadataKeys.ForwardDeclaration, false);
             }
+
+            ApplyTemplateParameters(record, config.TemplateParameterNames);
 
             var body = config.AttributeBody;
 
@@ -213,14 +220,14 @@ public static class MarshallerMetadataPhase2
             // expose_member methods — metadata comes from AST cursors, not source regex.
             foreach (var member in config.ExposedMembers)
             {
-                var managedReturnType = MapManagedPrimitiveType(member.CppReturnType) ?? BindingType.Void;
+                var managedReturnType = MapExposedMemberType(member.CppReturnType, record, recordsByNativeName) ?? BindingType.Void;
 
                 var function = new FunctionBinding(
                     $"method:{record.NativeName}:{member.MethodName}",
                     member.MethodName,
                     member.MethodName,
                     managedReturnType,
-                    $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_{member.MethodName}",
+                    $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.NativeName)}_{member.MethodName}",
                     member.CppReturnType,
                     $"{record.CppQualifiedName}::{member.MethodName}")
                 {
@@ -239,7 +246,7 @@ public static class MarshallerMetadataPhase2
                         $"parameter:{record.NativeName}:{member.MethodName}:{paramName}",
                         paramName,
                         paramName,
-                        MapManagedPrimitiveType(paramCppType) ?? BindingType.Void,
+                        MapExposedMemberType(paramCppType, record, recordsByNativeName) ?? BindingType.Void,
                         BindingParameterDirection.In,
                         BindingParameterAbiKind.Value,
                         paramCppType));
@@ -259,16 +266,30 @@ public static class MarshallerMetadataPhase2
             return record;
         }
 
+        record = recordsByNativeName.Values.FirstOrDefault(candidate =>
+            string.Equals(StripGenericArguments(candidate.CppQualifiedName), recordName, StringComparison.Ordinal) ||
+            string.Equals(candidate.CppQualifiedName, recordName, StringComparison.Ordinal));
+        if (record is not null)
+        {
+            return record;
+        }
+
         var separatorIndex = recordName.LastIndexOf("::", StringComparison.Ordinal);
+        if (separatorIndex < 0)
+        {
+            return recordsByNativeName.Values.FirstOrDefault(candidate =>
+                string.Equals(candidate.CppQualifiedName, recordName, StringComparison.Ordinal) ||
+                (candidate.NativeName.StartsWith(recordName, StringComparison.Ordinal) &&
+                 (candidate.NativeName.Length == recordName.Length || candidate.NativeName[recordName.Length] == '<')));
+        }
+
         var unqualified = separatorIndex >= 0 ? recordName[(separatorIndex + 2)..] : recordName;
         if (recordsByNativeName.TryGetValue(unqualified, out record))
         {
             return record;
         }
 
-        return recordsByNativeName.FirstOrDefault(kvp =>
-            kvp.Key.StartsWith(unqualified, StringComparison.Ordinal) &&
-            (kvp.Key.Length == unqualified.Length || kvp.Key[unqualified.Length] == '<')).Value;
+        return null;
     }
 
     private static void SyncPlaceholderRecords(BindingCompilation compilation, IReadOnlyDictionary<string, RecordBinding> recordsByNativeName)
@@ -277,7 +298,8 @@ public static class MarshallerMetadataPhase2
         {
             var realRecord = recordsByNativeName.Values.FirstOrDefault(r =>
                 !r.HasMetadata(MetadataKeys.PlaceholderRecord) &&
-                string.Equals(r.CppQualifiedName, placeholder.CppQualifiedName, StringComparison.Ordinal));
+                (string.Equals(r.CppQualifiedName, placeholder.CppQualifiedName, StringComparison.Ordinal) ||
+                 string.Equals(StripGenericArguments(r.CppQualifiedName), StripGenericArguments(placeholder.CppQualifiedName), StringComparison.Ordinal)));
             if (realRecord is null)
             {
                 continue;
@@ -306,6 +328,101 @@ public static class MarshallerMetadataPhase2
         }
     }
 
+    private static void DeduplicateRecords(BindingCompilation compilation, IDictionary<string, RecordBinding> recordsByNativeName)
+    {
+        var duplicateGroups = compilation.Records
+            .GroupBy(static record => record.SymbolId, StringComparer.Ordinal)
+            .Where(static group => group.Count() > 1)
+            .ToArray();
+
+        if (duplicateGroups.Length == 0)
+        {
+            return;
+        }
+
+        foreach (var group in duplicateGroups)
+        {
+            var preferred = group
+                .OrderByDescending(GetRecordSpecificityScore)
+                .ThenByDescending(static record => record.Members.Count)
+                .First();
+
+            foreach (var duplicate in group.Where(record => !ReferenceEquals(record, preferred)))
+            {
+                MergeRecordInto(preferred, duplicate);
+                duplicate.SetMetadata(MetadataKeys.SuppressEmission, true);
+                duplicate.Detach();
+            }
+
+            recordsByNativeName[preferred.NativeName] = preferred;
+        }
+
+        compilation.InvalidateCaches();
+    }
+
+    private static int GetRecordSpecificityScore(RecordBinding record)
+    {
+        var score = 0;
+
+        if (!record.GetMetadata<bool>(MetadataKeys.PlaceholderRecord))
+        {
+            score += 10;
+        }
+
+        if (!string.IsNullOrWhiteSpace(record.ManagedBaseTypeName))
+        {
+            score += 10;
+        }
+
+        score += record.Members.Count;
+        score += record.GenericParameters.Count;
+
+        return score;
+    }
+
+    private static void MergeRecordInto(RecordBinding target, RecordBinding source)
+    {
+        target.ManagedBaseTypeName ??= source.ManagedBaseTypeName;
+        target.ManagedTypeFormat ??= source.ManagedTypeFormat;
+        target.ManagedNamespace ??= source.ManagedNamespace;
+        target.HandleMarshallerTypeName ??= source.HandleMarshallerTypeName;
+
+        if (string.IsNullOrWhiteSpace(target.CppQualifiedName) && !string.IsNullOrWhiteSpace(source.CppQualifiedName))
+        {
+            target.CppQualifiedName = source.CppQualifiedName;
+        }
+
+        if (target.GenericParameters.Count == 0)
+        {
+            foreach (var parameter in source.GenericParameters)
+            {
+                target.GenericParameters.Add(new BindingGenericParameter(parameter.Name, parameter.Position));
+            }
+        }
+
+        foreach (var member in source.Members.OfType<BindingNode>().ToArray())
+        {
+            if (member is FunctionBinding sourceFunction &&
+                target.Members.OfType<FunctionBinding>().Any(candidate =>
+                    string.Equals(candidate.ManagedName, sourceFunction.ManagedName, StringComparison.Ordinal) &&
+                    string.Equals(candidate.CppQualifiedName, sourceFunction.CppQualifiedName, StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            member.Detach();
+            target.Members.Add(member);
+        }
+
+        foreach (var metadata in source.Metadata)
+        {
+            if (!target.HasMetadata(metadata.Key))
+            {
+                target.SetMetadata(metadata.Key, metadata.Value);
+            }
+        }
+    }
+
     private static string GetTargetRecordName(string target)
     {
         var withoutPointer = target.TrimEnd('*').Trim();
@@ -321,8 +438,79 @@ public static class MarshallerMetadataPhase2
 
     private static string GetSimpleTypeName(string managedTypeFormat)
     {
-        var lastDot = managedTypeFormat.LastIndexOf('.');
-        return lastDot >= 0 ? managedTypeFormat[(lastDot + 1)..] : managedTypeFormat;
+        var typeHead = StripGenericArguments(managedTypeFormat);
+        var lastDot = typeHead.LastIndexOf('.');
+        return lastDot >= 0 ? typeHead[(lastDot + 1)..] : typeHead;
+    }
+
+    private static void ApplyTemplateParameters(RecordBinding record, IReadOnlyList<string> templateParameterNames)
+    {
+        if (templateParameterNames.Count == 0)
+        {
+            return;
+        }
+
+        record.CppQualifiedName = StripGenericArguments(record.CppQualifiedName);
+
+        if (record.GenericParameters.Count > 0)
+        {
+            return;
+        }
+
+        foreach (var (name, index) in templateParameterNames.Select((name, index) => (name, index)))
+        {
+            record.GenericParameters.Add(new BindingGenericParameter(name, index));
+        }
+    }
+
+    private static BindingType? MapExposedMemberType(
+        string cppType,
+        RecordBinding record,
+        IDictionary<string, RecordBinding> recordsByNativeName)
+    {
+        var normalized = MarshallerConfigExtractor.NormalizeTypeName(cppType);
+        var stripped = StripExposedTypeQualifiers(normalized);
+
+        var genericParameter = record.GenericParameters.FirstOrDefault(parameter =>
+            string.Equals(parameter.Name, stripped, StringComparison.Ordinal));
+        if (genericParameter is not null)
+        {
+            return BindingType.CreateGenericParameter(genericParameter.Name);
+        }
+
+        var primitiveType = MapManagedPrimitiveType(stripped);
+        if (primitiveType is not null)
+        {
+            return primitiveType;
+        }
+
+        var recordMatch = FindRecordByName(recordsByNativeName, StripGenericArguments(stripped));
+        if (recordMatch is not null)
+        {
+            return BindingType.CreateHandle(
+                normalized.EndsWith("*", StringComparison.Ordinal) ? normalized : $"{normalized}*",
+                recordMatch.ManagedName,
+                recordMatch.SymbolId,
+                recordMatch.HandleMarshallerTypeName);
+        }
+
+        return null;
+    }
+
+    private static string StripExposedTypeQualifiers(string cppType)
+    {
+        var stripped = cppType;
+        if (stripped.StartsWith("const ", StringComparison.Ordinal))
+        {
+            stripped = stripped["const ".Length..].TrimStart();
+        }
+
+        while (stripped.EndsWith("&", StringComparison.Ordinal) || stripped.EndsWith("*", StringComparison.Ordinal))
+        {
+            stripped = stripped[..^1].TrimEnd();
+        }
+
+        return stripped;
     }
 
     private static BindingType? MapManagedPrimitiveType(string cppType)

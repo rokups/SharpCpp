@@ -95,7 +95,10 @@ internal static class Program
         var marshallerConfigurationFiles = new[]
         {
             Path.Combine(projectRoot, "include", "SharpCpp", "Marshaller.hpp")
-        };
+        }
+        .Concat(Directory.EnumerateFiles(fixtureRoot, "*Marshallers.h", SearchOption.AllDirectories)
+            .OrderBy(static path => path, StringComparer.Ordinal))
+        .ToArray();
 
         var compilation = new BindingCompilation(
             "SharpCpp.Tests.E2E",
@@ -103,6 +106,10 @@ internal static class Program
             "E2EBindings",
             "SharpCppTestsE2E_Native",
             Array.Empty<string>());
+        foreach (var marshallerHeader in marshallerConfigurationFiles)
+        {
+            compilation.NativeSupportHeaders.Add(marshallerHeader.Replace('\\', '/'));
+        }
 
         var headerFiles = Directory
             .EnumerateFiles(fixtureRoot, "*.hpp", SearchOption.AllDirectories)

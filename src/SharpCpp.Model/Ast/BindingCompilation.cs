@@ -19,7 +19,9 @@ public sealed class BindingCompilation : BindingContainerNode
         ManagedNamespace = managedNamespace;
         ManagedClassName = managedClassName;
         NativeLibraryName = nativeLibraryName;
+        EntryPointPrefix = "sharpcpp_e2e";
         HeaderFiles = new List<string>(headerFiles);
+        NativeSupportHeaders = new List<string>();
     }
 
     public override BindingNodeKind Kind => BindingNodeKind.Compilation;
@@ -32,7 +34,11 @@ public sealed class BindingCompilation : BindingContainerNode
 
     public string NativeLibraryName { get; set; }
 
+    public string EntryPointPrefix { get; set; }
+
     public IList<string> HeaderFiles { get; }
+
+    public IList<string> NativeSupportHeaders { get; }
 
     public IReadOnlyDictionary<string, string> NamespaceMappings { get; set; } = new Dictionary<string, string>();
 

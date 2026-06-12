@@ -114,10 +114,12 @@ public static partial class BindingOutputRenderer
         var concreteInstanceMethods = instanceMethods.Where(static function => !function.IsGeneric).ToArray();
         var staticMethods = record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic && function.OperatorToken is null && !function.IsConversionOperator && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
         var instantiations = record.SupportedGenericInstantiations.OrderBy(static instantiation => string.Join("|", instantiation.TypeArguments.Select(static argument => argument.CppTypeName)), StringComparer.Ordinal).ToArray();
+        var baseTypeName = GetGenericManagedBaseTypeName(record);
+        var genericConstraints = GetGenericRecordConstraints(record);
 
         WriteDocumentationComment(writer, record);
         writer.Write($$"""
-            public partial class {{GetGenericRecordDeclarationName(record)}} : global::SharpCpp.Support.NativeObject
+            public partial class {{GetGenericRecordDeclarationName(record)}} : {{baseTypeName}}{{genericConstraints}}
             {
             internal static readonly global::SharpCpp.Support.DefaultNativeInstanceCache s_instanceCache = new();
 
@@ -268,9 +270,10 @@ public static partial class BindingOutputRenderer
 
     private static string GetGenericParameterList(RecordBinding record)
     {
-        return record.GenericParameters.Count == 0
+        var visibleParameters = GetManagedVisibleGenericParameters(record);
+        return visibleParameters.Count == 0
             ? string.Empty
-            : $"<{string.Join(", ", record.GenericParameters.Select(static parameter => parameter.Name))}>";
+            : $"<{string.Join(", ", visibleParameters.Select(static parameter => parameter.Name))}>";
     }
 
     private static string GetGenericRecordDeclarationName(RecordBinding record)
@@ -278,9 +281,42 @@ public static partial class BindingOutputRenderer
         return $"{record.ManagedName}{GetGenericParameterList(record)}";
     }
 
+    private static string GetGenericManagedBaseTypeName(RecordBinding record)
+    {
+        if (string.IsNullOrWhiteSpace(record.ManagedBaseTypeName))
+        {
+            return "global::SharpCpp.Support.NativeObject";
+        }
+
+        if (!record.ManagedBaseTypeName.Contains('{', StringComparison.Ordinal))
+        {
+            return record.ManagedBaseTypeName;
+        }
+
+        var typeArguments = record.GenericParameters.Select(static parameter => parameter.Name).Cast<object>().ToArray();
+        return string.Format(System.Globalization.CultureInfo.InvariantCulture, record.ManagedBaseTypeName, typeArguments);
+    }
+
+    private static string GetGenericRecordConstraints(RecordBinding record)
+    {
+        if (string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) || record.GenericParameters.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        if (record.ManagedBaseTypeName.Contains("MapBase<", StringComparison.Ordinal) ||
+            record.ManagedBaseTypeName.Contains("UnorderedMapBase<", StringComparison.Ordinal) ||
+            record.ManagedBaseTypeName.Contains("DictionaryBase<", StringComparison.Ordinal))
+        {
+            return $" where {record.GenericParameters[0].Name} : notnull";
+        }
+
+        return string.Empty;
+    }
+
     private static string GetGenericImportAccessor(BindingCompilation compilation)
     {
-        return $"{compilation.ManagedClassName}.__PInvoke";
+        return $"global::{compilation.ManagedNamespace}.{compilation.ManagedClassName}.__PInvoke";
     }
 
     private static string RenderGenericManagedConstructor(BindingCompilation compilation, RecordBinding record, FunctionBinding function, IReadOnlyList<RecordGenericInstantiationBinding> instantiations)
@@ -310,9 +346,10 @@ public static partial class BindingOutputRenderer
         WriteDocumentationComment(writer, function);
         var parameterList = string.Join(", ", function.Parameters.Select(RenderManagedPublicParameter));
         var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType);
+        var visibility = GetManagedVisibilityNormalized(compilation, record, function);
 
         writer.Write($$"""
-            public {{GetManagedInstanceMethodModifier(compilation, record, function)}}{{returnTypeName}} {{function.ManagedName}}({{parameterList}})
+            {{visibility}} {{GetManagedInstanceMethodModifier(compilation, record, function)}}{{returnTypeName}} {{function.ManagedName}}({{parameterList}})
             {
             {{RenderGenericManagedDispatchBranches(compilation, record, function, instantiations, includeSelf: true)}}
             throw new NotSupportedException("SharpCpp does not support the requested generic argument combination for '{{function.ManagedName}}'.");
@@ -452,7 +489,7 @@ public static partial class BindingOutputRenderer
     {
         var parts = new List<string>();
 
-        for (var index = 0; index < record.GenericParameters.Count; index++)
+        foreach (var index in GetManagedVisibleGenericParameterIndices(record))
         {
             parts.Add($"typeof({record.GenericParameters[index].Name}) == typeof({GetManagedWrapperTypeName(recordInstantiation.TypeArguments[index])})");
         }
@@ -797,14 +834,68 @@ public static partial class BindingOutputRenderer
 
     private static string BuildGenericInstantiationCondition(RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        if (record.GenericParameters.Count == 0 || instantiation.TypeArguments.Count == 0)
+        var visibleIndices = GetManagedVisibleGenericParameterIndices(record);
+        if (visibleIndices.Count == 0 || instantiation.TypeArguments.Count == 0)
         {
             return "true";
         }
 
         return string.Join(
             " && ",
-            record.GenericParameters.Select((parameter, index) => $"typeof({parameter.Name}) == typeof({GetManagedWrapperTypeName(instantiation.TypeArguments[index])})"));
+            visibleIndices.Select(index => $"typeof({record.GenericParameters[index].Name}) == typeof({GetManagedWrapperTypeName(instantiation.TypeArguments[index])})"));
+    }
+
+    private static IReadOnlyList<BindingGenericParameter> GetManagedVisibleGenericParameters(RecordBinding record)
+    {
+        return GetManagedVisibleGenericParameterIndices(record)
+            .Select(index => record.GenericParameters[index])
+            .ToArray();
+    }
+
+    private static IReadOnlyList<int> GetManagedVisibleGenericParameterIndices(RecordBinding record)
+    {
+        var usedIndices = new HashSet<int>();
+        CollectManagedFormatPlaceholderIndices(record.ManagedTypeFormat, usedIndices);
+        CollectManagedFormatPlaceholderIndices(record.ManagedBaseTypeName, usedIndices);
+
+        if (usedIndices.Count == 0)
+        {
+            return Enumerable.Range(0, record.GenericParameters.Count).ToArray();
+        }
+
+        return usedIndices
+            .Where(index => index >= 0 && index < record.GenericParameters.Count)
+            .OrderBy(static index => index)
+            .ToArray();
+    }
+
+    private static void CollectManagedFormatPlaceholderIndices(string? format, ISet<int> target)
+    {
+        if (string.IsNullOrWhiteSpace(format))
+        {
+            return;
+        }
+
+        for (var index = 0; index < format.Length; index++)
+        {
+            if (format[index] != '{')
+            {
+                continue;
+            }
+
+            var closeIndex = format.IndexOf('}', index + 1);
+            if (closeIndex <= index + 1)
+            {
+                continue;
+            }
+
+            if (int.TryParse(format[(index + 1)..closeIndex], out var placeholderIndex))
+            {
+                target.Add(placeholderIndex);
+            }
+
+            index = closeIndex;
+        }
     }
 
     private static string BuildGenericInvocationArgument(ParameterBinding parameter, BindingType concreteType)
@@ -861,7 +952,7 @@ public static partial class BindingOutputRenderer
 
     private static string GetGenericDeleteEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        return $"sharpcpp_e2e_{record.NativeName}_delete{GetGenericInstantiationSuffix(instantiation)}";
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_delete{GetGenericInstantiationSuffix(instantiation)}";
     }
 
     private static string GetGenericInstantiationSuffix(RecordGenericInstantiationBinding instantiation)
@@ -893,6 +984,25 @@ public static partial class BindingOutputRenderer
         var parameterList = string.Join(", ", new[] { $"arg_t<{concreteRecordType}*> self" }.Concat(method.Parameters.Select((parameter, index) => $"arg_t<{concreteParameters[index].CppTypeName}> {parameter.NativeName}")));
         var abiArguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
         var memberSignature = $"{concreteReturnType.CppTypeName}({concreteRecordType}::*)({string.Join(", ", concreteParameters.Select(static parameter => parameter.CppTypeName))}){(method.IsConstMethod ? " const" : string.Empty)}";
+
+        if (method.TryGetMetadata(MetadataKeys.MarshallerExposedMethod, out string? _))
+        {
+            var marshallerArgs = string.Join(", ", new[] { "*self" }.Concat(method.Parameters.Select(static parameter => parameter.NativeName)));
+            var marshallerCall = concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void
+                ? $"Marshaller<{concreteRecordType}>::{method.NativeName}({marshallerArgs});"
+                : $$"""
+                    using RM = ReturnMarshaller<{{concreteReturnType.CppTypeName}}>;
+                    RM __marshaller;
+                    return __marshaller.ConvertToAbi(Marshaller<{{concreteRecordType}}>::{{method.NativeName}}({{marshallerArgs}}));
+                    """;
+
+            return $$"""
+                SHARPCPP_EXPORT ret_t<{{concreteReturnType.CppTypeName}}> {{GetGenericEntryPointName(method, instantiation)}}({{parameterList}})
+                {
+                {{marshallerCall}}
+                }
+                """;
+        }
 
         return $$"""
             SHARPCPP_EXPORT ret_t<{{concreteReturnType.CppTypeName}}> {{GetGenericEntryPointName(method, instantiation)}}({{parameterList}})

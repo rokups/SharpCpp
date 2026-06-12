@@ -1,10 +1,131 @@
 #pragma once
 
 #include <SharpCpp/Marshaller.hpp>
-#include <SharpCpp/detail/RbfxMathMarshallers.hpp>
+#include "RbfxMathMarshallers.hpp"
+
+#include <EASTL/list.h>
+#include <EASTL/map.h>
+#include <EASTL/string.h>
+#include <EASTL/unordered_map.h>
+#include <EASTL/vector.h>
 
 namespace SharpCpp
 {
+
+template <>
+struct [[sharpcpp::managed_type(
+    managed_base_type = "global::SharpCpp.Support.StringBase",
+    public_type = "Ea.String",
+    managed_namespace = "Ea"
+)]]
+Marshaller<eastl::basic_string<char>> : OwnedStringMarshallerBase<eastl::basic_string<char>> {};
+
+template <>
+struct Marshaller<eastl::basic_string<char>&> : OwnedStringReferenceMarshallerBase<eastl::basic_string<char>> {};
+
+template <>
+struct Marshaller<const eastl::basic_string<char>&> : OwnedStringConstReferenceMarshallerBase<eastl::basic_string<char>> {};
+
+template <>
+struct Marshaller<const eastl::basic_string<char>*> : OwnedStringConstPointerMarshallerBase<eastl::basic_string<char>> {};
+
+template <>
+struct Marshaller<eastl::basic_string<char>*> : OwnedStringPointerMarshallerBase<eastl::basic_string<char>> {};
+
+template <>
+struct ReturnMarshaller<eastl::basic_string<char>> : OwnedStringReturnMarshallerBase<eastl::basic_string<char>> {};
+
+template <typename T, typename TAllocator>
+struct [[sharpcpp::managed_type(
+    public_type = "Ea.Vector<{0}>",
+    managed_base_type = "global::SharpCpp.Support.VectorBase<{0}>",
+    managed_namespace = "Ea"
+)]]
+Marshaller<eastl::vector<T, TAllocator>> : SequenceCollectionMarshallerBase<eastl::vector<T, TAllocator>, T> {};
+
+template <typename T, typename TAllocator>
+struct Marshaller<eastl::vector<T, TAllocator>&> : OwnedHandleReferenceMarshallerBase<eastl::vector<T, TAllocator>> {};
+
+template <typename T, typename TAllocator>
+struct Marshaller<const eastl::vector<T, TAllocator>&> : OwnedHandleConstReferenceMarshallerBase<eastl::vector<T, TAllocator>> {};
+
+template <typename T, typename TAllocator>
+struct Marshaller<eastl::vector<T, TAllocator>*> : OwnedHandlePointerMarshallerBase<eastl::vector<T, TAllocator>> {};
+
+template <typename T, typename TAllocator>
+struct Marshaller<const eastl::vector<T, TAllocator>*> : OwnedHandleConstPointerMarshallerBase<eastl::vector<T, TAllocator>> {};
+
+template <typename T, typename TAllocator>
+struct ReturnMarshaller<eastl::vector<T, TAllocator>> : OwnedHandleReturnMarshallerBase<eastl::vector<T, TAllocator>> {};
+
+template <typename T, typename TAllocator>
+struct [[sharpcpp::managed_type(
+    public_type = "Ea.List<{0}>",
+    managed_base_type = "global::SharpCpp.Support.ListBase<{0}>",
+    managed_namespace = "Ea"
+)]]
+Marshaller<eastl::list<T, TAllocator>> : ListCollectionMarshallerBase<eastl::list<T, TAllocator>, T> {};
+
+template <typename T, typename TAllocator>
+struct Marshaller<eastl::list<T, TAllocator>&> : OwnedHandleReferenceMarshallerBase<eastl::list<T, TAllocator>> {};
+
+template <typename T, typename TAllocator>
+struct Marshaller<const eastl::list<T, TAllocator>&> : OwnedHandleConstReferenceMarshallerBase<eastl::list<T, TAllocator>> {};
+
+template <typename T, typename TAllocator>
+struct Marshaller<eastl::list<T, TAllocator>*> : OwnedHandlePointerMarshallerBase<eastl::list<T, TAllocator>> {};
+
+template <typename T, typename TAllocator>
+struct Marshaller<const eastl::list<T, TAllocator>*> : OwnedHandleConstPointerMarshallerBase<eastl::list<T, TAllocator>> {};
+
+template <typename T, typename TAllocator>
+struct ReturnMarshaller<eastl::list<T, TAllocator>> : OwnedHandleReturnMarshallerBase<eastl::list<T, TAllocator>> {};
+
+template <typename TKey, typename TValue, typename TCompare, typename TAllocator>
+struct [[sharpcpp::managed_type(
+    public_type = "Ea.Map<{0}, {1}>",
+    managed_base_type = "global::SharpCpp.Support.MapBase<{0}, {1}>",
+    managed_namespace = "Ea"
+)]]
+Marshaller<eastl::map<TKey, TValue, TCompare, TAllocator>> : MapCollectionMarshallerBase<eastl::map<TKey, TValue, TCompare, TAllocator>, TKey, TValue> {};
+
+template <typename TKey, typename TValue, typename TCompare, typename TAllocator>
+struct Marshaller<eastl::map<TKey, TValue, TCompare, TAllocator>&> : OwnedHandleReferenceMarshallerBase<eastl::map<TKey, TValue, TCompare, TAllocator>> {};
+
+template <typename TKey, typename TValue, typename TCompare, typename TAllocator>
+struct Marshaller<const eastl::map<TKey, TValue, TCompare, TAllocator>&> : OwnedHandleConstReferenceMarshallerBase<eastl::map<TKey, TValue, TCompare, TAllocator>> {};
+
+template <typename TKey, typename TValue, typename TCompare, typename TAllocator>
+struct Marshaller<eastl::map<TKey, TValue, TCompare, TAllocator>*> : OwnedHandlePointerMarshallerBase<eastl::map<TKey, TValue, TCompare, TAllocator>> {};
+
+template <typename TKey, typename TValue, typename TCompare, typename TAllocator>
+struct Marshaller<const eastl::map<TKey, TValue, TCompare, TAllocator>*> : OwnedHandleConstPointerMarshallerBase<eastl::map<TKey, TValue, TCompare, TAllocator>> {};
+
+template <typename TKey, typename TValue, typename TCompare, typename TAllocator>
+struct ReturnMarshaller<eastl::map<TKey, TValue, TCompare, TAllocator>> : OwnedHandleReturnMarshallerBase<eastl::map<TKey, TValue, TCompare, TAllocator>> {};
+
+template <typename TKey, typename TValue, typename THash, typename TPredicate, typename TAllocator, bool CacheHashCode>
+struct [[sharpcpp::managed_type(
+    public_type = "Ea.UnorderedMap<{0}, {1}>",
+    managed_base_type = "global::SharpCpp.Support.UnorderedMapBase<{0}, {1}>",
+    managed_namespace = "Ea"
+)]]
+Marshaller<eastl::unordered_map<TKey, TValue, THash, TPredicate, TAllocator, CacheHashCode>> : MapCollectionMarshallerBase<eastl::unordered_map<TKey, TValue, THash, TPredicate, TAllocator, CacheHashCode>, TKey, TValue> {};
+
+template <typename TKey, typename TValue, typename THash, typename TPredicate, typename TAllocator, bool CacheHashCode>
+struct Marshaller<eastl::unordered_map<TKey, TValue, THash, TPredicate, TAllocator, CacheHashCode>&> : OwnedHandleReferenceMarshallerBase<eastl::unordered_map<TKey, TValue, THash, TPredicate, TAllocator, CacheHashCode>> {};
+
+template <typename TKey, typename TValue, typename THash, typename TPredicate, typename TAllocator, bool CacheHashCode>
+struct Marshaller<const eastl::unordered_map<TKey, TValue, THash, TPredicate, TAllocator, CacheHashCode>&> : OwnedHandleConstReferenceMarshallerBase<eastl::unordered_map<TKey, TValue, THash, TPredicate, TAllocator, CacheHashCode>> {};
+
+template <typename TKey, typename TValue, typename THash, typename TPredicate, typename TAllocator, bool CacheHashCode>
+struct Marshaller<eastl::unordered_map<TKey, TValue, THash, TPredicate, TAllocator, CacheHashCode>*> : OwnedHandlePointerMarshallerBase<eastl::unordered_map<TKey, TValue, THash, TPredicate, TAllocator, CacheHashCode>> {};
+
+template <typename TKey, typename TValue, typename THash, typename TPredicate, typename TAllocator, bool CacheHashCode>
+struct Marshaller<const eastl::unordered_map<TKey, TValue, THash, TPredicate, TAllocator, CacheHashCode>*> : OwnedHandleConstPointerMarshallerBase<eastl::unordered_map<TKey, TValue, THash, TPredicate, TAllocator, CacheHashCode>> {};
+
+template <typename TKey, typename TValue, typename THash, typename TPredicate, typename TAllocator, bool CacheHashCode>
+struct ReturnMarshaller<eastl::unordered_map<TKey, TValue, THash, TPredicate, TAllocator, CacheHashCode>> : OwnedHandleReturnMarshallerBase<eastl::unordered_map<TKey, TValue, THash, TPredicate, TAllocator, CacheHashCode>> {};
 
 // ═════════════════════════════════════════════════════════════════════
 // Parameter ABI: pointer-to-original-type via Marshaller<const T&> specialization.
