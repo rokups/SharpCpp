@@ -478,6 +478,33 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Managed_output_emits_clone_surface_for_records_with_copy_constructors()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/Clone.hpp" });
+        var record = new RecordBinding("record:clone_counter", "clone_counter", "CloneCounter")
+        {
+            HasCopyConstructor = true
+        };
+        compilation.Members.Add(record);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("global::System.ICloneable", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public CloneCounter Clone()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("object global::System.ICloneable.Clone()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial nint CloneCopyCtor(CloneCounter self);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("sharpcpp_e2e_clone_counter_clone", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return detail::TryClone<clone_counter>(instance, 0);", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Managed_output_emits_polymorphic_wrapper_factory_and_registry_hooks()
     {
         var compilation = new BindingCompilation(

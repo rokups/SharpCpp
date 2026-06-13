@@ -36,6 +36,8 @@ public sealed class RecordBinding : BindingNamedContainerNode
 
     public bool IsDirector { get; set; }
 
+    public bool HasCopyConstructor { get; set; }
+
     public bool IsAbstract { get; set; }
 
     public bool HasPureVirtualMembers => Members.OfType<FunctionBinding>().Any(static f => f.IsPureVirtual);

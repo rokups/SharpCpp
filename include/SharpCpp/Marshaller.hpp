@@ -741,6 +741,21 @@ struct [[sharpcpp::managed_type(
     managed_marshaller = "global::SharpCpp.Support.Utf8SpanReturnMarshaller"
 )]] ReturnMarshaller<const char*> : Marshaller<const char*> {};
 
+namespace detail
+{
+template <typename T>
+auto TryClone(T* instance, int) -> decltype(new T(*instance), (T*)nullptr)
+{
+    return new T(*instance);
+}
+
+template <typename T>
+T* TryClone(T*, long)
+{
+    return nullptr;
+}
+}
+
 template <class T>
 using ret_t = typename ReturnMarshaller<T>::abi_type;
 }

@@ -428,7 +428,10 @@ public sealed partial class ClangSharpHeaderParser
         var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(nativeName), cppQualifiedName)
         {
             IsAbstract = cxxRecord?.IsAbstract ?? false,
-            IsDirector = HasSharpCppAttribute(declarationText, "director")
+            IsDirector = HasSharpCppAttribute(declarationText, "director"),
+            HasCopyConstructor = recordDecl.Handle.HasUserDeclaredCopyConstructor ||
+                ContainsCopyConstructorDeclaration(sourceText, nativeName) ||
+                ContainsCopyConstructorDeclaration(GetDeclFileText(recordDecl), nativeName)
         };
         record.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(recordDecl));
         if (isForwardDeclaration)
@@ -511,7 +514,10 @@ public sealed partial class ClangSharpHeaderParser
         var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(nativeName), cppQualifiedName)
         {
             IsAbstract = templatedRecord is CXXRecordDecl cxx && cxx.IsAbstract,
-            IsDirector = HasSharpCppAttribute(declarationText, "director")
+            IsDirector = HasSharpCppAttribute(declarationText, "director"),
+            HasCopyConstructor = classTemplate.Handle.HasUserDeclaredCopyConstructor ||
+                ContainsCopyConstructorDeclaration(sourceText, nativeName) ||
+                ContainsCopyConstructorDeclaration(GetDeclFileText(classTemplate), nativeName)
         };
         record.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(classTemplate));
         if (isForwardDeclaration)
@@ -603,6 +609,10 @@ public sealed partial class ClangSharpHeaderParser
                 // were not returned by the old cursor VisitorChildren. Skip them
                 // to avoid generating invalid native thunks (&ConstructorName).
                 case CXXConstructorDecl ctorDecl when ctorDecl.IsCopyConstructor || ctorDecl.IsMoveConstructor:
+                    if (ctorDecl.IsCopyConstructor && !ctorDecl.IsDeleted)
+                    {
+                        record.HasCopyConstructor = true;
+                    }
                     continue;
 
                 case CXXConstructorDecl ctorDecl:
@@ -712,6 +722,57 @@ public sealed partial class ClangSharpHeaderParser
                 }
             }
         }
+
+        record.HasCopyConstructor |= recordDecl.Decls
+            .OfType<CXXConstructorDecl>()
+            .Any(ctor =>
+                !ctor.IsDeleted &&
+                ShouldParseRecordMember(record, ctor.Handle.CXXAccessSpecifier) &&
+                IsCopyConstructorLike(ctor, record));
+    }
+
+    private static bool IsCopyConstructorLike(CXXConstructorDecl ctorDecl, RecordBinding record)
+    {
+        if (ctorDecl.IsCopyConstructor)
+        {
+            return true;
+        }
+
+        if (ctorDecl.Parameters.Count != 1)
+        {
+            return false;
+        }
+
+        var parameterType = NormalizeTypeName(ctorDecl.Parameters[0].Type.AsString);
+        var normalizedRecordName = NormalizeTypeName(record.CppQualifiedName);
+        var unqualifiedRecordName = NormalizeTypeName(record.NativeName);
+
+        return string.Equals(parameterType, $"const {normalizedRecordName}&", StringComparison.Ordinal) ||
+            string.Equals(parameterType, $"{normalizedRecordName}&", StringComparison.Ordinal) ||
+            string.Equals(parameterType, $"const {unqualifiedRecordName}&", StringComparison.Ordinal) ||
+            string.Equals(parameterType, $"{unqualifiedRecordName}&", StringComparison.Ordinal);
+    }
+
+    private static bool ContainsCopyConstructorDeclaration(string sourceText, string nativeName)
+    {
+        var normalizedSource = sourceText
+            .Replace(" ", string.Empty, StringComparison.Ordinal)
+            .Replace("\t", string.Empty, StringComparison.Ordinal)
+            .Replace("\r", string.Empty, StringComparison.Ordinal)
+            .Replace("\n", string.Empty, StringComparison.Ordinal);
+        var normalizedName = NormalizeTypeName(nativeName).Replace(" ", string.Empty, StringComparison.Ordinal);
+
+        return normalizedSource.Contains($"{normalizedName}(const{normalizedName}&)", StringComparison.Ordinal) ||
+            normalizedSource.Contains($"{normalizedName}({normalizedName}&)", StringComparison.Ordinal);
+    }
+
+    private static string GetDeclFileText(Decl decl)
+    {
+        decl.Location.GetFileLocation(out var file, out _, out _, out _);
+        var filePath = file.Name.CString;
+        return !string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath)
+            ? File.ReadAllText(filePath)
+            : string.Empty;
     }
 
     private static FunctionBinding CreateMethod(

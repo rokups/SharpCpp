@@ -454,6 +454,18 @@ public static partial class BindingOutputRenderer
             """;
     }
 
+    private static string RenderNativeClone(RecordBinding record)
+    {
+        return $$"""
+            SHARPCPP_EXPORT ret_t<{{record.CppQualifiedName}}*> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.NativeName)}}_clone(arg_t<{{record.CppQualifiedName}}*> self)
+            {
+            Marshaller<{{record.CppQualifiedName}}*> self_marshaller;
+            auto* instance = static_cast<{{record.CppQualifiedName}}*>(self_marshaller.ConvertToCpp(self));
+            return detail::TryClone<{{record.CppQualifiedName}}>(instance, 0);
+            }
+            """;
+    }
+
     private static string RenderNativeMethodInvocation(FunctionBinding method, string abiArguments, string memberSignature)
     {
         if (string.IsNullOrWhiteSpace(method.NativeDispatchRecordCppTypeName))
@@ -885,6 +897,7 @@ public static partial class BindingOutputRenderer
             .Select(static baseRecord => baseRecord.GetManagedInterfaceName())
             .Cast<string>()
             .ToArray();
+        var canEmitClone = CanEmitClone(record, isEffectivelyAbstract, canEmitDeleteThunk);
         var baseTypes = new List<string>
         {
             string.IsNullOrWhiteSpace(record.ManagedBaseTypeName)
@@ -892,6 +905,10 @@ public static partial class BindingOutputRenderer
                 : record.ManagedBaseTypeName
         };
         baseTypes.AddRange(interfaceNames);
+        if (canEmitClone)
+        {
+            baseTypes.Add("global::System.ICloneable");
+        }
         var baseClause = $" : {string.Join(", ", baseTypes)}";
         writer.Write(
             $$"""
@@ -950,6 +967,13 @@ public static partial class BindingOutputRenderer
 
         writer.WriteLine();
         writer.Write(RenderManagedDispose(record, canEmitDeleteThunk));
+
+        if (canEmitClone)
+        {
+            writer.WriteLine();
+            writer.Write(RenderManagedCloneMethod(compilation, record));
+            pinvokeDeclarations.Add(RenderManagedCloneImportDeclaration(compilation, record));
+        }
 
         var accessorProperties = CollectAccessorProperties(record);
         var accessorMethodIds = accessorProperties
@@ -1338,6 +1362,56 @@ public static partial class BindingOutputRenderer
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.NativeName)}}_delete", StringMarshalling = StringMarshalling.Utf8)]
             internal static partial void Delete(nint self);
             """;
+    }
+
+    private static string RenderManagedCloneImportDeclaration(BindingCompilation compilation, RecordBinding record)
+    {
+        return $$"""
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.NativeName)}}_clone", StringMarshalling = StringMarshalling.Utf8)]
+            internal static partial nint CloneCopyCtor({{record.ManagedName}} self);
+            """;
+    }
+
+    private static string RenderManagedCloneMethod(BindingCompilation compilation, RecordBinding record)
+    {
+        var writer = new CodeWriter();
+
+        if (!record.HasOwnManagedNonFieldMemberNamed("Clone"))
+        {
+            var hidesBaseClone = InheritsCloneInterface(compilation, record);
+            writer.Write($$"""
+                public {{(hidesBaseClone ? "new " : string.Empty)}}{{record.ManagedName}} Clone()
+                {
+                var __result = __PInvoke.CloneCopyCtor(this);
+                if (__result == 0)
+                {
+                throw new NotSupportedException("SharpCpp could not clone this native object because the native type is not copy-constructible.");
+                }
+                return {{record.ManagedName}}.CreateManagedWrapper(__result, ownsHandle: true);
+                }
+
+                object global::System.ICloneable.Clone()
+                {
+                return Clone();
+                }
+                """);
+        }
+        else
+        {
+            writer.Write($$"""
+                object global::System.ICloneable.Clone()
+                {
+                var __result = __PInvoke.CloneCopyCtor(this);
+                if (__result == 0)
+                {
+                throw new NotSupportedException("SharpCpp could not clone this native object because the native type is not copy-constructible.");
+                }
+                return {{record.ManagedName}}.CreateManagedWrapper(__result, ownsHandle: true);
+                }
+                """);
+        }
+
+        return writer.ToString();
     }
 
     private static string RenderManagedAccessorProperty(BindingCompilation compilation, AccessorProperty property)
@@ -2397,6 +2471,12 @@ public static partial class BindingOutputRenderer
                     writer.Write(RenderNativeGenericStaticMethod(record, method, instantiation));
                 }
 
+                if (CanEmitClone(record, isEffectivelyAbstract: false, canEmitDeleteThunk: true))
+                {
+                    writer.WriteLine();
+                    writer.Write(RenderNativeGenericClone(record, instantiation));
+                }
+
                 writer.WriteLine();
                 writer.Write(RenderNativeGenericDelete(record, instantiation));
             }
@@ -2616,6 +2696,12 @@ public static partial class BindingOutputRenderer
             if (!record.GetMetadata<bool>(MetadataKeys.NonPublicDestructor))
             {
                 writer.Write(RenderNativeDelete(record, record.RequiresDirector(compilation)));
+            }
+
+            if (CanEmitClone(record, record.IsEffectivelyAbstract || record.HasUnimplementedAbstractBaseMethods(compilation), !record.GetMetadata<bool>(MetadataKeys.NonPublicDestructor)))
+            {
+                writer.WriteLine();
+                writer.Write(RenderNativeClone(record));
             }
 
             if (record.RequiresDirector(compilation))
@@ -3502,6 +3588,28 @@ public static partial class BindingOutputRenderer
         var staticModifier = function.IsStatic || function.Parent is null ? "static " : string.Empty;
         var qualifier = function.Parent is RecordBinding record ? $"{record.CppQualifiedName}::" : string.Empty;
         return $"// {staticModifier}{returnTypeName} {qualifier}{function.NativeName}({parameterList}); // excluded: {reason}";
+    }
+
+    private static bool CanEmitClone(RecordBinding record, bool isEffectivelyAbstract, bool canEmitDeleteThunk)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+
+        return record.HasCopyConstructor &&
+            !isEffectivelyAbstract &&
+            (!record.EmitDefaultNativeReleaseOverride || canEmitDeleteThunk);
+    }
+
+    private static bool InheritsCloneInterface(BindingCompilation compilation, RecordBinding record)
+    {
+        for (var current = record.GetPrimaryBaseRecord(compilation); current is not null; current = current.GetPrimaryBaseRecord(compilation))
+        {
+            if (current.HasCopyConstructor)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool ShouldBorrowFieldStorage(BindingCompilation compilation, FieldBinding field)

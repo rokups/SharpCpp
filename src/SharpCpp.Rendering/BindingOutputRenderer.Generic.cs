@@ -116,10 +116,11 @@ public static partial class BindingOutputRenderer
         var instantiations = record.SupportedGenericInstantiations.OrderBy(static instantiation => string.Join("|", instantiation.TypeArguments.Select(static argument => argument.CppTypeName)), StringComparer.Ordinal).ToArray();
         var baseTypeName = GetGenericManagedBaseTypeName(record);
         var genericConstraints = GetGenericRecordConstraints(record);
+        var canEmitClone = CanEmitClone(record, isEffectivelyAbstract: false, canEmitDeleteThunk: true);
 
         WriteDocumentationComment(writer, record);
         writer.Write($$"""
-            public partial class {{GetGenericRecordDeclarationName(record)}} : {{baseTypeName}}{{genericConstraints}}
+            public partial class {{GetGenericRecordDeclarationName(record)}} : {{baseTypeName}}{{(canEmitClone ? ", global::System.ICloneable" : string.Empty)}}{{genericConstraints}}
             {
             internal static readonly {{GetInstanceCacheFieldTypeName(record)}} s_instanceCache = {{GetInstanceCacheFactoryExpression(record)}};
 
@@ -175,6 +176,12 @@ public static partial class BindingOutputRenderer
             writer.Write(RenderGenericManagedStaticMethod(compilation, record, method, instantiations));
         }
 
+        if (canEmitClone)
+        {
+            writer.WriteLine();
+            writer.Write(RenderGenericManagedCloneMethod(compilation, record, instantiations));
+        }
+
         if (record.EmitDefaultNativeReleaseOverride)
         {
             writer.WriteLine();
@@ -219,6 +226,14 @@ public static partial class BindingOutputRenderer
             foreach (var instantiation in instantiations)
             {
                 yield return RenderGenericStaticImportDeclaration(compilation, record, method, instantiation);
+            }
+        }
+
+        if (CanEmitClone(record, isEffectivelyAbstract: false, canEmitDeleteThunk: true))
+        {
+            foreach (var instantiation in instantiations)
+            {
+                yield return RenderGenericCloneImportDeclaration(compilation, record, instantiation);
             }
         }
 
@@ -371,6 +386,58 @@ public static partial class BindingOutputRenderer
             }
             """);
         return writer.ToString();
+    }
+
+    private static string RenderGenericManagedCloneMethod(BindingCompilation compilation, RecordBinding record, IReadOnlyList<RecordGenericInstantiationBinding> instantiations)
+    {
+        var writer = new CodeWriter();
+        var declarationName = GetGenericRecordDeclarationName(record);
+
+        if (!record.HasOwnManagedNonFieldMemberNamed("Clone"))
+        {
+            var hidesBaseClone = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) && !record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal);
+            writer.Write($$"""
+                public {{(hidesBaseClone ? "new " : string.Empty)}}{{declarationName}} Clone()
+                {
+                {{RenderGenericManagedCloneDispatchBranches(compilation, record, instantiations)}}
+                throw new NotSupportedException("SharpCpp does not support the requested generic argument combination for clone on '{{record.ManagedName}}'.");
+                }
+
+                object global::System.ICloneable.Clone()
+                {
+                return Clone();
+                }
+                """);
+        }
+        else
+        {
+            writer.Write($$"""
+                object global::System.ICloneable.Clone()
+                {
+                {{RenderGenericManagedCloneDispatchBranches(compilation, record, instantiations)}}
+                throw new NotSupportedException("SharpCpp does not support the requested generic argument combination for clone on '{{record.ManagedName}}'.");
+                }
+                """);
+        }
+
+        return writer.ToString();
+    }
+
+    private static string RenderGenericManagedCloneDispatchBranches(BindingCompilation compilation, RecordBinding record, IReadOnlyList<RecordGenericInstantiationBinding> instantiations)
+    {
+        var writer = new CodeWriter();
+        foreach (var instantiation in instantiations)
+        {
+            writer.WriteLine($"if ({BuildGenericInstantiationCondition(record, instantiation)})");
+            writer.WriteLine("{");
+            writer.WriteLine($"    var __result = {GetGenericImportAccessor(compilation)}.{GetGenericCloneImportMethodName(record, instantiation)}(this);");
+            writer.WriteLine($"    return {declarationName(record)}.CreateManagedWrapper(__result, ownsHandle: true);");
+            writer.WriteLine("}");
+        }
+
+        return writer.ToString();
+
+        static string declarationName(RecordBinding recordBinding) => GetGenericRecordDeclarationName(recordBinding);
     }
 
     private static string RenderGenericManagedGenericMethod(BindingCompilation compilation, RecordBinding record, FunctionBinding function)
@@ -746,6 +813,14 @@ public static partial class BindingOutputRenderer
             """;
     }
 
+    private static string RenderGenericCloneImportDeclaration(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    {
+        return $$"""
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetGenericCloneEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
+            internal static partial nint {{GetGenericCloneImportMethodName(record, instantiation)}}(global::SharpCpp.Support.NativeObject self);
+            """;
+    }
+
     private static string RenderConcreteManagedParameter(ParameterBinding parameter, BindingType concreteType)
     {
         var modifier = parameter.Direction switch
@@ -944,6 +1019,11 @@ public static partial class BindingOutputRenderer
         return $"Delete_{SanitizeManagedToken(record.ManagedName)}{GetGenericInstantiationSuffix(instantiation)}";
     }
 
+    private static string GetGenericCloneImportMethodName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    {
+        return $"CloneCopyCtor_{SanitizeManagedToken(record.ManagedName)}{GetGenericInstantiationSuffix(instantiation)}";
+    }
+
     private static string GetGenericEntryPointName(FunctionBinding function, RecordGenericInstantiationBinding instantiation)
     {
         return $"{function.EntryPointName}{GetGenericInstantiationSuffix(instantiation)}";
@@ -952,6 +1032,11 @@ public static partial class BindingOutputRenderer
     private static string GetGenericDeleteEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
         return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_delete{GetGenericInstantiationSuffix(instantiation)}";
+    }
+
+    private static string GetGenericCloneEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    {
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_clone{GetGenericInstantiationSuffix(instantiation)}";
     }
 
     private static string GetGenericInstantiationSuffix(RecordGenericInstantiationBinding instantiation)
@@ -971,6 +1056,19 @@ public static partial class BindingOutputRenderer
             SHARPCPP_EXPORT ret_t<{{concreteRecordType}}*> {{GetGenericEntryPointName(constructor, instantiation)}}({{parameterList}})
             {
             return MarshallerInvoker::construct<{{concreteRecordType}}{{(constructorArgTypes.Length > 0 ? $", {constructorArgTypes}" : string.Empty)}}>({{abiArguments}});
+            }
+            """;
+    }
+
+    private static string RenderNativeGenericClone(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    {
+        var concreteRecordType = record.FormatCppTypeName(instantiation.TypeArguments);
+        return $$"""
+            SHARPCPP_EXPORT ret_t<{{concreteRecordType}}*> {{GetGenericCloneEntryPointName(record, instantiation)}}(arg_t<{{concreteRecordType}}*> self)
+            {
+            Marshaller<{{concreteRecordType}}*> self_marshaller;
+            auto* instance = static_cast<{{concreteRecordType}}*>(self_marshaller.ConvertToCpp(self));
+            return detail::TryClone<{{concreteRecordType}}>(instance, 0);
             }
             """;
     }

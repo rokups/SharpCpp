@@ -342,6 +342,7 @@ public static class MarshallerMetadataPhase2
             realRecord.ManagedInstanceCacheFactoryExpression ??= placeholder.ManagedInstanceCacheFactoryExpression;
             realRecord.ManagedInstanceCacheTypeName ??= placeholder.ManagedInstanceCacheTypeName;
             realRecord.EmitDefaultNativeReleaseOverride &= placeholder.EmitDefaultNativeReleaseOverride;
+            realRecord.HasCopyConstructor |= placeholder.HasCopyConstructor;
 
             foreach (var member in placeholder.Members.OfType<FunctionBinding>().ToArray())
             {
@@ -424,6 +425,7 @@ public static class MarshallerMetadataPhase2
         target.ManagedInstanceCacheFactoryExpression ??= source.ManagedInstanceCacheFactoryExpression;
         target.ManagedInstanceCacheTypeName ??= source.ManagedInstanceCacheTypeName;
         target.EmitDefaultNativeReleaseOverride &= source.EmitDefaultNativeReleaseOverride;
+        target.HasCopyConstructor |= source.HasCopyConstructor;
 
         if (string.IsNullOrWhiteSpace(target.CppQualifiedName) && !string.IsNullOrWhiteSpace(source.CppQualifiedName))
         {
