@@ -35,4 +35,6 @@ public sealed class FieldBinding : BindingNamedNode
     public bool IsReadOnly { get; set; }
 
     public BindingAccessModifier AccessModifier { get; set; } = BindingAccessModifier.Public;
+
+    public bool ReturnsOwnedHandle { get; set; }
 }

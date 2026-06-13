@@ -166,6 +166,7 @@ function(sharpcpp_write_last_props)
     string(APPEND content
       "  <PropertyGroup Condition=\"'$(MSBuildProjectName)' == 'Rbfx.UserCode.Bindings'\">\n"
       "    <SharpCppGeneratedDir>${rbfx_usercode_generated_dir}</SharpCppGeneratedDir>\n"
+      "    <SharpCppUserCodeGeneratedDir>${rbfx_usercode_generated_dir}</SharpCppUserCodeGeneratedDir>\n"
       "  </PropertyGroup>\n")
   endif()
 

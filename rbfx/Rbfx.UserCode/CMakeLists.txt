@@ -69,7 +69,8 @@ set_target_properties(SharpCppRbfxUserCode_Native PROPERTIES BUILD_RPATH "$ORIGI
 sharpcpp_add_dotnet_build_target(
   sharpcpp-rbfx-usercode-managed
   "${RBFX_USERCODE_BINDINGS_PROJECT}"
-  DEPENDS sharpcpp-generate-rbfx-usercode SharpCppRbfxUserCode_Native sharpcpp-support sharpcpp-rbfx-managed)
+  DEPENDS sharpcpp-generate-rbfx-usercode SharpCppRbfxUserCode_Native sharpcpp-support sharpcpp-rbfx-managed
+  PROPERTIES "-p:SharpCppUserCodeGeneratedDir=${RBFX_USERCODE_GENERATED_ROOT}")
 
 add_custom_target(
   sharpcpp-rbfx-usercode

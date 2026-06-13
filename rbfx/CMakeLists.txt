@@ -182,11 +182,12 @@ if(NOT RBFX_GENERATED_CPP_FILES)
   file(WRITE "${RBFX_GENERATED_ROOT}/.stub.cpp" "// stub — replaced by generator\n")
   set(RBFX_GENERATED_CPP_FILES "${RBFX_GENERATED_ROOT}/.stub.cpp")
 endif()
-add_library(SharpCppRbfx_Native SHARED ${RBFX_GENERATED_CPP_FILES})
+add_library(SharpCppRbfx_Native SHARED ${RBFX_GENERATED_CPP_FILES} "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Bindings/Interop/RefCountedRuntime.cpp")
 add_dependencies(SharpCppRbfx_Native sharpcpp-generate-rbfx)
 target_compile_features(SharpCppRbfx_Native PRIVATE cxx_std_20)
 set_target_properties(SharpCppRbfx_Native PROPERTIES CXX_SCAN_FOR_MODULES OFF UNITY_BUILD ON UNITY_BUILD_BATCH_SIZE 100 OUTPUT_NAME "SharpCpp.Rbfx.Native")
 target_include_directories(SharpCppRbfx_Native PRIVATE "${RBFX_GENERATED_ROOT}")
+target_include_directories(SharpCppRbfx_Native PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(SharpCppRbfx_Native PRIVATE sharpcpp-native-support ${RBFX_URHO3D_TARGET})
 target_compile_options(SharpCppRbfx_Native PRIVATE $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-Wno-attributes>)
 sharpcpp_set_binary_output(SharpCppRbfx_Native)
@@ -229,7 +230,7 @@ sharpcpp_add_dotnet_build_target(
   sharpcpp-rbfx-tests-e2e-managed
   "${RBFX_E2E_TESTS_PROJECT}"
   DEPENDS sharpcpp-rbfx-managed
-  PROPERTIES "-p:SharpCppGeneratedDir=${RBFX_GENERATED_ROOT}")
+  PROPERTIES "-p:SharpCppGeneratedDir=${RBFX_GENERATED_ROOT}" "-p:SharpCppUserCodeGeneratedDir=${RBFX_USERCODE_GENERATED_ROOT}")
 
 add_dependencies(sharpcpp-rbfx-managed sharpcpp-rbfx-runtime)
 add_dependencies(sharpcpp-rbfx-tests-e2e-managed sharpcpp-rbfx-runtime)
@@ -238,6 +239,8 @@ add_custom_target(sharpcpp-rbfx-native DEPENDS sharpcpp-generate-rbfx SharpCppRb
 
 add_subdirectory(Rbfx.UserCode)
 add_subdirectory(Rbfx.Application)
+
+add_dependencies(sharpcpp-rbfx-tests-e2e-managed sharpcpp-rbfx-usercode-managed)
 
 if(BUILD_TESTING)
   add_test(

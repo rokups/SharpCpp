@@ -59,7 +59,7 @@ public sealed class BindingMetadataExporterTests
         var json = BindingMetadataSerializer.Serialize(original);
         var roundTripped = BindingMetadataSerializer.Deserialize(json);
 
-        Assert.Contains("\"schema_version\": 1", json, StringComparison.Ordinal);
+        Assert.Contains("\"schema_version\": 2", json, StringComparison.Ordinal);
         Assert.EndsWith(Environment.NewLine, json, StringComparison.Ordinal);
         Assert.Equal(original.SchemaVersion, roundTripped.SchemaVersion);
         Assert.Equal(original.GeneratorVersion, roundTripped.GeneratorVersion);
@@ -213,6 +213,39 @@ public sealed class BindingMetadataExporterTests
         var exportedFunction = Assert.Single(document.Functions);
 
         Assert.True(exportedFunction.ReturnsOwnedHandle);
+    }
+
+    [Fact]
+    public void Export_includes_record_runtime_policy_and_field_owned_handle_flag()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "runtime.hpp" });
+        var record = new RecordBinding("record:Widget", "widget", "Widget")
+        {
+            ManagedBaseTypeName = "global::Urho3D.Interop.RefCountedNativeObject",
+            ManagedInstanceCacheFactoryExpression = "global::Urho3D.Interop.RefCountedInstanceCache.Shared",
+            ManagedInstanceCacheTypeName = "global::SharpCpp.Support.INativeInstanceCache",
+            EmitDefaultNativeReleaseOverride = false
+        };
+        var field = new FieldBinding("field:widget:payload", "payload", "Payload", record.HandleType, "widget*", "widget")
+        {
+            ReturnsOwnedHandle = true
+        };
+        record.Members.Add(field);
+        compilation.Members.Add(record);
+
+        var document = BindingMetadataExporter.Export(compilation);
+        var exportedRecord = Assert.Single(document.Types);
+        var exportedField = Assert.Single(exportedRecord.Members!);
+
+        Assert.Equal("global::Urho3D.Interop.RefCountedInstanceCache.Shared", exportedRecord.ManagedInstanceCacheFactoryExpression);
+        Assert.Equal("global::SharpCpp.Support.INativeInstanceCache", exportedRecord.ManagedInstanceCacheTypeName);
+        Assert.False(exportedRecord.EmitDefaultNativeReleaseOverride);
+        Assert.True(exportedField.GetterReturnsOwnedHandle);
     }
 
     [Fact]

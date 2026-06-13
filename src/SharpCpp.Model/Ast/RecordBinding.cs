@@ -59,6 +59,12 @@ public sealed class RecordBinding : BindingNamedContainerNode
 
     public string? HandleMarshallerTypeName { get; set; }
 
+    public string? ManagedInstanceCacheFactoryExpression { get; set; }
+
+    public string? ManagedInstanceCacheTypeName { get; set; }
+
+    public bool EmitDefaultNativeReleaseOverride { get; set; } = true;
+
     public BindingType HandleType => BindingType.CreateHandle(
         $"{FormatCppTypeName(GenericParameters.Select(static parameter => BindingType.CreateGenericParameter(parameter.Name)))}*",
         ManagedName,

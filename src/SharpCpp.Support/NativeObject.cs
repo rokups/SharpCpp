@@ -9,6 +9,8 @@ namespace SharpCpp.Support;
 /// </summary>
 public abstract class NativeObject : SafeHandle
 {
+    private readonly object _ownershipSync = new();
+
     /// <summary>
     /// Initializes a new instance wrapping the given native handle.
     /// </summary>
@@ -18,9 +20,9 @@ public abstract class NativeObject : SafeHandle
     /// <see langword="false"/> to borrow the handle without taking ownership.
     /// </param>
     protected NativeObject(nint nativeHandle, bool ownsHandle)
-        : base(IntPtr.Zero, ownsHandle)
+        : base(IntPtr.Zero, ownsHandle: true)
     {
-        OwnsNativeHandle = ownsHandle;
+        _ownsNativeHandle = ownsHandle;
         SetHandle(nativeHandle);
     }
 
@@ -34,7 +36,7 @@ public abstract class NativeObject : SafeHandle
     /// Gets whether this wrapper owns the native object's lifetime.
     /// Non-owning wrappers skip native deletion.
     /// </summary>
-    public bool OwnsNativeHandle { get; }
+    public bool OwnsNativeHandle => _ownsNativeHandle;
 
     /// <summary>
     /// Gets whether this instance manages its own registration in the instance cache.
@@ -47,6 +49,8 @@ public abstract class NativeObject : SafeHandle
     /// </summary>
     protected virtual INativeInstanceCache? InstanceCache => null;
 
+    private bool _ownsNativeHandle;
+    private bool _preparedOwnedRegistration;
     private GCHandle _managedKeepAlive;
     private nint _managedKeepAliveKey;
 
@@ -154,6 +158,73 @@ public abstract class NativeObject : SafeHandle
     protected virtual bool ReleaseNativeHandle(nint handle)
     {
         return true;
+    }
+
+    /// <summary>
+    /// Prepares an owning wrapper for cache registration. For most wrapper families this is a no-op,
+    /// but ref-counted families can acquire their managed-side strong reference here before the cache observes them.
+    /// </summary>
+    protected void PrepareForOwnedRegistration()
+    {
+        if (!OwnsNativeHandle || _preparedOwnedRegistration || IsClosed || IsInvalid)
+        {
+            return;
+        }
+
+        lock (_ownershipSync)
+        {
+            if (!OwnsNativeHandle || _preparedOwnedRegistration || IsClosed || IsInvalid)
+            {
+                return;
+            }
+
+            AcquireOwningHandleCore();
+            _preparedOwnedRegistration = true;
+        }
+    }
+
+    /// <summary>
+    /// Promotes an existing borrowed wrapper into the owning wrapper for the same native object.
+    /// Returns <see langword="false"/> when the wrapper is already closed/invalid or the runtime-specific
+    /// ownership acquisition failed.
+    /// </summary>
+    public bool TryPromoteToOwningHandle()
+    {
+        if (OwnsNativeHandle)
+        {
+            return true;
+        }
+
+        if (IsClosed || IsInvalid)
+        {
+            return false;
+        }
+
+        lock (_ownershipSync)
+        {
+            if (_ownsNativeHandle)
+            {
+                return true;
+            }
+
+            if (IsClosed || IsInvalid)
+            {
+                return false;
+            }
+
+            AcquireOwningHandleCore();
+            _ownsNativeHandle = true;
+            _preparedOwnedRegistration = true;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Called when a wrapper first becomes the owning managed reference for its native handle.
+    /// Families with extra native ownership bookkeeping can override this hook.
+    /// </summary>
+    protected virtual void AcquireOwningHandleCore()
+    {
     }
 
     /// <summary>

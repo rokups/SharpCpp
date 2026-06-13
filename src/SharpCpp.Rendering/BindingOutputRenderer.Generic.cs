@@ -121,7 +121,7 @@ public static partial class BindingOutputRenderer
         writer.Write($$"""
             public partial class {{GetGenericRecordDeclarationName(record)}} : {{baseTypeName}}{{genericConstraints}}
             {
-            internal static readonly global::SharpCpp.Support.DefaultNativeInstanceCache s_instanceCache = new();
+            internal static readonly {{GetInstanceCacheFieldTypeName(record)}} s_instanceCache = {{GetInstanceCacheFactoryExpression(record)}};
 
             protected override global::SharpCpp.Support.INativeInstanceCache? InstanceCache => s_instanceCache;
 
@@ -130,6 +130,7 @@ public static partial class BindingOutputRenderer
             {
                 if (!IsInvalid)
                 {
+                    PrepareForOwnedRegistration();
                     s_instanceCache.Register(this);
                 }
             }
@@ -174,8 +175,11 @@ public static partial class BindingOutputRenderer
             writer.Write(RenderGenericManagedStaticMethod(compilation, record, method, instantiations));
         }
 
-        writer.WriteLine();
-        writer.Write(RenderGenericDeleteHelper(compilation, record, instantiations));
+        if (record.EmitDefaultNativeReleaseOverride)
+        {
+            writer.WriteLine();
+            writer.Write(RenderGenericDeleteHelper(compilation, record, instantiations));
+        }
 
         writer.WriteLine();
         writer.Write(
@@ -982,19 +986,10 @@ public static partial class BindingOutputRenderer
 
         if (method.TryGetMetadata(MetadataKeys.MarshallerExposedMethod, out string? _))
         {
-            var marshallerArgs = string.Join(", ", new[] { "*self" }.Concat(method.Parameters.Select(static parameter => parameter.NativeName)));
-            var marshallerCall = concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void
-                ? $"Marshaller<{concreteRecordType}>::{method.NativeName}({marshallerArgs});"
-                : $$"""
-                    using RM = ReturnMarshaller<{{concreteReturnType.CppTypeName}}>;
-                    RM __marshaller;
-                    return __marshaller.ConvertToAbi(Marshaller<{{concreteRecordType}}>::{{method.NativeName}}({{marshallerArgs}}));
-                    """;
-
             return $$"""
                 SHARPCPP_EXPORT ret_t<{{concreteReturnType.CppTypeName}}> {{GetGenericEntryPointName(method, instantiation)}}({{parameterList}})
                 {
-                {{marshallerCall}}
+                {{RenderNativeGenericMarshallerExposedInvocation(method, concreteRecordType, concreteReturnType, concreteParameters, abiArguments)}}
                 }
                 """;
         }
@@ -1086,6 +1081,36 @@ public static partial class BindingOutputRenderer
                 ? $"MarshallerInvoker::invoke<FT>(&{concreteRecordType}::{method.NativeName}<{methodCppTypeArgs}>, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
                 : $"return MarshallerInvoker::invoke<FT>(&{concreteRecordType}::{method.NativeName}<{methodCppTypeArgs}>, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
             }
+            """;
+    }
+
+    private static string RenderNativeGenericMarshallerExposedInvocation(
+        FunctionBinding method,
+        string concreteRecordType,
+        BindingType concreteReturnType,
+        IReadOnlyList<BindingType> concreteParameters,
+        string abiArguments)
+    {
+        var signatureParameters = string.Join(", ", new[] { $"{concreteRecordType}*" }.Concat(concreteParameters.Select(static parameter => parameter.CppTypeName)));
+        var lambdaParameters = string.Join(", ", new[] { $"{concreteRecordType}* __self" }
+            .Concat(concreteParameters.Select((parameter, index) => $"{parameter.CppTypeName} __arg{index}")));
+        var invokeArguments = string.Join(", ", new[] { "*__self" }
+            .Concat(concreteParameters.Select((_, index) => $"__arg{index}")));
+        var callArguments = string.IsNullOrWhiteSpace(abiArguments) ? "self" : $"self, {abiArguments}";
+        var returnStatement = concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void
+            ? $"Marshaller<{concreteRecordType}>::{method.NativeName}({invokeArguments});"
+            : $"return Marshaller<{concreteRecordType}>::{method.NativeName}({invokeArguments});";
+        var dispatch = concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void
+            ? $"MarshallerInvoker::invoke_as<FT>(__invoke, {callArguments});"
+            : $"return MarshallerInvoker::invoke_as<FT>(__invoke, {callArguments});";
+
+        return $$"""
+            using FT = {{concreteReturnType.CppTypeName}}({{signatureParameters}});
+            auto __invoke = []({{lambdaParameters}}) -> {{concreteReturnType.CppTypeName}}
+            {
+            {{returnStatement}}
+            };
+            {{dispatch}}
             """;
     }
 }

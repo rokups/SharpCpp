@@ -897,17 +897,18 @@ public static partial class BindingOutputRenderer
             $$"""
             public {{classModifier}}partial class {{record.ManagedName}}{{baseClause}}{{(record.IsPolymorphic ? $", global::SharpCpp.Support.INativeObjectRegistration<{record.ManagedName}>" : string.Empty)}}
             {
-            {{cacheFieldModifier}}internal static readonly global::SharpCpp.Support.DefaultNativeInstanceCache s_instanceCache = new();
+            {{cacheFieldModifier}}internal static readonly {{GetInstanceCacheFieldTypeName(record)}} s_instanceCache = {{GetInstanceCacheFactoryExpression(record)}};
 
             protected override global::SharpCpp.Support.INativeInstanceCache? InstanceCache => s_instanceCache;
 
             protected internal {{record.ManagedName}}(nint handle, bool ownsHandle = false)
                 : base(handle, ownsHandle)
             {
-                if (!IsInvalid)
-                {
-                    s_instanceCache.Register(this);
-                }
+            if (!IsInvalid)
+            {
+                PrepareForOwnedRegistration();
+                s_instanceCache.Register(this);
+            }
             }
 
             {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) && !record.HasOwnManagedMemberNamed("Handle") ? "public nint Handle => DangerousGetHandle();" : string.Empty)}}
@@ -1304,6 +1305,11 @@ public static partial class BindingOutputRenderer
 
     private static string RenderManagedDispose(RecordBinding record, bool canEmitDeleteThunk)
     {
+        if (!record.EmitDefaultNativeReleaseOverride)
+        {
+            return string.Empty;
+        }
+
         if (!canEmitDeleteThunk)
         {
             return """
@@ -2199,7 +2205,7 @@ public static partial class BindingOutputRenderer
         if (field.Type.Kind == BindingTypeKind.Handle)
         {
             writer.Write($$"""
-                return {{BuildManagedHandleWrap(compilation, field.Type, $"__PInvoke.Get_{field.ManagedName}(this)", ownsHandle: false)}};
+                return {{BuildManagedHandleWrap(compilation, field.Type, $"__PInvoke.Get_{field.ManagedName}(this)", field.ReturnsOwnedHandle)}};
                 """);
         }
         else
@@ -2479,19 +2485,10 @@ public static partial class BindingOutputRenderer
             writer.WriteLine();
             if (method.TryGetMetadata(MetadataKeys.MarshallerExposedMethod, out string? marshallerCppType))
             {
-                var marshallerArgs = string.Join(", ", new[] { $"*self" }.Concat(method.Parameters.Select(static p => p.NativeName)));
-                var marshallerCall = method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
-                    ? $"Marshaller<{marshallerCppType}>::{method.NativeName}({marshallerArgs});"
-                    : $$"""
-                        using RM = ReturnMarshaller<{{method.CppReturnTypeName}}>;
-                        RM __marshaller;
-                        return __marshaller.ConvertToAbi(Marshaller<{{marshallerCppType}}>::{{method.NativeName}}({{marshallerArgs}}));
-                        """;
-
                 writer.Write($$"""
                     SHARPCPP_EXPORT ret_t<{{method.CppReturnTypeName}}> {{method.EntryPointName}}({{parameterList}})
                     {
-                    {{marshallerCall}}
+                    {{RenderNativeMarshallerExposedInvocation(method, marshallerCppType!, abiArguments)}}
                     }
                     """);
             }
@@ -2584,13 +2581,16 @@ public static partial class BindingOutputRenderer
         foreach (var field in records.Where(static record => !record.HasMetadata(MetadataKeys.IgnoreReason)).SelectMany(static record => record.Members.OfType<FieldBinding>()).Where(static field => !field.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static field => field.ManagedName, StringComparer.Ordinal))
         {
             var nativeFieldCppType = GetNativeFieldCppType(compilation, field);
+            var borrowFieldStorage = ShouldBorrowFieldStorage(compilation, field);
             writer.WriteLine();
             writer.Write($$"""
                 SHARPCPP_EXPORT ret_t<{{nativeFieldCppType}}> sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_get(arg_t<{{field.OwningRecordCppTypeName}}*> self)
                 {
                 {{(field.AccessModifier == BindingAccessModifier.Protected
                     ? RenderNativeProtectedFieldGetInvocation(compilation, field)
-                    : $"return MarshallerInvoker::get_field<{nativeFieldCppType}>(&{field.OwningRecordCppTypeName}::{field.NativeName}, self);")}}
+                    : borrowFieldStorage
+                        ? RenderNativeBorrowedFieldGetInvocation(field)
+                        : $"return MarshallerInvoker::get_field<{nativeFieldCppType}>(&{field.OwningRecordCppTypeName}::{field.NativeName}, self);")}}
                 }
                 """);
 
@@ -2602,7 +2602,9 @@ public static partial class BindingOutputRenderer
                     {
                     {{(field.AccessModifier == BindingAccessModifier.Protected
                         ? RenderNativeProtectedFieldSetInvocation(compilation, field)
-                        : $"MarshallerInvoker::set_field<{nativeFieldCppType}>(&{field.OwningRecordCppTypeName}::{field.NativeName}, self, value);")}}
+                        : borrowFieldStorage
+                            ? RenderNativeBorrowedFieldSetInvocation(field)
+                            : $"MarshallerInvoker::set_field<{nativeFieldCppType}>(&{field.OwningRecordCppTypeName}::{field.NativeName}, self, value);")}}
                     }
                     """);
             }
@@ -3386,6 +3388,25 @@ public static partial class BindingOutputRenderer
                     .Replace(">", "_", StringComparison.Ordinal);
     }
 
+    private static string GetInstanceCacheFactoryExpression(RecordBinding record)
+    {
+        return string.IsNullOrWhiteSpace(record.ManagedInstanceCacheFactoryExpression)
+            ? "new global::SharpCpp.Support.DefaultNativeInstanceCache()"
+            : record.ManagedInstanceCacheFactoryExpression!;
+    }
+
+    private static string GetInstanceCacheFieldTypeName(RecordBinding record)
+    {
+        if (string.IsNullOrWhiteSpace(record.ManagedInstanceCacheFactoryExpression))
+        {
+            return "global::SharpCpp.Support.DefaultNativeInstanceCache";
+        }
+
+        return string.IsNullOrWhiteSpace(record.ManagedInstanceCacheTypeName)
+            ? "global::SharpCpp.Support.INativeInstanceCache"
+            : record.ManagedInstanceCacheTypeName!;
+    }
+
     private static string GetManagedParameterAttribute(BindingType type)
     {
         return type.PrimitiveKind == BindingPrimitiveKind.Boolean
@@ -3481,6 +3502,69 @@ public static partial class BindingOutputRenderer
         var staticModifier = function.IsStatic || function.Parent is null ? "static " : string.Empty;
         var qualifier = function.Parent is RecordBinding record ? $"{record.CppQualifiedName}::" : string.Empty;
         return $"// {staticModifier}{returnTypeName} {qualifier}{function.NativeName}({parameterList}); // excluded: {reason}";
+    }
+
+    private static bool ShouldBorrowFieldStorage(BindingCompilation compilation, FieldBinding field)
+    {
+        if (field.Type.Kind != BindingTypeKind.Handle || field.CppTypeName.EndsWith('*'))
+        {
+            return false;
+        }
+
+        return field.CppTypeName.Contains("vector<", StringComparison.Ordinal) ||
+            field.CppTypeName.Contains("list<", StringComparison.Ordinal) ||
+            field.CppTypeName.Contains("map<", StringComparison.Ordinal) ||
+            field.CppTypeName.Contains("unordered_map<", StringComparison.Ordinal);
+    }
+
+    private static string RenderNativeBorrowedFieldGetInvocation(FieldBinding field)
+    {
+        return $$"""
+                Marshaller<{{field.OwningRecordCppTypeName}}*> self_marshaller;
+                auto* instance = static_cast<{{field.OwningRecordCppTypeName}}*>(self_marshaller.ConvertToCpp(self));
+                return &(instance->{{field.NativeName}});
+                """;
+    }
+
+    private static string RenderNativeBorrowedFieldSetInvocation(FieldBinding field)
+    {
+        return $$"""
+                Marshaller<{{field.OwningRecordCppTypeName}}*> self_marshaller;
+                auto* instance = static_cast<{{field.OwningRecordCppTypeName}}*>(self_marshaller.ConvertToCpp(self));
+                if (value == nullptr)
+                {
+                instance->{{field.NativeName}}.clear();
+                return;
+                }
+
+                auto* source = static_cast<{{field.CppTypeName}}*>(value);
+                instance->{{field.NativeName}} = std::move(*source);
+                """;
+    }
+
+    private static string RenderNativeMarshallerExposedInvocation(FunctionBinding method, string marshallerCppType, string abiArguments)
+    {
+        var signatureParameters = string.Join(", ", new[] { $"{method.OwningRecordCppTypeName}*" }.Concat(method.Parameters.Select(static parameter => parameter.CppTypeName)));
+        var lambdaParameters = string.Join(", ", new[] { $"{method.OwningRecordCppTypeName}* __self" }
+            .Concat(method.Parameters.Select((parameter, index) => $"{parameter.CppTypeName} __arg{index}")));
+        var invokeArguments = string.Join(", ", new[] { "*__self" }
+            .Concat(method.Parameters.Select((_, index) => $"__arg{index}")));
+        var callArguments = string.IsNullOrWhiteSpace(abiArguments) ? "self" : $"self, {abiArguments}";
+        var returnStatement = method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
+            ? $"Marshaller<{marshallerCppType}>::{method.NativeName}({invokeArguments});"
+            : $"return Marshaller<{marshallerCppType}>::{method.NativeName}({invokeArguments});";
+        var dispatch = method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
+            ? $"MarshallerInvoker::invoke_as<FT>(__invoke, {callArguments});"
+            : $"return MarshallerInvoker::invoke_as<FT>(__invoke, {callArguments});";
+
+        return $$"""
+            using FT = {{method.CppReturnTypeName}}({{signatureParameters}});
+            auto __invoke = []({{lambdaParameters}}) -> {{method.CppReturnTypeName}}
+            {
+            {{returnStatement}}
+            };
+            {{dispatch}}
+            """;
     }
 
     private static string RenderIgnoredNativeParameter(ParameterBinding parameter)

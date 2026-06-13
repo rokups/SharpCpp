@@ -410,6 +410,40 @@ struct Marshaller
     }
 };
 
+template <class TResult, class... TArgs>
+struct Marshaller<TResult(TArgs...)>
+{
+    using cpp_type = TResult (*)(TArgs...);
+    using abi_type = cpp_type;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return value;
+    }
+
+    constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        return value;
+    }
+};
+
+template <class TResult, class... TArgs>
+struct Marshaller<TResult (*)(TArgs...)>
+{
+    using cpp_type = TResult (*)(TArgs...);
+    using abi_type = cpp_type;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return value;
+    }
+
+    constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        return value;
+    }
+};
+
 template <>
 struct Marshaller<void>
 {

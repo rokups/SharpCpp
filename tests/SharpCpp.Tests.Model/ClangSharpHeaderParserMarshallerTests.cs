@@ -189,6 +189,159 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         }
     }
 
+    [Fact]
+    public void Parse_projects_shared_ptr_and_marks_returns_as_owning_handles()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"SharpCpp.Tests.Model.{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        var headerPath = Path.Combine(tempDir, "Sample.hpp");
+        var marshallerHeader = Path.Combine(tempDir, "SampleMarshallers.h");
+
+        File.WriteAllText(headerPath, """
+            #pragma once
+
+            namespace Urho3D
+            {
+            class RefCounted
+            {
+            public:
+                virtual ~RefCounted() = default;
+                int AddRef();
+                int ReleaseRef();
+            };
+
+            template <class T, class TRefCounted = T>
+            class SharedPtr
+            {
+            public:
+                T* Get() const;
+            };
+
+            template <class T, class TRefCounted = T>
+            class WeakPtr
+            {
+            public:
+                T* Get() const;
+            };
+            }
+
+            class sample_payload : public Urho3D::RefCounted
+            {
+            public:
+                int get_value() const;
+            };
+
+            Urho3D::SharedPtr<sample_payload> get_payload_shared();
+            Urho3D::WeakPtr<sample_payload> get_payload_weak();
+            void use_payload_shared(const Urho3D::SharedPtr<sample_payload>& value);
+            """);
+
+        File.WriteAllText(marshallerHeader, """
+            #pragma once
+
+            #include "Sample.hpp"
+
+            namespace SharpCpp
+            {
+            template <class T>
+            struct Marshaller;
+
+            template <>
+            struct [[sharpcpp::managed_type(
+                public_type = "RefCounted",
+                managed_base_type = "global::Urho3D.Interop.RefCountedNativeObject",
+                managed_instance_cache_factory = "global::Urho3D.Interop.RefCountedInstanceCache.Shared",
+                managed_instance_cache_type = "global::SharpCpp.Support.INativeInstanceCache",
+                release_strategy = "base"
+            )]] Marshaller<Urho3D::RefCounted*>
+            {
+                using cpp_type = Urho3D::RefCounted*;
+                using abi_type = Urho3D::RefCounted*;
+            };
+
+            template <class TCpp, class TRefCounted>
+            struct [[sharpcpp::managed_type(
+                public_type = "{0}",
+                projection = true,
+                return_ownership = "owning"
+            )]] Marshaller<Urho3D::SharedPtr<TCpp, TRefCounted>>
+            {
+                using cpp_type = Urho3D::SharedPtr<TCpp, TRefCounted>;
+                using abi_type = TCpp*;
+            };
+
+            template <class TCpp, class TRefCounted>
+            struct Marshaller<const Urho3D::SharedPtr<TCpp, TRefCounted>&>
+            {
+                using cpp_type = const Urho3D::SharedPtr<TCpp, TRefCounted>&;
+                using abi_type = TCpp*;
+            };
+
+            template <class TCpp, class TRefCounted>
+            struct [[sharpcpp::managed_type(
+                public_type = "{0}",
+                projection = true,
+                return_ownership = "owning"
+            )]] Marshaller<Urho3D::WeakPtr<TCpp, TRefCounted>>
+            {
+                using cpp_type = Urho3D::WeakPtr<TCpp, TRefCounted>;
+                using abi_type = TCpp*;
+            };
+            }
+            """);
+
+        try
+        {
+            var parser = new ClangSharpHeaderParser();
+            var clangArgs = new[] { "-x", "c++", "-std=c++20", $"-I{tempDir}" };
+            var marshallerFiles = new[] { marshallerHeader };
+
+            var compilation = parser.Parse(new ClangSharpParseRequest(
+                ProjectName: "TestProject",
+                ManagedNamespace: "Test.Namespace",
+                ManagedClassName: "Bindings",
+                NativeLibraryName: "Test.Native",
+                HeaderFilePath: headerPath,
+                HeaderIncludePath: tempDir,
+                ClangArguments: clangArgs,
+                MarshallerConfigurationFiles: marshallerFiles,
+                EntryPointPrefix: "Test_"));
+
+            MarshallerMetadataPhase2.ApplyWithClang(compilation, marshallerFiles, clangArgs);
+            SharpCpp.Pipeline.InheritManagedRuntimePolicyPass.Apply(compilation);
+
+            var refCountedRecord = Assert.Single(compilation.Records.Where(static record => record.NativeName == "RefCounted"));
+            var payloadRecord = Assert.Single(compilation.Records.Where(static record => record.NativeName == "sample_payload"));
+            Assert.Equal("global::Urho3D.Interop.RefCountedNativeObject", refCountedRecord.ManagedBaseTypeName);
+            Assert.Equal("RefCounted", payloadRecord.ManagedBaseTypeName);
+            Assert.Equal("global::Urho3D.Interop.RefCountedInstanceCache.Shared", payloadRecord.ManagedInstanceCacheFactoryExpression);
+            Assert.False(payloadRecord.EmitDefaultNativeReleaseOverride);
+
+            var sharedReturn = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "get_payload_shared"));
+            Assert.Equal(BindingTypeKind.Handle, sharedReturn.ReturnType.Kind);
+            Assert.Equal(payloadRecord.SymbolId, sharedReturn.ReturnType.RecordId);
+            Assert.Equal("Urho3D::SharedPtr<sample_payload>", sharedReturn.ReturnType.CppTypeName);
+            Assert.True(sharedReturn.ReturnsOwnedHandle);
+
+            var weakReturn = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "get_payload_weak"));
+            Assert.Equal(BindingTypeKind.Handle, weakReturn.ReturnType.Kind);
+            Assert.Equal(payloadRecord.SymbolId, weakReturn.ReturnType.RecordId);
+            Assert.Equal("Urho3D::WeakPtr<sample_payload>", weakReturn.ReturnType.CppTypeName);
+            Assert.True(weakReturn.ReturnsOwnedHandle);
+
+            var sharedParameter = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "use_payload_shared"));
+            Assert.Equal(BindingTypeKind.Handle, sharedParameter.Parameters[0].Type.Kind);
+            Assert.Equal(payloadRecord.SymbolId, sharedParameter.Parameters[0].Type.RecordId);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

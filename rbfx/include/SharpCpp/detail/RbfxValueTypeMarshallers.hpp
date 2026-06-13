@@ -1,6 +1,7 @@
 #pragma once
 
 #include <SharpCpp/Marshaller.hpp>
+#include "RbfxRefCountedMarshallers.hpp"
 #include "RbfxMathMarshallers.hpp"
 
 #include <EASTL/list.h>

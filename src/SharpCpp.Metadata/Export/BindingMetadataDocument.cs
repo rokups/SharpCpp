@@ -29,6 +29,9 @@ public sealed record BindingMetadataType(
     string? ManagedBaseTypeName,
     BindingMetadataTypeReference Projection,
     string? ManagedBaseTypeConstraints = null,
+    string? ManagedInstanceCacheFactoryExpression = null,
+    string? ManagedInstanceCacheTypeName = null,
+    bool EmitDefaultNativeReleaseOverride = true,
     bool IsFlags = false,
     IReadOnlyList<BindingMetadataEnumValue>? Values = null,
     IReadOnlyList<BindingMetadataRecordMember>? Members = null);
@@ -47,7 +50,8 @@ public sealed record BindingMetadataRecordMember(
     string? OperatorToken = null,
     bool IsConversionOperator = false,
     bool IsExplicitConversionOperator = false,
-    bool ReturnsOwnedHandle = false);
+    bool ReturnsOwnedHandle = false,
+    bool GetterReturnsOwnedHandle = false);
 
 public sealed record BindingMetadataFunction(
     string SymbolId,

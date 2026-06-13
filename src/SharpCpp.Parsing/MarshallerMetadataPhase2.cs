@@ -227,6 +227,21 @@ public static class MarshallerMetadataPhase2
                 record.ManagedBaseTypeConstraints = constraintsMatch.Groups["value"].Value;
             }
 
+            if (!string.IsNullOrWhiteSpace(config.ManagedInstanceCacheFactoryExpression))
+            {
+                record.ManagedInstanceCacheFactoryExpression = config.ManagedInstanceCacheFactoryExpression;
+            }
+
+            if (!string.IsNullOrWhiteSpace(config.ManagedInstanceCacheTypeName))
+            {
+                record.ManagedInstanceCacheTypeName = config.ManagedInstanceCacheTypeName;
+            }
+
+            if (!config.EmitDefaultNativeReleaseOverride)
+            {
+                record.EmitDefaultNativeReleaseOverride = false;
+            }
+
             // expose_member methods — metadata comes from AST cursors, not source regex.
             foreach (var member in config.ExposedMembers)
             {
@@ -324,6 +339,9 @@ public static class MarshallerMetadataPhase2
                 realRecord.ManagedName = placeholder.ManagedName;
             }
             realRecord.HandleMarshallerTypeName ??= placeholder.HandleMarshallerTypeName;
+            realRecord.ManagedInstanceCacheFactoryExpression ??= placeholder.ManagedInstanceCacheFactoryExpression;
+            realRecord.ManagedInstanceCacheTypeName ??= placeholder.ManagedInstanceCacheTypeName;
+            realRecord.EmitDefaultNativeReleaseOverride &= placeholder.EmitDefaultNativeReleaseOverride;
 
             foreach (var member in placeholder.Members.OfType<FunctionBinding>().ToArray())
             {
@@ -403,6 +421,9 @@ public static class MarshallerMetadataPhase2
         target.ManagedTypeFormat ??= source.ManagedTypeFormat;
         target.ManagedNamespace ??= source.ManagedNamespace;
         target.HandleMarshallerTypeName ??= source.HandleMarshallerTypeName;
+        target.ManagedInstanceCacheFactoryExpression ??= source.ManagedInstanceCacheFactoryExpression;
+        target.ManagedInstanceCacheTypeName ??= source.ManagedInstanceCacheTypeName;
+        target.EmitDefaultNativeReleaseOverride &= source.EmitDefaultNativeReleaseOverride;
 
         if (string.IsNullOrWhiteSpace(target.CppQualifiedName) && !string.IsNullOrWhiteSpace(source.CppQualifiedName))
         {

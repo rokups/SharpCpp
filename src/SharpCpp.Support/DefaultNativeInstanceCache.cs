@@ -31,7 +31,7 @@ public sealed class DefaultNativeInstanceCache : INativeInstanceCache
 
         if (reference.TryGetTarget(out instance) &&
             !instance.IsClosed &&
-            (!ownsHandle || instance.OwnsNativeHandle))
+            (!ownsHandle || instance.OwnsNativeHandle || instance.TryPromoteToOwningHandle()))
         {
             return true;
         }

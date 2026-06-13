@@ -93,7 +93,10 @@ public sealed class BindingMetadataImportCatalog
         {
             ManagedNamespace = importedType.ManagedNamespace ?? document.Source.ManagedNamespace,
             ManagedBaseTypeName = managedBaseTypeName,
-            ManagedBaseTypeConstraints = importedType.ManagedBaseTypeConstraints
+            ManagedBaseTypeConstraints = importedType.ManagedBaseTypeConstraints,
+            ManagedInstanceCacheFactoryExpression = importedType.ManagedInstanceCacheFactoryExpression,
+            ManagedInstanceCacheTypeName = importedType.ManagedInstanceCacheTypeName,
+            EmitDefaultNativeReleaseOverride = importedType.EmitDefaultNativeReleaseOverride
         };
         record.SetMetadata(MetadataKeys.SuppressEmission, true);
 

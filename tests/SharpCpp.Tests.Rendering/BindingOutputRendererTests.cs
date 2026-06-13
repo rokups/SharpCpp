@@ -446,6 +446,38 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Managed_output_honors_custom_cache_policy_and_base_release_strategy()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/RefCounted.hpp" });
+        var record = new RecordBinding("record:payload", "payload", "Payload")
+        {
+            ManagedBaseTypeName = "global::Urho3D.Interop.RefCountedNativeObject",
+            ManagedInstanceCacheFactoryExpression = "global::Urho3D.Interop.RefCountedInstanceCache.Shared",
+            ManagedInstanceCacheTypeName = "global::SharpCpp.Support.INativeInstanceCache",
+            EmitDefaultNativeReleaseOverride = false
+        };
+        var field = new FieldBinding("field:payload:child", "child", "Child", record.HandleType, "payload*", "payload")
+        {
+            ReturnsOwnedHandle = true
+        };
+        record.Members.Add(field);
+        compilation.Members.Add(record);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("internal static readonly global::SharpCpp.Support.INativeInstanceCache s_instanceCache = global::Urho3D.Interop.RefCountedInstanceCache.Shared;", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("PrepareForOwnedRegistration();", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("protected override bool ReleaseNativeHandle(nint handle)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("return Payload.CreateManagedWrapper(__PInvoke.Get_Child(this), ownsHandle: true);", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Managed_output_emits_polymorphic_wrapper_factory_and_registry_hooks()
     {
         var compilation = new BindingCompilation(
@@ -470,7 +502,7 @@ public sealed class BindingOutputRendererTests
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
         var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("internal static readonly global::SharpCpp.Support.DefaultNativeInstanceCache s_instanceCache = new();", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static readonly global::SharpCpp.Support.DefaultNativeInstanceCache s_instanceCache = new global::SharpCpp.Support.DefaultNativeInstanceCache();", managedOutput, StringComparison.Ordinal);
         Assert.Contains("global::SharpCpp.Support.NativeObjectRegistry.Create<BaseCounter>(handle, ownsHandle)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("global::SharpCpp.Support.NativeObjectRegistry.RegisterType<BaseCounter>();", managedOutput, StringComparison.Ordinal);
         Assert.Contains("global::SharpCpp.Support.NativeObjectRegistry.RegisterType<DerivedCounter>();", managedOutput, StringComparison.Ordinal);

@@ -420,10 +420,16 @@ public static class DegradeUnsupportedSurfacePass
 
     private static bool IsSupportedGenericHandleType(BindingType type, IReadOnlyDictionary<string, RecordBinding> recordsById)
     {
-        return type.Kind == BindingTypeKind.Handle &&
-               !string.IsNullOrWhiteSpace(type.RecordId) &&
-               recordsById.TryGetValue(type.RecordId, out var record) &&
-               record.IsGeneric;
+        if (type.Kind != BindingTypeKind.Handle ||
+            string.IsNullOrWhiteSpace(type.RecordId) ||
+            !recordsById.TryGetValue(type.RecordId, out var record))
+        {
+            return false;
+        }
+
+        return record.IsGeneric ||
+            (type.CppTypeName.Contains('<', StringComparison.Ordinal) &&
+             !type.CppTypeName.StartsWith(record.CppQualifiedName, StringComparison.Ordinal));
     }
 
     private static bool IsSupportedOperatorShape(FunctionBinding function)

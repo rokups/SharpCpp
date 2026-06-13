@@ -30,6 +30,7 @@ public static class BindingCompilationBootstrapPipeline
         RunTimed("DegradeUnsupportedSurface", () => DegradeUnsupportedSurfacePass.Apply(compilation));
         RunTimed("GenericInstantiation", () => BindingCompilationGenericInstantiationPass.Apply(compilation));
         RunTimed("Inheritance", () => BindingCompilationInheritancePass.Apply(compilation));
+        RunTimed("InheritManagedRuntimePolicy", () => InheritManagedRuntimePolicyPass.Apply(compilation));
         RunTimed("Polymorphism", () => BindingCompilationPolymorphismPass.Apply(compilation));
         RunTimed("ValidateBootstrap", () => ValidateBootstrapSurfacePass.Apply(compilation));
 

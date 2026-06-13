@@ -64,6 +64,9 @@ public static class BindingMetadataExporter
             record.ManagedBaseTypeName,
             CreateTypeReference(record.HandleType),
             ManagedBaseTypeConstraints: record.ManagedBaseTypeConstraints,
+            ManagedInstanceCacheFactoryExpression: record.ManagedInstanceCacheFactoryExpression,
+            ManagedInstanceCacheTypeName: record.ManagedInstanceCacheTypeName,
+            EmitDefaultNativeReleaseOverride: record.EmitDefaultNativeReleaseOverride,
             Members: record.Members
                 .Where(static member => !member.IsIgnored())
                 .Select(CreateRecordMember)
@@ -134,7 +137,8 @@ public static class BindingMetadataExporter
                 function.OperatorToken,
                 function.IsConversionOperator,
                 function.IsExplicitConversionOperator,
-                function.ReturnsOwnedHandle),
+                function.ReturnsOwnedHandle,
+                GetterReturnsOwnedHandle: false),
             FieldBinding field => new BindingMetadataRecordMember(
                 "field",
                 field.NativeName,
@@ -143,7 +147,8 @@ public static class BindingMetadataExporter
                 Parameters: null,
                 field.IsReadOnly,
                 IsStatic: false,
-                IsConstructor: false),
+                IsConstructor: false,
+                GetterReturnsOwnedHandle: field.ReturnsOwnedHandle),
             _ => throw new NotSupportedException($"Metadata export does not support member kind '{member.Kind}'.")
         };
     }

@@ -80,7 +80,8 @@ internal static class Program
 
             var marshallerConfigurationFiles = new[]
             {
-                Path.Combine(projectRoot, "include", "SharpCpp", "Marshaller.hpp")
+                Path.Combine(projectRoot, "include", "SharpCpp", "Marshaller.hpp"),
+                Path.Combine(projectRoot, "rbfx", "include", "SharpCpp", "detail", "RbfxRefCountedMarshallers.hpp")
             }.Select(Path.GetFullPath).ToArray();
 
             Logger.LogInformation("rbfx SDK root: {SdkRoot}", sdkRoot);
@@ -95,7 +96,7 @@ internal static class Program
             }
 
             var sdkFlags = SdkParseFlags.Load(options.FlagsFilePath);
-            var clangArguments = BuildClangArguments(includeRoot, userIncludeRoot, sdkFlags);
+            var clangArguments = BuildClangArguments(projectRoot, includeRoot, userIncludeRoot, sdkFlags);
             var parser = new ClangSharpHeaderParser();
             var compilation = parser.Parse(
                 new ClangSharpParseRequest(
@@ -149,7 +150,7 @@ internal static class Program
         }
     }
 
-    private static IReadOnlyList<string> BuildClangArguments(string sdkIncludeRoot, string userIncludeRoot, SdkParseFlags sdkFlags)
+    private static IReadOnlyList<string> BuildClangArguments(string projectRoot, string sdkIncludeRoot, string userIncludeRoot, SdkParseFlags sdkFlags)
     {
         var arguments = new List<string>
         {
@@ -168,6 +169,12 @@ internal static class Program
         foreach (var includeDirectory in sdkFlags.IncludeDirectories)
         {
             arguments.Add($"-I{includeDirectory}");
+        }
+
+        var projectInclude = Path.Combine(projectRoot, "include");
+        if (!arguments.Contains($"-I{projectInclude}", StringComparer.Ordinal))
+        {
+            arguments.Add($"-I{projectInclude}");
         }
 
         foreach (var define in sdkFlags.Defines)

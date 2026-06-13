@@ -742,6 +742,7 @@ public sealed partial class ClangSharpHeaderParser
             IsConstMethod = methodDecl.IsConst,
             OwningRecordCppTypeName = record.CppQualifiedName
         };
+        function.ReturnsOwnedHandle = ShouldReturnOwnedHandle(methodDecl.ReturnType.Handle, returnType, managedTypeOverrides);
         ApplyOperatorMetadata(function, methodDecl);
 
         for (int parameterIndex = 0; parameterIndex < methodDecl.Parameters.Count; parameterIndex++)
@@ -824,6 +825,7 @@ public sealed partial class ClangSharpHeaderParser
             IsConstMethod = templatedFunction is CXXMethodDecl cxxMethod3 && cxxMethod3.IsConst,
             OwningRecordCppTypeName = record.CppQualifiedName
         };
+        function.ReturnsOwnedHandle = ShouldReturnOwnedHandle(templatedFunction.ReturnType.Handle, returnType, managedTypeOverrides);
 
         foreach (var templateParameter in methodTemplateParameters)
         {
@@ -898,6 +900,7 @@ public sealed partial class ClangSharpHeaderParser
             AccessModifier = MapAccessModifier(methodDecl.Access),
             OwningRecordCppTypeName = record.CppQualifiedName
         };
+        function.ReturnsOwnedHandle = ShouldReturnOwnedHandle(methodDecl.ReturnType.Handle, returnType, managedTypeOverrides);
         ApplyOperatorMetadata(function, methodDecl);
 
         for (int parameterIndex = 0; parameterIndex < methodDecl.Parameters.Count; parameterIndex++)
@@ -1023,6 +1026,7 @@ public sealed partial class ClangSharpHeaderParser
         {
             AccessModifier = MapAccessModifier(fieldDecl.Access)
         };
+        field.ReturnsOwnedHandle = ShouldReturnOwnedHandle(fieldDecl.Type.Handle, field.Type, managedTypeOverrides, preferReturnOverride: false);
 
         if (ignoreReason is not null)
         {
@@ -1058,6 +1062,7 @@ public sealed partial class ClangSharpHeaderParser
             entryPointName: $"{entryPointPrefix}_{nativeName}",
             cppReturnTypeName: cppReturnTypeName,
             cppQualifiedName: GetCppQualifiedName(functionDecl));
+        function.ReturnsOwnedHandle = ShouldReturnOwnedHandle(functionDecl.ReturnType.Handle, returnType, managedTypeOverrides);
 
         for (int parameterIndex = 0; parameterIndex < functionDecl.Parameters.Count; parameterIndex++)
         {
@@ -1124,6 +1129,7 @@ public sealed partial class ClangSharpHeaderParser
             returnType,
             cppReturnTypeName: cppReturnTypeName,
             cppQualifiedName: GetCppQualifiedName(templateDecl));
+        function.ReturnsOwnedHandle = ShouldReturnOwnedHandle(templatedFunction.ReturnType.Handle, returnType, managedTypeOverrides);
 
         foreach (var templateParameter in templateParameters)
         {
@@ -1186,6 +1192,7 @@ public sealed partial class ClangSharpHeaderParser
     private static bool TypeIsRValueReference(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_RValueReference;
     private static bool TypeIsAnyReference(CXType type) => type.TypeClass is CX_TypeClass.CX_TypeClass_LValueReference or CX_TypeClass.CX_TypeClass_RValueReference;
     private static bool TypeIsPointer(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_Pointer;
+    private static bool TypeIsFunctionProto(CXType type) => type.TypeClass is CX_TypeClass.CX_TypeClass_FunctionProto or CX_TypeClass.CX_TypeClass_FunctionNoProto;
     private static bool TypeIsRecord(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_Record;
     private static bool TypeIsEnum(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_Enum;
 
@@ -1231,6 +1238,11 @@ public sealed partial class ClangSharpHeaderParser
     {
         var type = parameterCursor.Type;
         var normalizedType = type.CanonicalType;
+        if (TypeIsFunctionProto(normalizedType) || (TypeIsPointer(normalizedType) && TypeIsFunctionProto(normalizedType.PointeeType.CanonicalType)))
+        {
+            throw new NotSupportedException($"function pointer type '{NormalizeTypeName(type.Spelling.ToString())}' is not yet supported");
+        }
+
         var explicitDirection = TryGetPassKindOverride(functionCursor, parameterCursor, out var overrideDirection)
             ? overrideDirection
             : (BindingParameterDirection?)null;
@@ -1259,6 +1271,11 @@ public sealed partial class ClangSharpHeaderParser
     private static BindingType CreateIgnoredFallbackType(CXType type)
     {
         var normalizedType = type.CanonicalType;
+        if (TypeIsFunctionProto(normalizedType) || (TypeIsPointer(normalizedType) && TypeIsFunctionProto(normalizedType.PointeeType.CanonicalType)))
+        {
+            return BindingType.CreateConfigured(NormalizeTypeName(type.Spelling.ToString()), "global::System.IntPtr");
+        }
+
         var normalizedTypeName = NormalizeTypeName(type.Spelling.ToString());
 
         return normalizedType.kind switch
@@ -1834,6 +1851,17 @@ public sealed partial class ClangSharpHeaderParser
             ? managedTypeOverride.CppTypeName
             : NormalizeTypeName(resolvedCppTypeName);
 
+        if (managedTypeOverride.Projection)
+        {
+            return CreateProjectedHandleType(
+                managedTypeOverride,
+                effectiveCppTypeName,
+                recordsByName,
+                enumsByName,
+                managedTypeOverrides,
+                genericParameters);
+        }
+
         if (!managedTypeOverride.HasManagedBaseType && !managedTypeOverride.HasExposedMembers)
         {
             return BindingType.CreateConfigured(
@@ -1880,6 +1908,99 @@ public sealed partial class ClangSharpHeaderParser
         return genericArguments.Count == 0
             ? record.HandleType
             : BindingType.CreateHandle($"{effectiveCppTypeName}*", record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments);
+    }
+
+    private static BindingType CreateProjectedHandleType(
+        ManagedTypeOverride managedTypeOverride,
+        string effectiveCppTypeName,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        IReadOnlyDictionary<string, BindingType> genericParameters)
+    {
+        var concreteArguments = managedTypeOverride.TemplateParameterNames.Count == 0
+            ? Array.Empty<BindingType>()
+            : ProjectVisibleTemplateArguments(
+                ParseConcreteTemplateArgumentsOrOpaque(effectiveCppTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
+                managedTypeOverride.VisibleTemplateParameterIndices);
+
+        if (concreteArguments.Count != 1 || concreteArguments[0].Kind != BindingTypeKind.Handle)
+        {
+            throw new NotSupportedException($"Projected managed_type on '{managedTypeOverride.CppTypeName}' must resolve to a single handle-like managed type.");
+        }
+
+        var projectedType = concreteArguments[0];
+        var projectedRecord = projectedType.RecordId is null
+            ? null
+            : recordsByName.Values.FirstOrDefault(candidate => string.Equals(candidate.SymbolId, projectedType.RecordId, StringComparison.Ordinal));
+        var publicTypeName = projectedRecord?.ManagedTypeFormat ?? projectedRecord?.ManagedName ?? projectedType.ManagedTypeName;
+        var genericArguments = projectedRecord is not null ? projectedType.GenericArguments : null;
+
+        var projectedHandleType = BindingType.CreateHandle(
+            effectiveCppTypeName,
+            publicTypeName,
+            projectedType.RecordId,
+            managedTypeOverride.MarshallerTypeName,
+            genericArguments);
+
+        if (projectedRecord is not null)
+        {
+            projectedHandleType.SetManagedTypeFormatOverride(projectedRecord.ManagedTypeFormat ?? projectedRecord.ManagedName);
+        }
+
+        return projectedHandleType;
+    }
+
+    private static bool ShouldReturnOwnedHandle(
+        CXType sourceType,
+        BindingType mappedType,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        bool preferReturnOverride = true)
+    {
+        if (mappedType.Kind != BindingTypeKind.Handle)
+        {
+            return false;
+        }
+
+        var normalizedType = sourceType.CanonicalType;
+        var normalizedTypeName = NormalizeTypeName(sourceType.Spelling.ToString());
+        var canonicalTypeName = NormalizeTypeName(normalizedType.Spelling.ToString());
+        normalizedTypeName = SelectConcreteTemplateTypeName(normalizedTypeName, ResolveAliasTypeName(normalizedTypeName));
+        canonicalTypeName = SelectConcreteTemplateTypeName(canonicalTypeName, GetUnderlyingTypeName(sourceType));
+
+        if (preferReturnOverride &&
+            TryGetManagedTypeOverride(normalizedTypeName, canonicalTypeName, managedTypeOverrides, isReturn: true, out var returnOverride) &&
+            string.Equals(returnOverride?.ReturnOwnership, "owning", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return TryGetManagedTypeOverride(normalizedTypeName, canonicalTypeName, managedTypeOverrides, isReturn: false, out var overrideValue) &&
+            string.Equals(overrideValue?.ReturnOwnership, "owning", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? TryGetUnsupportedFunctionPointerReason(CXType type, string label)
+    {
+        var normalized = type.CanonicalType;
+        var normalizedText = NormalizeTypeName(normalized.Spelling.ToString());
+        var underlyingText = GetUnderlyingTypeName(type);
+        var aliasText = ResolveAliasTypeName(NormalizeTypeName(type.Spelling.ToString()));
+        var canonicalAliasText = ResolveAliasTypeName(NormalizeTypeName(type.CanonicalType.Spelling.ToString()));
+        if (TypeIsFunctionProto(normalized) ||
+            (TypeIsPointer(normalized) && TypeIsFunctionProto(normalized.PointeeType.CanonicalType)) ||
+            normalizedText.Contains("(*)", StringComparison.Ordinal) ||
+            underlyingText.Contains("(*)", StringComparison.Ordinal) ||
+            aliasText.Contains("(*)", StringComparison.Ordinal) ||
+            canonicalAliasText.Contains("(*)", StringComparison.Ordinal) ||
+            normalizedText.Contains(")(", StringComparison.Ordinal) ||
+            underlyingText.Contains(")(", StringComparison.Ordinal) ||
+            aliasText.Contains(")(", StringComparison.Ordinal) ||
+            canonicalAliasText.Contains(")(", StringComparison.Ordinal))
+        {
+            return $"{label} is unsupported in this bootstrap surface: function pointer types are not yet supported";
+        }
+
+        return null;
     }
 
     private static IReadOnlyList<BindingType> ProjectVisibleTemplateArguments(
@@ -3039,7 +3160,9 @@ public sealed partial class ClangSharpHeaderParser
             "unsigned long" => BindingType.NativeUInt,
             "char" => BindingType.Int8,
             _ when enumsByName.TryGetValue(NormalizeNamedTypeName(normalized), out var @enum) => BindingType.CreateEnum(@enum.NativeName, @enum.ManagedName),
+            _ when normalized.Contains("::", StringComparison.Ordinal) && enumsByName.TryGetValue(NormalizeNamedTypeName(normalized[(normalized.LastIndexOf("::", StringComparison.Ordinal) + 2)..]), out var shortEnum) => BindingType.CreateEnum(shortEnum.NativeName, shortEnum.ManagedName),
             _ when recordsByName.TryGetValue(NormalizeNamedTypeName(normalized), out var record) => record.HandleType,
+            _ when normalized.Contains("::", StringComparison.Ordinal) && recordsByName.TryGetValue(NormalizeNamedTypeName(normalized[(normalized.LastIndexOf("::", StringComparison.Ordinal) + 2)..]), out var shortRecord) => shortRecord.HandleType,
             _ => throw new NotSupportedException($"ClangSharp sample parser does not support generic argument token '{normalized}'.")
         };
     }

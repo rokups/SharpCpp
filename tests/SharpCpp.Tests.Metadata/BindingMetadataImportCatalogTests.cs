@@ -26,7 +26,10 @@ public sealed class BindingMetadataImportCatalogTests
                     ManagedName: "LogicComponent",
                     ManagedNamespace: "Urho3D",
                     ManagedBaseTypeName: "Component",
-                    Projection: new BindingMetadataTypeReference("handle", "Urho3D::LogicComponent*", "LogicComponent", null, "record:LogicComponent", null))
+                    Projection: new BindingMetadataTypeReference("handle", "Urho3D::LogicComponent*", "LogicComponent", null, "record:LogicComponent", null),
+                    ManagedInstanceCacheFactoryExpression: "global::Urho3D.Interop.RefCountedInstanceCache.Shared",
+                    ManagedInstanceCacheTypeName: "global::SharpCpp.Support.INativeInstanceCache",
+                    EmitDefaultNativeReleaseOverride: false)
             ],
             Functions: Array.Empty<BindingMetadataFunction>());
 
@@ -46,6 +49,9 @@ public sealed class BindingMetadataImportCatalogTests
             Assert.Equal("LogicComponent", importedRecord.NativeName);
             Assert.Equal("global::Urho3D.LogicComponent", importedRecord.ManagedName);
             Assert.Equal("global::Urho3D.Component", importedRecord.ManagedBaseTypeName);
+            Assert.Equal("global::Urho3D.Interop.RefCountedInstanceCache.Shared", importedRecord.ManagedInstanceCacheFactoryExpression);
+            Assert.Equal("global::SharpCpp.Support.INativeInstanceCache", importedRecord.ManagedInstanceCacheTypeName);
+            Assert.False(importedRecord.EmitDefaultNativeReleaseOverride);
             Assert.True(importedRecord.GetMetadata<bool>(MetadataKeys.SuppressEmission));
             Assert.Same(importedRecord, recordsByName["LogicComponent"]);
             Assert.Same(importedRecord, recordsByName["Urho3D::LogicComponent"]);

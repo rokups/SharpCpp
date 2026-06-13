@@ -39,6 +39,26 @@ internal static class MarshallerConfigExtractor
         @"managed_namespace\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    private static readonly Regex ProjectionExpression = new(
+        @"projection\s*=\s*(?<value>true|false)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex ReturnOwnershipExpression = new(
+        @"return_ownership\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex ManagedInstanceCacheFactoryExpression = new(
+        @"managed_instance_cache_factory\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex ManagedInstanceCacheTypeExpression = new(
+        @"managed_instance_cache_type\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex ReleaseStrategyExpression = new(
+        @"release_strategy\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private static readonly Regex ShapeExpression = new(
         @"shape\s*=\s*\""(?<value>[^\""]+)\""",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -59,6 +79,11 @@ internal static class MarshallerConfigExtractor
         public bool HasExposedMembers { get; init; }
         public IReadOnlyList<string> TemplateParameterNames { get; init; } = Array.Empty<string>();
         public IReadOnlyList<int> VisibleTemplateParameterIndices { get; init; } = Array.Empty<int>();
+        public bool Projection { get; init; }
+        public string? ReturnOwnership { get; init; }
+        public string? ManagedInstanceCacheFactoryExpression { get; init; }
+        public string? ManagedInstanceCacheTypeName { get; init; }
+        public bool EmitDefaultNativeReleaseOverride { get; init; } = true;
     }
 
     /// <summary>
@@ -81,7 +106,10 @@ internal static class MarshallerConfigExtractor
     internal sealed record MarshallerBodyConfig(
         string AttributeBody,
         IReadOnlyList<ExposedMemberInfo> ExposedMembers,
-        IReadOnlyList<string> TemplateParameterNames);
+        IReadOnlyList<string> TemplateParameterNames,
+        string? ManagedInstanceCacheFactoryExpression = null,
+        string? ManagedInstanceCacheTypeName = null,
+        bool EmitDefaultNativeReleaseOverride = true);
 
     /// <summary>
     /// Parse marshaller configuration headers via ClangSharp and extract
@@ -276,6 +304,11 @@ internal static class MarshallerConfigExtractor
         var marshallerTypeMatch = MarshallerTypeInAttributeExpression.Match(body);
         var managedMarshallerMatch = ManagedMarshallerInAttributeExpression.Match(body);
         var managedNamespaceMatch = ManagedNamespaceInAttributeExpression.Match(body);
+        var projectionMatch = ProjectionExpression.Match(body);
+        var returnOwnershipMatch = ReturnOwnershipExpression.Match(body);
+        var managedInstanceCacheFactoryMatch = ManagedInstanceCacheFactoryExpression.Match(body);
+        var managedInstanceCacheTypeMatch = ManagedInstanceCacheTypeExpression.Match(body);
+        var releaseStrategyMatch = ReleaseStrategyExpression.Match(body);
         var hasManagedBaseType = body.Contains("managed_base_type", StringComparison.Ordinal);
         var hasExposedMembers = ExtractExposedMembersFromDecl(decl, declIndex).Count > 0;
         var templateParameterNames = ExtractTemplateParameterNames(decl, cppTypeName);
@@ -293,7 +326,14 @@ internal static class MarshallerConfigExtractor
             HasManagedBaseType = hasManagedBaseType,
             HasExposedMembers = hasExposedMembers,
             TemplateParameterNames = templateParameterNames,
-            VisibleTemplateParameterIndices = visibleTemplateParameterIndices
+            VisibleTemplateParameterIndices = visibleTemplateParameterIndices,
+            Projection = projectionMatch.Success &&
+                string.Equals(projectionMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase),
+            ReturnOwnership = returnOwnershipMatch.Success ? returnOwnershipMatch.Groups["value"].Value : null,
+            ManagedInstanceCacheFactoryExpression = managedInstanceCacheFactoryMatch.Success ? managedInstanceCacheFactoryMatch.Groups["value"].Value : null,
+            ManagedInstanceCacheTypeName = managedInstanceCacheTypeMatch.Success ? managedInstanceCacheTypeMatch.Groups["value"].Value : null,
+            EmitDefaultNativeReleaseOverride = !releaseStrategyMatch.Success ||
+                !string.Equals(releaseStrategyMatch.Groups["value"].Value, "base", StringComparison.OrdinalIgnoreCase)
         };
     }
 
@@ -338,6 +378,9 @@ internal static class MarshallerConfigExtractor
         }
 
         var body = attrMatch.Body;
+        var managedInstanceCacheFactoryMatch = ManagedInstanceCacheFactoryExpression.Match(body);
+        var managedInstanceCacheTypeMatch = ManagedInstanceCacheTypeExpression.Match(body);
+        var releaseStrategyMatch = ReleaseStrategyExpression.Match(body);
 
         var cppTypeName = ExtractTemplateArgFromCursorType(decl);
         if (string.IsNullOrWhiteSpace(cppTypeName) || result.ContainsKey(cppTypeName))
@@ -353,7 +396,11 @@ internal static class MarshallerConfigExtractor
         result[cppTypeName] = new MarshallerBodyConfig(
             AttributeBody: body,
             ExposedMembers: exposedMembers,
-            TemplateParameterNames: ExtractTemplateParameterNames(decl, cppTypeName));
+            TemplateParameterNames: ExtractTemplateParameterNames(decl, cppTypeName),
+            ManagedInstanceCacheFactoryExpression: managedInstanceCacheFactoryMatch.Success ? managedInstanceCacheFactoryMatch.Groups["value"].Value : null,
+            ManagedInstanceCacheTypeName: managedInstanceCacheTypeMatch.Success ? managedInstanceCacheTypeMatch.Groups["value"].Value : null,
+            EmitDefaultNativeReleaseOverride: !releaseStrategyMatch.Success ||
+                !string.Equals(releaseStrategyMatch.Groups["value"].Value, "base", StringComparison.OrdinalIgnoreCase));
     }
 
     private static List<ExposedMemberInfo> ExtractExposedMembersFromDecl(

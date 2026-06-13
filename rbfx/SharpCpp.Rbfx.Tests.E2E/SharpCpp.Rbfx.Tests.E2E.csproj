@@ -9,6 +9,10 @@
 
   <ItemGroup>
     <ProjectReference Include="../SharpCpp.Rbfx.Bindings/SharpCpp.Rbfx.Bindings.csproj" />
+    <Reference Include="Rbfx.UserCode.Bindings">
+      <HintPath>$(OutputPath)Rbfx.UserCode.Bindings.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio">
