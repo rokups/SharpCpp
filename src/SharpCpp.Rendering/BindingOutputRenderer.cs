@@ -1450,10 +1450,11 @@ public static partial class BindingOutputRenderer
 
         if (property.Setter is not null)
         {
-            var setterArgument = property.Setter.Parameters[0].Type.Kind == BindingTypeKind.Handle
+            var requiresWrapping = RequiresHandleWrapping(property.Setter.Parameters[0].Type);
+            var setterArgument = requiresWrapping
                 ? "global::SharpCpp.Support.NativeObject.GetHandle(value)"
                 : "value";
-            var setterKeepAlive = property.Setter.Parameters[0].Type.Kind == BindingTypeKind.Handle
+            var setterKeepAlive = requiresWrapping
                 ? "\n            global::System.GC.KeepAlive(value);"
                 : string.Empty;
             writer.Write($$"""
@@ -2297,10 +2298,10 @@ public static partial class BindingOutputRenderer
 
         if (!field.IsReadOnly)
         {
-            var setterArgument = field.Type.Kind == BindingTypeKind.Handle
+            var setterArgument = RequiresHandleWrapping(field.Type)
                 ? "global::SharpCpp.Support.NativeObject.GetHandle(value)"
                 : "value";
-            var setterKeepAlive = field.Type.Kind == BindingTypeKind.Handle
+            var setterKeepAlive = RequiresHandleWrapping(field.Type)
                 ? "\n            global::System.GC.KeepAlive(value);"
                 : string.Empty;
             writer.Write($$"""
@@ -2970,7 +2971,7 @@ public static partial class BindingOutputRenderer
     private static string GetManagedOmittedDefaultTypeName(ParameterBinding parameter)
     {
         var baseTypeName = GetManagedWrapperTypeName(parameter.Type);
-        if (parameter.Type.Kind == BindingTypeKind.Handle)
+        if (parameter.Type.IsPointerType)
         {
             return $"{baseTypeName}?";
         }
@@ -3004,7 +3005,7 @@ public static partial class BindingOutputRenderer
             parameter.Direction == BindingParameterDirection.In &&
             parameter.AbiKind == BindingParameterAbiKind.Value &&
             parameter.ManagedDefaultValueExpression == "null" &&
-            parameter.Type.Kind == BindingTypeKind.Handle;
+            parameter.Type.IsPointerType;
 
         var typeName = (!forceRequired && parameter.HasMetadata(MetadataKeys.UnexpressibleDefault)) || isNullableHandleDefault
             ? $"{GetManagedWrapperTypeName(parameter.Type)}?"
@@ -3095,16 +3096,19 @@ public static partial class BindingOutputRenderer
     }
 
 
+    private static bool RequiresHandleWrapping(BindingType type)
+    {
+        return type.IsPointerType;
+    }
+
     private static string RenderManagedInvocationArgument(ParameterBinding parameter)
     {
-        var valueExpression = parameter.Type.Kind == BindingTypeKind.Handle
+        var requiresWrapping = RequiresHandleWrapping(parameter.Type);
+        var valueExpression = requiresWrapping
             ? $"global::SharpCpp.Support.NativeObject.GetHandle({parameter.ManagedName})"
             : parameter.ManagedName;
 
-        // For value-type (Primitive) parameters, pass by value — the
-        // runtime creates temporaries as needed.  Handle types pass as
-        // nint (value pointer).  Only use ref/out for explicit pass-kind.
-        if (parameter.Type.Kind != BindingTypeKind.Handle)
+        if (!requiresWrapping)
         {
             return parameter.Direction switch
             {
@@ -3142,7 +3146,9 @@ public static partial class BindingOutputRenderer
 
         foreach (var parameter in parameters)
         {
-            if (parameter.Type.Kind == BindingTypeKind.Handle && parameter.Direction is BindingParameterDirection.Ref or BindingParameterDirection.Out)
+            var requiresWrapping = RequiresHandleWrapping(parameter.Type);
+
+            if (requiresWrapping && parameter.Direction is BindingParameterDirection.Ref or BindingParameterDirection.Out)
             {
                 var abiVariableName = $"__abi_{parameter.ManagedName}";
 
@@ -3167,7 +3173,7 @@ public static partial class BindingOutputRenderer
                 continue;
             }
 
-            if (parameter.Type.Kind == BindingTypeKind.Handle)
+            if (requiresWrapping)
             {
                 postCallStatements.Add($"global::System.GC.KeepAlive({parameter.ManagedName});");
             }
@@ -3325,7 +3331,7 @@ public static partial class BindingOutputRenderer
     {
         ValidateVirtualCallbackSupport(parameter);
 
-        return parameter.Type.Kind == BindingTypeKind.Handle
+        return parameter.Type.IsPointerType
             ? BuildManagedHandleWrap(compilation, parameter.Type, parameter.ManagedName, ownsHandle: false)
             : parameter.ManagedName;
     }
@@ -4049,16 +4055,13 @@ public static partial class BindingOutputRenderer
 
     private static string BuildManagedDispatchArgument(ParameterBinding parameter, string plannedArgument)
     {
-        if (!parameter.HasMetadata(MetadataKeys.UnexpressibleDefault) || parameter.Type.Kind == BindingTypeKind.Handle)
+        if (!parameter.HasMetadata(MetadataKeys.UnexpressibleDefault) || parameter.Type.IsPointerType)
         {
             return plannedArgument;
         }
 
         var valueExpression = $"{parameter.ManagedName}.Value";
-        // For value-type (Primitive) params, pass by value — the runtime
-        // creates temporaries as needed, avoiding CS8156 for property
-        // accesses like Nullable<T>.Value.
-        if (parameter.Type.Kind != BindingTypeKind.Handle)
+        if (!parameter.Type.IsPointerType)
         {
             return parameter.Direction switch
             {
@@ -4096,7 +4099,7 @@ public static partial class BindingOutputRenderer
 
     private static string BuildUnexpressibleDefaultCondition(ParameterBinding parameter, bool provided)
     {
-        if (parameter.Type.Kind == BindingTypeKind.Handle)
+        if (parameter.Type.IsPointerType)
         {
             return $"{parameter.ManagedName} is {(provided ? "not null" : "null")}";
         }

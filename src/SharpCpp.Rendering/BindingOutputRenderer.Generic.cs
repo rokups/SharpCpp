@@ -979,7 +979,7 @@ public static partial class BindingOutputRenderer
             return RenderManagedInvocationArgument(parameter);
         }
 
-        if (concreteType.Kind == BindingTypeKind.Handle)
+        if (concreteType.IsPointerType)
         {
             return $"global::SharpCpp.Support.NativeObject.GetHandle({parameter.ManagedName})";
         }
@@ -992,7 +992,8 @@ public static partial class BindingOutputRenderer
         var results = new List<string>();
         for (var index = 0; index < parameters.Count; index++)
         {
-            if (concreteTypes[index].Kind == BindingTypeKind.Handle && parameters[index].Direction is not (BindingParameterDirection.Ref or BindingParameterDirection.Out))
+            if (concreteTypes[index].IsPointerType &&
+                parameters[index].Direction is not (BindingParameterDirection.Ref or BindingParameterDirection.Out))
             {
                 results.Add($"global::System.GC.KeepAlive({parameters[index].ManagedName});");
             }

@@ -112,6 +112,8 @@ public sealed class BindingType
 
     public bool ContainsGenericParameters => IsGenericParameter || GenericArguments.Any(static argument => argument.ContainsGenericParameters);
 
+    public bool IsPointerType => Kind == BindingTypeKind.Handle && string.IsNullOrEmpty(Marshaller.MarshallerTypeName);
+
     public void SetManagedTypeFormatOverride(string? managedTypeFormatOverride)
     {
         _managedTypeFormatOverride = string.IsNullOrWhiteSpace(managedTypeFormatOverride) ? null : managedTypeFormatOverride;
