@@ -1,4 +1,5 @@
 using SharpCpp.Model.Ast;
+using SharpCpp.Pipeline;
 using SharpCpp.Parsing;
 
 using Xunit;
@@ -340,6 +341,41 @@ public sealed class ClangSharpHeaderParserMarshallerTests
                 Directory.Delete(tempDir, recursive: true);
             }
         }
+    }
+
+    [Fact]
+    public void Bootstrap_pipeline_supports_vector_of_record_handle_parameters()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "VectorOfRecordHandleParameters");
+        var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+        var marshallerHeader = Path.Combine(fixtureDir, "SampleMarshallers.h");
+
+        var parser = new ClangSharpHeaderParser();
+        var clangArgs = new[] { "-x", "c++", "-std=c++20", $"-I{fixtureDir}" };
+        var marshallerFiles = new[] { marshallerHeader };
+
+        var compilation = parser.Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test.Namespace",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: clangArgs,
+            MarshallerConfigurationFiles: marshallerFiles,
+            EntryPointPrefix: "Test_"));
+
+        BindingCompilationBootstrapPipeline.Apply(compilation, marshallerFiles, clangArgs);
+
+        var eventHub = Assert.Single(compilation.Records.Where(static record => record.NativeName == "EventHub"));
+        var method = Assert.Single(eventHub.Members.OfType<FunctionBinding>().Where(static function => function.NativeName == "UnsubscribeFromAllEventsExcept"));
+
+        Assert.False(
+            method.IsIgnored(),
+            $"Ignored because '{method.GetIgnoreReason()}' with managed type '{method.Parameters[0].Type.ManagedTypeName}'.");
+        Assert.Equal("Ea.Vector<Object>", method.Parameters[0].Type.ManagedTypeName);
+        Assert.Equal("const eastl::vector<Urho3D::Object*>&", method.Parameters[0].CppTypeName);
     }
 
     private static string FindRepositoryRoot()

@@ -104,6 +104,7 @@ public static partial class BindingOutputRenderer
             #nullable enable
             using System.Runtime.InteropServices;
             using System.Runtime.InteropServices.Marshalling;
+            {{(compilation.Records.Any(static record => string.Equals(record.ManagedName, "Object", StringComparison.Ordinal) && !record.IsIgnored()) ? $"using Object = global::{compilation.ManagedNamespace}.Object;" : string.Empty)}}
             using {{compilation.ManagedNamespace}};
             """);
 
@@ -1545,7 +1546,7 @@ public static partial class BindingOutputRenderer
 
             writer.Write($$"""
                 {{GetManagedVisibility(function.AccessModifier)}} {{constructorName}}({{parameterList}})
-                    : this({{factoryName}}({{string.Join(", ", function.Parameters.Select(static parameter => parameter.ManagedName))}}), true)
+                    : this({{factoryName}}({{string.Join(", ", function.Parameters.Select(RenderManagedForwardingArgument))}}), true)
                 {
                 {{(requiresDirector ? "ConnectDirector();" : string.Empty)}}
                 }
@@ -1615,7 +1616,7 @@ public static partial class BindingOutputRenderer
         {
             var beforeParams = function.Parameters.Take(firstU).ToArray();
             var aParamList = string.Join(", ", beforeParams.Select(RenderManagedPublicParameter));
-            var aArgNames = string.Join(", ", beforeParams.Select(static p => p.ManagedName));
+            var aArgNames = string.Join(", ", beforeParams.Select(RenderManagedForwardingArgument));
             var aHasUnexpressible = beforeParams.Any(p => p.HasMetadata(MetadataKeys.UnexpressibleDefault));
 
             var aFactoryName = $"__CreateHandle_{importMethodName}_OverloadA";
@@ -1682,7 +1683,7 @@ public static partial class BindingOutputRenderer
                 }
             }
             var bParamList = string.Join(", ", bParamParts);
-            var bArgNames = string.Join(", ", function.Parameters.Select(static p => p.ManagedName));
+            var bArgNames = string.Join(", ", function.Parameters.Select(RenderManagedForwardingArgument));
             var bFactoryName = $"__CreateHandle_{importMethodName}_OverloadB";
             var bHasAfterUnexpressible = function.Parameters.Skip(firstU).Any(p => p.HasMetadata(MetadataKeys.UnexpressibleDefault));
 
@@ -2453,19 +2454,19 @@ public static partial class BindingOutputRenderer
         {
             foreach (var instantiation in record.SupportedGenericInstantiations)
             {
-                foreach (var constructor in record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor).OrderBy(static function => function.Parameters.Count))
+                foreach (var constructor in record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.Parameters.Count))
                 {
                     writer.WriteLine();
                     writer.Write(RenderNativeGenericConstructor(record, constructor, instantiation));
                 }
 
-                foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && !function.IsStatic && !function.IsGeneric && function.OperatorToken is null && !function.IsConversionOperator).OrderBy(static function => function.ManagedName, StringComparer.Ordinal))
+                foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && !function.IsStatic && !function.IsGeneric && function.OperatorToken is null && !function.IsConversionOperator && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.ManagedName, StringComparer.Ordinal))
                 {
                     writer.WriteLine();
                     writer.Write(RenderNativeGenericInstanceMethod(record, method, instantiation));
                 }
 
-                foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic && !function.IsGeneric && function.OperatorToken is null && !function.IsConversionOperator).OrderBy(static function => function.ManagedName, StringComparer.Ordinal))
+                foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic && !function.IsGeneric && function.OperatorToken is null && !function.IsConversionOperator && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.ManagedName, StringComparer.Ordinal))
                 {
                     writer.WriteLine();
                     writer.Write(RenderNativeGenericStaticMethod(record, method, instantiation));
@@ -2482,7 +2483,7 @@ public static partial class BindingOutputRenderer
             }
 
             var genericInstanceMethods = record.Members.OfType<FunctionBinding>()
-                .Where(static function => !function.IsConstructor && !function.IsStatic && function.IsGeneric && function.OperatorToken is null && !function.IsConversionOperator)
+                .Where(static function => !function.IsConstructor && !function.IsStatic && function.IsGeneric && function.OperatorToken is null && !function.IsConversionOperator && !function.HasMetadata(MetadataKeys.IgnoreReason))
                 .OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
             foreach (var method in genericInstanceMethods)
             {
@@ -3186,19 +3187,21 @@ public static partial class BindingOutputRenderer
 
     private static string GetManagedInstanceMethodModifier(BindingCompilation compilation, RecordBinding record, FunctionBinding function)
     {
+        var hasManagedBase = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName);
         var hidingObjectToString = string.Equals(function.ManagedName, nameof(ToString), StringComparison.Ordinal) &&
             function.Parameters.Count == 0 &&
             !function.IsOverride;
         var hidingModifier = hidingObjectToString ? "new " : string.Empty;
+        var primaryBaseVirtualMatch = hasManagedBase ? FindPrimaryBaseVirtualMatch(compilation, record, function) : null;
 
-        if (function.IsPureVirtual && FindPrimaryBaseVirtualMatch(compilation, record, function) is null)
+        if (function.IsPureVirtual && primaryBaseVirtualMatch is null)
         {
             return hidingModifier + "abstract ";
         }
 
         if (function.IsVirtual)
         {
-            var modifier = FindPrimaryBaseVirtualMatch(compilation, record, function) is null
+            var modifier = primaryBaseVirtualMatch is null
                 ? (function.IsOverride && !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
                    record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal) ? "override " : "virtual ")
                 : "override ";
@@ -3292,8 +3295,14 @@ public static partial class BindingOutputRenderer
 
     private static FunctionBinding? FindPrimaryBaseVirtualMatch(BindingCompilation compilation, RecordBinding record, FunctionBinding function)
     {
+        var visited = new HashSet<string>(StringComparer.Ordinal) { record.SymbolId };
         for (var current = record.GetPrimaryBaseRecord(compilation); current is not null; current = current.GetPrimaryBaseRecord(compilation))
         {
+            if (!visited.Add(current.SymbolId))
+            {
+                break;
+            }
+
             var match = current.Members
                 .OfType<FunctionBinding>()
                 .FirstOrDefault(candidate => !candidate.IsIgnored() && candidate.IsVirtual && RecordBindingExtensions.SignaturesMatch(candidate, function));
@@ -3409,6 +3418,17 @@ public static partial class BindingOutputRenderer
         return string.IsNullOrWhiteSpace(type.RecordId)
             ? null
             : compilation.Records.FirstOrDefault(candidate => string.Equals(candidate.SymbolId, type.RecordId, StringComparison.Ordinal));
+    }
+
+    private static string RenderManagedForwardingArgument(ParameterBinding parameter)
+    {
+        return parameter.Direction switch
+        {
+            BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => $"in {parameter.ManagedName}",
+            BindingParameterDirection.Ref => $"ref {parameter.ManagedName}",
+            BindingParameterDirection.Out => $"out {parameter.ManagedName}",
+            _ => parameter.ManagedName
+        };
     }
 
     private static string RenderManagedStaticTypeIdImportDeclaration(BindingCompilation compilation, RecordBinding record)
@@ -3601,8 +3621,14 @@ public static partial class BindingOutputRenderer
 
     private static bool InheritsCloneInterface(BindingCompilation compilation, RecordBinding record)
     {
+        var visited = new HashSet<string>(StringComparer.Ordinal) { record.SymbolId };
         for (var current = record.GetPrimaryBaseRecord(compilation); current is not null; current = current.GetPrimaryBaseRecord(compilation))
         {
+            if (!visited.Add(current.SymbolId))
+            {
+                break;
+            }
+
             if (current.HasCopyConstructor)
             {
                 return true;

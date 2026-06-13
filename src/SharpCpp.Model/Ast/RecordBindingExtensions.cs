@@ -7,10 +7,10 @@ public static class RecordBindingExtensions
         ArgumentNullException.ThrowIfNull(record);
         ArgumentNullException.ThrowIfNull(compilation);
 
-        return record.Bases
-            .Where(static candidate => !candidate.IsVirtual)
-            .Select(baseBinding => compilation.Records.FirstOrDefault(candidate => string.Equals(candidate.SymbolId, baseBinding.RecordId, StringComparison.Ordinal)))
-            .FirstOrDefault(static candidate => candidate is not null);
+        var primaryBase = record.Bases.FirstOrDefault(static candidate => !candidate.IsVirtual);
+        return primaryBase is null
+            ? null
+            : compilation.FindRecordBySymbolId(primaryBase.RecordId);
     }
 
     public static IReadOnlyList<RecordBinding> GetSecondaryBaseRecords(this RecordBinding record, BindingCompilation compilation)
@@ -22,7 +22,7 @@ public static class RecordBindingExtensions
 
         return record.Bases
             .Where(candidate => !candidate.IsVirtual && !ReferenceEquals(candidate, primaryBase))
-            .Select(baseBinding => compilation.Records.FirstOrDefault(candidate => string.Equals(candidate.SymbolId, baseBinding.RecordId, StringComparison.Ordinal)))
+            .Select(baseBinding => compilation.FindRecordBySymbolId(baseBinding.RecordId))
             .Where(static candidate => candidate is not null)
             .Cast<RecordBinding>()
             .ToArray();
@@ -225,9 +225,15 @@ public static class RecordBindingExtensions
     private static IReadOnlyList<RecordBinding> EnumeratePrimaryBaseChain(this RecordBinding record, BindingCompilation compilation)
     {
         var baseChain = new List<RecordBinding>();
+        var visited = new HashSet<string>(StringComparer.Ordinal) { record.SymbolId };
 
         for (var current = record.GetPrimaryBaseRecord(compilation); current is not null; current = current.GetPrimaryBaseRecord(compilation))
         {
+            if (!visited.Add(current.SymbolId))
+            {
+                break;
+            }
+
             baseChain.Insert(0, current);
         }
 

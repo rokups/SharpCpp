@@ -23,9 +23,11 @@ public static class BindingCompilationInheritancePass
 
     private static void ProjectSecondaryBaseMethods(BindingCompilation compilation, RecordBinding record)
     {
-        foreach (var secondaryBase in record.GetSecondaryBaseRecords(compilation))
+        var primaryBase = record.Bases.FirstOrDefault(static candidate => !candidate.IsVirtual);
+        foreach (var secondaryBaseBinding in record.Bases.Where(baseBinding => !baseBinding.IsVirtual && !ReferenceEquals(baseBinding, primaryBase)))
         {
-            if (secondaryBase.IsIgnored())
+            var secondaryBase = compilation.FindRecordBySymbolId(secondaryBaseBinding.RecordId);
+            if (secondaryBase is null || secondaryBase.IsIgnored())
             {
                 continue;
             }
@@ -42,7 +44,7 @@ public static class BindingCompilationInheritancePass
                     continue;
                 }
 
-                record.Members.Add(CloneProjectedMethod(compilation, record, secondaryBase, method));
+                record.Members.Add(CloneProjectedMethod(compilation, record, secondaryBase, secondaryBaseBinding.CppQualifiedName, method));
             }
         }
     }
@@ -68,7 +70,12 @@ public static class BindingCompilationInheritancePass
         }
     }
 
-    private static FunctionBinding CloneProjectedMethod(BindingCompilation compilation, RecordBinding targetRecord, RecordBinding dispatchRecord, FunctionBinding sourceMethod)
+    private static FunctionBinding CloneProjectedMethod(
+        BindingCompilation compilation,
+        RecordBinding targetRecord,
+        RecordBinding dispatchRecord,
+        string dispatchRecordCppTypeName,
+        FunctionBinding sourceMethod)
     {
         var entrypointName = $"{compilation.EntryPointPrefix}_{targetRecord.NativeName}_{dispatchRecord.NativeName}_{sourceMethod.NativeName}_projected_{++s_projectedMethodCounter}";
         var projectedMethod = new FunctionBinding(
@@ -85,7 +92,7 @@ public static class BindingCompilationInheritancePass
             IsVirtual = sourceMethod.IsVirtual,
             IsPureVirtual = sourceMethod.IsPureVirtual,
             IsConstMethod = sourceMethod.IsConstMethod,
-            NativeDispatchRecordCppTypeName = dispatchRecord.CppQualifiedName,
+            NativeDispatchRecordCppTypeName = dispatchRecordCppTypeName,
             OwningRecordCppTypeName = targetRecord.CppQualifiedName,
             IsConversionOperator = sourceMethod.IsConversionOperator,
             IsExplicitConversionOperator = sourceMethod.IsExplicitConversionOperator,

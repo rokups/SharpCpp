@@ -1,5 +1,6 @@
 using ClangSharp.Interop;
 using ClangSharp;
+using System.Collections;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -13,6 +14,114 @@ namespace SharpCpp.Parsing;
 
 public sealed partial class ClangSharpHeaderParser
 {
+    private sealed class BindingIndex<TBinding>(Func<TBinding, string?> primaryKeySelector) : IDictionary<string, TBinding>
+        where TBinding : class
+    {
+        private readonly Dictionary<string, TBinding> _lookup = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, TBinding> _primary = new(StringComparer.Ordinal);
+
+        public TBinding this[string key]
+        {
+            get => _lookup[key];
+            set
+            {
+                Remove(key);
+                Add(key, value);
+            }
+        }
+
+        public ICollection<string> Keys => _lookup.Keys;
+
+        public ICollection<TBinding> Values => _primary.Values;
+
+        public int Count => _lookup.Count;
+
+        public bool IsReadOnly => false;
+
+        public void Add(string key, TBinding value)
+        {
+            _lookup.Add(key, value);
+
+            var primaryKey = primaryKeySelector(value);
+            if (!string.IsNullOrWhiteSpace(primaryKey) && !_primary.ContainsKey(primaryKey))
+            {
+                _primary.Add(primaryKey, value);
+            }
+        }
+
+        public bool ContainsKey(string key)
+        {
+            return _lookup.ContainsKey(key);
+        }
+
+        public bool Remove(string key)
+        {
+            if (!_lookup.TryGetValue(key, out var value))
+            {
+                return false;
+            }
+
+            var aliases = _lookup
+                .Where(entry => ReferenceEquals(entry.Value, value))
+                .Select(static entry => entry.Key)
+                .ToArray();
+
+            foreach (var alias in aliases)
+            {
+                _lookup.Remove(alias);
+            }
+
+            var primaryKey = primaryKeySelector(value);
+            if (!string.IsNullOrWhiteSpace(primaryKey))
+            {
+                _primary.Remove(primaryKey);
+            }
+
+            return true;
+        }
+
+        public bool TryGetValue(string key, out TBinding value)
+        {
+            return _lookup.TryGetValue(key, out value!);
+        }
+
+        public void Add(KeyValuePair<string, TBinding> item)
+        {
+            Add(item.Key, item.Value);
+        }
+
+        public void Clear()
+        {
+            _lookup.Clear();
+            _primary.Clear();
+        }
+
+        public bool Contains(KeyValuePair<string, TBinding> item)
+        {
+            return ((ICollection<KeyValuePair<string, TBinding>>)_lookup).Contains(item);
+        }
+
+        public void CopyTo(KeyValuePair<string, TBinding>[] array, int arrayIndex)
+        {
+            ((ICollection<KeyValuePair<string, TBinding>>)_lookup).CopyTo(array, arrayIndex);
+        }
+
+        public bool Remove(KeyValuePair<string, TBinding> item)
+        {
+            return Contains(item) && Remove(item.Key);
+        }
+
+        public IEnumerator<KeyValuePair<string, TBinding>> GetEnumerator()
+        {
+            return _lookup.GetEnumerator();
+        }
+
+        IEnumerator IEnumerable.GetEnumerator()
+        {
+            return GetEnumerator();
+        }
+    }
+
     private static readonly HashSet<string> CSharpKeywords = new(StringComparer.Ordinal)
     {
         "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked", "class", "const", "continue",
@@ -91,8 +200,8 @@ public sealed partial class ClangSharpHeaderParser
             request.NativeLibraryName,
             new[] { request.HeaderIncludePath });
         compilation.EntryPointPrefix = request.EntryPointPrefix;
-        var recordsByName = new Dictionary<string, RecordBinding>(StringComparer.Ordinal);
-        var enumsByName = new Dictionary<string, EnumBinding>(StringComparer.Ordinal);
+        var recordsByName = new BindingIndex<RecordBinding>(static record => record.NativeName);
+        var enumsByName = new BindingIndex<EnumBinding>(static @enum => @enum.NativeName);
         var managedTypeOverrides = MarshallerConfigExtractor.ExtractManagedTypeOverrides(
             request.MarshallerConfigurationFiles,
             request.ClangArguments);
@@ -411,14 +520,14 @@ public sealed partial class ClangSharpHeaderParser
         if (ghostRecord?.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) == true)
         {
             ghostRecord.Detach();
-            recordsByName.Remove(ghostKey);
+            RemoveRecordKeys(recordsByName, ghostRecord);
         }
         else if (ghostRecord is not null &&
                  ghostRecord.GetMetadata<bool>(MetadataKeys.ForwardDeclaration) &&
                  !isForwardDeclaration)
         {
             ghostRecord.Detach();
-            recordsByName.Remove(ghostKey);
+            RemoveRecordKeys(recordsByName, ghostRecord);
         }
         else if (ghostRecord is not null)
         {
@@ -441,12 +550,12 @@ public sealed partial class ClangSharpHeaderParser
         CheckAndApplyIgnoreAttribute(recordDecl, record);
         TryApplyRename(recordDecl, record);
         ExtractAndApplyDocumentation(recordDecl, record);
-        recordsByName.Add(nativeName, record);
+        IndexRecordKeys(recordsByName, record);
         record.HeaderIncludePath = headerIncludePath;
         compilation.Members.Add(record);
 
         ApplyDestructorMetadata(cxxRecord, record);
-        PopulateRecordBases(cxxRecord, record, recordsByName);
+        PopulateRecordBases(cxxRecord, record, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
         PopulateRecordMembers(recordDecl, record, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters, entryPointPrefix);
 
         UpdatePolymorphism(record, recordsByName);
@@ -489,14 +598,14 @@ public sealed partial class ClangSharpHeaderParser
         if (ghostRecord?.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) == true)
         {
             ghostRecord.Detach();
-            recordsByName.Remove(ghostKey);
+            RemoveRecordKeys(recordsByName, ghostRecord);
         }
         else if (ghostRecord is not null &&
                  ghostRecord.GetMetadata<bool>(MetadataKeys.ForwardDeclaration) &&
                  !isForwardDeclaration)
         {
             ghostRecord.Detach();
-            recordsByName.Remove(ghostKey);
+            RemoveRecordKeys(recordsByName, ghostRecord);
         }
         else if (ghostRecord is not null)
         {
@@ -534,13 +643,13 @@ public sealed partial class ClangSharpHeaderParser
         CheckAndApplyIgnoreAttribute(classTemplate, record);
         TryApplyRename(classTemplate, record);
         ExtractAndApplyDocumentation(classTemplate, record);
-        recordsByName.Add(nativeName, record);
+        IndexRecordKeys(recordsByName, record);
         record.HeaderIncludePath = headerIncludePath;
         compilation.Members.Add(record);
 
         var genericParameters = CreateGenericParameterScope(templateParameters);
         ApplyDestructorMetadata(templatedRecord as CXXRecordDecl, record);
-        PopulateRecordBases(templatedRecord as CXXRecordDecl, record, recordsByName);
+        PopulateRecordBases(templatedRecord as CXXRecordDecl, record, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
         PopulateRecordMembers(templatedRecord, record, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
 
         UpdatePolymorphism(record, recordsByName);
@@ -549,7 +658,10 @@ public sealed partial class ClangSharpHeaderParser
     private static void PopulateRecordBases(
         CXXRecordDecl? cxxRecord,
         RecordBinding record,
-        IDictionary<string, RecordBinding> recordsByName)
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        IReadOnlyDictionary<string, BindingType> genericParameters)
     {
         if (cxxRecord is null)
         {
@@ -559,19 +671,29 @@ public sealed partial class ClangSharpHeaderParser
         foreach (var baseSpec in cxxRecord.Bases)
         {
             var baseTypeName = GetRecordQualifiedName(baseSpec.Type.Handle, recordsByName);
+            var baseCppTypeName = ResolveQualifiedTypeName(baseSpec.Type.Handle, recordsByName);
+            var (baseManagedType, baseIgnoreReason) = TryMapType(baseSpec.Type.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
             if (!recordsByName.TryGetValue(baseTypeName, out var baseRecord))
             {
                 var baseQualifiedName = NormalizeNamedTypeName(baseSpec.Type.Handle.Spelling.ToString());
                 baseRecord = new RecordBinding($"record:{baseTypeName}", baseTypeName, ToPascalCase(baseTypeName), baseQualifiedName);
                 baseRecord.SetMetadata(MetadataKeys.PlaceholderRecord, true);
-                recordsByName.Add(baseTypeName, baseRecord);
+                IndexRecordKeys(recordsByName, baseRecord);
             }
 
-            record.Bases.Add(new RecordBaseBinding(baseRecord.SymbolId, baseRecord.NativeName, baseRecord.ManagedName, baseRecord.CppQualifiedName, baseSpec.IsVirtual));
+            record.Bases.Add(new RecordBaseBinding(
+                baseRecord.SymbolId,
+                baseRecord.NativeName,
+                baseIgnoreReason is null ? baseManagedType.ManagedTypeName : baseRecord.ManagedName,
+                baseCppTypeName,
+                baseSpec.IsVirtual));
 
-            if (record.ManagedBaseTypeName is null && !baseSpec.IsVirtual && !baseRecord.HasMetadata(MetadataKeys.PlaceholderRecord))
+            if (baseIgnoreReason is null &&
+                record.ManagedBaseTypeName is null &&
+                !baseSpec.IsVirtual &&
+                !baseRecord.HasMetadata(MetadataKeys.PlaceholderRecord))
             {
-                record.ManagedBaseTypeName = baseRecord.ManagedName;
+                record.ManagedBaseTypeName = baseManagedType.ManagedTypeName;
             }
         }
     }
@@ -1824,7 +1946,7 @@ public sealed partial class ClangSharpHeaderParser
                     // placeholder passes namespace-exclusion checks in the pipeline.
                     record = new RecordBinding($"record:{recordName}", recordName, ToPascalCase(recordName), recordName);
                     record.SetMetadata(MetadataKeys.PlaceholderRecord, true);
-                    recordsByName.Add(recordName, record);
+                    IndexRecordKeys(recordsByName, record);
                 }
 
                 var genericArguments = record.HasMetadata(MetadataKeys.PlaceholderRecord)
@@ -1856,7 +1978,7 @@ public sealed partial class ClangSharpHeaderParser
             {
                 record = new RecordBinding($"record:{recordName}", recordName, ToPascalCase(recordName), recordName);
                 record.SetMetadata(MetadataKeys.PlaceholderRecord, true);
-                recordsByName.Add(recordName, record);
+                IndexRecordKeys(recordsByName, record);
             }
 
             var genericArguments = record.HasMetadata(MetadataKeys.PlaceholderRecord)
@@ -1946,7 +2068,7 @@ public sealed partial class ClangSharpHeaderParser
             };
             ApplySyntheticGenericParameters(record, managedTypeOverride.TemplateParameterNames);
             record.SetMetadata(MetadataKeys.PlaceholderRecord, true);
-            recordsByName[recordName] = record;
+            IndexRecordKeys(recordsByName, record);
         }
         else
         {
@@ -2810,9 +2932,52 @@ public sealed partial class ClangSharpHeaderParser
             }
         }
 
-        enumsByName.Add(nativeName, @enum);
+        IndexEnumKeys(enumsByName, @enum);
         @enum.HeaderIncludePath = headerIncludePath;
         compilation.Members.Add(@enum);
+    }
+
+    private static void IndexRecordKeys(IDictionary<string, RecordBinding> recordsByName, RecordBinding record)
+    {
+        TryAddBindingKey(recordsByName, record.NativeName, record);
+        TryAddBindingKey(recordsByName, record.CppQualifiedName, record);
+    }
+
+    private static void RemoveRecordKeys(IDictionary<string, RecordBinding> recordsByName, RecordBinding record)
+    {
+        var keys = recordsByName
+            .Where(entry => ReferenceEquals(entry.Value, record))
+            .Select(static entry => entry.Key)
+            .ToArray();
+
+        foreach (var key in keys)
+        {
+            recordsByName.Remove(key);
+        }
+    }
+
+    private static void IndexEnumKeys(IDictionary<string, EnumBinding> enumsByName, EnumBinding @enum)
+    {
+        TryAddBindingKey(enumsByName, @enum.NativeName, @enum);
+        TryAddBindingKey(enumsByName, @enum.CppQualifiedName, @enum);
+    }
+
+    private static void TryAddBindingKey<T>(IDictionary<string, T> dictionary, string? key, T value)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return;
+        }
+
+        if (dictionary.TryGetValue(key, out var existing) && ReferenceEquals(existing, value))
+        {
+            return;
+        }
+
+        if (!dictionary.ContainsKey(key))
+        {
+            dictionary.Add(key, value);
+        }
     }
 
     private static string FormatEnumValue(string underlyingTypeName, EnumConstantDecl enumConstant)
@@ -3006,7 +3171,9 @@ public sealed partial class ClangSharpHeaderParser
         var separatorIndex = expression.LastIndexOf("::", StringComparison.Ordinal);
         if (separatorIndex < 0)
         {
-            return expression;
+            return Regex.IsMatch(expression, "^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.CultureInvariant)
+                ? $"{managedTypeName}.{ToPascalCase(expression)}"
+                : expression;
         }
 
         var valueName = expression[(separatorIndex + 2)..];

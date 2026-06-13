@@ -258,7 +258,9 @@ public static class DegradeUnsupportedSurfacePass
 
         foreach (var baseBinding in record.Bases)
         {
-            if (!recordsById.TryGetValue(baseBinding.RecordId, out var baseRecord) || baseRecord.IsIgnored())
+            if (!recordsById.TryGetValue(baseBinding.RecordId, out var baseRecord) ||
+                baseRecord.IsIgnored() ||
+                (baseRecord.GetMetadata<bool>(MetadataKeys.SuppressEmission) && !IsMarshallerBackedWrapperSurface(baseRecord)))
             {
                 unavailableBases.Add(baseBinding);
             }
@@ -368,10 +370,15 @@ public static class DegradeUnsupportedSurfacePass
             }
         }
 
-        if (type.ManagedTypeName.Contains("::", StringComparison.Ordinal) &&
-            !type.ManagedTypeName.StartsWith("global::", StringComparison.Ordinal))
+        if (HasUnresolvedNamespaceColons(type))
         {
             reason = $"managed type name '{type.ManagedTypeName}' is not yet renderer-ready C#";
+            return true;
+        }
+
+        if (HasRefStructGenericArgument(type))
+        {
+            reason = $"managed type name '{type.ManagedTypeName}' contains a ref struct generic argument which is not yet supported in this bootstrap surface";
             return true;
         }
 
@@ -557,6 +564,77 @@ public static class DegradeUnsupportedSurfacePass
                         parameter.AbiKind,
                         parameter.Type.Kind,
                         parameter.Type.ManagedTypeName))));
+    }
+
+    /// <summary>
+    /// Checks whether a <see cref="BindingType"/>'s managed type name contains
+    /// C++ namespace separators ("::") that are not valid in C#.  Works with
+    /// the structural type tree rather than the flat formatted string:
+    /// examines each type's own <see cref="MarshallerDescriptor.PublicTypeName"/>
+    /// (without generic argument expansion) and recurses into generic arguments.
+    /// This correctly accepts types like
+    /// <c>Ea.Vector&lt;global::Urho3D.Math.StringHash&gt;</c> where the only
+    /// "::" is the valid <c>global::</c> prefix on generic type arguments.
+    /// </summary>
+    private static bool HasUnresolvedNamespaceColons(BindingType type)
+    {
+        // Generic parameters are resolved at instantiation time — nothing to
+        // check at the generic-definition level.
+        if (type.Kind == BindingTypeKind.GenericParameter)
+        {
+            return false;
+        }
+
+        // Check this type's own public name (without generic arguments).
+        var publicName = type.Marshaller.PublicTypeName;
+        if (publicName.Contains("::", StringComparison.Ordinal) &&
+            !publicName.StartsWith("global::", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        // Recurse into generic type arguments — each argument is individually
+        // a BindingType that must also have a renderer-ready managed name.
+        foreach (var argument in type.GenericArguments)
+        {
+            if (HasUnresolvedNamespaceColons(argument))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks whether a type (or any of its generic arguments) uses a ref struct
+    /// as a generic type argument.  C# does not allow ref structs (e.g.
+    /// <see cref="Span{T}"/>, <see cref="ReadOnlySpan{T}"/>) to be used as type
+    /// parameters, so any <c>Container&lt;ReadOnlySpan&lt;byte&gt;&gt;</c>
+    /// instantiation would produce invalid C#.
+    /// </summary>
+    private static bool HasRefStructGenericArgument(BindingType type)
+    {
+        foreach (var argument in type.GenericArguments)
+        {
+            // The only ref struct currently mapped through the marshaller
+            // system is ReadOnlySpan<byte> (from const char*).  We check
+            // by ManagedTypeName because there is no general-purpose
+            // "is ref struct" flag on BindingType in this bootstrap surface.
+            if (argument.Kind == BindingTypeKind.Primitive &&
+                argument.PrimitiveKind == BindingPrimitiveKind.Unsupported &&
+                argument.ManagedTypeName is "global::System.ReadOnlySpan<byte>")
+            {
+                return true;
+            }
+
+            if (HasRefStructGenericArgument(argument))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
 }

@@ -51,6 +51,7 @@ if(NOT RBFX_USERCODE_GENERATED_CPP_FILES)
   file(WRITE "${RBFX_USERCODE_GENERATED_ROOT}/.stub.cpp" "// stub - replaced by generator\n")
   set(RBFX_USERCODE_GENERATED_CPP_FILES "${RBFX_USERCODE_GENERATED_ROOT}/.stub.cpp")
 endif()
+set_source_files_properties(${RBFX_USERCODE_GENERATED_CPP_FILES} PROPERTIES OBJECT_DEPENDS "${RBFX_USERCODE_GENERATED_STAMP}")
 
 add_library(SharpCppRbfxUserCode_Native SHARED ${RBFX_USERCODE_GENERATED_CPP_FILES} "${RBFX_USERCODE_NATIVE_SOURCE}")
 add_dependencies(SharpCppRbfxUserCode_Native sharpcpp-generate-rbfx-usercode sharpcpp-rbfx-runtime)

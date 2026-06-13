@@ -33,6 +33,7 @@ public static class BindingCompilationBootstrapPipeline
         RunTimed("InheritManagedRuntimePolicy", () => InheritManagedRuntimePolicyPass.Apply(compilation));
         RunTimed("Polymorphism", () => BindingCompilationPolymorphismPass.Apply(compilation));
         RunTimed("ValidateBootstrap", () => ValidateBootstrapSurfacePass.Apply(compilation));
+        RunTimed("DegradeValidatedSurface", () => DegradeUnsupportedSurfacePass.Apply(compilation));
 
         // Invalidate cached member lookups so rendering picks up any members
         // added by pipeline passes (MI projections, generic instantiations, etc.)
@@ -42,6 +43,7 @@ public static class BindingCompilationBootstrapPipeline
     private static void RunTimed(string name, Action action)
     {
         var sw = Stopwatch.StartNew();
+        Logger.LogInformation("Pass '{Name}' starting", name);
         try
         {
             action();
@@ -51,10 +53,7 @@ public static class BindingCompilationBootstrapPipeline
             Logger.LogWarning("Pass '{Name}' FAILED after {Duration}", name, FormatDuration(sw.Elapsed));
             throw;
         }
-        if (sw.Elapsed.TotalMilliseconds >= 200)
-        {
-            Logger.LogInformation("Pass '{Name}' completed in {Duration}", name, FormatDuration(sw.Elapsed));
-        }
+        Logger.LogInformation("Pass '{Name}' completed in {Duration}", name, FormatDuration(sw.Elapsed));
     }
 
     private static string FormatDuration(TimeSpan elapsed) => elapsed.TotalSeconds < 1 ? $"{elapsed.TotalMilliseconds:F0}ms" : $"{elapsed.TotalSeconds:F1}s";

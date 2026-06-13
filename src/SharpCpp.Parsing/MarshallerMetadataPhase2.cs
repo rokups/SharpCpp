@@ -654,8 +654,23 @@ public static class MarshallerMetadataPhase2
                 record.HandleMarshallerTypeName);
         }
 
-        type.SetManagedTypeFormatOverride(record.ManagedTypeFormat ?? record.ManagedName);
+        type.SetManagedTypeFormatOverride(GetManagedTypeFormatOverride(record));
         return type;
+    }
+
+    private static string GetManagedTypeFormatOverride(RecordBinding record)
+    {
+        if (!string.IsNullOrWhiteSpace(record.ManagedTypeFormat))
+        {
+            return record.ManagedTypeFormat!;
+        }
+
+        if (!record.IsGeneric)
+        {
+            return record.ManagedName;
+        }
+
+        return $"{record.ManagedName}<{string.Join(", ", record.GenericParameters.Select(static parameter => $"{{{parameter.Position}}}"))}>";
     }
 
     private static string StripGenericArguments(string name)
