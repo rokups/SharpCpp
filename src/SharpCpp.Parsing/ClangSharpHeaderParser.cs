@@ -1908,7 +1908,8 @@ public sealed partial class ClangSharpHeaderParser
 
         if (TypeIsLValueReference(normalizedType))
         {
-            return MapType(normalizedType.PointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+            return MapType(normalizedType.PointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters)
+                .WithCppIsRecordValue(false);
         }
 
         if (TypeIsPointer(normalizedType))
@@ -1985,8 +1986,8 @@ public sealed partial class ClangSharpHeaderParser
                 ? Array.Empty<BindingType>()
                 : TryParseGenericArguments(concreteRecordTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
             return genericArguments.Count == 0
-                ? record.HandleType
-                : BindingType.CreateHandle($"{NormalizeTypeName(normalizedType.Spelling.ToString())}*", record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments);
+                ? record.HandleType.WithCppIsRecordValue(true)
+                : BindingType.CreateHandle($"{NormalizeTypeName(normalizedType.Spelling.ToString())}*", record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments, cppIsRecordValue: true);
         }
 
         if (TypeIsEnum(normalizedType))

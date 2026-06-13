@@ -405,12 +405,13 @@ public static class DegradeUnsupportedSurfacePass
             return true;
         }
 
-        if (disallowNonPointerHandles && type.Kind == BindingTypeKind.Handle && !rawCppTypeName.Contains('*', StringComparison.Ordinal))
+        if (disallowNonPointerHandles && type.Kind == BindingTypeKind.Handle &&
+            type.Marshaller.CppIsRecordValue)
         {
             if (!recordsById.TryGetValue(type.RecordId ?? string.Empty, out var wrapperRecord) ||
                 !IsMarshallerBackedWrapperSurface(wrapperRecord))
             {
-                reason = $"record value/reference type '{rawCppTypeName}' is not yet supported";
+                reason = $"record value type '{rawCppTypeName}' is not yet supported";
                 return true;
             }
         }

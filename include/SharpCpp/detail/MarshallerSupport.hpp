@@ -91,7 +91,7 @@ constexpr decltype(auto) InvokeWithMarshallersImpl(
     std::index_sequence<TIndices...>,
     TAbiArgs&&... abiArguments)
 {
-    auto invoke_fn = [&]() -> decltype(auto)
+    auto invoke_fn = [&]() -> TResult
     {
         return std::invoke(
             std::forward<TCallable>(callable),
@@ -119,24 +119,40 @@ constexpr decltype(auto) InvokeMemberWithMarshallersImpl(
     std::index_sequence<TIndices...>,
     TAbiArgs&&... abiArguments)
 {
-    auto invoke_fn = [&]() -> decltype(auto)
-    {
-        return std::invoke(
-            method,
-            std::forward<TObject>(instance),
-            std::get<TIndices>(marshallers).ConvertToCpp(std::forward<TAbiArgs>(abiArguments))...);
-    };
+    // Decay the method to a value type — the INVOKE specification
+    // requires a pointer-to-member value, not a reference-to-member.
+    // Also use direct member-access syntax (obj.*m)(args) instead of
+    // std::invoke to avoid std::invoke_result deduction issues with
+    // reference-returning member functions in template contexts.
+    std::decay_t<TMethod> m = method;
 
+    // Inlined invoke+sync — avoids lambda std::invoke_result issues.
     if constexpr (std::is_void_v<TResult>)
     {
-        InvokeAndSyncMarshallers(invoke_fn, marshallers);
+        (std::forward<TObject>(instance).*m)(
+            std::get<TIndices>(marshallers).ConvertToCpp(std::forward<TAbiArgs>(abiArguments))...);
+        SyncMarshallers(marshallers);
         return;
     }
     else
     {
         ReturnMarshaller<TResult> ret_marshaller;
-        decltype(auto) result = InvokeAndSyncMarshallers(invoke_fn, marshallers);
-        return ret_marshaller.ConvertToAbi(result);
+        if constexpr (std::is_lvalue_reference_v<TResult>)
+        {
+            auto* result = std::addressof(
+                (std::forward<TObject>(instance).*m)(
+                    std::get<TIndices>(marshallers).ConvertToCpp(std::forward<TAbiArgs>(abiArguments))...));
+            SyncMarshallers(marshallers);
+            return ret_marshaller.ConvertToAbi(static_cast<TResult>(*result));
+        }
+        else
+        {
+            auto result =
+                (std::forward<TObject>(instance).*m)(
+                    std::get<TIndices>(marshallers).ConvertToCpp(std::forward<TAbiArgs>(abiArguments))...);
+            SyncMarshallers(marshallers);
+            return ret_marshaller.ConvertToAbi(result);
+        }
     }
 }
 

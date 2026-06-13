@@ -33,7 +33,10 @@ public sealed record MarshallerDescriptor(
     string CppTypeName,
     string PublicTypeName,
     string? MarshallerTypeName = null,
-    string? ManagedMarshaller = null);
+    string? ManagedMarshaller = null)
+{
+    public bool CppIsRecordValue { get; init; }
+}
 
 public sealed class BindingType
 {
@@ -124,12 +127,16 @@ public sealed class BindingType
         string publicTypeName,
         string? recordId = null,
         string? marshallerTypeName = null,
-        IEnumerable<BindingType>? genericArguments = null)
+        IEnumerable<BindingType>? genericArguments = null,
+        bool cppIsRecordValue = false)
     {
         return new BindingType(
             BindingTypeKind.Handle,
             BindingPrimitiveKind.Unsupported,
-            new MarshallerDescriptor(cppTypeName, publicTypeName, marshallerTypeName),
+            new MarshallerDescriptor(cppTypeName, publicTypeName, marshallerTypeName)
+            {
+                CppIsRecordValue = cppIsRecordValue
+            },
             recordId,
             genericArguments: genericArguments);
     }
@@ -190,6 +197,19 @@ public sealed class BindingType
             BindingPrimitiveKind.Unsupported,
             new MarshallerDescriptor(name, name),
             genericParameterName: name);
+    }
+
+    public BindingType WithCppIsRecordValue(bool value)
+    {
+        if (Marshaller.CppIsRecordValue == value)
+            return this;
+        return new BindingType(
+            Kind,
+            PrimitiveKind,
+            Marshaller with { CppIsRecordValue = value },
+            RecordId,
+            GenericParameterName,
+            GenericArguments);
     }
 
     private string FormatManagedTypeName()

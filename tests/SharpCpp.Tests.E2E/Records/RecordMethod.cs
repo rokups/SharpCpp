@@ -51,4 +51,22 @@ public sealed class RecordMethodTests
         Assert.True(box.IsValue(10));
         Assert.False(box.IsValue(11));
     }
+
+    [Fact]
+    public void Static_method_returning_reference_works()
+    {
+        var box = CounterBox.GetReference(42);
+
+        Assert.False(box.IsNull);
+        Assert.Equal(42, box.GetValue());
+    }
+
+    [Fact]
+    public void Free_function_returning_reference_works()
+    {
+        var box = E2EBindings.GetCounterBoxRef(77);
+
+        Assert.False(box.IsNull);
+        Assert.Equal(77, box.GetValue());
+    }
 }
