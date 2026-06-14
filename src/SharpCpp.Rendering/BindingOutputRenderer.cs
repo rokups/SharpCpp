@@ -120,12 +120,6 @@ public static partial class BindingOutputRenderer
             var nsRecords = records.Where(record => (record.ManagedNamespace ?? compilation.ManagedNamespace) == ns).ToArray();
             var nsInterfaces = interfaceRecords.Where(record => (record.ManagedNamespace ?? compilation.ManagedNamespace) == ns).ToArray();
             var nsEnums = enums.Where(@enum => (@enum.ManagedNamespace ?? compilation.ManagedNamespace) == ns).ToArray();
-            var nsAliases = compilation.TypeAliases
-                .Where(alias => (alias.ManagedNamespace ?? compilation.ManagedNamespace) == ns)
-                .GroupBy(static alias => alias.ManagedName, StringComparer.Ordinal)
-                .Select(static group => group.First())
-                .OrderBy(static alias => alias.ManagedName, StringComparer.Ordinal)
-                .ToArray();
 
             writer.WriteLine();
             writer.Write(
@@ -133,11 +127,6 @@ public static partial class BindingOutputRenderer
                 namespace {{ns}}
                 {
                 """);
-
-            foreach (var alias in nsAliases)
-            {
-                writer.Write($"using {alias.ManagedName} = {alias.TargetType.ManagedTypeName};");
-            }
 
             foreach (var interfaceRecord in nsInterfaces)
             {
@@ -859,31 +848,13 @@ public static partial class BindingOutputRenderer
         if (aliases.Length > 0)
         {
             writer.WriteLine();
-            var aliasNamespaces = aliases
-                .GroupBy(alias => alias.ManagedNamespace ?? compilation.ManagedNamespace, StringComparer.Ordinal)
-                .OrderBy(static group => group.Key, StringComparer.Ordinal)
-                .ToArray();
-
-            foreach (var namespaceGroup in aliasNamespaces)
+            foreach (var alias in aliases
+                .GroupBy(static a => a.ManagedName, StringComparer.Ordinal)
+                .Select(static group => group.First())
+                .OrderBy(static a => a.ManagedName, StringComparer.Ordinal))
             {
-                writer.Write($$"""
-                    namespace {{namespaceGroup.Key}}
-                    {
-                    """);
-
-                foreach (var alias in namespaceGroup
-                    .GroupBy(static alias => alias.ManagedName, StringComparer.Ordinal)
-                    .Select(static group => group.First())
-                    .OrderBy(static alias => alias.ManagedName, StringComparer.Ordinal))
-                {
-                    writer.Write($"using {alias.ManagedName} = {alias.TargetType.ManagedTypeName};");
-                }
-
-                writer.Write(
-                    """
-                    }
-                    """);
-                writer.WriteLine();
+                var qualifiedTarget = FormatGlobalTypeName(alias.TargetType, compilation);
+                writer.Write($"global using {alias.ManagedName} = {qualifiedTarget};");
             }
         }
 
@@ -906,6 +877,60 @@ public static partial class BindingOutputRenderer
             }
             """);
         return writer.ToString();
+    }
+
+    /// <summary>
+    /// Builds a fully-qualified <c>global::Ns.Type&lt;global::Ns.Arg&gt;</c>
+    /// type name that <c>global using</c> directives can resolve at the
+    /// compilation-unit level.
+    /// </summary>
+    private static string FormatGlobalTypeName(BindingType type, BindingCompilation compilation)
+    {
+        if (type.Kind == BindingTypeKind.GenericParameter)
+        {
+            return type.GenericParameterName ?? "T";
+        }
+
+        if (type.Kind == BindingTypeKind.Primitive)
+        {
+            // Primitives like "int", "float", "nuint" are globally available.
+            return type.UnaliasedManagedTypeName;
+        }
+
+        if (type.Kind == BindingTypeKind.Enum)
+        {
+            return $"global::{compilation.ManagedNamespace}.{type.UnaliasedManagedTypeName}";
+        }
+
+        if (type.Kind == BindingTypeKind.Handle && type.RecordId is not null)
+        {
+            // Use the raw Marshaller public name (without format overrides)
+            // so we don't double-prepend the managed namespace.
+            var record = compilation.Records.FirstOrDefault(r =>
+                string.Equals(r.SymbolId, type.RecordId, StringComparison.Ordinal));
+            var ns = record?.ManagedNamespace ?? compilation.ManagedNamespace;
+            var head = type.Marshaller.PublicTypeName;
+
+            // Strip generic arguments from the head — we'll rebuild them
+            // recursively with proper global qualification.
+            if (type.GenericArguments.Count > 0)
+            {
+                var genericStart = head.IndexOf('<', StringComparison.Ordinal);
+                if (genericStart >= 0)
+                {
+                    head = head[..genericStart];
+                }
+
+                var args = string.Join(", ",
+                    type.GenericArguments.Select(a => FormatGlobalTypeName(a, compilation)));
+                return $"global::{ns}.{head}<{args}>";
+            }
+
+            return $"global::{ns}.{head}";
+        }
+
+        // Fallback: managed type name as-is.
+        return type.UnaliasedManagedTypeName;
     }
 
     private static string RenderRecord(BindingCompilation compilation, RecordBinding record)

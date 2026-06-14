@@ -146,8 +146,7 @@ public sealed class BindingOutputRendererTests
 
         Assert.Contains("public static void JumpBy(in Vector3 offset)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("internal static partial void JumpBy(in global::Urho3D.Math.Vector3 offset);", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("namespace Urho3D", aliasOutput, StringComparison.Ordinal);
-        Assert.Contains("using Vector3 = global::Urho3D.Math.Vector3;", aliasOutput, StringComparison.Ordinal);
+        Assert.Contains("global using Vector3 = global::Urho3D.Math.Vector3;", aliasOutput, StringComparison.Ordinal);
     }
 
     [Fact]

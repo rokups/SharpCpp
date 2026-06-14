@@ -624,26 +624,26 @@ public static class MarshallerMetadataPhase2
             }
         }
 
-        // Prune aliases whose rendered target type name still contains C++ ::
-        // namespace separators.  These records never received a proper C#
-        // Marshaller configuration (e.g. "Eastl::pair") and would produce
-        // invalid generated code.
+        // Prune aliases that would produce invalid generated C#.  Three filters:
+        // 1. Target type name contains C++ :: separators (unconfigured records).
+        // 2. Target type contains unresolved generic parameters (open generics
+        //    leaked from alias-backed typedefs whose template arguments couldn't
+        //    be bound to concrete types during Phase 1).
+        // 3. Target type name starts with "BaseVector" (raw C++ template internals).
         for (var i = compilation.TypeAliases.Count - 1; i >= 0; i--)
         {
-            var targetName = compilation.TypeAliases[i].TargetType.ManagedTypeName;
+            var alias = compilation.TypeAliases[i];
+            var targetName = alias.TargetType.ManagedTypeName;
             var checkName = targetName.StartsWith("global::", StringComparison.Ordinal)
                 ? targetName["global::".Length..]
                 : targetName;
-            if (checkName.Contains("::", StringComparison.Ordinal))
+            if (checkName.Contains("::", StringComparison.Ordinal) ||
+                ContainsGenericParameter(alias.TargetType) ||
+                targetName.StartsWith("BaseVector", StringComparison.Ordinal))
             {
                 compilation.TypeAliases.RemoveAt(i);
             }
         }
-
-        // Apply alias surface names AFTER Phase-2 formatting so that the
-        // record-configured ManagedTypeFormat is preserved underneath while
-        // the public API surface displays the alias name.
-        ApplyAliasSurfaces(compilation);
     }
 
     /// <summary>
@@ -652,7 +652,7 @@ public static class MarshallerMetadataPhase2
     /// target.  Matching by <c>RecordId</c> works for both open and closed
     /// generic types, unlike string-based name matching.
     /// </summary>
-    private static void ApplyAliasSurfaces(BindingCompilation compilation)
+    public static void ApplyAliasSurfaces(BindingCompilation compilation)
     {
         if (compilation.TypeAliases.Count == 0)
         {
@@ -706,6 +706,24 @@ public static class MarshallerMetadataPhase2
         }
 
         return type;
+    }
+
+    private static bool ContainsGenericParameter(BindingType type)
+    {
+        if (type.Kind == BindingTypeKind.GenericParameter)
+        {
+            return true;
+        }
+
+        foreach (var argument in type.GenericArguments)
+        {
+            if (ContainsGenericParameter(argument))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static BindingType ApplyManagedTypeFormat(BindingType type, IReadOnlyDictionary<string, RecordBinding> recordsByNativeName)
