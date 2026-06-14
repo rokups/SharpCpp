@@ -903,23 +903,27 @@ public static partial class BindingOutputRenderer
 
         if (type.Kind == BindingTypeKind.Handle && type.RecordId is not null)
         {
-            // Use the raw Marshaller public name (without format overrides)
-            // so we don't double-prepend the managed namespace.
             var record = compilation.Records.FirstOrDefault(r =>
                 string.Equals(r.SymbolId, type.RecordId, StringComparison.Ordinal));
             var ns = record?.ManagedNamespace ?? compilation.ManagedNamespace;
-            var head = type.Marshaller.PublicTypeName;
+            // Use ManagedTypeName (respects format overrides), strip any
+            // existing namespace/global:: prefix to avoid double-qualification.
+            var fullName = type.ManagedTypeName;
 
-            // Strip generic arguments from the head — we'll rebuild them
-            // recursively with proper global qualification.
+            // Extract the head (before <) — generic arguments are re-qualified below.
+            var genericStart = fullName.IndexOf('<', StringComparison.Ordinal);
+            var head = genericStart >= 0 ? fullName[..genericStart] : fullName;
+
+            // Strip global:: prefix
+            if (head.StartsWith("global::", StringComparison.Ordinal))
+                head = head["global::".Length..];
+            // Strip dot-separated namespace prefix (e.g., "Ea.String" → "String")
+            var lastDot = head.LastIndexOf('.');
+            if (lastDot >= 0)
+                head = head[(lastDot + 1)..];
+
             if (type.GenericArguments.Count > 0)
             {
-                var genericStart = head.IndexOf('<', StringComparison.Ordinal);
-                if (genericStart >= 0)
-                {
-                    head = head[..genericStart];
-                }
-
                 var args = string.Join(", ",
                     type.GenericArguments.Select(a => FormatGlobalTypeName(a, compilation)));
                 return $"global::{ns}.{head}<{args}>";
@@ -2847,6 +2851,11 @@ public static partial class BindingOutputRenderer
     {
         if (compilation is not null && type.Kind is BindingTypeKind.Handle or BindingTypeKind.Enum)
         {
+            // Types that have a global-using alias should use the alias name
+            // directly — do not qualify with namespace.
+            if (HasGlobalUsingAlias(type, compilation))
+                return type.ManagedTypeName;
+
             return FormatGlobalTypeName(type, compilation);
         }
 
@@ -2858,6 +2867,22 @@ public static partial class BindingOutputRenderer
             BindingTypeKind.GenericParameter => type.ManagedTypeName,
             _ => throw new NotSupportedException($"Managed wrapper emission does not support '{type.Kind}'.")
         };
+    }
+
+    /// <summary>
+    /// Returns true when the type's managed name is a global-using alias
+    /// defined in the compilation's TypeAliases. Aliased types are accessible
+    /// by simple name everywhere — they should not receive namespace qualification.
+    /// </summary>
+    private static bool HasGlobalUsingAlias(BindingType type, BindingCompilation compilation)
+    {
+        var managedName = type.ManagedTypeName;
+        for (var i = 0; i < compilation.TypeAliases.Count; i++)
+        {
+            if (string.Equals(compilation.TypeAliases[i].ManagedName, managedName, StringComparison.Ordinal))
+                return true;
+        }
+        return false;
     }
 
     private static string GetManagedPublicReturnTypeName(BindingType type, BindingCompilation? compilation = null)
