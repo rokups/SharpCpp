@@ -3719,7 +3719,16 @@ public sealed partial class ClangSharpHeaderParser
         {
             var aliasName = NormalizeTypeName(GetCppQualifiedName(typedefNameDecl));
             var underlyingTypeName = NormalizeTypeName(typedefNameDecl.UnderlyingType.Handle.Spelling.ToString());
-            if (TryGetManagedTypeOverride(aliasName, underlyingTypeName, managedTypeOverrides, isReturn: false, out var managedTypeOverride) &&
+
+            // Only match a managed type override directly keyed on the alias name.
+            // Generic pattern matches (Step 3 of TryGetManagedTypeOverride) match
+            // the canonical underlying type, not the alias, and would incorrectly
+            // resolve open generic parameters when MapType on the underlying type
+            // already produces the correct closed instantiation.
+            var aliasWithoutConst = aliasName.StartsWith("const ", StringComparison.Ordinal)
+                ? aliasName["const ".Length..].TrimStart()
+                : aliasName;
+            if (managedTypeOverrides.TryGetValue(aliasWithoutConst, out var managedTypeOverride) &&
                 managedTypeOverride is not null)
             {
                 return CreateConfiguredOrWrapperType(
