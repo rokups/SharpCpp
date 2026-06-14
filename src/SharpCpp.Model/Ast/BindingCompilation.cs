@@ -2,6 +2,8 @@ namespace SharpCpp.Model.Ast;
 
 public sealed class BindingCompilation : BindingContainerNode
 {
+    private readonly List<BindingTypeAlias> _typeAliases = new();
+
     public BindingCompilation(
         string projectName,
         string managedNamespace,
@@ -39,6 +41,8 @@ public sealed class BindingCompilation : BindingContainerNode
     public IList<string> HeaderFiles { get; }
 
     public IList<string> NativeSupportHeaders { get; }
+
+    public IList<BindingTypeAlias> TypeAliases => _typeAliases;
 
     public IReadOnlyDictionary<string, string> NamespaceMappings { get; set; } = new Dictionary<string, string>();
 

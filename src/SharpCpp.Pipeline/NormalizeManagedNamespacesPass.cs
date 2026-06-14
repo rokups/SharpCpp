@@ -29,6 +29,11 @@ public static class NormalizeManagedNamespacesPass
 
             @enum.ManagedNamespace = ResolveManagedNamespace(@enum.CppQualifiedName, compilation.ManagedNamespace, namespaceMappings, @enum.NativeName);
         }
+
+        foreach (var alias in compilation.TypeAliases)
+        {
+            alias.ManagedNamespace = ResolveManagedNamespace(alias.CppQualifiedName, compilation.ManagedNamespace, namespaceMappings, alias.NativeName);
+        }
     }
 
     private static string ResolveManagedNamespace(

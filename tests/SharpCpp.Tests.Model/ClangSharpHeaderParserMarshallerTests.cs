@@ -378,6 +378,106 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         Assert.Equal("const eastl::vector<Urho3D::Object*>&", method.Parameters[0].CppTypeName);
     }
 
+    [Fact]
+    public void Bootstrap_pipeline_preserves_alias_backed_value_type_parameters_and_emits_alias_metadata()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"SharpCpp.Tests.Model.{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        var headerPath = Path.Combine(tempDir, "Sample.hpp");
+        var marshallerHeader = Path.Combine(tempDir, "SampleMarshallers.h");
+
+        File.WriteAllText(headerPath, """
+            #pragma once
+
+            namespace Urho3D
+            {
+            template <class T>
+            class BaseVector3
+            {
+            public:
+                T x_;
+                T y_;
+                T z_;
+            };
+
+            using Vector3 = BaseVector3<float>;
+
+            class ActionBuilder
+            {
+            public:
+                void JumpBy(const Vector3& offset);
+            };
+            }
+            """);
+
+        File.WriteAllText(marshallerHeader, """
+            #pragma once
+
+            #include "Sample.hpp"
+
+            namespace SharpCpp
+            {
+            template <class T>
+            struct Marshaller;
+
+            template <>
+            struct [[sharpcpp::managed_type(
+                public_type = "global::Urho3D.Math.Vector3",
+                marshaller_type = "global::Urho3D.Math.Vector3"
+            )]] Marshaller<Urho3D::Vector3>
+            {
+                using cpp_type = Urho3D::Vector3;
+                using abi_type = Urho3D::Vector3;
+            };
+
+            template <>
+            struct Marshaller<const Urho3D::Vector3&>
+            {
+                using cpp_type = const Urho3D::Vector3&;
+                using abi_type = const Urho3D::Vector3*;
+            };
+            }
+            """);
+
+        try
+        {
+            var parser = new ClangSharpHeaderParser();
+            var clangArgs = new[] { "-x", "c++", "-std=c++20", $"-I{tempDir}" };
+            var marshallerFiles = new[] { marshallerHeader };
+
+            var compilation = parser.Parse(new ClangSharpParseRequest(
+                ProjectName: "TestProject",
+                ManagedNamespace: "Urho3D",
+                ManagedClassName: "Bindings",
+                NativeLibraryName: "Test.Native",
+                HeaderFilePath: headerPath,
+                HeaderIncludePath: tempDir,
+                ClangArguments: clangArgs,
+                MarshallerConfigurationFiles: marshallerFiles,
+                EntryPointPrefix: "Test_"));
+
+            BindingCompilationBootstrapPipeline.Apply(compilation, marshallerFiles, clangArgs);
+
+            var actionBuilder = Assert.Single(compilation.Records.Where(static record => record.NativeName == "ActionBuilder"));
+            var jumpBy = Assert.Single(actionBuilder.Members.OfType<FunctionBinding>().Where(static function => function.NativeName == "JumpBy"));
+            Assert.False(jumpBy.IsIgnored(), $"Ignored because '{jumpBy.GetIgnoreReason()}'.");
+            Assert.Equal("Vector3", jumpBy.Parameters[0].Type.ManagedTypeName);
+            Assert.Equal("global::Urho3D.Math.Vector3", jumpBy.Parameters[0].Type.UnaliasedManagedTypeName);
+
+            var alias = Assert.Single(compilation.TypeAliases.Where(static alias => alias.CppQualifiedName == "Urho3D::Vector3"));
+            Assert.Equal("Vector3", alias.ManagedName);
+            Assert.Equal("Urho3D", alias.ManagedNamespace);
+            Assert.Equal("global::Urho3D.Math.Vector3", alias.TargetType.UnaliasedManagedTypeName);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

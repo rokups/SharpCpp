@@ -109,6 +109,48 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Managed_output_preserves_alias_shaped_public_signatures_and_emits_alias_file()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "Urho3D",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Math/Vector3.hpp" });
+        var vector3TargetType = BindingType.CreateConfigured(
+            "Urho3D::Vector3",
+            "global::Urho3D.Math.Vector3",
+            "global::Urho3D.Math.Vector3");
+        var vector3AliasType = vector3TargetType.WithManagedTypeFormatOverride("Vector3");
+        compilation.TypeAliases.Add(new BindingTypeAlias("Urho3D::Vector3", "Vector3", "Vector3", vector3TargetType));
+
+        var function = new FunctionBinding(
+            "function:jump_by",
+            "jump_by",
+            "JumpBy",
+            BindingType.Void,
+            "sharpcpp_sample_jump_by");
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:jump_by:offset",
+            "offset",
+            "offset",
+            vector3AliasType,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Reference,
+            "const Urho3D::Vector3&"));
+        compilation.Members.Add(function);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath == "SharpCppSample.Bindings.g.cs").Content;
+        var aliasOutput = files.Single(static file => file.RelativePath == "SharpCppSample.Bindings.Aliases.g.cs").Content;
+
+        Assert.Contains("public static void JumpBy(in Vector3 offset)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial void JumpBy(in global::Urho3D.Math.Vector3 offset);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("namespace Urho3D", aliasOutput, StringComparison.Ordinal);
+        Assert.Contains("using Vector3 = global::Urho3D.Math.Vector3;", aliasOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Native_output_uses_arg_t_for_const_char_pointer_parameter()
     {
         var compilation = new BindingCompilation(

@@ -107,6 +107,10 @@ public sealed class BindingType
         ? GenericParameterName ?? Marshaller.PublicTypeName
         : FormatManagedTypeName();
 
+    public string UnaliasedManagedTypeName => Kind == BindingTypeKind.GenericParameter
+        ? GenericParameterName ?? Marshaller.PublicTypeName
+        : FormatManagedTypeName(managedTypeFormatOverride: null);
+
     public string? MarshallerTypeName => Marshaller.MarshallerTypeName;
 
     public string? ManagedMarshaller => Marshaller.ManagedMarshaller;
@@ -120,6 +124,29 @@ public sealed class BindingType
     public void SetManagedTypeFormatOverride(string? managedTypeFormatOverride)
     {
         _managedTypeFormatOverride = string.IsNullOrWhiteSpace(managedTypeFormatOverride) ? null : managedTypeFormatOverride;
+    }
+
+    public BindingType WithManagedTypeFormatOverride(string? managedTypeFormatOverride)
+    {
+        var normalizedOverride = string.IsNullOrWhiteSpace(managedTypeFormatOverride)
+            ? null
+            : managedTypeFormatOverride;
+        if (string.Equals(_managedTypeFormatOverride, normalizedOverride, StringComparison.Ordinal))
+        {
+            return this;
+        }
+
+        var copy = new BindingType(
+            Kind,
+            PrimitiveKind,
+            Marshaller,
+            RecordId,
+            GenericParameterName,
+            GenericArguments)
+        {
+            _managedTypeFormatOverride = normalizedOverride
+        };
+        return copy;
     }
 
     public static BindingType CreateHandle(
@@ -212,19 +239,20 @@ public sealed class BindingType
             GenericArguments);
     }
 
-    private string FormatManagedTypeName()
+    private string FormatManagedTypeName(string? managedTypeFormatOverride = null)
     {
         // When an explicit managed type format override is set (via
         // Marshaller<T> attributes) and contains no format placeholders,
         // use it as-is — C++ template arguments don't apply to the
         // configured managed type.
-        if (_managedTypeFormatOverride is not null &&
-            !_managedTypeFormatOverride.Contains('{', StringComparison.Ordinal))
+        var effectiveFormatOverride = managedTypeFormatOverride ?? _managedTypeFormatOverride;
+        if (effectiveFormatOverride is not null &&
+            !effectiveFormatOverride.Contains('{', StringComparison.Ordinal))
         {
-            return _managedTypeFormatOverride;
+            return effectiveFormatOverride;
         }
 
-        var managedTypeFormat = _managedTypeFormatOverride ?? Marshaller.PublicTypeName;
+        var managedTypeFormat = effectiveFormatOverride ?? Marshaller.PublicTypeName;
         if (GenericArguments.Count == 0)
         {
             return managedTypeFormat;

@@ -14,6 +14,8 @@ namespace SharpCpp.Parsing;
 
 public sealed partial class ClangSharpHeaderParser
 {
+    private sealed record OwnedAliasInfo(string CppQualifiedName, string NativeName);
+
     private sealed class BindingIndex<TBinding>(Func<TBinding, string?> primaryKeySelector) : IDictionary<string, TBinding>
         where TBinding : class
     {
@@ -137,6 +139,7 @@ public sealed partial class ClangSharpHeaderParser
         new Dictionary<string, BindingType>(StringComparer.Ordinal);
 
     private static readonly Dictionary<string, string> s_typeAliases = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, OwnedAliasInfo> s_ownedManagedAliases = new(StringComparer.Ordinal);
 
     private static bool HasSharpCppAttribute(string sourceText, string attributeName)
         => SharpCppAttributeScanner.Scan(sourceText)
@@ -210,6 +213,7 @@ public sealed partial class ClangSharpHeaderParser
 
         var managedTranslationUnit = TranslationUnit.GetOrCreate(translationUnit);
         BuildTypeAliasIndex(managedTranslationUnit.TranslationUnitDecl);
+        BuildOwnedManagedAliasIndex(managedTranslationUnit.TranslationUnitDecl, ownedFileRoots);
         foreach (var child in managedTranslationUnit.TranslationUnitDecl.Decls)
         {
             if (!IsOwnedDecl(child, ownedFileRoots))
@@ -287,6 +291,8 @@ public sealed partial class ClangSharpHeaderParser
                 compilation.Members.Add(record);
             }
         }
+
+        CollectManagedTypeAliases(compilation, managedTranslationUnit.TranslationUnitDecl, ownedFileRoots, recordsByName, enumsByName, managedTypeOverrides);
 
         AssignImportMethodNames(compilation);
 
@@ -1387,6 +1393,11 @@ public sealed partial class ClangSharpHeaderParser
         IReadOnlyDictionary<string, BindingType> genericParameters,
         bool isReturn = false)
     {
+        if (TryGetUnsupportedFunctionPointerReason(type, isReturn ? "return type" : "type") is { } functionPointerReason)
+        {
+            return (CreateIgnoredFallbackType(type), functionPointerReason);
+        }
+
         try
         {
             return (MapType(type, recordsByName, enumsByName, managedTypeOverrides, genericParameters, isReturn), null);
@@ -1405,6 +1416,12 @@ public sealed partial class ClangSharpHeaderParser
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         IReadOnlyDictionary<string, BindingType> genericParameters)
     {
+        if (TryGetUnsupportedFunctionPointerReason(parameterCursor.Type, $"parameter '{parameterCursor.Spelling}'") is { } functionPointerReason)
+        {
+            var (direction, abiKind) = InferFallbackParameterPassing(functionCursor, parameterCursor);
+            return (CreateIgnoredFallbackType(parameterCursor.Type), direction, abiKind, functionPointerReason);
+        }
+
         try
         {
             var (type, direction, abiKind) = MapParameter(functionCursor, parameterCursor, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
@@ -1421,14 +1438,14 @@ public sealed partial class ClangSharpHeaderParser
     {
         var type = parameterCursor.Type;
         var normalizedType = type.CanonicalType;
-        if (TypeIsFunctionProto(normalizedType) || (TypeIsPointer(normalizedType) && TypeIsFunctionProto(normalizedType.PointeeType.CanonicalType)))
-        {
-            throw new NotSupportedException($"function pointer type '{NormalizeTypeName(type.Spelling.ToString())}' is not yet supported");
-        }
-
         var explicitDirection = TryGetPassKindOverride(functionCursor, parameterCursor, out var overrideDirection)
             ? overrideDirection
             : (BindingParameterDirection?)null;
+
+        if (TypeIsFunctionProto(normalizedType) || (TypeIsPointer(normalizedType) && TypeIsFunctionProto(normalizedType.PointeeType.CanonicalType)))
+        {
+            return (explicitDirection ?? BindingParameterDirection.In, BindingParameterAbiKind.Value);
+        }
 
         if (TypeIsLValueReference(normalizedType))
         {
@@ -1880,36 +1897,52 @@ public sealed partial class ClangSharpHeaderParser
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         IReadOnlyDictionary<string, BindingType> genericParameters,
-        bool isReturn = false)
+        bool isReturn = false,
+        bool preserveAliasSurface = true)
     {
         var normalizedType = type.CanonicalType;
-        var normalizedTypeName = NormalizeTypeName(type.Spelling.ToString());
-        var canonicalTypeName = NormalizeTypeName(normalizedType.Spelling.ToString());
-        normalizedTypeName = SelectConcreteTemplateTypeName(normalizedTypeName, ResolveAliasTypeName(normalizedTypeName));
-        canonicalTypeName = SelectConcreteTemplateTypeName(canonicalTypeName, GetUnderlyingTypeName(type));
-        var resolvedTypeName = SelectConcreteTemplateTypeName(normalizedTypeName, canonicalTypeName);
+        var spelledTypeName = NormalizeTypeName(type.Spelling.ToString());
+        var aliasResolvedTypeName = SelectConcreteTemplateTypeName(spelledTypeName, ResolveAliasTypeName(spelledTypeName));
+        var canonicalTypeName = SelectConcreteTemplateTypeName(
+            NormalizeTypeName(normalizedType.Spelling.ToString()),
+            GetUnderlyingTypeName(type));
+        var ownedAliasInfo = TryGetOwnedManagedAliasInfo(type, out var aliasInfo) ? aliasInfo : null;
+        var overrideLookupTypeName = ownedAliasInfo is not null ? spelledTypeName : aliasResolvedTypeName;
+        var resolvedTypeName = SelectConcreteTemplateTypeName(aliasResolvedTypeName, canonicalTypeName);
+        var surfaceCppTypeName = ownedAliasInfo is not null
+            ? BuildQualifiedAliasSurfaceTypeName(type, ownedAliasInfo.CppQualifiedName)
+            : resolvedTypeName;
 
-        if (TryMapGenericParameterType(normalizedTypeName, genericParameters, out var genericParameterType))
+        if (TryMapGenericParameterType(spelledTypeName, genericParameters, out var genericParameterType))
         {
             return genericParameterType;
         }
 
-        if (isReturn && TryGetManagedTypeOverride(normalizedTypeName, canonicalTypeName, managedTypeOverrides, isReturn: true, out var returnOverride))
+        if (isReturn && TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, managedTypeOverrides, isReturn: true, out var returnOverride))
         {
-            return CreateConfiguredOrWrapperType(returnOverride!, recordsByName, enumsByName, managedTypeOverrides, genericParameters, resolvedTypeName);
+            return TryApplyManagedAliasSurface(
+                type,
+                CreateConfiguredOrWrapperType(returnOverride!, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName),
+                preserveAliasSurface);
         }
 
-        TryGetManagedTypeOverride(normalizedTypeName, canonicalTypeName, managedTypeOverrides, isReturn: false, out var managedTypeOverride);
+        TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, managedTypeOverrides, isReturn: false, out var managedTypeOverride);
 
         if (managedTypeOverride is not null)
         {
-            return CreateConfiguredOrWrapperType(managedTypeOverride, recordsByName, enumsByName, managedTypeOverrides, genericParameters, resolvedTypeName);
+            return TryApplyManagedAliasSurface(
+                type,
+                CreateConfiguredOrWrapperType(managedTypeOverride, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName),
+                preserveAliasSurface);
         }
 
         if (TypeIsLValueReference(normalizedType))
         {
-            return MapType(normalizedType.PointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters)
-                .WithCppIsRecordValue(false);
+            return TryApplyManagedAliasSurface(
+                type,
+                MapType(normalizedType.PointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters, preserveAliasSurface: false)
+                    .WithCppIsRecordValue(false),
+                preserveAliasSurface);
         }
 
         if (TypeIsPointer(normalizedType))
@@ -1919,7 +1952,7 @@ public sealed partial class ClangSharpHeaderParser
                 NormalizeTypeName(pointeeType.Spelling.ToString()),
                 NormalizeTypeName(type.PointeeType.Spelling.ToString()));
             if (TryCreateSpecializedRecordHandleType(
-                    normalizedTypeName,
+                    spelledTypeName,
                     concretePointeeTypeName,
                     recordsByName,
                     enumsByName,
@@ -1927,15 +1960,16 @@ public sealed partial class ClangSharpHeaderParser
                     genericParameters,
                     out var specializedRecordHandleType))
             {
-                return specializedRecordHandleType;
+                return TryApplyManagedAliasSurface(type, specializedRecordHandleType, preserveAliasSurface);
             }
 
             if (pointeeType.kind == CXTypeKind.CXType_Void &&
                 managedTypeOverrides.TryGetValue("void*", out var voidPointerOverride))
             {
-                return BindingType.CreateConfigured(
-                    NormalizeTypeName(type.Spelling.ToString()),
-                    voidPointerOverride.PublicTypeName);
+                return TryApplyManagedAliasSurface(
+                    type,
+                    BindingType.CreateConfigured(spelledTypeName, voidPointerOverride.PublicTypeName),
+                    preserveAliasSurface);
             }
 
             if (TypeIsRecord(pointeeType))
@@ -1953,17 +1987,18 @@ public sealed partial class ClangSharpHeaderParser
                 var genericArguments = record.HasMetadata(MetadataKeys.PlaceholderRecord)
                     ? Array.Empty<BindingType>()
                     : TryParseGenericArguments(concretePointeeTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
-                return genericArguments.Count == 0
+                var recordHandleType = genericArguments.Count == 0
                     ? record.HandleType
-                    : BindingType.CreateHandle(normalizedTypeName, record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments);
+                    : BindingType.CreateHandle(spelledTypeName, record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments);
+                return TryApplyManagedAliasSurface(type, recordHandleType, preserveAliasSurface);
             }
         }
 
         if (TypeIsRecord(normalizedType))
         {
-            var concreteRecordTypeName = SelectConcreteTemplateTypeName(normalizedTypeName, canonicalTypeName);
+            var concreteRecordTypeName = SelectConcreteTemplateTypeName(resolvedTypeName, canonicalTypeName);
             if (TryCreateSpecializedRecordHandleType(
-                    $"{normalizedTypeName}*",
+                    $"{spelledTypeName}*",
                     concreteRecordTypeName,
                     recordsByName,
                     enumsByName,
@@ -1971,7 +2006,7 @@ public sealed partial class ClangSharpHeaderParser
                     genericParameters,
                     out var specializedRecordHandleType))
             {
-                return specializedRecordHandleType;
+                return TryApplyManagedAliasSurface(type, specializedRecordHandleType, preserveAliasSurface);
             }
 
             var recordName = GetRecordQualifiedName(normalizedType, recordsByName);
@@ -1985,9 +2020,10 @@ public sealed partial class ClangSharpHeaderParser
             var genericArguments = record.HasMetadata(MetadataKeys.PlaceholderRecord)
                 ? Array.Empty<BindingType>()
                 : TryParseGenericArguments(concreteRecordTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
-            return genericArguments.Count == 0
+            var recordValueType = genericArguments.Count == 0
                 ? record.HandleType.WithCppIsRecordValue(true)
-                : BindingType.CreateHandle($"{NormalizeTypeName(normalizedType.Spelling.ToString())}*", record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments, cppIsRecordValue: true);
+                : BindingType.CreateHandle($"{spelledTypeName}*", record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments, cppIsRecordValue: true);
+            return TryApplyManagedAliasSurface(type, recordValueType, preserveAliasSurface);
         }
 
         if (TypeIsEnum(normalizedType))
@@ -1995,13 +2031,13 @@ public sealed partial class ClangSharpHeaderParser
             var enumName = NormalizeNamedTypeName(normalizedType.Spelling.ToString());
             if (enumsByName.TryGetValue(enumName, out var @enum))
             {
-                return BindingType.CreateEnum(enumName, @enum.ManagedName);
+                return TryApplyManagedAliasSurface(type, BindingType.CreateEnum(enumName, @enum.ManagedName), preserveAliasSurface);
             }
 
-            return BindingType.CreateEnum(enumName, ToPascalCase(enumName));
+            return TryApplyManagedAliasSurface(type, BindingType.CreateEnum(enumName, ToPascalCase(enumName)), preserveAliasSurface);
         }
 
-        return normalizedType.kind switch
+        var primitiveType = normalizedType.kind switch
         {
             CXTypeKind.CXType_Void => BindingType.Void,
             CXTypeKind.CXType_Bool => BindingType.Boolean,
@@ -2021,6 +2057,7 @@ public sealed partial class ClangSharpHeaderParser
             CXTypeKind.CXType_ULong => BindingType.NativeUInt,
             _ => throw new NotSupportedException($"ClangSharp sample parser does not support '{normalizedType.kind}' ({normalizedType.Spelling}).")
         };
+        return TryApplyManagedAliasSurface(type, primitiveType, preserveAliasSurface);
     }
 
     private static BindingType CreateConfiguredOrWrapperType(
@@ -2147,19 +2184,24 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         var normalizedType = sourceType.CanonicalType;
-        var normalizedTypeName = NormalizeTypeName(sourceType.Spelling.ToString());
-        var canonicalTypeName = NormalizeTypeName(normalizedType.Spelling.ToString());
-        normalizedTypeName = SelectConcreteTemplateTypeName(normalizedTypeName, ResolveAliasTypeName(normalizedTypeName));
-        canonicalTypeName = SelectConcreteTemplateTypeName(canonicalTypeName, GetUnderlyingTypeName(sourceType));
+        var spelledTypeName = NormalizeTypeName(sourceType.Spelling.ToString());
+        var aliasResolvedTypeName = SelectConcreteTemplateTypeName(spelledTypeName, ResolveAliasTypeName(spelledTypeName));
+        var canonicalTypeName = SelectConcreteTemplateTypeName(
+            NormalizeTypeName(normalizedType.Spelling.ToString()),
+            GetUnderlyingTypeName(sourceType));
+        var overrideLookupTypeName = TryGetOwnedManagedAliasInfo(sourceType, out _)
+            ? spelledTypeName
+            : aliasResolvedTypeName;
+        var resolvedTypeName = SelectConcreteTemplateTypeName(aliasResolvedTypeName, canonicalTypeName);
 
         if (preferReturnOverride &&
-            TryGetManagedTypeOverride(normalizedTypeName, canonicalTypeName, managedTypeOverrides, isReturn: true, out var returnOverride) &&
+            TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, managedTypeOverrides, isReturn: true, out var returnOverride) &&
             string.Equals(returnOverride?.ReturnOwnership, "owning", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        return TryGetManagedTypeOverride(normalizedTypeName, canonicalTypeName, managedTypeOverrides, isReturn: false, out var overrideValue) &&
+        return TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, managedTypeOverrides, isReturn: false, out var overrideValue) &&
             string.Equals(overrideValue?.ReturnOwnership, "owning", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -2315,6 +2357,11 @@ public sealed partial class ClangSharpHeaderParser
 
     private static string ResolveQualifiedTypeName(CXType type, IDictionary<string, RecordBinding> recordsByName)
     {
+        if (TryGetOwnedManagedAliasInfo(type, out var aliasInfo))
+        {
+            return BuildQualifiedAliasSurfaceTypeName(type, aliasInfo.CppQualifiedName);
+        }
+
         var spelling = NormalizeTypeName(type.Spelling.ToString());
 
         if (TryGetQualifiedNamedType(type, out var unqualifiedName, out var qualifiedName))
@@ -2342,6 +2389,33 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         return spelling;
+    }
+
+    private static string BuildQualifiedAliasSurfaceTypeName(CXType type, string qualifiedAliasName)
+    {
+        var suffix = new StringBuilder();
+        var current = type;
+        while (true)
+        {
+            if (TypeIsAnyReference(current.CanonicalType))
+            {
+                suffix.Append('&');
+                current = current.PointeeType;
+                continue;
+            }
+
+            if (TypeIsPointer(current.CanonicalType))
+            {
+                suffix.Append('*');
+                current = current.PointeeType;
+                continue;
+            }
+
+            break;
+        }
+
+        var prefix = current.IsConstQualified ? "const " : string.Empty;
+        return prefix + qualifiedAliasName + suffix;
     }
 
     private static bool TryGetQualifiedNamedType(CXType type, out string unqualifiedName, out string qualifiedName)
@@ -3469,10 +3543,63 @@ public sealed partial class ClangSharpHeaderParser
         return NormalizeTypeName(underlyingType.Spelling.ToString());
     }
 
+    private static void CollectManagedTypeAliases(
+        BindingCompilation compilation,
+        Decl decl,
+        IReadOnlyList<string> ownedFileRoots,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
+    {
+        foreach (var child in decl.Decls)
+        {
+            if (child is TypedefNameDecl typedefNameDecl &&
+                IsOwnedDecl(typedefNameDecl, ownedFileRoots) &&
+                IsNamespaceOrTranslationUnitAlias(typedefNameDecl) &&
+                TryCreateManagedTypeAlias(typedefNameDecl, recordsByName, enumsByName, managedTypeOverrides, out var aliasBinding))
+            {
+                compilation.TypeAliases.Add(aliasBinding);
+            }
+
+            CollectManagedTypeAliases(compilation, child, ownedFileRoots, recordsByName, enumsByName, managedTypeOverrides);
+        }
+    }
+
+    private static void BuildOwnedManagedAliasIndex(Decl decl, IReadOnlyList<string> ownedFileRoots)
+    {
+        s_ownedManagedAliases.Clear();
+        CollectOwnedManagedAliases(decl, ownedFileRoots);
+    }
+
     private static void BuildTypeAliasIndex(Decl decl)
     {
         s_typeAliases.Clear();
         CollectTypeAliases(decl);
+    }
+
+    private static void CollectOwnedManagedAliases(Decl decl, IReadOnlyList<string> ownedFileRoots)
+    {
+        foreach (var child in decl.Decls)
+        {
+            if (child is TypedefNameDecl typedefNameDecl &&
+                IsOwnedDecl(typedefNameDecl, ownedFileRoots) &&
+                IsNamespaceOrTranslationUnitAlias(typedefNameDecl))
+            {
+                var cppQualifiedName = NormalizeTypeName(GetCppQualifiedName(typedefNameDecl));
+                var nativeName = typedefNameDecl.Name ?? typedefNameDecl.Spelling.ToString();
+                if (!string.IsNullOrWhiteSpace(cppQualifiedName) && !string.IsNullOrWhiteSpace(nativeName))
+                {
+                    s_ownedManagedAliases[cppQualifiedName] = new OwnedAliasInfo(cppQualifiedName, nativeName);
+                }
+            }
+
+            CollectOwnedManagedAliases(child, ownedFileRoots);
+        }
+    }
+
+    private static bool IsNamespaceOrTranslationUnitAlias(TypedefNameDecl typedefNameDecl)
+    {
+        return typedefNameDecl.SemanticParentCursor is NamespaceDecl or TranslationUnitDecl;
     }
 
     private static void CollectTypeAliases(Decl decl)
@@ -3537,6 +3664,153 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         return baseTypeName + suffix;
+    }
+
+    private static bool TryCreateManagedTypeAlias(
+        TypedefNameDecl typedefNameDecl,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        out BindingTypeAlias aliasBinding)
+    {
+        var cppQualifiedName = GetCppQualifiedName(typedefNameDecl);
+        var nativeName = typedefNameDecl.Name ?? typedefNameDecl.Spelling.ToString();
+        if (string.IsNullOrWhiteSpace(cppQualifiedName) || string.IsNullOrWhiteSpace(nativeName))
+        {
+            aliasBinding = null!;
+            return false;
+        }
+
+        var targetType = TryMapAliasTargetType(typedefNameDecl, recordsByName, enumsByName, managedTypeOverrides);
+        if (targetType is null || !CanRenderManagedAliasTarget(targetType))
+        {
+            aliasBinding = null!;
+            return false;
+        }
+
+        var managedName = GetManagedAliasName(nativeName);
+        if (string.Equals(managedName, targetType.UnaliasedManagedTypeName, StringComparison.Ordinal))
+        {
+            aliasBinding = null!;
+            return false;
+        }
+
+        aliasBinding = new BindingTypeAlias(cppQualifiedName, nativeName, managedName, targetType);
+        return true;
+    }
+
+    private static BindingType? TryMapAliasTargetType(
+        TypedefNameDecl typedefNameDecl,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
+    {
+        try
+        {
+            var aliasName = NormalizeTypeName(GetCppQualifiedName(typedefNameDecl));
+            var underlyingTypeName = NormalizeTypeName(typedefNameDecl.UnderlyingType.Handle.Spelling.ToString());
+            if (TryGetManagedTypeOverride(aliasName, underlyingTypeName, managedTypeOverrides, isReturn: false, out var managedTypeOverride) &&
+                managedTypeOverride is not null)
+            {
+                return CreateConfiguredOrWrapperType(
+                    managedTypeOverride,
+                    recordsByName,
+                    enumsByName,
+                    managedTypeOverrides,
+                    EmptyGenericParameters,
+                    aliasName);
+            }
+
+            return MapType(
+                typedefNameDecl.UnderlyingType.Handle,
+                recordsByName,
+                enumsByName,
+                managedTypeOverrides,
+                EmptyGenericParameters,
+                preserveAliasSurface: false);
+        }
+        catch (NotSupportedException)
+        {
+            return null;
+        }
+    }
+
+    private static BindingType TryApplyManagedAliasSurface(CXType sourceType, BindingType mappedType, bool preserveAliasSurface)
+    {
+        if (!preserveAliasSurface ||
+            !CanRenderManagedAliasTarget(mappedType) ||
+            !TryGetOwnedManagedAliasInfo(sourceType, out var aliasInfo))
+        {
+            return mappedType;
+        }
+
+        var managedAliasName = GetManagedAliasName(aliasInfo.NativeName);
+        return string.Equals(managedAliasName, mappedType.UnaliasedManagedTypeName, StringComparison.Ordinal)
+            ? mappedType
+            : mappedType.WithManagedTypeFormatOverride(managedAliasName);
+    }
+
+    private static bool TryGetQualifiedAliasType(CXType sourceType, out string unqualifiedAliasName, out string qualifiedAliasName)
+    {
+        var resolvedType = sourceType;
+        while (TypeIsAnyReference(resolvedType) || TypeIsPointer(resolvedType))
+        {
+            resolvedType = resolvedType.PointeeType;
+        }
+
+        var declaration = resolvedType.Declaration;
+        if (declaration.Kind is not (CXCursorKind.CXCursor_TypedefDecl or CXCursorKind.CXCursor_TypeAliasDecl))
+        {
+            unqualifiedAliasName = string.Empty;
+            qualifiedAliasName = string.Empty;
+            return false;
+        }
+
+        return TryPopulateQualifiedNamedType(declaration, out unqualifiedAliasName, out qualifiedAliasName);
+    }
+
+    private static string GetManagedAliasName(string nativeAliasName)
+    {
+        return EscapeManagedIdentifier(ToPascalCase(nativeAliasName));
+    }
+
+    private static bool CanRenderManagedAliasTarget(BindingType type)
+    {
+        if (type.Kind == BindingTypeKind.GenericParameter || type.GenericArguments.Count > 0)
+        {
+            return false;
+        }
+
+        var publicName = type.Marshaller.PublicTypeName;
+        if (publicName.StartsWith("BaseVector", StringComparison.Ordinal) ||
+            publicName.StartsWith("BaseIntegerVector", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (type.Kind == BindingTypeKind.Primitive)
+        {
+            return !publicName.Contains("::", StringComparison.Ordinal);
+        }
+
+        if (type.Kind == BindingTypeKind.Handle)
+        {
+            return publicName.StartsWith("global::Urho3D.Math.", StringComparison.Ordinal);
+        }
+
+        return false;
+    }
+
+    private static bool TryGetOwnedManagedAliasInfo(CXType sourceType, out OwnedAliasInfo aliasInfo)
+    {
+        if (TryGetQualifiedAliasType(sourceType, out _, out var qualifiedAliasName) &&
+            s_ownedManagedAliases.TryGetValue(NormalizeTypeName(qualifiedAliasName), out aliasInfo!))
+        {
+            return true;
+        }
+
+        aliasInfo = null!;
+        return false;
     }
 
     private static int GetTemplateSpecificityScore(string typeName)
