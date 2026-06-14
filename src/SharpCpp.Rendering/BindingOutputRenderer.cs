@@ -104,8 +104,6 @@ public static partial class BindingOutputRenderer
             #nullable enable
             using System.Runtime.InteropServices;
             using System.Runtime.InteropServices.Marshalling;
-            {{(compilation.Records.Any(static record => string.Equals(record.ManagedName, "Object", StringComparison.Ordinal) && !record.IsIgnored()) ? $"using Object = global::{compilation.ManagedNamespace}.Object;" : string.Empty)}}
-            using {{compilation.ManagedNamespace}};
             """);
 
         var recordGroups = records.GroupBy(record => record.ManagedNamespace ?? compilation.ManagedNamespace).ToArray();
@@ -713,6 +711,7 @@ public static partial class BindingOutputRenderer
         {
             WriteManagedUnexpressibleDefaultConvenienceOverloads(
                 writer,
+                compilation,
                 function,
                 signaturePrefix: $"public static {returnTypeName} {function.ManagedName}",
                 invocationPrefix: string.Empty,
@@ -721,7 +720,7 @@ public static partial class BindingOutputRenderer
                 isConstructor: false);
         }
 
-        var parameterList = RenderManagedPublicParameterList(function.Parameters);
+        var parameterList = RenderManagedPublicParameterList(function.Parameters, compilation);
         var invocationPlan = BuildManagedInvocationPlan(compilation, function.Parameters);
         var invokeArguments = string.Join(", ", invocationPlan.Arguments);
 
@@ -933,6 +932,19 @@ public static partial class BindingOutputRenderer
         return type.UnaliasedManagedTypeName;
     }
 
+    private static string QualifyRecordTypeName(BindingCompilation compilation, string typeName)
+    {
+        // Already qualified?
+        if (typeName.Contains("global::", StringComparison.Ordinal) || typeName.Contains('.', StringComparison.Ordinal))
+            return typeName;
+
+        // Look up the record by its managed name to find its namespace
+        var baseRecord = compilation.Records.FirstOrDefault(r =>
+            string.Equals(r.ManagedName, typeName, StringComparison.Ordinal));
+        var ns = baseRecord?.ManagedNamespace ?? compilation.ManagedNamespace;
+        return $"global::{ns}.{typeName}";
+    }
+
     private static string RenderRecord(BindingCompilation compilation, RecordBinding record)
     {
         if (record.IsGeneric)
@@ -970,7 +982,7 @@ public static partial class BindingOutputRenderer
         var cacheFieldModifier = hidesStaticHelpers ? "new " : string.Empty;
         var interfaceNames = record.GetSecondaryBaseRecords(compilation)
             .Where(baseRecord => !baseRecord.IsIgnored() && baseRecord.GetRenderableInterfaceMethods(compilation).Count > 0)
-            .Select(static baseRecord => baseRecord.GetManagedInterfaceName())
+            .Select(baseRecord => $"global::{(baseRecord.ManagedNamespace ?? compilation.ManagedNamespace)}.{baseRecord.GetManagedInterfaceName()}")
             .Cast<string>()
             .ToArray();
         var canEmitClone = CanEmitClone(record, isEffectivelyAbstract, canEmitDeleteThunk);
@@ -978,7 +990,7 @@ public static partial class BindingOutputRenderer
         {
             string.IsNullOrWhiteSpace(record.ManagedBaseTypeName)
                 ? "global::SharpCpp.Support.NativeObject"
-                : record.ManagedBaseTypeName
+                : QualifyRecordTypeName(compilation, record.ManagedBaseTypeName)
         };
         baseTypes.AddRange(interfaceNames);
         if (canEmitClone)
@@ -1088,7 +1100,7 @@ public static partial class BindingOutputRenderer
             }
             else
             {
-                writer.Write(RenderManagedConstructor(record, constructor, requiresDirector));
+                writer.Write(RenderManagedConstructor(compilation, record, constructor, requiresDirector));
                 pinvokeDeclarations.Add(RenderManagedConstructorImportDeclaration(compilation, constructor));
                 if (HasUnexpressibleDefaultParams(constructor) || HasUndefaultableParams(constructor))
                 {
@@ -1307,6 +1319,7 @@ public static partial class BindingOutputRenderer
         {
             WriteManagedUnexpressibleDefaultConvenienceOverloads(
                 writer,
+                compilation,
                 function,
                 signaturePrefix: $"{GetManagedVisibilityNormalized(compilation, record, function)} {memberModifier}{returnTypeName} {function.ManagedName}",
                 invocationPrefix: string.Empty,
@@ -1315,7 +1328,7 @@ public static partial class BindingOutputRenderer
                 isConstructor: false);
         }
 
-        var parameterListFull = RenderManagedPublicParameterList(function.Parameters);
+        var parameterListFull = RenderManagedPublicParameterList(function.Parameters, compilation);
 
         writer.Write($$"""
             {{GetManagedVisibilityNormalized(compilation, record, function)}} {{memberModifier}}{{returnTypeName}} {{function.ManagedName}}({{parameterListFull}})
@@ -1584,7 +1597,7 @@ public static partial class BindingOutputRenderer
             .ToArray();
     }
 
-    private static string RenderManagedConstructor(RecordBinding record, FunctionBinding function, bool requiresDirector)
+    private static string RenderManagedConstructor(BindingCompilation compilation, RecordBinding record, FunctionBinding function, bool requiresDirector)
     {
         var writer = new CodeWriter();
         WriteDocumentationComment(writer, function);
@@ -1595,7 +1608,7 @@ public static partial class BindingOutputRenderer
 
         if (HasUndefaultableParams(function))
         {
-            WriteUndefaultableConstructorOverloads(writer, record, function, constructorName, importMethodName, requiresDirector);
+            WriteUndefaultableConstructorOverloads(writer, compilation, record, function, constructorName, importMethodName, requiresDirector);
             return writer.ToString();
         }
 
@@ -1603,6 +1616,7 @@ public static partial class BindingOutputRenderer
         {
             WriteManagedUnexpressibleDefaultConvenienceOverloads(
                 writer,
+                compilation,
                 function,
                 signaturePrefix: $"{GetManagedVisibility(function.AccessModifier)} {constructorName}",
                 invocationPrefix: ": this",
@@ -1611,7 +1625,7 @@ public static partial class BindingOutputRenderer
                 isConstructor: true);
         }
 
-        var parameterList = RenderManagedPublicParameterList(function.Parameters);
+        var parameterList = RenderManagedPublicParameterList(function.Parameters, compilation);
         var invokeArguments = string.Join(", ", function.Parameters.Select(RenderManagedInvocationArgument));
         var hasHandleParams = function.Parameters.Any(static parameter => parameter.Type.Kind == BindingTypeKind.Handle);
         var hasUnexpressibleDefaults = HasUnexpressibleDefaultParams(function);
@@ -1674,6 +1688,7 @@ public static partial class BindingOutputRenderer
 
     private static void WriteUndefaultableConstructorOverloads(
         CodeWriter writer,
+        BindingCompilation compilation,
         RecordBinding record,
         FunctionBinding function,
         string constructorName,
@@ -1691,7 +1706,7 @@ public static partial class BindingOutputRenderer
         // =========================================================
         {
             var beforeParams = function.Parameters.Take(firstU).ToArray();
-            var aParamList = string.Join(", ", beforeParams.Select(RenderManagedPublicParameter));
+            var aParamList = string.Join(", ", beforeParams.Select(p => RenderManagedPublicParameter(p, compilation)));
             var aArgNames = string.Join(", ", beforeParams.Select(RenderManagedForwardingArgument));
             var aHasUnexpressible = beforeParams.Any(p => p.HasMetadata(MetadataKeys.UnexpressibleDefault));
 
@@ -1751,11 +1766,11 @@ public static partial class BindingOutputRenderer
                 var param = function.Parameters[i];
                 if (i < firstU || param.HasMetadata(MetadataKeys.UndefaultableParam))
                 {
-                    bParamParts.Add(RenderManagedPublicParameterRequired(param));
+                    bParamParts.Add(RenderManagedPublicParameterRequired(param, compilation));
                 }
                 else
                 {
-                    bParamParts.Add(RenderManagedPublicParameter(param));
+                    bParamParts.Add(RenderManagedPublicParameter(param, compilation));
                 }
             }
             var bParamList = string.Join(", ", bParamParts);
@@ -1888,7 +1903,7 @@ public static partial class BindingOutputRenderer
 
             internal static nint {{GetVirtualCallbackPointerAccessorName(method)}}(Type runtimeType)
             {
-            return HasManagedOverride(runtimeType, typeof({{ownerRecord.ManagedName}}), nameof({{ownerRecord.ManagedName}}.{{method.ManagedName}}), {{FormatReflectionParameterTypes(method)}})
+            return HasManagedOverride(runtimeType, typeof({{ownerRecord.ManagedName}}), nameof({{ownerRecord.ManagedName}}.{{method.ManagedName}}), {{FormatReflectionParameterTypes(compilation, method)}})
                 ? {{GetVirtualCallbackPointerFieldName(method)}}
                 : 0;
             }
@@ -1950,6 +1965,7 @@ public static partial class BindingOutputRenderer
         {
             WriteManagedUnexpressibleDefaultConvenienceOverloads(
                 writer,
+                compilation,
                 function,
                 signaturePrefix: $"{GetManagedVisibility(function.AccessModifier)} static {returnTypeName} {function.ManagedName}",
                 invocationPrefix: string.Empty,
@@ -1958,7 +1974,7 @@ public static partial class BindingOutputRenderer
                 isConstructor: false);
         }
 
-        var parameterList = RenderManagedPublicParameterList(function.Parameters);
+        var parameterList = RenderManagedPublicParameterList(function.Parameters, compilation);
 
         writer.Write($$"""
             {{GetManagedVisibility(function.AccessModifier)}} static {{returnTypeName}} {{function.ManagedName}}({{parameterList}})
@@ -2217,7 +2233,7 @@ public static partial class BindingOutputRenderer
         var writer = new CodeWriter();
         var parameterList = function.Parameters.Count == 0
             ? $"{recordManagedName} self"
-            : string.Join(", ", new[] { $"{recordManagedName} self" }.Concat(function.Parameters.Select(RenderManagedSafeHandleParameter)));
+            : string.Join(", ", new[] { $"{recordManagedName} self" }.Concat(function.Parameters.Select(p => RenderManagedSafeHandleParameter(p, compilation))));
         var returnTypeName = GetManagedImportTypeName(function.ReturnType);
         var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
@@ -2235,7 +2251,9 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedInstanceImportDeclaration(BindingCompilation compilation, FunctionBinding function, string recordManagedName, bool useSafeHandleParams = false)
     {
         var writer = new CodeWriter();
-        Func<ParameterBinding, string> parameterRenderer = useSafeHandleParams ? RenderManagedSafeHandleParameter : RenderManagedParameter;
+        Func<ParameterBinding, string> parameterRenderer = useSafeHandleParams
+            ? (Func<ParameterBinding, string>)(p => RenderManagedSafeHandleParameter(p))
+            : (Func<ParameterBinding, string>)(p => RenderManagedParameter(p));
         var parameterList = string.Join(
             ", ",
             new[] { $"{recordManagedName} self" }.Concat(function.Parameters.Select(parameterRenderer)));
@@ -2283,7 +2301,7 @@ public static partial class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         var interfaceBaseNames = record.GetManagedInterfaceBaseRecords(compilation)
-            .Select(static baseRecord => baseRecord.GetManagedInterfaceName())
+            .Select(baseRecord => $"global::{(baseRecord.ManagedNamespace ?? compilation.ManagedNamespace)}.{baseRecord.GetManagedInterfaceName()}")
             .ToArray();
         var baseClause = interfaceBaseNames.Length == 0
             ? string.Empty
@@ -2825,8 +2843,13 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string GetManagedWrapperTypeName(BindingType type)
+    private static string GetManagedWrapperTypeName(BindingType type, BindingCompilation? compilation = null)
     {
+        if (compilation is not null && type.Kind is BindingTypeKind.Handle or BindingTypeKind.Enum)
+        {
+            return FormatGlobalTypeName(type, compilation);
+        }
+
         return type.Kind switch
         {
             BindingTypeKind.Primitive => type.ManagedTypeName,
@@ -2837,9 +2860,9 @@ public static partial class BindingOutputRenderer
         };
     }
 
-    private static string GetManagedPublicReturnTypeName(BindingType type)
+    private static string GetManagedPublicReturnTypeName(BindingType type, BindingCompilation? compilation = null)
     {
-        return GetManagedWrapperTypeName(type);
+        return GetManagedWrapperTypeName(type, compilation);
     }
 
     /// <summary>
@@ -2891,7 +2914,7 @@ public static partial class BindingOutputRenderer
         };
     }
 
-    private static string RenderManagedSafeHandleParameter(ParameterBinding parameter)
+    private static string RenderManagedSafeHandleParameter(ParameterBinding parameter, BindingCompilation? compilation = null)
     {
         var modifier = parameter.Direction switch
         {
@@ -2902,8 +2925,8 @@ public static partial class BindingOutputRenderer
         };
         var attribute = GetManagedParameterAttribute(parameter.Type);
         var typeName = parameter.Type.Kind == BindingTypeKind.Handle
-            ? $"{GetManagedWrapperTypeName(parameter.Type)}?"
-            : GetManagedWrapperTypeName(parameter.Type);
+            ? $"{GetManagedWrapperTypeName(parameter.Type, compilation)}?"
+            : GetManagedWrapperTypeName(parameter.Type, compilation);
 
         return $"{attribute}{modifier}{typeName} {parameter.ManagedName}";
     }
@@ -2922,12 +2945,12 @@ public static partial class BindingOutputRenderer
         return $"{attribute}{modifier}{GetManagedImportTypeName(parameter.Type)} {parameter.ManagedName}";
     }
 
-    private static string RenderManagedPublicParameter(ParameterBinding parameter)
+    private static string RenderManagedPublicParameter(ParameterBinding parameter, BindingCompilation? compilation = null)
     {
-        return RenderManagedPublicParameterCore(parameter, forceRequired: false, suppressDefault: false);
+        return RenderManagedPublicParameterCore(parameter, forceRequired: false, suppressDefault: false, compilation);
     }
 
-    private static string RenderManagedPublicParameterList(IEnumerable<ParameterBinding> parameters)
+    private static string RenderManagedPublicParameterList(IEnumerable<ParameterBinding> parameters, BindingCompilation? compilation = null)
     {
         ArgumentNullException.ThrowIfNull(parameters);
 
@@ -2945,18 +2968,18 @@ public static partial class BindingOutputRenderer
             {
                 if (i < firstUnexpressibleDefault.index)
                 {
-                    parts.Add(RenderManagedPublicParameterRequired(parameter));
+                    parts.Add(RenderManagedPublicParameterRequired(parameter, compilation));
                     continue;
                 }
 
                 if (i == firstUnexpressibleDefault.index)
                 {
-                    parts.Add(RenderManagedPublicParameterNoDefault(parameter));
+                    parts.Add(RenderManagedPublicParameterNoDefault(parameter, compilation));
                     continue;
                 }
             }
 
-            parts.Add(RenderManagedPublicParameter(parameter));
+            parts.Add(RenderManagedPublicParameter(parameter, compilation));
         }
 
         return string.Join(", ", parts);
@@ -2964,6 +2987,7 @@ public static partial class BindingOutputRenderer
 
     private static void WriteManagedUnexpressibleDefaultConvenienceOverloads(
         CodeWriter writer,
+        BindingCompilation compilation,
         FunctionBinding function,
         string signaturePrefix,
         string invocationPrefix,
@@ -2974,11 +2998,11 @@ public static partial class BindingOutputRenderer
         foreach (var keepCount in GetVariantParameterIndices(function).Where(keepCount => keepCount < function.Parameters.Count))
         {
             var variantParams = function.Parameters.Take(keepCount).ToArray();
-            var parameterList = RenderManagedPublicParameterList(variantParams);
+            var parameterList = RenderManagedPublicParameterList(variantParams, compilation);
             var forwardedArgs = string.Join(
                 ", ",
                 variantParams.Select(static parameter => parameter.ManagedName)
-                    .Concat(function.Parameters.Skip(keepCount).Select(GetManagedOmittedDefaultArgument)));
+                    .Concat(function.Parameters.Skip(keepCount).Select(p => GetManagedOmittedDefaultArgument(p, compilation))));
             var overloadSignaturePrefix = signaturePrefix;
 
             if (!isConstructor &&
@@ -3028,11 +3052,11 @@ public static partial class BindingOutputRenderer
         }
     }
 
-    private static string GetManagedOmittedDefaultArgument(ParameterBinding parameter)
+    private static string GetManagedOmittedDefaultArgument(ParameterBinding parameter, BindingCompilation? compilation = null)
     {
         if (parameter.HasMetadata(MetadataKeys.UnexpressibleDefault) || parameter.ManagedDefaultValueExpression == "null")
         {
-            return $"default({GetManagedOmittedDefaultTypeName(parameter)})";
+            return $"default({GetManagedOmittedDefaultTypeName(parameter, compilation)})";
         }
 
         if (parameter.ManagedDefaultValueExpression is { Length: > 0 } defaultValueExpression)
@@ -3043,9 +3067,9 @@ public static partial class BindingOutputRenderer
         return "default";
     }
 
-    private static string GetManagedOmittedDefaultTypeName(ParameterBinding parameter)
+    private static string GetManagedOmittedDefaultTypeName(ParameterBinding parameter, BindingCompilation? compilation = null)
     {
-        var baseTypeName = GetManagedWrapperTypeName(parameter.Type);
+        var baseTypeName = GetManagedWrapperTypeName(parameter.Type, compilation);
         if (parameter.Type.IsPointerType)
         {
             return $"{baseTypeName}?";
@@ -3056,17 +3080,17 @@ public static partial class BindingOutputRenderer
             : baseTypeName;
     }
 
-    private static string RenderManagedPublicParameterRequired(ParameterBinding parameter)
+    private static string RenderManagedPublicParameterRequired(ParameterBinding parameter, BindingCompilation? compilation = null)
     {
-        return RenderManagedPublicParameterCore(parameter, forceRequired: true, suppressDefault: true);
+        return RenderManagedPublicParameterCore(parameter, forceRequired: true, suppressDefault: true, compilation);
     }
 
-    private static string RenderManagedPublicParameterNoDefault(ParameterBinding parameter)
+    private static string RenderManagedPublicParameterNoDefault(ParameterBinding parameter, BindingCompilation? compilation = null)
     {
-        return RenderManagedPublicParameterCore(parameter, forceRequired: false, suppressDefault: true);
+        return RenderManagedPublicParameterCore(parameter, forceRequired: false, suppressDefault: true, compilation);
     }
 
-    private static string RenderManagedPublicParameterCore(ParameterBinding parameter, bool forceRequired, bool suppressDefault)
+    private static string RenderManagedPublicParameterCore(ParameterBinding parameter, bool forceRequired, bool suppressDefault, BindingCompilation? compilation = null)
     {
         var modifier = parameter.Direction switch
         {
@@ -3083,8 +3107,8 @@ public static partial class BindingOutputRenderer
             parameter.Type.IsPointerType;
 
         var typeName = (!forceRequired && parameter.HasMetadata(MetadataKeys.UnexpressibleDefault)) || isNullableHandleDefault
-            ? $"{GetManagedWrapperTypeName(parameter.Type)}?"
-            : GetManagedWrapperTypeName(parameter.Type);
+            ? $"{GetManagedWrapperTypeName(parameter.Type, compilation)}?"
+            : GetManagedWrapperTypeName(parameter.Type, compilation);
 
         var signature = $"{modifier}{typeName} {parameter.ManagedName}";
 
@@ -3411,11 +3435,11 @@ public static partial class BindingOutputRenderer
             : parameter.ManagedName;
     }
 
-    private static string FormatReflectionParameterTypes(FunctionBinding method)
+    private static string FormatReflectionParameterTypes(BindingCompilation compilation, FunctionBinding method)
     {
         return method.Parameters.Count == 0
             ? "System.Array.Empty<global::System.Type>()"
-            : $"new global::System.Type[] {{ {string.Join(", ", method.Parameters.Select(parameter => $"typeof({GetManagedWrapperTypeName(parameter.Type)})"))} }}";
+            : $"new global::System.Type[] {{ {string.Join(", ", method.Parameters.Select(parameter => $"typeof({GetManagedWrapperTypeName(parameter.Type, compilation)})"))} }}";
     }
 
     private static string GetVirtualCallbackDelegateName(FunctionBinding method)
@@ -3486,7 +3510,7 @@ public static partial class BindingOutputRenderer
         var record = ResolveRecord(compilation, type);
         if (record is not null)
         {
-            return $"{GetManagedWrapperTypeName(type)}.CreateManagedWrapper({handleExpression}, ownsHandle: {ownsHandle.ToString().ToLowerInvariant()})";
+            return $"{GetManagedWrapperTypeName(type, compilation)}.CreateManagedWrapper({handleExpression}, ownsHandle: {ownsHandle.ToString().ToLowerInvariant()})";
         }
 
         return ownsHandle
@@ -4223,7 +4247,7 @@ public static partial class BindingOutputRenderer
             var beforeHasUnexpressible = beforeParams.Any(p => p.HasMetadata(MetadataKeys.UnexpressibleDefault));
 
             // Render public signature for overload A
-            var aParamList = string.Join(", ", beforeParams.Select(RenderManagedPublicParameter));
+            var aParamList = string.Join(", ", beforeParams.Select(p => RenderManagedPublicParameter(p, compilation)));
 
             if (isConstructor)
             {
@@ -4342,12 +4366,12 @@ public static partial class BindingOutputRenderer
                 if (i < firstU || param.HasMetadata(MetadataKeys.UndefaultableParam))
                 {
                     // Required: no default, non-nullable
-                    bParamParts.Add(RenderManagedPublicParameterRequired(param));
+                    bParamParts.Add(RenderManagedPublicParameterRequired(param, compilation));
                 }
                 else
                 {
                     // Normal default rules
-                    bParamParts.Add(RenderManagedPublicParameter(param));
+                    bParamParts.Add(RenderManagedPublicParameter(param, compilation));
                 }
             }
             var bParamList = string.Join(", ", bParamParts);

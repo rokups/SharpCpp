@@ -266,10 +266,10 @@ public sealed class BindingOutputRendererTests
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("public static void WritePayload(out PayloadRecord payload)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public static void WritePayload(out global::SharpCpp.Sample.PayloadRecord payload)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("internal static partial void WritePayload(out nint payload);", managedOutput, StringComparison.Ordinal);
         Assert.Contains("nint __abi_payload;", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("payload = PayloadRecord.CreateManagedWrapper(__abi_payload, ownsHandle: false);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("payload = global::SharpCpp.Sample.PayloadRecord.CreateManagedWrapper(__abi_payload, ownsHandle: false);", managedOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -324,7 +324,7 @@ public sealed class BindingOutputRendererTests
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("public partial class DerivedBox : BaseBox", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public partial class DerivedBox : global::SharpCpp.Sample.BaseBox", managedOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("Set_Count", managedOutput, StringComparison.Ordinal);
     }
 
@@ -458,7 +458,7 @@ public sealed class BindingOutputRendererTests
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("public partial class DerivedWidget : BaseWidget", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public partial class DerivedWidget : global::SharpCpp.Sample.BaseWidget", managedOutput, StringComparison.Ordinal);
         Assert.Contains("protected override bool ReleaseNativeHandle(nint handle)", managedOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("public bool OwnsHandle => OwnsNativeHandle;", managedOutput[(managedOutput.IndexOf("public partial class DerivedWidget", StringComparison.Ordinal))..], StringComparison.Ordinal);
     }
@@ -483,7 +483,7 @@ public sealed class BindingOutputRendererTests
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("return Widget.CreateManagedWrapper(__result, ownsHandle: true);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("return global::SharpCpp.Sample.Widget.CreateManagedWrapper(__result, ownsHandle: true);", managedOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -515,7 +515,7 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("internal static readonly global::SharpCpp.Support.INativeInstanceCache s_instanceCache = global::Urho3D.Interop.RefCountedInstanceCache.Shared;", managedOutput, StringComparison.Ordinal);
         Assert.Contains("PrepareForOwnedRegistration();", managedOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("protected override bool ReleaseNativeHandle(nint handle)", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("return Payload.CreateManagedWrapper(__PInvoke.Get_Child(this), ownsHandle: true);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("return global::SharpCpp.Sample.Payload.CreateManagedWrapper(__PInvoke.Get_Child(this), ownsHandle: true);", managedOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -817,7 +817,7 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("typeof(T) == typeof(int)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("typeof(T) == typeof(float)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("public T GetValue()", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("(BoxOf<T>)(object)BoxOf<int>.CreateManagedWrapper", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("(global::SharpCpp.Sample.BoxOf<T>)(object)global::SharpCpp.Sample.BoxOf<int>.CreateManagedWrapper", managedOutput, StringComparison.Ordinal);
         Assert.Contains("entry_get__1", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("entry_get__2", nativeOutput, StringComparison.Ordinal);
     }

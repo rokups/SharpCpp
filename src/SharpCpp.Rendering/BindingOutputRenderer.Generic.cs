@@ -11,7 +11,7 @@ public static partial class BindingOutputRenderer
         WriteDocumentationComment(writer, function);
         var methodTypeParams = string.Join(", ", function.GenericParameters.Select(static param => param.Name));
         var returnTypeName = GetGenericManagedReturnType(function.ReturnType);
-        var parameterList = string.Join(", ", function.Parameters.Select(RenderManagedPublicParameter));
+        var parameterList = string.Join(", ", function.Parameters.Select(p => RenderManagedPublicParameter(p, compilation)));
         var instantiations = function.SupportedGenericInstantiations.OrderBy(
             static instantiation => string.Join("|", instantiation.TypeArguments.Select(static argument => argument.CppTypeName)),
             StringComparer.Ordinal).ToArray();
@@ -26,13 +26,13 @@ public static partial class BindingOutputRenderer
         {
             var concreteParameters = function.Parameters.Select(parameter => SubstituteFunctionGenericType(parameter.Type, methodParams, instantiation)).ToArray();
             var concreteReturnType = SubstituteFunctionGenericType(function.ReturnType, methodParams, instantiation);
-            var condition = BuildFunctionInstantiationCondition(function, instantiation);
+            var condition = BuildFunctionInstantiationCondition(compilation, function, instantiation);
             var importMethodName = GetGenericImportMethodName(function, instantiation);
             var invocationArguments = new List<string>();
 
             for (var index = 0; index < function.Parameters.Count; index++)
             {
-                invocationArguments.Add(BuildGenericInvocationArgument(function.Parameters[index], concreteParameters[index]));
+                invocationArguments.Add(BuildGenericInvocationArgument(compilation, function.Parameters[index], concreteParameters[index]));
             }
 
             writer.WriteLine($"    if ({condition})");
@@ -336,7 +336,7 @@ public static partial class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         WriteDocumentationComment(writer, function);
-        var parameterList = string.Join(", ", function.Parameters.Select(RenderManagedPublicParameter));
+        var parameterList = string.Join(", ", function.Parameters.Select(p => RenderManagedPublicParameter(p, compilation)));
 
         writer.Write($$"""
             public {{record.ManagedName}}({{parameterList}})
@@ -357,8 +357,8 @@ public static partial class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         WriteDocumentationComment(writer, function);
-        var parameterList = string.Join(", ", function.Parameters.Select(RenderManagedPublicParameter));
-        var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType);
+        var parameterList = string.Join(", ", function.Parameters.Select(p => RenderManagedPublicParameter(p, compilation)));
+        var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType, compilation);
         var visibility = GetManagedVisibilityNormalized(compilation, record, function);
 
         writer.Write($$"""
@@ -375,8 +375,8 @@ public static partial class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         WriteDocumentationComment(writer, function);
-        var parameterList = string.Join(", ", function.Parameters.Select(RenderManagedPublicParameter));
-        var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType);
+        var parameterList = string.Join(", ", function.Parameters.Select(p => RenderManagedPublicParameter(p, compilation)));
+        var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType, compilation);
 
         writer.Write($$"""
             public static {{returnTypeName}} {{function.ManagedName}}({{parameterList}})
@@ -428,7 +428,7 @@ public static partial class BindingOutputRenderer
         var writer = new CodeWriter();
         foreach (var instantiation in instantiations)
         {
-            writer.WriteLine($"if ({BuildGenericInstantiationCondition(record, instantiation)})");
+            writer.WriteLine($"if ({BuildGenericInstantiationCondition(compilation, record, instantiation)})");
             writer.WriteLine("{");
             writer.WriteLine($"    var __result = {GetGenericImportAccessor(compilation)}.{GetGenericCloneImportMethodName(record, instantiation)}(this);");
             writer.WriteLine($"    return {declarationName(record)}.CreateManagedWrapper(__result, ownsHandle: true);");
@@ -445,8 +445,8 @@ public static partial class BindingOutputRenderer
         var writer = new CodeWriter();
         WriteDocumentationComment(writer, function);
         var methodTypeParams = string.Join(", ", function.GenericParameters.Select(static param => param.Name));
-        var returnTypeName = GetGenericManagedReturnType(function.ReturnType);
-        var parameterList = string.Join(", ", function.Parameters.Select(RenderManagedPublicParameter));
+        var returnTypeName = GetGenericManagedReturnType(function.ReturnType, compilation);
+        var parameterList = string.Join(", ", function.Parameters.Select(p => RenderManagedPublicParameter(p, compilation)));
         var methodInstantiations = function.SupportedGenericInstantiations.ToArray();
         var recordInstantiations = record.SupportedGenericInstantiations.OrderBy(
             static instantiation => string.Join("|", instantiation.TypeArguments.Select(static argument => argument.CppTypeName)),
@@ -478,13 +478,13 @@ public static partial class BindingOutputRenderer
                 var concreteReturnType = SubstituteGenericType(record, function.ReturnType, recordInstantiation, methodParams, methodInstantiation);
                 var concreteRecordType = record.FormatCppTypeName(recordInstantiation.TypeArguments);
 
-                var condition = BuildCombinedGenericInstantiationCondition(record, recordInstantiation, function, methodInstantiation);
+                var condition = BuildCombinedGenericInstantiationCondition(compilation, record, recordInstantiation, function, methodInstantiation);
                 var importMethodName = GetGenericMethodImportName(function, recordInstantiation, methodInstantiation);
 
                 var invocationArguments = new List<string> { $"(global::SharpCpp.Support.NativeObject)this" };
                 for (var index = 0; index < function.Parameters.Count; index++)
                 {
-                    invocationArguments.Add(BuildGenericInvocationArgument(function.Parameters[index], concreteParameters[index]));
+                    invocationArguments.Add(BuildGenericInvocationArgument(compilation, function.Parameters[index], concreteParameters[index]));
                 }
 
                 writer.WriteLine($"    if ({condition})");
@@ -547,6 +547,7 @@ public static partial class BindingOutputRenderer
     }
 
     private static string BuildCombinedGenericInstantiationCondition(
+        BindingCompilation compilation,
         RecordBinding record,
         RecordGenericInstantiationBinding recordInstantiation,
         FunctionBinding function,
@@ -556,12 +557,12 @@ public static partial class BindingOutputRenderer
 
         foreach (var index in GetManagedVisibleGenericParameterIndices(record))
         {
-            parts.Add($"typeof({record.GenericParameters[index].Name}) == typeof({GetManagedWrapperTypeName(recordInstantiation.TypeArguments[index])})");
+            parts.Add($"typeof({record.GenericParameters[index].Name}) == typeof({GetManagedWrapperTypeName(recordInstantiation.TypeArguments[index], compilation)})");
         }
 
         for (var index = 0; index < function.GenericParameters.Count; index++)
         {
-            parts.Add($"typeof({function.GenericParameters[index].Name}) == typeof({GetManagedWrapperTypeName(methodInstantiation.TypeArguments[index])})");
+            parts.Add($"typeof({function.GenericParameters[index].Name}) == typeof({GetManagedWrapperTypeName(methodInstantiation.TypeArguments[index], compilation)})");
         }
 
         return string.Join(" && ", parts);
@@ -577,17 +578,17 @@ public static partial class BindingOutputRenderer
         return $"{GetManagedImportMethodName(function)}{GetGenericInstantiationSuffix(recordInstantiation)}{GetGenericInstantiationSuffix(methodInstantiation)}";
     }
 
-    private static string GetGenericManagedReturnType(BindingType type)
+    private static string GetGenericManagedReturnType(BindingType type, BindingCompilation? compilation = null)
     {
         if (type.IsGenericParameter)
         {
             return type.GenericParameterName ?? "object";
         }
 
-        return GetManagedPublicReturnTypeName(type);
+        return GetManagedPublicReturnTypeName(type, compilation);
     }
 
-    private static string BuildFunctionInstantiationCondition(FunctionBinding function, RecordGenericInstantiationBinding instantiation)
+    private static string BuildFunctionInstantiationCondition(BindingCompilation compilation, FunctionBinding function, RecordGenericInstantiationBinding instantiation)
     {
         if (function.GenericParameters.Count == 0 || instantiation.TypeArguments.Count == 0)
         {
@@ -596,7 +597,7 @@ public static partial class BindingOutputRenderer
 
         return string.Join(
             " && ",
-            function.GenericParameters.Select((parameter, index) => $"typeof({parameter.Name}) == typeof({GetManagedWrapperTypeName(instantiation.TypeArguments[index])})"));
+            function.GenericParameters.Select((parameter, index) => $"typeof({parameter.Name}) == typeof({GetManagedWrapperTypeName(instantiation.TypeArguments[index], compilation)})"));
     }
 
     private static string RenderGenericManagedDispatchBranches(BindingCompilation compilation, RecordBinding record, FunctionBinding function, IReadOnlyList<RecordGenericInstantiationBinding> instantiations, bool includeSelf)
@@ -615,11 +616,11 @@ public static partial class BindingOutputRenderer
 
             for (var index = 0; index < function.Parameters.Count; index++)
             {
-                invocationArguments.Add(BuildGenericInvocationArgument(function.Parameters[index], concreteParameters[index]));
+                invocationArguments.Add(BuildGenericInvocationArgument(compilation, function.Parameters[index], concreteParameters[index]));
             }
 
             var importMethodName = GetGenericImportMethodName(function, instantiation);
-            writer.WriteLine($"if ({BuildGenericInstantiationCondition(record, instantiation)})");
+            writer.WriteLine($"if ({BuildGenericInstantiationCondition(compilation, record, instantiation)})");
             writer.WriteLine("{");
             var keepAliveStatements = BuildGenericKeepAliveStatements(function.Parameters, concreteParameters);
 
@@ -645,11 +646,11 @@ public static partial class BindingOutputRenderer
                 }
                 if (concreteReturnType.Kind == BindingTypeKind.Handle)
                 {
-                    writer.WriteLine($"    return ({GetManagedPublicReturnTypeName(function.ReturnType)})(object){BuildManagedHandleWrap(compilation, concreteReturnType, "__result", function.ReturnsOwnedHandle)}!;");
+                    writer.WriteLine($"    return ({GetManagedPublicReturnTypeName(function.ReturnType, compilation)})(object){BuildManagedHandleWrap(compilation, concreteReturnType, "__result", function.ReturnsOwnedHandle)}!;");
                 }
                 else
                 {
-                    writer.WriteLine($"    return ({GetManagedPublicReturnTypeName(function.ReturnType)})(object)__result!;");
+                    writer.WriteLine($"    return ({GetManagedPublicReturnTypeName(function.ReturnType, compilation)})(object)__result!;");
                 }
             }
             else if (concreteReturnType.Kind == BindingTypeKind.Handle)
@@ -662,7 +663,7 @@ public static partial class BindingOutputRenderer
                 }
                 if (function.ReturnType.RecordId == record.SymbolId && function.ReturnType.ContainsGenericParameters)
                 {
-                    writer.WriteLine($"    return ({GetManagedPublicReturnTypeName(function.ReturnType)})(object){wrapExpression}!;");
+                    writer.WriteLine($"    return ({GetManagedPublicReturnTypeName(function.ReturnType, compilation)})(object){wrapExpression}!;");
                 }
                 else
                 {
@@ -696,7 +697,7 @@ public static partial class BindingOutputRenderer
 
         foreach (var instantiation in instantiations)
         {
-            writer.WriteLine($"if ({BuildGenericInstantiationCondition(record, instantiation)})");
+            writer.WriteLine($"if ({BuildGenericInstantiationCondition(compilation, record, instantiation)})");
             writer.WriteLine("{");
             writer.WriteLine($"    {GetGenericImportAccessor(compilation)}.{GetGenericDeleteImportMethodName(record, instantiation)}(handle);");
             writer.WriteLine("    return;");
@@ -905,7 +906,7 @@ public static partial class BindingOutputRenderer
         return type;
     }
 
-    private static string BuildGenericInstantiationCondition(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    private static string BuildGenericInstantiationCondition(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
         var visibleIndices = GetManagedVisibleGenericParameterIndices(record);
         if (visibleIndices.Count == 0 || instantiation.TypeArguments.Count == 0)
@@ -915,7 +916,7 @@ public static partial class BindingOutputRenderer
 
         return string.Join(
             " && ",
-            visibleIndices.Select(index => $"typeof({record.GenericParameters[index].Name}) == typeof({GetManagedWrapperTypeName(instantiation.TypeArguments[index])})"));
+            visibleIndices.Select(index => $"typeof({record.GenericParameters[index].Name}) == typeof({GetManagedWrapperTypeName(instantiation.TypeArguments[index], compilation)})"));
     }
 
     private static IReadOnlyList<BindingGenericParameter> GetManagedVisibleGenericParameters(RecordBinding record)
@@ -972,7 +973,7 @@ public static partial class BindingOutputRenderer
         }
     }
 
-    private static string BuildGenericInvocationArgument(ParameterBinding parameter, BindingType concreteType)
+    private static string BuildGenericInvocationArgument(BindingCompilation compilation, ParameterBinding parameter, BindingType concreteType)
     {
         if (!parameter.Type.IsGenericParameter)
         {
@@ -984,7 +985,7 @@ public static partial class BindingOutputRenderer
             return $"global::SharpCpp.Support.NativeObject.GetHandle({parameter.ManagedName})";
         }
 
-        return $"({GetManagedWrapperTypeName(concreteType)})(object){parameter.ManagedName}!";
+        return $"({GetManagedWrapperTypeName(concreteType, compilation)})(object){parameter.ManagedName}!";
     }
 
     private static IReadOnlyList<string> BuildGenericKeepAliveStatements(IList<ParameterBinding> parameters, IReadOnlyList<BindingType> concreteTypes)
