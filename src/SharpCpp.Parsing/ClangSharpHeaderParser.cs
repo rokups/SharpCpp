@@ -1663,7 +1663,11 @@ public sealed partial class ClangSharpHeaderParser
 
             if (TypeIsRecord(normalizedPointeeType))
             {
-                var mappedType = MapType(normalizedPointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+                // Map the source pointee type (before canonicalization) so
+                // that managed-type-override lookups can match the original
+                // typedef name (e.g. "Urho3D::Vector3") rather than the
+                // desugared canonical name (e.g. "BaseVector3<float>").
+                var mappedType = MapType(sourcePointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
                 var abiKind = mappedType.Kind == BindingTypeKind.Primitive
                     ? BindingParameterAbiKind.Reference
                     : BindingParameterAbiKind.Value;
@@ -1693,7 +1697,7 @@ public sealed partial class ClangSharpHeaderParser
         if (TypeIsPointer(normalizedType))
         {
             var normalizedTypeName = NormalizeTypeName(type.Spelling.ToString());
-            if (TryGetManagedTypeOverride(normalizedTypeName, normalizedTypeName, managedTypeOverrides, isReturn: false, out _))
+            if (TryGetManagedTypeOverride(normalizedTypeName, normalizedTypeName, normalizedTypeName, managedTypeOverrides, isReturn: false, out _))
             {
                 var pointeeIsVoidOrRecord = TypeIsRecord(normalizedType.PointeeType.CanonicalType) ||
                     normalizedType.PointeeType.CanonicalType.kind == CXTypeKind.CXType_Void;
@@ -1728,11 +1732,12 @@ public sealed partial class ClangSharpHeaderParser
     private static bool TryGetManagedTypeOverride(
         string spelledTypeName,
         string canonicalTypeName,
+        string qualifiedSpelledTypeName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         bool isReturn,
         out ManagedTypeOverride? managedTypeOverride)
     {
-        foreach (var candidate in EnumerateManagedTypeOverrideKeys(spelledTypeName, canonicalTypeName, isReturn))
+        foreach (var candidate in EnumerateManagedTypeOverrideKeys(spelledTypeName, canonicalTypeName, qualifiedSpelledTypeName, isReturn))
         {
             if (managedTypeOverrides.TryGetValue(candidate, out managedTypeOverride))
             {
@@ -1861,10 +1866,10 @@ public sealed partial class ClangSharpHeaderParser
         return true;
     }
 
-    private static IEnumerable<string> EnumerateManagedTypeOverrideKeys(string spelledTypeName, string canonicalTypeName, bool isReturn)
+    private static IEnumerable<string> EnumerateManagedTypeOverrideKeys(string spelledTypeName, string canonicalTypeName, string qualifiedSpelledTypeName, bool isReturn)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var name in new[] { spelledTypeName, canonicalTypeName })
+        foreach (var name in new[] { spelledTypeName, canonicalTypeName, qualifiedSpelledTypeName })
         {
             foreach (var variant in EnumerateManagedTypeOverrideNameVariants(name))
             {
@@ -1923,12 +1928,21 @@ public sealed partial class ClangSharpHeaderParser
             ? BuildQualifiedAliasSurfaceTypeName(type, ownedAliasInfo.CppQualifiedName)
             : resolvedTypeName;
 
+        // When the spelled name is unqualified (no ::), derive the
+        // fully-qualified version from the underlying Clang declaration
+        // cursor so that managed-type-override lookups keyed on the
+        // fully-qualified C++ type name (e.g. "Urho3D::Vector3") still
+        // match.
+        var qualifiedSpelledTypeName = spelledTypeName.Contains("::", StringComparison.Ordinal)
+            ? spelledTypeName
+            : GetQualifiedTypeName(type, spelledTypeName);
+
         if (TryMapGenericParameterType(spelledTypeName, genericParameters, out var genericParameterType))
         {
             return genericParameterType;
         }
 
-        if (isReturn && TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, managedTypeOverrides, isReturn: true, out var returnOverride))
+        if (isReturn && TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, qualifiedSpelledTypeName, managedTypeOverrides, isReturn: true, out var returnOverride))
         {
             var mapped = CreateConfiguredOrWrapperType(returnOverride!, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName);
             // Alias surface stamping is deferred to the pipeline post-pruning.
@@ -1937,7 +1951,7 @@ public sealed partial class ClangSharpHeaderParser
                 : mapped;
         }
 
-        TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, managedTypeOverrides, isReturn: false, out var managedTypeOverride);
+        TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, qualifiedSpelledTypeName, managedTypeOverrides, isReturn: false, out var managedTypeOverride);
 
         if (managedTypeOverride is not null)
         {
@@ -2206,13 +2220,13 @@ public sealed partial class ClangSharpHeaderParser
         var resolvedTypeName = SelectConcreteTemplateTypeName(aliasResolvedTypeName, canonicalTypeName);
 
         if (preferReturnOverride &&
-            TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, managedTypeOverrides, isReturn: true, out var returnOverride) &&
+            TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, spelledTypeName, managedTypeOverrides, isReturn: true, out var returnOverride) &&
             string.Equals(returnOverride?.ReturnOwnership, "owning", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        return TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, managedTypeOverrides, isReturn: false, out var overrideValue) &&
+        return TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, spelledTypeName, managedTypeOverrides, isReturn: false, out var overrideValue) &&
             string.Equals(overrideValue?.ReturnOwnership, "owning", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -2559,6 +2573,25 @@ public sealed partial class ClangSharpHeaderParser
             .Replace("struct ", string.Empty, StringComparison.Ordinal)
             .Replace("class ", string.Empty, StringComparison.Ordinal)
             .Trim();
+    }
+
+    /// <summary>
+    /// Returns the fully-qualified C++ name for the type declaration
+    /// referenced by <paramref name="type"/>.  When the type is a typedef,
+    /// this yields the qualified alias name (e.g. "Urho3D::Vector3").
+    /// Falls back to <paramref name="fallback"/> when no declaration
+    /// cursor is available.
+    /// </summary>
+    private static string GetQualifiedTypeName(CXType type, string fallback)
+    {
+        var decl = type.Declaration;
+        if (decl.IsNull)
+        {
+            return fallback;
+        }
+
+        var qualified = GetCppQualifiedName(decl);
+        return string.IsNullOrWhiteSpace(qualified) ? fallback : NormalizeTypeName(qualified);
     }
 
     private static string NormalizeTypeName(string spelling)
@@ -3444,7 +3477,7 @@ public sealed partial class ClangSharpHeaderParser
             }
         }
 
-        if (TryGetManagedTypeOverride(normalized, normalized, managedTypeOverrides, isReturn: false, out var managedTypeOverride))
+        if (TryGetManagedTypeOverride(normalized, normalized, normalized, managedTypeOverrides, isReturn: false, out var managedTypeOverride))
         {
             return CreateConfiguredOrWrapperType(managedTypeOverride!, recordsByName, enumsByName, managedTypeOverrides, genericParameters, normalized);
         }

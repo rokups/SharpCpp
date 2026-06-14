@@ -131,7 +131,7 @@ public static class DegradeUnsupportedSurfacePass
                     continue;
                 }
 
-                if (TryGetUnsupportedFunctionReason(function, recordsById, out var reason))
+                if (TryGetUnsupportedFunctionReason(function, recordsById, compilation, out var reason))
                 {
                     function.SetIgnoreReason(reason);
                     changed = true;
@@ -157,11 +157,29 @@ public static class DegradeUnsupportedSurfacePass
     private static bool TryGetUnsupportedFunctionReason(
         FunctionBinding function,
         IReadOnlyDictionary<string, RecordBinding> recordsById,
+        BindingCompilation compilation,
         out string reason)
     {
         var functionAllowsOpenGenericTypes = function.IsGeneric || (function.Parent as RecordBinding)?.IsGeneric == true;
 
-        if (!functionAllowsOpenGenericTypes && function.ReturnType.ContainsGenericParameters)
+        // When the return type's C++ name matches a compilation-level type
+        // alias, replace the return type with the alias target so the
+        // renderer emits the proper managed type instead of the raw template
+        // internals (e.g. VariantVector → Ea.Vector<Variant> instead of
+        // Ea.Vector<T>, or Vector3 → global::Urho3D.Math.Vector3 instead of
+        // BaseVector3<float>).
+        var returnAlias = compilation.TypeAliases.FirstOrDefault(
+            alias => string.Equals(alias.NativeName, function.CppReturnTypeName, StringComparison.Ordinal) ||
+                     function.CppReturnTypeName.EndsWith("::" + alias.NativeName, StringComparison.Ordinal) ||
+                     string.Equals(alias.CppQualifiedName, function.CppReturnTypeName, StringComparison.Ordinal) ||
+                     function.CppReturnTypeName.EndsWith("::" + alias.ManagedName, StringComparison.Ordinal));
+
+        if (returnAlias is not null)
+        {
+            function.ReturnType = returnAlias.TargetType;
+        }
+
+        if (!functionAllowsOpenGenericTypes && ContainsOpenGenericParameter(function.ReturnType))
         {
             reason = $"return type is unsupported in this bootstrap surface: open generic parameter usage is not renderer-ready in a non-generic callable";
             return true;
@@ -389,22 +407,6 @@ public static class DegradeUnsupportedSurfacePass
             return true;
         }
 
-        if (type.ManagedTypeName.StartsWith("BaseVector", StringComparison.Ordinal) ||
-            type.ManagedTypeName.StartsWith("BaseIntegerVector", StringComparison.Ordinal))
-        {
-            reason = $"managed type name '{type.ManagedTypeName}' is not yet renderer-ready C#";
-            return true;
-        }
-
-        if (type.Kind == BindingTypeKind.Handle &&
-            recordsById.TryGetValue(type.RecordId ?? string.Empty, out var managedRecord) &&
-            (managedRecord.ManagedName.StartsWith("BaseVector", StringComparison.Ordinal) ||
-             managedRecord.ManagedName.StartsWith("BaseIntegerVector", StringComparison.Ordinal)))
-        {
-            reason = $"managed type name '{managedRecord.ManagedName}' is not yet renderer-ready C#";
-            return true;
-        }
-
         if (disallowNonPointerHandles && type.Kind == BindingTypeKind.Handle &&
             type.Marshaller.CppIsRecordValue)
         {
@@ -599,6 +601,34 @@ public static class DegradeUnsupportedSurfacePass
         foreach (var argument in type.GenericArguments)
         {
             if (HasUnresolvedNamespaceColons(argument))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns <c>true</c> when the type itself or any element in its
+    /// generic-argument tree is an open generic parameter (i.e.
+    /// <see cref="BindingTypeKind.GenericParameter"/>).  This is more precise
+    /// than <see cref="BindingType.ContainsGenericParameters"/> because it
+    /// directly inspects the <see cref="BindingType.Kind"/> rather than
+    /// relying on the cached property, which can produce false positives
+    /// when generic arguments are inherited from a template record's default
+    /// <c>HandleType</c>.
+    /// </summary>
+    private static bool ContainsOpenGenericParameter(BindingType type)
+    {
+        if (type.Kind == BindingTypeKind.GenericParameter)
+        {
+            return true;
+        }
+
+        foreach (var argument in type.GenericArguments)
+        {
+            if (ContainsOpenGenericParameter(argument))
             {
                 return true;
             }

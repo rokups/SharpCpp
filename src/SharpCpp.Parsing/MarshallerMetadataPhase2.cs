@@ -624,12 +624,11 @@ public static class MarshallerMetadataPhase2
             }
         }
 
-        // Prune aliases that would produce invalid generated C#.  Three filters:
+        // Prune aliases that would produce invalid generated C#.  Two filters:
         // 1. Target type name contains C++ :: separators (unconfigured records).
         // 2. Target type contains unresolved generic parameters (open generics
         //    leaked from alias-backed typedefs whose template arguments couldn't
         //    be bound to concrete types during Phase 1).
-        // 3. Target type name starts with "BaseVector" (raw C++ template internals).
         for (var i = compilation.TypeAliases.Count - 1; i >= 0; i--)
         {
             var alias = compilation.TypeAliases[i];
@@ -638,8 +637,7 @@ public static class MarshallerMetadataPhase2
                 ? targetName["global::".Length..]
                 : targetName;
             if (checkName.Contains("::", StringComparison.Ordinal) ||
-                ContainsGenericParameter(alias.TargetType) ||
-                targetName.StartsWith("BaseVector", StringComparison.Ordinal))
+                ContainsGenericParameter(alias.TargetType))
             {
                 compilation.TypeAliases.RemoveAt(i);
             }
@@ -761,9 +759,20 @@ public static class MarshallerMetadataPhase2
         // value type rather than a NativeObject-derived handle.
         if (record.GetMetadata<bool>(MetadataKeys.SuppressEmission))
         {
+            var publicName = record.ManagedTypeFormat ?? record.ManagedName;
+            if (record.IsGeneric && type.GenericArguments.Count > 0)
+            {
+                var argNames = type.GenericArguments
+                    .Select(static argument => argument.ManagedTypeName)
+                    .Cast<object>()
+                    .ToArray();
+                publicName = publicName.Contains('{', StringComparison.Ordinal)
+                    ? string.Format(System.Globalization.CultureInfo.InvariantCulture, publicName, argNames)
+                    : $"{publicName}<{string.Join(", ", type.GenericArguments.Select(static argument => argument.ManagedTypeName))}>";
+            }
             return BindingType.CreateConfigured(
                 type.CppTypeName,
-                record.ManagedTypeFormat ?? record.ManagedName,
+                publicName,
                 record.HandleMarshallerTypeName);
         }
 
