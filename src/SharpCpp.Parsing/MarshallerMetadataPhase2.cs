@@ -648,9 +648,9 @@ public static class MarshallerMetadataPhase2
 
     /// <summary>
     /// Stamps alias surface names on function/method parameter and return
-    /// types whose underlying record identity matches a registered alias
-    /// target.  Matching by <c>RecordId</c> works for both open and closed
-    /// generic types, unlike string-based name matching.
+    /// types whose underlying managed type identity matches a registered
+    /// alias target.  Matching by fully-qualified <c>ManagedTypeName</c>
+    /// ensures each closed generic instantiation gets its own alias.
     /// </summary>
     public static void ApplyAliasSurfaces(BindingCompilation compilation)
     {
@@ -659,47 +659,46 @@ public static class MarshallerMetadataPhase2
             return;
         }
 
-        // Build a lookup from record identity → alias ManagedName.
-        var aliasByRecordId = new Dictionary<string, string>(StringComparer.Ordinal);
+        // Build a lookup from target ManagedTypeName → alias ManagedName.
+        var aliasByTargetName = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var alias in compilation.TypeAliases)
         {
-            if (alias.TargetType.Kind == BindingTypeKind.Handle &&
-                alias.TargetType.RecordId is not null &&
-                !aliasByRecordId.ContainsKey(alias.TargetType.RecordId))
+            var targetName = alias.TargetType.ManagedTypeName;
+            if (!string.IsNullOrWhiteSpace(targetName) &&
+                !aliasByTargetName.ContainsKey(targetName))
             {
-                aliasByRecordId[alias.TargetType.RecordId] = alias.ManagedName;
+                aliasByTargetName[targetName] = alias.ManagedName;
             }
         }
 
-        if (aliasByRecordId.Count == 0)
+        if (aliasByTargetName.Count == 0)
         {
             return;
         }
 
         foreach (var function in compilation.Functions)
         {
-            function.ReturnType = StampAlias(function.ReturnType, aliasByRecordId);
+            function.ReturnType = StampAlias(function.ReturnType, aliasByTargetName);
             for (var i = 0; i < function.Parameters.Count; i++)
             {
-                function.Parameters[i].Type = StampAlias(function.Parameters[i].Type, aliasByRecordId);
+                function.Parameters[i].Type = StampAlias(function.Parameters[i].Type, aliasByTargetName);
             }
         }
 
         foreach (var method in compilation.Records.SelectMany(static record => record.Members.OfType<FunctionBinding>()))
         {
-            method.ReturnType = StampAlias(method.ReturnType, aliasByRecordId);
+            method.ReturnType = StampAlias(method.ReturnType, aliasByTargetName);
             for (var i = 0; i < method.Parameters.Count; i++)
             {
-                method.Parameters[i].Type = StampAlias(method.Parameters[i].Type, aliasByRecordId);
+                method.Parameters[i].Type = StampAlias(method.Parameters[i].Type, aliasByTargetName);
             }
         }
     }
 
-    private static BindingType StampAlias(BindingType type, IReadOnlyDictionary<string, string> aliasByRecordId)
+    private static BindingType StampAlias(BindingType type, IReadOnlyDictionary<string, string> aliasByTargetName)
     {
-        if (type.Kind == BindingTypeKind.Handle &&
-            type.RecordId is not null &&
-            aliasByRecordId.TryGetValue(type.RecordId, out var aliasName) &&
+        var unaliased = type.UnaliasedManagedTypeName;
+        if (aliasByTargetName.TryGetValue(unaliased, out var aliasName) &&
             !string.Equals(aliasName, type.ManagedTypeName, StringComparison.Ordinal))
         {
             return type.WithManagedTypeFormatOverride(aliasName);

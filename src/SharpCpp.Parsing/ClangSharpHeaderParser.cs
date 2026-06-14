@@ -1930,20 +1930,21 @@ public sealed partial class ClangSharpHeaderParser
 
         if (isReturn && TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, managedTypeOverrides, isReturn: true, out var returnOverride))
         {
-            return TryApplyManagedAliasSurface(
-                type,
-                CreateConfiguredOrWrapperType(returnOverride!, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName),
-                preserveAliasSurface);
+            var mapped = CreateConfiguredOrWrapperType(returnOverride!, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName);
+            // Alias surface stamping is deferred to the pipeline post-pruning.
+            return preserveAliasSurface
+                ? TryApplyManagedAliasSurface(type, mapped, preserveAliasSurface)
+                : mapped;
         }
 
         TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, managedTypeOverrides, isReturn: false, out var managedTypeOverride);
 
         if (managedTypeOverride is not null)
         {
-            return TryApplyManagedAliasSurface(
-                type,
-                CreateConfiguredOrWrapperType(managedTypeOverride, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName),
-                preserveAliasSurface);
+            var mapped = CreateConfiguredOrWrapperType(managedTypeOverride, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName);
+            return preserveAliasSurface
+                ? TryApplyManagedAliasSurface(type, mapped, preserveAliasSurface)
+                : mapped;
         }
 
         if (TypeIsLValueReference(normalizedType))
