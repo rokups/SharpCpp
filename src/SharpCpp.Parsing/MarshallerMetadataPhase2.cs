@@ -610,6 +610,102 @@ public static class MarshallerMetadataPhase2
                 method.Parameters[i].Type = ApplyManagedTypeFormat(method.Parameters[i].Type, recordsByNativeName);
             }
         }
+
+        // Update alias target types with record managed type formats, so the
+        // generated "using Alias = TargetType;" emits correctly formatted
+        // target type names (e.g. "Std.Vector<Std.String>").
+        for (var i = 0; i < compilation.TypeAliases.Count; i++)
+        {
+            var alias = compilation.TypeAliases[i];
+            var updatedTarget = ApplyManagedTypeFormat(alias.TargetType, recordsByNativeName);
+            if (!ReferenceEquals(updatedTarget, alias.TargetType))
+            {
+                compilation.TypeAliases[i] = alias with { TargetType = updatedTarget };
+            }
+        }
+
+        // Prune aliases whose rendered target type name still contains C++ ::
+        // namespace separators.  These records never received a proper C#
+        // Marshaller configuration (e.g. "Eastl::pair") and would produce
+        // invalid generated code.
+        for (var i = compilation.TypeAliases.Count - 1; i >= 0; i--)
+        {
+            var targetName = compilation.TypeAliases[i].TargetType.ManagedTypeName;
+            var checkName = targetName.StartsWith("global::", StringComparison.Ordinal)
+                ? targetName["global::".Length..]
+                : targetName;
+            if (checkName.Contains("::", StringComparison.Ordinal))
+            {
+                compilation.TypeAliases.RemoveAt(i);
+            }
+        }
+
+        // Apply alias surface names AFTER Phase-2 formatting so that the
+        // record-configured ManagedTypeFormat is preserved underneath while
+        // the public API surface displays the alias name.
+        ApplyAliasSurfaces(compilation);
+    }
+
+    /// <summary>
+    /// Stamps alias surface names on function/method parameter and return
+    /// types whose underlying record identity matches a registered alias
+    /// target.  Matching by <c>RecordId</c> works for both open and closed
+    /// generic types, unlike string-based name matching.
+    /// </summary>
+    private static void ApplyAliasSurfaces(BindingCompilation compilation)
+    {
+        if (compilation.TypeAliases.Count == 0)
+        {
+            return;
+        }
+
+        // Build a lookup from record identity → alias ManagedName.
+        var aliasByRecordId = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var alias in compilation.TypeAliases)
+        {
+            if (alias.TargetType.Kind == BindingTypeKind.Handle &&
+                alias.TargetType.RecordId is not null &&
+                !aliasByRecordId.ContainsKey(alias.TargetType.RecordId))
+            {
+                aliasByRecordId[alias.TargetType.RecordId] = alias.ManagedName;
+            }
+        }
+
+        if (aliasByRecordId.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var function in compilation.Functions)
+        {
+            function.ReturnType = StampAlias(function.ReturnType, aliasByRecordId);
+            for (var i = 0; i < function.Parameters.Count; i++)
+            {
+                function.Parameters[i].Type = StampAlias(function.Parameters[i].Type, aliasByRecordId);
+            }
+        }
+
+        foreach (var method in compilation.Records.SelectMany(static record => record.Members.OfType<FunctionBinding>()))
+        {
+            method.ReturnType = StampAlias(method.ReturnType, aliasByRecordId);
+            for (var i = 0; i < method.Parameters.Count; i++)
+            {
+                method.Parameters[i].Type = StampAlias(method.Parameters[i].Type, aliasByRecordId);
+            }
+        }
+    }
+
+    private static BindingType StampAlias(BindingType type, IReadOnlyDictionary<string, string> aliasByRecordId)
+    {
+        if (type.Kind == BindingTypeKind.Handle &&
+            type.RecordId is not null &&
+            aliasByRecordId.TryGetValue(type.RecordId, out var aliasName) &&
+            !string.Equals(aliasName, type.ManagedTypeName, StringComparison.Ordinal))
+        {
+            return type.WithManagedTypeFormatOverride(aliasName);
+        }
+
+        return type;
     }
 
     private static BindingType ApplyManagedTypeFormat(BindingType type, IReadOnlyDictionary<string, RecordBinding> recordsByNativeName)

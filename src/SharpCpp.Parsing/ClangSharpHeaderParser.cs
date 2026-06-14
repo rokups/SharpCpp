@@ -1889,6 +1889,16 @@ public sealed partial class ClangSharpHeaderParser
         {
             yield return typeName["const ".Length..].TrimStart();
         }
+
+        // Also yield the unqualified name (last component after ::).  This
+        // handles the case where a parameter is spelled with an unqualified
+        // typedef name (e.g. "Vector3") but the managed type override is keyed
+        // by the fully qualified name (e.g. "Urho3D::Vector3").
+        var lastColons = typeName.LastIndexOf("::", StringComparison.Ordinal);
+        if (lastColons >= 0)
+        {
+            yield return typeName[(lastColons + 2)..];
+        }
     }
 
     private static BindingType MapType(
@@ -3718,7 +3728,7 @@ public sealed partial class ClangSharpHeaderParser
                     enumsByName,
                     managedTypeOverrides,
                     EmptyGenericParameters,
-                    aliasName);
+                    underlyingTypeName);
             }
 
             return MapType(
@@ -3776,7 +3786,8 @@ public sealed partial class ClangSharpHeaderParser
 
     private static bool CanRenderManagedAliasTarget(BindingType type)
     {
-        if (type.Kind == BindingTypeKind.GenericParameter || type.GenericArguments.Count > 0)
+        // Generic parameters are open type variables — can't be aliased.
+        if (type.Kind == BindingTypeKind.GenericParameter)
         {
             return false;
         }
@@ -3795,7 +3806,17 @@ public sealed partial class ClangSharpHeaderParser
 
         if (type.Kind == BindingTypeKind.Handle)
         {
-            return publicName.StartsWith("global::Urho3D.Math.", StringComparison.Ordinal);
+            // Allow any Handle type backed by a configured record (including
+            // container instantiations with generic arguments).  Aliases whose
+            // target ManagedTypeName ends up with C++-style :: separators
+            // (e.g. records that never received a C# Marshaller configuration)
+            // are pruned post-Phase-2 by MarshallerMetadataPhase2.
+            return true;
+        }
+
+        if (type.Kind == BindingTypeKind.Enum)
+        {
+            return true;
         }
 
         return false;
