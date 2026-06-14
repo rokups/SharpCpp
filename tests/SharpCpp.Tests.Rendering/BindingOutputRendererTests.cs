@@ -830,7 +830,7 @@ public sealed class BindingOutputRendererTests
             "SharpCpp.Sample",
             "SampleBindings",
             "SharpCpp.Sample.Native",
-            new[] { "Ignore/Ignore.hpp" });
+            new[] { "Ignore/IgnoreTests.hpp" });
         var record = new RecordBinding("record:skipped", "skipped", "Skipped");
         record.SetMetadata(MetadataKeys.IgnoreReason, "not yet supported");
         compilation.Members.Add(record);
@@ -852,7 +852,7 @@ public sealed class BindingOutputRendererTests
             "SharpCpp.Sample",
             "SampleBindings",
             "SharpCpp.Sample.Native",
-            new[] { "Ignore/Ignore.hpp" });
+            new[] { "Ignore/IgnoreTests.hpp" });
         var function = new FunctionBinding("function:skipped_fn", "skipped_fn", "SkippedFn", BindingType.Int32, "entry_skipped");
         function.SetMetadata(MetadataKeys.IgnoreReason, "manual stub");
         compilation.Members.Add(function);
@@ -874,7 +874,7 @@ public sealed class BindingOutputRendererTests
             "SharpCpp.Sample",
             "SampleBindings",
             "SharpCpp.Sample.Native",
-            new[] { "Ignore/Ignore.hpp" });
+            new[] { "Ignore/IgnoreTests.hpp" });
         var @enum = new EnumBinding("enum:skipped", "skipped", "Skipped", "unsigned int");
         @enum.SetMetadata(MetadataKeys.IgnoreReason, "marked [[sharpcpp::ignore]]");
         compilation.Members.Add(@enum);
@@ -895,7 +895,7 @@ public sealed class BindingOutputRendererTests
             "SharpCpp.Sample",
             "SampleBindings",
             "SharpCpp.Sample.Native",
-            new[] { "Ignore/Ignore.hpp" });
+            new[] { "Ignore/IgnoreTests.hpp" });
         var record = new RecordBinding("record:box", "box", "Box");
         var ignoredMethod = new FunctionBinding("method:box:skip", "skip", "Skip", BindingType.Int32, "entry_skip") { OwningRecordCppTypeName = "box", IsStatic = false };
         ignoredMethod.SetMetadata(MetadataKeys.IgnoreReason, "internal only");
@@ -916,7 +916,7 @@ public sealed class BindingOutputRendererTests
             "SharpCpp.Sample",
             "SampleBindings",
             "SharpCpp.Sample.Native",
-            new[] { "Ignore/Ignore.hpp" });
+            new[] { "Ignore/IgnoreTests.hpp" });
         var record = new RecordBinding("record:box", "box", "Box");
         var ignoredField = new FieldBinding("field:box:skip", "skip", "Skip", BindingType.Int32, "int", "box");
         ignoredField.SetMetadata(MetadataKeys.IgnoreReason, "marked [[sharpcpp::ignore]]");
@@ -936,7 +936,7 @@ public sealed class BindingOutputRendererTests
     {
         var compilation = new BindingCompilation(
             "SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings",
-            "SharpCpp.Sample.Native", new[] { "Doc/Doc.hpp" });
+            "SharpCpp.Sample.Native", new[] { "Doc/Documentation.hpp" });
         var record = new RecordBinding("record:doc", "doc", "Doc");
         record.SetMetadata(MetadataKeys.DocumentationComment, "Represents a documented record.");
         compilation.Members.Add(record);
@@ -952,7 +952,7 @@ public sealed class BindingOutputRendererTests
     {
         var compilation = new BindingCompilation(
             "SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings",
-            "SharpCpp.Sample.Native", new[] { "Doc/Doc.hpp" });
+            "SharpCpp.Sample.Native", new[] { "Doc/Documentation.hpp" });
         var function = new FunctionBinding("function:escape", "escape", "Escape", BindingType.Int32, "entry_escape");
         function.SetMetadata(MetadataKeys.DocumentationComment, "Handles <tag> escaping & special chars.");
         compilation.Members.Add(function);

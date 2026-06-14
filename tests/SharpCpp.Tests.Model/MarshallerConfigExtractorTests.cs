@@ -9,44 +9,24 @@ public sealed class MarshallerConfigExtractorTests
     [Fact]
     public void ExtractManagedTypeOverrides_reads_token_spaced_attribute_text_from_ast_extent()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"SharpCpp.Tests.Model.{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempDir);
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "MarshallerConfigParsing");
+        var headerPath = Path.Combine(fixtureDir, "MarshallerConfig.hpp");
 
-        var headerPath = Path.Combine(tempDir, "MarshallerConfig.hpp");
-        File.WriteAllText(headerPath, """
-            #pragma once
+        var extractorType = Type.GetType("SharpCpp.Parsing.MarshallerConfigExtractor, SharpCpp.Parsing", throwOnError: true)!;
+        var method = extractorType.GetMethod("ExtractManagedTypeOverrides", BindingFlags.Public | BindingFlags.Static)!;
 
-            template <class T>
-            struct Marshaller;
+        var overrides = (System.Collections.IDictionary)method.Invoke(
+            null,
+            [new[] { headerPath }, new[] { "-x", "c++", "-std=c++20", $"-I{fixtureDir}" }])!;
 
-            template <>
-            struct [[sharpcpp::managed_type(public_type = "global::Test.Managed", undefaultable = true)]] Marshaller<int> {};
-            """);
+        Assert.Single(overrides);
+        Assert.True(overrides.Contains("int"));
+        var overrideInfo = overrides["int"]!;
 
-        try
-        {
-            var extractorType = Type.GetType("SharpCpp.Parsing.MarshallerConfigExtractor, SharpCpp.Parsing", throwOnError: true)!;
-            var method = extractorType.GetMethod("ExtractManagedTypeOverrides", BindingFlags.Public | BindingFlags.Static)!;
-
-            var overrides = (System.Collections.IDictionary)method.Invoke(
-                null,
-                [new[] { headerPath }, new[] { "-x", "c++", "-std=c++20", $"-I{tempDir}" }])!;
-
-            Assert.Single(overrides);
-            Assert.True(overrides.Contains("int"));
-            var overrideInfo = overrides["int"]!;
-
-            var overrideType = overrideInfo.GetType();
-            Assert.Equal("global::Test.Managed", (string)overrideType.GetProperty("PublicTypeName")!.GetValue(overrideInfo)!);
-            Assert.True((bool)overrideType.GetProperty("Undefaultable")!.GetValue(overrideInfo)!);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDir))
-            {
-                Directory.Delete(tempDir, recursive: true);
-            }
-        }
+        var overrideType = overrideInfo.GetType();
+        Assert.Equal("global::Test.Managed", (string)overrideType.GetProperty("PublicTypeName")!.GetValue(overrideInfo)!);
+        Assert.True((bool)overrideType.GetProperty("Undefaultable")!.GetValue(overrideInfo)!);
     }
 
     [Fact]
@@ -129,63 +109,43 @@ public sealed class MarshallerConfigExtractorTests
     [Fact]
     public void ExtractMarshallerBodies_includes_inherited_expose_members_and_leaf_overrides()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"SharpCpp.Tests.Model.{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempDir);
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "InheritedMarshallerConfig");
+        var headerPath = Path.Combine(fixtureDir, "InheritedMarshallerConfig.hpp");
 
-        var headerPath = Path.Combine(tempDir, "InheritedMarshallerConfig.hpp");
-        File.WriteAllText(headerPath, """
-            #pragma once
+        var extractorType = Type.GetType("SharpCpp.Parsing.MarshallerConfigExtractor, SharpCpp.Parsing", throwOnError: true)!;
+        var method = extractorType.GetMethod("ExtractMarshallerBodies", BindingFlags.Public | BindingFlags.Static)!;
 
-            template <class T>
-            struct Marshaller;
+        var bodies = (System.Collections.IDictionary)method.Invoke(
+            null,
+            [new[] { headerPath }, new[] { "-x", "c++", "-std=c++20", $"-I{fixtureDir}" }])!;
 
-            struct widget {};
+        var body = bodies["widget"]!;
+        var bodyType = body.GetType();
+        var members = ((System.Collections.IEnumerable)bodyType.GetProperty("ExposedMembers")!.GetValue(body)!)
+            .Cast<object>()
+            .ToArray();
 
-            template <class T>
-            struct helper_base
-            {
-                [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
-                static unsigned long long GetCountCore(const T& self);
+        Assert.Equal(2, members.Length);
+        Assert.Contains(members, member => (string)member.GetType().GetProperty("MethodName")!.GetValue(member)! == "GetCountCore");
+        var addCore = Assert.Single(members.Where(member => (string)member.GetType().GetProperty("MethodName")!.GetValue(member)! == "AddCore"));
+        Assert.Equal("method", (string)addCore.GetType().GetProperty("Shape")!.GetValue(addCore)!);
+    }
 
-                [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
-                static void AddCore(T& self, unsigned char value);
-            };
-
-            template <>
-            struct [[sharpcpp::managed_type(public_type = "Ea.Widget", managed_base_type = "global::SharpCpp.Support.StringBase")]]
-            Marshaller<widget> : helper_base<widget>
-            {
-                [[sharpcpp::expose_member(shape = "method", exposed = false)]]
-                static void AddCore(widget& self, unsigned char value);
-            };
-            """);
-
-        try
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
         {
-            var extractorType = Type.GetType("SharpCpp.Parsing.MarshallerConfigExtractor, SharpCpp.Parsing", throwOnError: true)!;
-            var method = extractorType.GetMethod("ExtractMarshallerBodies", BindingFlags.Public | BindingFlags.Static)!;
-
-            var bodies = (System.Collections.IDictionary)method.Invoke(
-                null,
-                [new[] { headerPath }, new[] { "-x", "c++", "-std=c++20", $"-I{tempDir}" }])!;
-
-            var body = bodies["widget"]!;
-            var bodyType = body.GetType();
-            var members = ((System.Collections.IEnumerable)bodyType.GetProperty("ExposedMembers")!.GetValue(body)!)
-                .Cast<object>()
-                .ToArray();
-
-            Assert.Equal(2, members.Length);
-            Assert.Contains(members, member => (string)member.GetType().GetProperty("MethodName")!.GetValue(member)! == "GetCountCore");
-            var addCore = Assert.Single(members.Where(member => (string)member.GetType().GetProperty("MethodName")!.GetValue(member)! == "AddCore"));
-            Assert.Equal("method", (string)addCore.GetType().GetProperty("Shape")!.GetValue(addCore)!);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDir))
+            if (File.Exists(Path.Combine(directory.FullName, "AGENTS.md")) &&
+                Directory.Exists(Path.Combine(directory.FullName, "include")))
             {
-                Directory.Delete(tempDir, recursive: true);
+                return directory.FullName;
             }
+
+            directory = directory.Parent;
         }
+
+        throw new InvalidOperationException("Unable to locate repository root.");
     }
 }
