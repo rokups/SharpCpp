@@ -3601,14 +3601,8 @@ public sealed partial class ClangSharpHeaderParser
             "char" => BindingType.Int8,
             _ when enumsByName.TryGetValue(NormalizeNamedTypeName(StripGenericArguments(normalized)), out var @enum) => BindingType.CreateEnum(@enum.NativeName, @enum.ManagedName),
             _ when normalized.Contains("::", StringComparison.Ordinal) && enumsByName.TryGetValue(NormalizeNamedTypeName(StripGenericArguments(normalized[(normalized.LastIndexOf("::", StringComparison.Ordinal) + 2)..])), out var shortEnum) => BindingType.CreateEnum(shortEnum.NativeName, shortEnum.ManagedName),
-            _ when recordsByName.TryGetValue(NormalizeNamedTypeName(StripGenericArguments(normalized)), out var record) =>
-                TryCreateSpecializedRecordHandleType($"{normalized}*", normalized, recordsByName, enumsByName, managedTypeOverrides, genericParameters, out var concreteHandleType)
-                    ? concreteHandleType
-                    : record.HandleType,
-            _ when normalized.Contains("::", StringComparison.Ordinal) && recordsByName.TryGetValue(NormalizeNamedTypeName(StripGenericArguments(normalized[(normalized.LastIndexOf("::", StringComparison.Ordinal) + 2)..])), out var shortRecord) =>
-                TryCreateSpecializedRecordHandleType($"{normalized}*", normalized, recordsByName, enumsByName, managedTypeOverrides, genericParameters, out var concreteHandleType)
-                    ? concreteHandleType
-                    : shortRecord.HandleType,
+            _ when recordsByName.TryGetValue(NormalizeNamedTypeName(StripGenericArguments(normalized)), out var record) => record.HandleType,
+            _ when normalized.Contains("::", StringComparison.Ordinal) && recordsByName.TryGetValue(NormalizeNamedTypeName(StripGenericArguments(normalized[(normalized.LastIndexOf("::", StringComparison.Ordinal) + 2)..])), out var shortRecord) => shortRecord.HandleType,
             _ => throw new NotSupportedException($"ClangSharp sample parser does not support generic argument token '{normalized}'.")
         };
     }
