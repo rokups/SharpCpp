@@ -472,8 +472,14 @@ public static class MarshallerMetadataPhase2
 
     private static string GetManagedTypeHead(string managedTypeFormat)
     {
-        var genericStart = managedTypeFormat.IndexOf('<');
-        return genericStart >= 0 ? managedTypeFormat[..genericStart] : managedTypeFormat;
+        // Strip C++ namespace qualifiers (::) — only the local type name
+        // belongs in the managed head.  Namespace placement is handled
+        // separately via ManagedNamespace.
+        var lastColon = managedTypeFormat.LastIndexOf("::", StringComparison.Ordinal);
+        var localName = lastColon >= 0 ? managedTypeFormat[(lastColon + 2)..] : managedTypeFormat;
+
+        var genericStart = localName.IndexOf('<');
+        return genericStart >= 0 ? localName[..genericStart] : localName;
     }
 
     private static string GetSimpleTypeName(string managedTypeFormat)
