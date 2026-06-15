@@ -684,7 +684,8 @@ public sealed partial class ClangSharpHeaderParser
             if (!recordsByName.TryGetValue(baseTypeName, out var baseRecord))
             {
                 var baseQualifiedName = NormalizeNamedTypeName(baseSpec.Type.Handle.Spelling.ToString());
-                baseRecord = new RecordBinding($"record:{baseTypeName}", baseTypeName, ToPascalCase(baseTypeName), baseQualifiedName);
+                var unqualifiedBaseName = GetManagedTypeHead(baseTypeName);
+                baseRecord = new RecordBinding($"record:{baseTypeName}", unqualifiedBaseName, ToPascalCase(unqualifiedBaseName), baseQualifiedName);
                 baseRecord.SetMetadata(MetadataKeys.PlaceholderRecord, true);
                 IndexRecordKeys(recordsByName, baseRecord);
             }
@@ -2007,7 +2008,8 @@ public sealed partial class ClangSharpHeaderParser
                 {
                     // Use the resolved qualified name for CppQualifiedName so the
                     // placeholder passes namespace-exclusion checks in the pipeline.
-                    record = new RecordBinding($"record:{recordName}", recordName, ToPascalCase(recordName), recordName);
+                    var unqualifiedRecordName = GetManagedTypeHead(recordName);
+                    record = new RecordBinding($"record:{recordName}", unqualifiedRecordName, ToPascalCase(unqualifiedRecordName), recordName);
                     record.SetMetadata(MetadataKeys.PlaceholderRecord, true);
                     IndexRecordKeys(recordsByName, record);
                 }
@@ -2040,7 +2042,8 @@ public sealed partial class ClangSharpHeaderParser
             var recordName = GetRecordQualifiedName(normalizedType, recordsByName);
             if (!recordsByName.TryGetValue(recordName, out var record))
             {
-                record = new RecordBinding($"record:{recordName}", recordName, ToPascalCase(recordName), recordName);
+                var unqualifiedRecordName = GetManagedTypeHead(recordName);
+                record = new RecordBinding($"record:{recordName}", unqualifiedRecordName, ToPascalCase(unqualifiedRecordName), recordName);
                 record.SetMetadata(MetadataKeys.PlaceholderRecord, true);
                 IndexRecordKeys(recordsByName, record);
             }

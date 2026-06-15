@@ -84,6 +84,8 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - [ ] Edge cases: protected/virtual/secondary-base interactions
 
 ### Validation & Degradation
+- [x] Placeholder records now use `GetManagedTypeHead` to strip `::` qualifiers from `ManagedName`
+- [ ] Remaining leak: nested generic argument type names (e.g. `Urho3D::BaseVector3<float>` inside `Ea.Vector<...>`) still not stripped
 - [ ] More explicit early diagnostics for unsupported combinations
 - [ ] Hardened fail-fast gates before render/native compile
 
