@@ -799,6 +799,14 @@ public static class MarshallerMetadataPhase2
         if (record.GetMetadata<bool>(MetadataKeys.SuppressEmission))
         {
             var publicName = record.ManagedTypeFormat ?? record.ManagedName;
+
+            // Stamp the suppressed-emission name on the original handle type
+            // so that when this type appears as a generic argument of an outer
+            // type (e.g., Ea.Vector<IntVector3>), the outer type renders the
+            // correct managed name even though the returned Configured type may
+            // be discarded by recursive callers.
+            type.SetManagedTypeFormatOverride(publicName);
+
             if (record.IsGeneric && type.GenericArguments.Count > 0)
             {
                 // Stamp aliases on generic arguments so suppressed-emission
