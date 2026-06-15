@@ -1935,10 +1935,10 @@ public sealed partial class ClangSharpHeaderParser
         // fully-qualified version from the underlying Clang declaration
         // cursor so that managed-type-override lookups keyed on the
         // fully-qualified C++ type name (e.g. "Urho3D::Vector3") still
-        // match.
-        var qualifiedSpelledTypeName = spelledTypeName.Contains("::", StringComparison.Ordinal)
-            ? spelledTypeName
-            : GetQualifiedTypeName(type, spelledTypeName);
+        // match.  Always query the origin-name index — even when the
+        // spelled name already contains :: — because for canonical types
+        // the AST cursor gives the template name, not the typedef.
+        var qualifiedSpelledTypeName = GetQualifiedTypeName(type, spelledTypeName);
 
         if (TryMapGenericParameterType(spelledTypeName, genericParameters, out var genericParameterType))
         {
@@ -2587,7 +2587,47 @@ public sealed partial class ClangSharpHeaderParser
     /// </summary>
     private static string GetQualifiedTypeName(CXType type, string fallback)
     {
-        // First try the AST cursor: gives the canonical record/template name.
+        // For desugared canonical types (e.g. "BaseIntegerVector2<int>"),
+        // the origin-name index maps the canonical type to the typedef that
+        // introduced it (e.g. "Urho3D::IntVector2").  Try this first so that
+        // managed-type-override matching works for canonical parameter types.
+        var canonical = NormalizeTypeName(type.CanonicalType.Spelling.ToString());
+        if (string.IsNullOrEmpty(canonical))
+        {
+            return fallback;
+        }
+
+        // Exact match on the full canonical spelling.
+        if (s_typeAliasOriginNames.TryGetValue(canonical, out var originNames) && originNames.Count > 0)
+        {
+            return PickBestOriginName(originNames);
+        }
+
+        // Exact match on the template head (e.g. "BaseIntegerVector2"
+        // from "BaseIntegerVector2<int>").
+        if (TryGetTopLevelTemplateArguments(canonical, out var head, out _) &&
+            s_typeAliasOriginNames.TryGetValue(head, out originNames) && originNames.Count > 0)
+        {
+            return PickBestOriginName(originNames);
+        }
+
+        // Slower path: the origin-name index is keyed on the spelling
+        // from Clang's UnderlyingType, which may differ from the canonical
+        // spelling in its namespace prefix.  Use EndsWith to match across
+        // these namespace-format differences.
+        foreach (var kv in s_typeAliasOriginNames)
+        {
+            if ((kv.Key.EndsWith(canonical, StringComparison.Ordinal) ||
+                 canonical.EndsWith(kv.Key, StringComparison.Ordinal)) &&
+                kv.Value.Count > 0)
+            {
+                return PickBestOriginName(kv.Value);
+            }
+        }
+
+        // Fall back to the AST cursor (gives the template class name for
+        // template specializations, which is less useful but better than
+        // the fallback parameter).
         var decl = type.Declaration;
         if (!decl.IsNull)
         {
@@ -2598,23 +2638,16 @@ public sealed partial class ClangSharpHeaderParser
             }
         }
 
-        // For desugared canonical types (e.g. "BaseIntegerVector2<int>"),
-        // use the origin-name index to find the typedef that introduced it.
-        var canonical = NormalizeTypeName(type.CanonicalType.Spelling.ToString());
-        // Search by suffix to handle namespace differences between the
-        // canonical spelling and the origin-name key.
-        foreach (var kv in s_typeAliasOriginNames)
-        {
-            if ((kv.Key.EndsWith(canonical, StringComparison.Ordinal) ||
-                 canonical.EndsWith(kv.Key, StringComparison.Ordinal) ||
-                 string.Equals(kv.Key, canonical, StringComparison.Ordinal)) &&
-                kv.Value.Count > 0)
-            {
-                return kv.Value.FirstOrDefault(n => n.Contains("::", StringComparison.Ordinal)) ?? kv.Value[0];
-            }
-        }
-
         return fallback;
+    }
+
+    /// <summary>
+    /// Picks the best typedef name from the origin-name list, preferring
+    /// a fully-qualified name (with ::) over an unqualified one.
+    /// </summary>
+    private static string PickBestOriginName(List<string> originNames)
+    {
+        return originNames.FirstOrDefault(n => n.Contains("::", StringComparison.Ordinal)) ?? originNames[0];
     }
 
     private static string NormalizeTypeName(string spelling)
