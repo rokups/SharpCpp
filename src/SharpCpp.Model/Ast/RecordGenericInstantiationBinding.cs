@@ -4,15 +4,21 @@ public sealed class RecordGenericInstantiationBinding
 {
     private static int s_instantiationCounter;
     private string? _suffix;
+    private readonly BindingType[] _typeArguments;
 
     public RecordGenericInstantiationBinding(IEnumerable<BindingType> typeArguments)
     {
         ArgumentNullException.ThrowIfNull(typeArguments);
 
-        TypeArguments = typeArguments.ToArray();
+        _typeArguments = typeArguments.ToArray();
     }
 
-    public IReadOnlyList<BindingType> TypeArguments { get; }
+    public IReadOnlyList<BindingType> TypeArguments => _typeArguments;
+
+    public void UpdateTypeArgument(int index, BindingType updatedType)
+    {
+        _typeArguments[index] = updatedType;
+    }
 
     public string Suffix
     {

@@ -2881,9 +2881,13 @@ public static partial class BindingOutputRenderer
     private static bool HasGlobalUsingAlias(BindingType type, BindingCompilation compilation)
     {
         var managedName = type.ManagedTypeName;
+        var unaliasedName = type.UnaliasedManagedTypeName;
         for (var i = 0; i < compilation.TypeAliases.Count; i++)
         {
-            if (string.Equals(compilation.TypeAliases[i].ManagedName, managedName, StringComparison.Ordinal))
+            var alias = compilation.TypeAliases[i];
+            if (string.Equals(alias.ManagedName, managedName, StringComparison.Ordinal) ||
+                string.Equals(alias.TargetType.UnaliasedManagedTypeName, unaliasedName, StringComparison.Ordinal) ||
+                string.Equals(alias.TargetType.ManagedTypeName, managedName, StringComparison.Ordinal))
                 return true;
         }
         return false;

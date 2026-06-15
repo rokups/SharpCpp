@@ -594,26 +594,39 @@ public static class MarshallerMetadataPhase2
 
     private static void ApplyManagedTypeFormats(BindingCompilation compilation, IReadOnlyDictionary<string, RecordBinding> recordsByNativeName)
     {
+        // Build alias lookup for stamping generic argument names during
+        // suppressed-emission type conversion.
+        var aliasByTargetName = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var alias in compilation.TypeAliases)
+        {
+            var targetName = alias.TargetType.ManagedTypeName;
+            if (!string.IsNullOrWhiteSpace(targetName) &&
+                !aliasByTargetName.ContainsKey(targetName))
+            {
+                aliasByTargetName[targetName] = alias.ManagedName;
+            }
+        }
+
         foreach (var function in compilation.Functions)
         {
-            function.ReturnType = ApplyManagedTypeFormat(function.ReturnType, recordsByNativeName);
+            function.ReturnType = ApplyManagedTypeFormat(function.ReturnType, recordsByNativeName, aliasByTargetName);
             for (var i = 0; i < function.Parameters.Count; i++)
             {
-                function.Parameters[i].Type = ApplyManagedTypeFormat(function.Parameters[i].Type, recordsByNativeName);
+                function.Parameters[i].Type = ApplyManagedTypeFormat(function.Parameters[i].Type, recordsByNativeName, aliasByTargetName);
             }
         }
 
         foreach (var field in compilation.Descendants<FieldBinding>())
         {
-            field.Type = ApplyManagedTypeFormat(field.Type, recordsByNativeName);
+            field.Type = ApplyManagedTypeFormat(field.Type, recordsByNativeName, aliasByTargetName);
         }
 
         foreach (var method in compilation.Records.SelectMany(static record => record.Members.OfType<FunctionBinding>()))
         {
-            method.ReturnType = ApplyManagedTypeFormat(method.ReturnType, recordsByNativeName);
+            method.ReturnType = ApplyManagedTypeFormat(method.ReturnType, recordsByNativeName, aliasByTargetName);
             for (var i = 0; i < method.Parameters.Count; i++)
             {
-                method.Parameters[i].Type = ApplyManagedTypeFormat(method.Parameters[i].Type, recordsByNativeName);
+                method.Parameters[i].Type = ApplyManagedTypeFormat(method.Parameters[i].Type, recordsByNativeName, aliasByTargetName);
             }
         }
 
@@ -623,7 +636,7 @@ public static class MarshallerMetadataPhase2
         for (var i = 0; i < compilation.TypeAliases.Count; i++)
         {
             var alias = compilation.TypeAliases[i];
-            var updatedTarget = ApplyManagedTypeFormat(alias.TargetType, recordsByNativeName);
+            var updatedTarget = ApplyManagedTypeFormat(alias.TargetType, recordsByNativeName, aliasByTargetName);
             if (!ReferenceEquals(updatedTarget, alias.TargetType))
             {
                 compilation.TypeAliases[i] = alias with { TargetType = updatedTarget };
@@ -697,6 +710,18 @@ public static class MarshallerMetadataPhase2
                 method.Parameters[i].Type = StampAlias(method.Parameters[i].Type, aliasByTargetName);
             }
         }
+
+        // Stamp aliases on generic instantiation type arguments.
+        foreach (var record in compilation.Records)
+        {
+            foreach (var instantiation in record.SupportedGenericInstantiations)
+            {
+                for (var i = 0; i < instantiation.TypeArguments.Count; i++)
+                {
+                    instantiation.UpdateTypeArgument(i, StampAlias(instantiation.TypeArguments[i], aliasByTargetName));
+                }
+            }
+        }
     }
 
     private static BindingType StampAlias(BindingType type, IReadOnlyDictionary<string, string> aliasByTargetName)
@@ -705,7 +730,14 @@ public static class MarshallerMetadataPhase2
         if (aliasByTargetName.TryGetValue(unaliased, out var aliasName) &&
             !string.Equals(aliasName, type.ManagedTypeName, StringComparison.Ordinal))
         {
-            return type.WithManagedTypeFormatOverride(aliasName);
+            type.SetManagedTypeFormatOverride(aliasName);
+        }
+
+        // Recurse into generic arguments so that aliased types nested inside
+        // containers (e.g., Ea.Vector<BaseIntegerVector3<int>>) are stamped.
+        foreach (var genericArg in type.GenericArguments)
+        {
+            StampAlias(genericArg, aliasByTargetName);
         }
 
         return type;
@@ -729,7 +761,7 @@ public static class MarshallerMetadataPhase2
         return false;
     }
 
-    private static BindingType ApplyManagedTypeFormat(BindingType type, IReadOnlyDictionary<string, RecordBinding> recordsByNativeName)
+    private static BindingType ApplyManagedTypeFormat(BindingType type, IReadOnlyDictionary<string, RecordBinding> recordsByNativeName, IReadOnlyDictionary<string, string> aliasByTargetName)
     {
         if (type.Kind != BindingTypeKind.Handle || string.IsNullOrWhiteSpace(type.RecordId))
         {
@@ -740,7 +772,8 @@ public static class MarshallerMetadataPhase2
         // since GenericArguments is IReadOnlyList and can't be reassigned).
         foreach (var genericArg in type.GenericArguments)
         {
-            var _ = ApplyManagedTypeFormat(genericArg, recordsByNativeName);
+            StampAlias(genericArg, aliasByTargetName);
+            var _ = ApplyManagedTypeFormat(genericArg, recordsByNativeName, aliasByTargetName);
         }
 
         var record = recordsByNativeName.Values.FirstOrDefault(candidate => string.Equals(candidate.SymbolId, type.RecordId, StringComparison.Ordinal));
@@ -768,6 +801,14 @@ public static class MarshallerMetadataPhase2
             var publicName = record.ManagedTypeFormat ?? record.ManagedName;
             if (record.IsGeneric && type.GenericArguments.Count > 0)
             {
+                // Stamp aliases on generic arguments so suppressed-emission
+                // type conversion uses the alias name (e.g., IntVector3)
+                // instead of the raw type name (BaseIntegerVector3<int>).
+                foreach (var genericArg in type.GenericArguments)
+                {
+                    StampAlias(genericArg, aliasByTargetName);
+                }
+
                 var argNames = type.GenericArguments
                     .Select(static argument => argument.ManagedTypeName)
                     .Cast<object>()
