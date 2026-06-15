@@ -139,6 +139,8 @@ public sealed partial class ClangSharpHeaderParser
         new Dictionary<string, BindingType>(StringComparer.Ordinal);
 
     private static readonly Dictionary<string, string> s_typeAliases = new(StringComparer.Ordinal);
+    // Reverse lookup: underlying canonical type -> list of typedef names.
+    private static readonly Dictionary<string, List<string>> s_typeAliasOriginNames = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, OwnedAliasInfo> s_ownedManagedAliases = new(StringComparer.Ordinal);
 
     private static bool HasSharpCppAttribute(string sourceText, string attributeName)
@@ -2585,14 +2587,34 @@ public sealed partial class ClangSharpHeaderParser
     /// </summary>
     private static string GetQualifiedTypeName(CXType type, string fallback)
     {
+        // First try the AST cursor: gives the canonical record/template name.
         var decl = type.Declaration;
-        if (decl.IsNull)
+        if (!decl.IsNull)
         {
-            return fallback;
+            var qualified = GetCppQualifiedName(decl);
+            if (!string.IsNullOrWhiteSpace(qualified))
+            {
+                return NormalizeTypeName(qualified);
+            }
         }
 
-        var qualified = GetCppQualifiedName(decl);
-        return string.IsNullOrWhiteSpace(qualified) ? fallback : NormalizeTypeName(qualified);
+        // For desugared canonical types (e.g. "BaseIntegerVector2<int>"),
+        // use the origin-name index to find the typedef that introduced it.
+        var canonical = NormalizeTypeName(type.CanonicalType.Spelling.ToString());
+        // Search by suffix to handle namespace differences between the
+        // canonical spelling and the origin-name key.
+        foreach (var kv in s_typeAliasOriginNames)
+        {
+            if ((kv.Key.EndsWith(canonical, StringComparison.Ordinal) ||
+                 canonical.EndsWith(kv.Key, StringComparison.Ordinal) ||
+                 string.Equals(kv.Key, canonical, StringComparison.Ordinal)) &&
+                kv.Value.Count > 0)
+            {
+                return kv.Value.FirstOrDefault(n => n.Contains("::", StringComparison.Ordinal)) ?? kv.Value[0];
+            }
+        }
+
+        return fallback;
     }
 
     private static string NormalizeTypeName(string spelling)
@@ -3619,6 +3641,7 @@ public sealed partial class ClangSharpHeaderParser
     private static void BuildTypeAliasIndex(Decl decl)
     {
         s_typeAliases.Clear();
+        s_typeAliasOriginNames.Clear();
         CollectTypeAliases(decl);
     }
 
@@ -3684,6 +3707,12 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         s_typeAliases[normalizedAlias] = underlyingTypeName;
+        if (!s_typeAliasOriginNames.TryGetValue(underlyingTypeName, out var originNames))
+        {
+            originNames = new List<string>();
+            s_typeAliasOriginNames[underlyingTypeName] = originNames;
+        }
+        originNames.Add(normalizedAlias);
     }
 
     private static string ResolveAliasTypeName(string typeName)
