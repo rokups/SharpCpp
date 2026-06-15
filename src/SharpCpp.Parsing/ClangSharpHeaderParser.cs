@@ -1663,11 +1663,7 @@ public sealed partial class ClangSharpHeaderParser
 
             if (TypeIsRecord(normalizedPointeeType))
             {
-                // Map the source pointee type (before canonicalization) so
-                // that managed-type-override lookups can match the original
-                // typedef name (e.g. "Urho3D::Vector3") rather than the
-                // desugared canonical name (e.g. "BaseVector3<float>").
-                var mappedType = MapType(sourcePointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+                var mappedType = MapType(normalizedPointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
                 var abiKind = mappedType.Kind == BindingTypeKind.Primitive
                     ? BindingParameterAbiKind.Reference
                     : BindingParameterAbiKind.Value;
@@ -1917,7 +1913,12 @@ public sealed partial class ClangSharpHeaderParser
     {
         var normalizedType = type.CanonicalType;
         var spelledTypeName = NormalizeTypeName(type.Spelling.ToString());
-        var aliasResolvedTypeName = SelectConcreteTemplateTypeName(spelledTypeName, ResolveAliasTypeName(spelledTypeName));
+        // Strip 'const ' prefix so that "const Vector3" resolves the same
+        // typedef as plain "Vector3" in the alias resolution chain.
+        var aliasLookupName = spelledTypeName.StartsWith("const ", StringComparison.Ordinal)
+            ? spelledTypeName["const ".Length..]
+            : spelledTypeName;
+        var aliasResolvedTypeName = SelectConcreteTemplateTypeName(spelledTypeName, ResolveAliasTypeName(aliasLookupName));
         var canonicalTypeName = SelectConcreteTemplateTypeName(
             NormalizeTypeName(normalizedType.Spelling.ToString()),
             GetUnderlyingTypeName(type));
