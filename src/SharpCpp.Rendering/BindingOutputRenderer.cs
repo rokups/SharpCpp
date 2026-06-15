@@ -899,7 +899,10 @@ public static partial class BindingOutputRenderer
 
         if (type.Kind == BindingTypeKind.Enum)
         {
-            return $"global::{compilation.ManagedNamespace}.{type.UnaliasedManagedTypeName}";
+            var enumBinding = compilation.Enums.FirstOrDefault(e =>
+                string.Equals(e.ManagedName, type.UnaliasedManagedTypeName, StringComparison.Ordinal));
+            var ns = enumBinding?.ManagedNamespace ?? compilation.ManagedNamespace;
+            return $"global::{ns}.{type.UnaliasedManagedTypeName}";
         }
 
         if (type.Kind == BindingTypeKind.Handle && type.RecordId is not null)
