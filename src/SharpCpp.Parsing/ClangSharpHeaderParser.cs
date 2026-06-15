@@ -1475,7 +1475,7 @@ public sealed partial class ClangSharpHeaderParser
         var normalizedType = type.CanonicalType;
         if (TypeIsFunctionProto(normalizedType) || (TypeIsPointer(normalizedType) && TypeIsFunctionProto(normalizedType.PointeeType.CanonicalType)))
         {
-            return BindingType.CreateConfigured(NormalizeTypeName(type.Spelling.ToString()), "global::System.IntPtr");
+            return BindingType.CreateConfigured(NormalizeTypeName(type.Spelling.ToString()), BindingType.IntPtr.ManagedTypeName, primitiveKind: BindingPrimitiveKind.IntPtr);
         }
 
         var normalizedTypeName = NormalizeTypeName(type.Spelling.ToString());
@@ -1498,7 +1498,7 @@ public sealed partial class ClangSharpHeaderParser
             CXTypeKind.CXType_Double => BindingType.Double,
             CXTypeKind.CXType_Long => BindingType.NativeInt,
             CXTypeKind.CXType_ULong => BindingType.NativeUInt,
-            _ => BindingType.CreateConfigured(normalizedTypeName, "global::System.IntPtr")
+            _ => BindingType.CreateConfigured(normalizedTypeName, BindingType.IntPtr.ManagedTypeName, primitiveKind: BindingPrimitiveKind.IntPtr)
         };
     }
 
@@ -1678,7 +1678,7 @@ public sealed partial class ClangSharpHeaderParser
             var pointeeTypeName = NormalizeTypeName(sourcePointeeType.Spelling.ToString());
             if (TypeIsPointer(normalizedPointeeType) &&
                 managedTypeOverrides.TryGetValue(pointeeTypeName, out var pointeeOverride) &&
-                pointeeOverride.PublicTypeName.Contains("ReadOnlySpan", StringComparison.Ordinal))
+                IsManagedRefStruct(pointeeOverride.PublicTypeName))
             {
                 return (
                     MapType(sourcePointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
@@ -1992,7 +1992,7 @@ public sealed partial class ClangSharpHeaderParser
             }
 
             if (pointeeType.kind == CXTypeKind.CXType_Void &&
-                managedTypeOverrides.TryGetValue("void*", out var voidPointerOverride))
+                managedTypeOverrides.TryGetValue(BindingType.IntPtr.CppTypeName, out var voidPointerOverride))
             {
                 return TryApplyManagedAliasSurface(
                     type,
@@ -2662,6 +2662,33 @@ public sealed partial class ClangSharpHeaderParser
             .Replace("> ", ">", StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Checks whether a managed type name corresponds to a C# ref struct.
+    /// </summary>
+    private static bool IsManagedRefStruct(string publicTypeName) =>
+        publicTypeName is "global::System.ReadOnlySpan<byte>";
+
+    /// <summary>
+    /// Maps a C/C++ integer type spelling to the corresponding BindingPrimitiveKind.
+    /// Used when constructing enum bindings to capture the underlying integer type.
+    /// </summary>
+    private static BindingPrimitiveKind GetPrimitiveKindFromTypeSpelling(string spelling)
+    {
+        var normalized = NormalizeTypeName(spelling);
+        return normalized switch
+        {
+            "unsigned int" => BindingPrimitiveKind.UInt32,
+            "unsigned short" => BindingPrimitiveKind.UInt16,
+            "unsigned long long" => BindingPrimitiveKind.UInt64,
+            "unsigned long" => BindingPrimitiveKind.UInt64,
+            "int" => BindingPrimitiveKind.Int32,
+            "short" => BindingPrimitiveKind.Int16,
+            "long long" => BindingPrimitiveKind.Int64,
+            "long" => BindingPrimitiveKind.Int64,
+            _ => BindingPrimitiveKind.Int32
+        };
+    }
+
     private static bool TryGetPassKindOverride(CXCursor functionCursor, CXCursor parameterCursor, out BindingParameterDirection direction)
     {
         var match = FindSharpCppAttribute(GetSourceText(parameterCursor.TranslationUnit, parameterCursor.Extent), "in")
@@ -3085,7 +3112,8 @@ public sealed partial class ClangSharpHeaderParser
             nativeName,
             ToPascalCase(nativeName),
             NormalizeTypeName(enumDecl.IntegerType.AsString),
-            GetCppQualifiedName(enumDecl))
+            GetCppQualifiedName(enumDecl),
+            underlyingPrimitiveKind: GetPrimitiveKindFromTypeSpelling(enumDecl.IntegerType.AsString))
         {
             IsFlags = HasSharpCppAttribute(GetSourceText(enumDecl.TranslationUnit.Handle, enumDecl.Extent), "flags")
         };

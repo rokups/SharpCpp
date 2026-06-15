@@ -36,6 +36,16 @@ public sealed record MarshallerDescriptor(
     string? ManagedMarshaller = null)
 {
     public bool CppIsRecordValue { get; init; }
+
+    public bool RequiresUtf8Conversion => PublicTypeName == "string";
+
+    public bool RequiresBorrowedFieldStorage =>
+        CppTypeName.Contains("vector<", StringComparison.Ordinal) ||
+        CppTypeName.Contains("list<", StringComparison.Ordinal) ||
+        CppTypeName.Contains("map<", StringComparison.Ordinal) ||
+        CppTypeName.Contains("unordered_map<", StringComparison.Ordinal);
+
+    public bool IsRefStruct => PublicTypeName is "global::System.ReadOnlySpan<byte>";
 }
 
 public sealed class BindingType
@@ -88,6 +98,26 @@ public sealed class BindingType
     public static BindingType NativeUInt { get; } = Primitive(BindingPrimitiveKind.NativeUInt, "unsigned long", "nuint");
 
     public static BindingType IntPtr { get; } = Primitive(BindingPrimitiveKind.IntPtr, "void*", "global::System.IntPtr");
+
+    public static BindingPrimitiveKind PrimitiveKindFromCppName(string cppTypeName) => cppTypeName switch
+    {
+        "void" => BindingPrimitiveKind.Void,
+        "bool" => BindingPrimitiveKind.Boolean,
+        "signed char" => BindingPrimitiveKind.Int8,
+        "unsigned char" => BindingPrimitiveKind.UInt8,
+        "short" => BindingPrimitiveKind.Int16,
+        "unsigned short" => BindingPrimitiveKind.UInt16,
+        "int" => BindingPrimitiveKind.Int32,
+        "unsigned int" => BindingPrimitiveKind.UInt32,
+        "long long" => BindingPrimitiveKind.Int64,
+        "unsigned long long" => BindingPrimitiveKind.UInt64,
+        "float" => BindingPrimitiveKind.Single,
+        "double" => BindingPrimitiveKind.Double,
+        "long" => BindingPrimitiveKind.NativeInt,
+        "unsigned long" => BindingPrimitiveKind.NativeUInt,
+        "void*" => BindingPrimitiveKind.IntPtr,
+        _ => BindingPrimitiveKind.Int32
+    };
 
     public BindingTypeKind Kind { get; }
 
@@ -177,22 +207,30 @@ public sealed class BindingType
             genericArguments: genericArguments);
     }
 
-    public static BindingType CreateConfigured(string cppTypeName, string publicTypeName)
+    public static BindingType CreateConfigured(
+        string cppTypeName,
+        string publicTypeName,
+        BindingPrimitiveKind primitiveKind = BindingPrimitiveKind.Unsupported)
     {
-        return CreateConfigured(cppTypeName, publicTypeName, null);
+        return CreateConfigured(cppTypeName, publicTypeName, null, null, primitiveKind);
     }
 
-    public static BindingType CreateConfigured(string cppTypeName, string publicTypeName, string? marshallerTypeName)
+    public static BindingType CreateConfigured(
+        string cppTypeName,
+        string publicTypeName,
+        string? marshallerTypeName,
+        BindingPrimitiveKind primitiveKind = BindingPrimitiveKind.Unsupported)
     {
-        return CreateConfigured(cppTypeName, publicTypeName, marshallerTypeName, null);
+        return CreateConfigured(cppTypeName, publicTypeName, marshallerTypeName, null, primitiveKind);
     }
 
-    public static BindingType CreateConfigured(string cppTypeName, string publicTypeName, string? marshallerTypeName, string? managedMarshaller)
+    public static BindingType CreateConfigured(
+        string cppTypeName,
+        string publicTypeName,
+        string? marshallerTypeName,
+        string? managedMarshaller,
+        BindingPrimitiveKind primitiveKind = BindingPrimitiveKind.Unsupported)
     {
-        var primitiveKind = string.Equals(publicTypeName, "global::System.IntPtr", StringComparison.Ordinal)
-            ? BindingPrimitiveKind.IntPtr
-            : BindingPrimitiveKind.Unsupported;
-
         return new BindingType(
             BindingTypeKind.Primitive,
             primitiveKind,

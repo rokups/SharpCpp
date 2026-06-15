@@ -59,12 +59,12 @@ public sealed class BindingMetadataImportCatalog
             {
                 switch (importedType.Kind)
                 {
-                    case "handle":
-                    case "record":
+                    case MetadataTypeKind.Handle:
+                    case MetadataTypeKind.Record:
                         SeedRecord(compilation, recordsByName, document, importedType);
                         break;
 
-                    case "enum":
+                    case MetadataTypeKind.Enum:
                         SeedEnum(compilation, enumsByName, document, importedType);
                         break;
                 }
@@ -115,7 +115,8 @@ public sealed class BindingMetadataImportCatalog
             $"import:{document.Source.Package}:{importedType.SymbolId}",
             importedType.NativeName,
             GetQualifiedManagedTypeName(importedType.ManagedNamespace ?? document.Source.ManagedNamespace, importedType.ManagedName),
-            importedType.Projection.CppType)
+            importedType.Projection.CppType,
+            underlyingPrimitiveKind: BindingType.PrimitiveKindFromCppName(importedType.Projection.CppType))
         {
             ManagedNamespace = importedType.ManagedNamespace ?? document.Source.ManagedNamespace,
             IsFlags = importedType.IsFlags

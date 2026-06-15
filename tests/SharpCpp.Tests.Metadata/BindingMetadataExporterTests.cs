@@ -90,7 +90,7 @@ public sealed class BindingMetadataExporterTests
             "SampleBindings",
             "SharpCpp.Sample.Native",
             new[] { "enum.hpp" });
-        var permissions = new EnumBinding("enum:permissions", "permissions", "Permissions", "unsigned int")
+        var permissions = new EnumBinding("enum:permissions", "permissions", "Permissions", "unsigned int", underlyingPrimitiveKind: BindingPrimitiveKind.UInt32)
         {
             IsFlags = true
         };

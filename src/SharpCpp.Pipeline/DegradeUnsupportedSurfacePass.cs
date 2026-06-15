@@ -665,12 +665,10 @@ public static class DegradeUnsupportedSurfacePass
         foreach (var argument in type.GenericArguments)
         {
             // The only ref struct currently mapped through the marshaller
-            // system is ReadOnlySpan<byte> (from const char*).  We check
-            // by ManagedTypeName because there is no general-purpose
-            // "is ref struct" flag on BindingType in this bootstrap surface.
-            if (argument.Kind == BindingTypeKind.Primitive &&
-                argument.PrimitiveKind == BindingPrimitiveKind.Unsupported &&
-                argument.ManagedTypeName is "global::System.ReadOnlySpan<byte>")
+            // system is ReadOnlySpan<byte> (from const char*).
+            // Uses the IsRefStruct marshaller flag when available,
+            // with a fallback exact ManagedTypeName match for bootstrap.
+            if (IsArgumentRefStruct(argument))
             {
                 return true;
             }
@@ -682,6 +680,11 @@ public static class DegradeUnsupportedSurfacePass
         }
 
         return false;
+    }
+
+    private static bool IsArgumentRefStruct(BindingType argument)
+    {
+        return argument.Marshaller.IsRefStruct;
     }
 
 }

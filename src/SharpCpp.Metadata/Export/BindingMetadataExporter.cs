@@ -54,7 +54,7 @@ public static class BindingMetadataExporter
 
     private static BindingMetadataType CreateRecordType(RecordBinding record)
     {
-        var kind = record.IsHandleType ? "handle" : "record";
+        var kind = record.IsHandleType ? MetadataTypeKind.Handle : MetadataTypeKind.Record;
         return new BindingMetadataType(
             record.SymbolId,
             kind,
@@ -78,7 +78,7 @@ public static class BindingMetadataExporter
     {
         return new BindingMetadataType(
             @enum.SymbolId,
-            "enum",
+            MetadataTypeKind.Enum,
             @enum.NativeName,
             @enum.ManagedName,
             @enum.ManagedNamespace,

@@ -7,6 +7,7 @@ namespace SharpCpp.Rendering;
 
 public static partial class BindingOutputRenderer
 {
+    private const string ICloneableFullName = "global::System.ICloneable";
     public static GeneratedBindingSet Render(BindingCompilation compilation, string fileStem,
         Func<string?, string>? deriveGroupStem = null)
     {
@@ -999,7 +1000,7 @@ public static partial class BindingOutputRenderer
         baseTypes.AddRange(interfaceNames);
         if (canEmitClone)
         {
-            baseTypes.Add("global::System.ICloneable");
+            baseTypes.Add(ICloneableFullName);
         }
         var baseClause = $" : {string.Join(", ", baseTypes)}";
         writer.Write(
@@ -2914,7 +2915,8 @@ public static partial class BindingOutputRenderer
             writer.Write(statement);
         }
 
-        var conversionExpression = importTypeName == "global::System.IntPtr" && publicTypeName == "string"
+        var conversionExpression = importTypeName == BindingType.IntPtr.ManagedTypeName &&
+                                   function.ReturnType.Marshaller.RequiresUtf8Conversion
             ? "global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__result_raw)!"
             : "__result_raw";
         writer.Write($$"""
@@ -2932,7 +2934,7 @@ public static partial class BindingOutputRenderer
         return type.Kind switch
         {
             BindingTypeKind.Primitive => type.UnaliasedManagedTypeName,
-            BindingTypeKind.Handle => "nint",
+            BindingTypeKind.Handle => BindingType.NativeInt.ManagedTypeName,
             BindingTypeKind.Enum => NormalizeEnumManagedTypeName(type.UnaliasedManagedTypeName),
             BindingTypeKind.GenericParameter => type.UnaliasedManagedTypeName,
             _ => throw new NotSupportedException($"Managed import emission does not support '{type.Kind}'.")
@@ -3664,17 +3666,19 @@ public static partial class BindingOutputRenderer
 
     private static string GetManagedEnumUnderlyingTypeName(EnumBinding @enum)
     {
-        return @enum.UnderlyingTypeName switch
-        {
-            "unsigned int" => "uint",
-            "unsigned short" => "ushort",
-            "unsigned long long" => "ulong",
-            "int" => "int",
-            "short" => "short",
-            "long long" => "long",
-            _ => "int"
-        };
+        return GetManagedPrimitiveTypeName(@enum.UnderlyingPrimitiveKind);
     }
+
+    private static string GetManagedPrimitiveTypeName(BindingPrimitiveKind kind) => kind switch
+    {
+        BindingPrimitiveKind.Int32 => "int",
+        BindingPrimitiveKind.UInt32 => "uint",
+        BindingPrimitiveKind.UInt16 => "ushort",
+        BindingPrimitiveKind.Int16 => "short",
+        BindingPrimitiveKind.UInt64 => "ulong",
+        BindingPrimitiveKind.Int64 => "long",
+        _ => "int"
+    };
 
     private static string NormalizeEnumManagedTypeName(string managedTypeName)
     {
@@ -3775,10 +3779,7 @@ public static partial class BindingOutputRenderer
             return false;
         }
 
-        return field.CppTypeName.Contains("vector<", StringComparison.Ordinal) ||
-            field.CppTypeName.Contains("list<", StringComparison.Ordinal) ||
-            field.CppTypeName.Contains("map<", StringComparison.Ordinal) ||
-            field.CppTypeName.Contains("unordered_map<", StringComparison.Ordinal);
+        return field.Type.Marshaller.RequiresBorrowedFieldStorage;
     }
 
     private static string RenderNativeBorrowedFieldGetInvocation(FieldBinding field)

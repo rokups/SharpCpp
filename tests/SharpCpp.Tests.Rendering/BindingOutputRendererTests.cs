@@ -281,7 +281,7 @@ public sealed class BindingOutputRendererTests
             "SampleBindings",
             "SharpCpp.Sample.Native",
             new[] { "Enum/Enum.hpp" });
-        var @enum = new EnumBinding("enum:permissions", "permissions", "Permissions", "unsigned int")
+        var @enum = new EnumBinding("enum:permissions", "permissions", "Permissions", "unsigned int", underlyingPrimitiveKind: BindingPrimitiveKind.UInt32)
         {
             IsFlags = true
         };
@@ -875,7 +875,7 @@ public sealed class BindingOutputRendererTests
             "SampleBindings",
             "SharpCpp.Sample.Native",
             new[] { "Ignore/IgnoreTests.hpp" });
-        var @enum = new EnumBinding("enum:skipped", "skipped", "Skipped", "unsigned int");
+        var @enum = new EnumBinding("enum:skipped", "skipped", "Skipped", "unsigned int", underlyingPrimitiveKind: BindingPrimitiveKind.UInt32);
         @enum.SetMetadata(MetadataKeys.IgnoreReason, "marked [[sharpcpp::ignore]]");
         compilation.Members.Add(@enum);
 
