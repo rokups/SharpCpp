@@ -542,7 +542,7 @@ public sealed partial class ClangSharpHeaderParser
             return;
         }
         var cxxRecord = recordDecl as CXXRecordDecl;
-        var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(nativeName), cppQualifiedName)
+        var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(GetManagedTypeHead(nativeName)), cppQualifiedName)
         {
             IsAbstract = cxxRecord?.IsAbstract ?? false,
             IsDirector = HasSharpCppAttribute(declarationText, "director"),
@@ -628,7 +628,7 @@ public sealed partial class ClangSharpHeaderParser
             ? sourceText[..braceIndex]
             : sourceText;
         var templatedRecord = classTemplate.TemplatedDecl;
-        var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(nativeName), cppQualifiedName)
+        var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(GetManagedTypeHead(nativeName)), cppQualifiedName)
         {
             IsAbstract = templatedRecord is CXXRecordDecl cxx && cxx.IsAbstract,
             IsDirector = HasSharpCppAttribute(declarationText, "director"),

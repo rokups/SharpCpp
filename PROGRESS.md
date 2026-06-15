@@ -108,6 +108,10 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - Landed polymorphic wrapping + directors before template/generic projection
 - All type-specific behaviors configured through C++/C# marshallers, never hardcoded in core
 
+## Recently Fixed
+
+- **Nested C++ type names in `RegisterRecord` / `RegisterTemplateRecord`**: When `Decl.Spelling` returns a qualified name (e.g. `"ConfigFile::ConfigFlavor"`), the `ManagedName` now strips the `::` via `GetManagedTypeHead` before `ToPascalCase`, preventing `HasUnresolvedNamespaceColons` violations downstream.
+
 ## Doc Anchors
 
 - `doc/01-architecture.md` — overall architecture
