@@ -2065,7 +2065,7 @@ public sealed partial class ClangSharpHeaderParser
                 return TryApplyManagedAliasSurface(type, BindingType.CreateEnum(enumName, @enum.ManagedName), preserveAliasSurface);
             }
 
-            return TryApplyManagedAliasSurface(type, BindingType.CreateEnum(enumName, ToPascalCase(enumName)), preserveAliasSurface);
+            return TryApplyManagedAliasSurface(type, BindingType.CreateEnum(enumName, ToPascalCase(GetManagedTypeHead(enumName))), preserveAliasSurface);
         }
 
         var primitiveType = normalizedType.kind switch
@@ -2322,7 +2322,12 @@ public sealed partial class ClangSharpHeaderParser
             }
             catch (NotSupportedException)
             {
-                result.Add(BindingType.CreateConfigured(argument, argument));
+                // Normalize C++ namespace separators (::) to C# namespace separators (.)
+                // for types that don't yet have managed overrides.
+                var managedTypeName = argument.Contains("::", StringComparison.Ordinal)
+                    ? argument.Replace("::", ".", StringComparison.Ordinal)
+                    : argument;
+                result.Add(BindingType.CreateConfigured(argument, managedTypeName));
             }
         }
 
@@ -3599,10 +3604,10 @@ public sealed partial class ClangSharpHeaderParser
             "long" => BindingType.NativeInt,
             "unsigned long" => BindingType.NativeUInt,
             "char" => BindingType.Int8,
-            _ when enumsByName.TryGetValue(NormalizeNamedTypeName(normalized), out var @enum) => BindingType.CreateEnum(@enum.NativeName, @enum.ManagedName),
-            _ when normalized.Contains("::", StringComparison.Ordinal) && enumsByName.TryGetValue(NormalizeNamedTypeName(normalized[(normalized.LastIndexOf("::", StringComparison.Ordinal) + 2)..]), out var shortEnum) => BindingType.CreateEnum(shortEnum.NativeName, shortEnum.ManagedName),
-            _ when recordsByName.TryGetValue(NormalizeNamedTypeName(normalized), out var record) => record.HandleType,
-            _ when normalized.Contains("::", StringComparison.Ordinal) && recordsByName.TryGetValue(NormalizeNamedTypeName(normalized[(normalized.LastIndexOf("::", StringComparison.Ordinal) + 2)..]), out var shortRecord) => shortRecord.HandleType,
+            _ when enumsByName.TryGetValue(NormalizeNamedTypeName(StripGenericArguments(normalized)), out var @enum) => BindingType.CreateEnum(@enum.NativeName, @enum.ManagedName),
+            _ when normalized.Contains("::", StringComparison.Ordinal) && enumsByName.TryGetValue(NormalizeNamedTypeName(StripGenericArguments(normalized[(normalized.LastIndexOf("::", StringComparison.Ordinal) + 2)..])), out var shortEnum) => BindingType.CreateEnum(shortEnum.NativeName, shortEnum.ManagedName),
+            _ when recordsByName.TryGetValue(NormalizeNamedTypeName(StripGenericArguments(normalized)), out var record) => record.HandleType,
+            _ when normalized.Contains("::", StringComparison.Ordinal) && recordsByName.TryGetValue(NormalizeNamedTypeName(StripGenericArguments(normalized[(normalized.LastIndexOf("::", StringComparison.Ordinal) + 2)..])), out var shortRecord) => shortRecord.HandleType,
             _ => throw new NotSupportedException($"ClangSharp sample parser does not support generic argument token '{normalized}'.")
         };
     }

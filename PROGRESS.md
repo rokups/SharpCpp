@@ -110,7 +110,14 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
-- **Nested C++ type names in `RegisterRecord` / `RegisterTemplateRecord`**: When `Decl.Spelling` returns a qualified name (e.g. `"ConfigFile::ConfigFlavor"`), the `ManagedName` now strips the `::` via `GetManagedTypeHead` before `ToPascalCase`, preventing `HasUnresolvedNamespaceColons` violations downstream.
+- **C++ namespace separators (`::`) leaking into managed type names**: Fixed at 6 sites in `ClangSharpHeaderParser.cs` where `::` could enter `ManagedName`/`PublicTypeName`:
+  - Placeholder record creation (3 sites) — use `GetManagedTypeHead` to strip `::` before `ToPascalCase`
+  - `RegisterRecord`/`RegisterTemplateRecord` (2 sites) — same fix for nested type spellings from ClangSharp
+  - `MapType` enum fallback (1 site) — same fix for enums not found in `enumsByName`
+  - `ParseTypeToken` record/enum lookups (4 sites) — use `StripGenericArguments` before lookups to prevent `NotSupportedException` fallback that created types with raw `::` tokens
+  - `ParseConcreteTemplateArgumentsOrOpaque` fallback (1 site) — normalize `::` → `.` when creating opaque fallback types
+- **`HasUnresolvedNamespaceColons`** converted from silent degradation to hard assertion (`InvalidOperationException`) in `DegradeUnsupportedSurfacePass` — the invariant should now always hold.
+- **Test results**: model, metadata, and rendering tests all pass. E2E tests unchanged (168 pass, 11 pre-existing failures). rbfx managed build exposes pre-existing namespace-resolution gaps in `Spriter` and `ConfigFlavor` types (previously masked by degradation).
 
 ## Doc Anchors
 
