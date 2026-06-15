@@ -926,6 +926,15 @@ public static partial class BindingOutputRenderer
             if (lastDot >= 0)
                 head = head[(lastDot + 1)..];
 
+            // For suppressed-emission records, use the record's managed name/format
+            // directly — the record configures its own C# implementation type.
+            if (record is not null && record.GetMetadata<bool>(MetadataKeys.SuppressEmission))
+            {
+                var managedName = record.ManagedTypeFormat ?? record.ManagedName;
+                var lastManagedDot = managedName.LastIndexOf('.');
+                head = lastManagedDot >= 0 ? managedName[(lastManagedDot + 1)..] : managedName;
+            }
+
             if (type.GenericArguments.Count > 0)
             {
                 var args = string.Join(", ",

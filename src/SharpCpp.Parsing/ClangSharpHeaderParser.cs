@@ -3942,11 +3942,6 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         var publicName = type.Marshaller.PublicTypeName;
-        if (publicName.StartsWith("BaseVector", StringComparison.Ordinal) ||
-            publicName.StartsWith("BaseIntegerVector", StringComparison.Ordinal))
-        {
-            return false;
-        }
 
         if (type.Kind == BindingTypeKind.Primitive)
         {
