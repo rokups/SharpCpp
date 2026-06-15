@@ -115,9 +115,9 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
   - `RegisterRecord`/`RegisterTemplateRecord` (2 sites) — same fix for nested type spellings from ClangSharp
   - `MapType` enum fallback (1 site) — same fix for enums not found in `enumsByName`
   - `ParseTypeToken` record/enum lookups (4 sites) — use `StripGenericArguments` before lookups to prevent `NotSupportedException` fallback that created types with raw `::` tokens
-  - `ParseConcreteTemplateArgumentsOrOpaque` fallback (1 site) — normalize `::` → `.` when creating opaque fallback types
-- **`HasUnresolvedNamespaceColons`** converted from silent degradation to hard assertion (`InvalidOperationException`) in `DegradeUnsupportedSurfacePass` — the invariant should now always hold.
-- **Test results**: model, metadata, and rendering tests all pass. E2E tests unchanged (168 pass, 11 pre-existing failures). rbfx managed build exposes pre-existing namespace-resolution gaps in `Spriter` and `ConfigFlavor` types (previously masked by degradation).
+  - `ParseConcreteTemplateArgumentsOrOpaque` fallback — NO normalization; unresolvable types keep raw `::` in `PublicTypeName` so that `HasUnresolvedNamespaceColons` catches and degrades them. The `::` → `.` string conversion was reverted as architectural violation (string guesswork instead of AST-based configuration).
+- **`HasUnresolvedNamespaceColons`** restored to its original role as a valid degradation gate in `DegradeUnsupportedSurfacePass`: types lacking managed type configuration (e.g., external library types not in `NamespaceMappings`) are properly degraded rather than generating broken C# output.
+- **Test results**: model, metadata, rendering, and E2E all pass (168/168). Rbfx E2E has 1 pre-existing failure due to `eastl::pair*` native thunk rendering bug.
 
 ## Doc Anchors
 

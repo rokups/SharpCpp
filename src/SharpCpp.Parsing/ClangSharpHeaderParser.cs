@@ -2322,12 +2322,7 @@ public sealed partial class ClangSharpHeaderParser
             }
             catch (NotSupportedException)
             {
-                // Normalize C++ namespace separators (::) to C# namespace separators (.)
-                // for types that don't yet have managed overrides.
-                var managedTypeName = argument.Contains("::", StringComparison.Ordinal)
-                    ? argument.Replace("::", ".", StringComparison.Ordinal)
-                    : argument;
-                result.Add(BindingType.CreateConfigured(argument, managedTypeName));
+                result.Add(BindingType.CreateConfigured(argument, argument));
             }
         }
 

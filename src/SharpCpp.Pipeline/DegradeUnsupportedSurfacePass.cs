@@ -406,9 +406,8 @@ public static class DegradeUnsupportedSurfacePass
 
         if (HasUnresolvedNamespaceColons(type))
         {
-            throw new InvalidOperationException(
-                $"BUG: managed type name '{type.ManagedTypeName}' still contains unresolved C++ namespace separators. " +
-                "This should never happen after the placeholder-record naming fix.");
+            reason = $"managed type name '{type.ManagedTypeName}' is not yet renderer-ready C#";
+            return true;
         }
 
         if (HasRefStructGenericArgument(type))
