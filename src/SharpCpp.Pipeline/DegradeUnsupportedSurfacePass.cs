@@ -15,6 +15,9 @@ public static class DegradeUnsupportedSurfacePass
             var recordsById = compilation.Records
                 .GroupBy(static record => record.SymbolId, StringComparer.Ordinal)
                 .ToDictionary(static group => group.Key, static group => group.Last(), StringComparer.Ordinal);
+            var enumsByCppName = compilation.Enums
+                .GroupBy(static @enum => @enum.CppQualifiedName, StringComparer.Ordinal)
+                .ToDictionary(static group => group.Key, static group => group.Last(), StringComparer.Ordinal);
             var allowedNamespaceRoots = compilation.NamespaceMappings.Keys.ToHashSet(StringComparer.Ordinal);
 
             foreach (var duplicateGroup in compilation.Functions
@@ -131,7 +134,7 @@ public static class DegradeUnsupportedSurfacePass
                     continue;
                 }
 
-                if (TryGetUnsupportedFunctionReason(function, recordsById, compilation, out var reason))
+                if (TryGetUnsupportedFunctionReason(function, recordsById, enumsByCppName, compilation, out var reason))
                 {
                     function.SetIgnoreReason(reason);
                     changed = true;
@@ -145,7 +148,7 @@ public static class DegradeUnsupportedSurfacePass
                     continue;
                 }
 
-                if (TryGetUnsupportedFieldReason(field, recordsById, out var reason))
+                if (TryGetUnsupportedFieldReason(field, recordsById, enumsByCppName, out var reason))
                 {
                     field.SetIgnoreReason(reason);
                     changed = true;
@@ -157,6 +160,7 @@ public static class DegradeUnsupportedSurfacePass
     private static bool TryGetUnsupportedFunctionReason(
         FunctionBinding function,
         IReadOnlyDictionary<string, RecordBinding> recordsById,
+        IReadOnlyDictionary<string, EnumBinding> enumsByCppName,
         BindingCompilation compilation,
         out string reason)
     {
@@ -185,7 +189,7 @@ public static class DegradeUnsupportedSurfacePass
             return true;
         }
 
-        if (TryGetUnsupportedTypeReason(function.ReturnType, function.CppReturnTypeName, recordsById, disallowNonPointerHandles: true, out reason))
+        if (TryGetUnsupportedTypeReason(function.ReturnType, function.CppReturnTypeName, recordsById, enumsByCppName, disallowNonPointerHandles: true, out reason))
         {
             reason = $"return type is unsupported in this bootstrap surface: {reason}";
             return true;
@@ -199,7 +203,7 @@ public static class DegradeUnsupportedSurfacePass
                 return true;
             }
 
-            if (TryGetUnsupportedTypeReason(parameter.Type, parameter.CppTypeName, recordsById, disallowNonPointerHandles: false, out reason))
+            if (TryGetUnsupportedTypeReason(parameter.Type, parameter.CppTypeName, recordsById, enumsByCppName, disallowNonPointerHandles: false, out reason))
             {
                 reason = $"parameter '{parameter.ManagedName}' is unsupported in this bootstrap surface: {reason}";
                 return true;
@@ -331,6 +335,7 @@ public static class DegradeUnsupportedSurfacePass
     private static bool TryGetUnsupportedFieldReason(
         FieldBinding field,
         IReadOnlyDictionary<string, RecordBinding> recordsById,
+        IReadOnlyDictionary<string, EnumBinding> enumsByCppName,
         out string reason)
     {
         if ((field.Parent as RecordBinding)?.IsGeneric != true && field.Type.ContainsGenericParameters)
@@ -345,7 +350,7 @@ public static class DegradeUnsupportedSurfacePass
             return true;
         }
 
-        if (TryGetUnsupportedTypeReason(field.Type, field.CppTypeName, recordsById, disallowNonPointerHandles: true, out reason))
+        if (TryGetUnsupportedTypeReason(field.Type, field.CppTypeName, recordsById, enumsByCppName, disallowNonPointerHandles: true, out reason))
         {
             reason = $"field type is unsupported in this bootstrap surface: {reason}";
             return true;
@@ -359,6 +364,7 @@ public static class DegradeUnsupportedSurfacePass
         BindingType type,
         string rawCppTypeName,
         IReadOnlyDictionary<string, RecordBinding> recordsById,
+        IReadOnlyDictionary<string, EnumBinding> enumsByCppName,
         bool disallowNonPointerHandles,
         out string reason)
     {
@@ -368,6 +374,16 @@ public static class DegradeUnsupportedSurfacePass
             record.IsIgnored())
         {
             reason = $"record '{record.CppQualifiedName}' is ignored: {record.GetIgnoreReason() ?? "unsupported record surface"}";
+            return true;
+        }
+
+        // Enum types don't carry a RecordId; identify the backing enum
+        // by its C++ type name and check whether it has been ignored.
+        if (type.Kind == BindingTypeKind.Enum &&
+            enumsByCppName.TryGetValue(type.CppTypeName, out var enumBinding) &&
+            enumBinding.IsIgnored())
+        {
+            reason = $"enum '{enumBinding.CppQualifiedName}' is ignored: {enumBinding.GetIgnoreReason() ?? "unsupported enum surface"}";
             return true;
         }
 
