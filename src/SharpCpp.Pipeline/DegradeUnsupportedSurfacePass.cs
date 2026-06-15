@@ -434,7 +434,7 @@ public static class DegradeUnsupportedSurfacePass
             }
         }
 
-        if (rawCppTypeName.Contains('<', StringComparison.Ordinal) && !IsSupportedGenericHandleType(type, recordsById))
+        if (type.GenericArguments.Count > 0 && !IsSupportedGenericHandleType(type, recordsById))
         {
             reason = $"template/container type '{rawCppTypeName}' is not yet supported";
             return true;
@@ -453,8 +453,14 @@ public static class DegradeUnsupportedSurfacePass
             return false;
         }
 
+        // The fallback path handles template specializations of non-generic
+        // records (e.g. std::vector<int> where the vector record isn't marked
+        // generic).  A non-generic record with generic arguments whose C++ type
+        // name doesn't match the record's qualified name is a template
+        // instantiation and is accepted.
         return record.IsGeneric ||
-            (type.CppTypeName.Contains('<', StringComparison.Ordinal) &&
+            (type.GenericArguments.Count > 0 &&
+             !record.IsGeneric &&
              !type.CppTypeName.StartsWith(record.CppQualifiedName, StringComparison.Ordinal));
     }
 
