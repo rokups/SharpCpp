@@ -416,13 +416,6 @@ public static class DegradeUnsupportedSurfacePass
             return true;
         }
 
-        if (type.ManagedTypeName.Contains(' ', StringComparison.Ordinal) ||
-            type.ManagedTypeName.Contains("><", StringComparison.Ordinal))
-        {
-            reason = $"managed type name '{type.ManagedTypeName}' is not yet renderer-ready C#";
-            return true;
-        }
-
         if (disallowNonPointerHandles && type.Kind == BindingTypeKind.Handle &&
             type.Marshaller.CppIsRecordValue)
         {
