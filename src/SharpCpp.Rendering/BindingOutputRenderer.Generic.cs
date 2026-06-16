@@ -725,7 +725,7 @@ public static partial class BindingOutputRenderer
 
     private static string RenderGenericConstructorImportDeclaration(BindingCompilation compilation, RecordBinding record, FunctionBinding function, RecordGenericInstantiationBinding instantiation)
     {
-        var parameterList = string.Join(", ", function.Parameters.Select((parameter, index) => RenderConcreteManagedParameter(parameter, SubstituteGenericType(record, parameter.Type, instantiation))));
+        var parameterList = string.Join(", ", function.Parameters.Select((parameter, index) => RenderConcreteManagedParameter(compilation, parameter, SubstituteGenericType(record, parameter.Type, instantiation))));
         return $$"""
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetGenericEntryPointName(function, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
             internal static partial nint {{GetGenericImportMethodName(function, instantiation)}}({{parameterList}});
@@ -734,7 +734,7 @@ public static partial class BindingOutputRenderer
 
     private static string RenderGenericInstanceImportDeclaration(BindingCompilation compilation, RecordBinding record, FunctionBinding function, RecordGenericInstantiationBinding instantiation)
     {
-        var parameterList = string.Join(", ", new[] { "global::SharpCpp.Support.NativeObject self" }.Concat(function.Parameters.Select((parameter, index) => RenderConcreteManagedParameter(parameter, SubstituteGenericType(record, parameter.Type, instantiation)))));
+        var parameterList = string.Join(", ", new[] { "global::SharpCpp.Support.NativeObject self" }.Concat(function.Parameters.Select((parameter, index) => RenderConcreteManagedParameter(compilation, parameter, SubstituteGenericType(record, parameter.Type, instantiation)))));
         var concreteReturnType = SubstituteGenericType(record, function.ReturnType, instantiation);
         var returnTypeName = GetManagedImportReturnTypeName(compilation, concreteReturnType);
         var returnAttribute = GetManagedImportReturnAttribute(compilation, concreteReturnType, function.ReturnsOwnedHandle);
@@ -757,7 +757,7 @@ public static partial class BindingOutputRenderer
         RecordGenericInstantiationBinding methodInstantiation)
     {
         var concreteParameters = function.Parameters.Select((parameter, index) =>
-            RenderConcreteManagedParameter(parameter,
+            RenderConcreteManagedParameter(compilation, parameter,
                 SubstituteGenericType(record, parameter.Type, recordInstantiation, methodParams, methodInstantiation))).ToArray();
         var concreteReturnType = SubstituteGenericType(record, function.ReturnType, recordInstantiation, methodParams, methodInstantiation);
         var parameterList = string.Join(", ", new[] { "global::SharpCpp.Support.NativeObject self" }.Concat(concreteParameters));
@@ -777,7 +777,7 @@ public static partial class BindingOutputRenderer
 
     private static string RenderGenericStaticImportDeclaration(BindingCompilation compilation, RecordBinding record, FunctionBinding function, RecordGenericInstantiationBinding instantiation)
     {
-        var parameterList = string.Join(", ", function.Parameters.Select((parameter, index) => RenderConcreteManagedParameter(parameter, SubstituteGenericType(record, parameter.Type, instantiation))));
+        var parameterList = string.Join(", ", function.Parameters.Select((parameter, index) => RenderConcreteManagedParameter(compilation, parameter, SubstituteGenericType(record, parameter.Type, instantiation))));
         var concreteReturnType = SubstituteGenericType(record, function.ReturnType, instantiation);
         var returnTypeName = GetManagedImportReturnTypeName(compilation, concreteReturnType);
         var returnAttribute = GetManagedImportReturnAttribute(compilation, concreteReturnType, function.ReturnsOwnedHandle);
@@ -794,7 +794,7 @@ public static partial class BindingOutputRenderer
     private static string RenderGenericFreeFunctionImportDeclaration(BindingCompilation compilation, FunctionBinding function, RecordGenericInstantiationBinding instantiation)
     {
         var methodParams = (IReadOnlyList<BindingGenericParameter>)function.GenericParameters.ToList();
-        var parameterList = string.Join(", ", function.Parameters.Select((parameter, index) => RenderConcreteManagedParameter(parameter, SubstituteFunctionGenericType(parameter.Type, methodParams, instantiation))));
+        var parameterList = string.Join(", ", function.Parameters.Select((parameter, index) => RenderConcreteManagedParameter(compilation, parameter, SubstituteFunctionGenericType(parameter.Type, methodParams, instantiation))));
         var concreteReturnType = SubstituteFunctionGenericType(function.ReturnType, methodParams, instantiation);
         var returnTypeName = GetManagedImportReturnTypeName(compilation, concreteReturnType);
         var returnAttribute = GetManagedImportReturnAttribute(compilation, concreteReturnType, function.ReturnsOwnedHandle);
@@ -832,17 +832,9 @@ public static partial class BindingOutputRenderer
             """;
     }
 
-    private static string RenderConcreteManagedParameter(ParameterBinding parameter, BindingType concreteType)
+    private static string RenderConcreteManagedParameter(BindingCompilation compilation, ParameterBinding parameter, BindingType concreteType)
     {
-        var modifier = parameter.Direction switch
-        {
-            BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => "in ",
-            BindingParameterDirection.Ref => "ref ",
-            BindingParameterDirection.Out => "out ",
-            _ => string.Empty
-        };
-        var attribute = GetManagedParameterAttribute(concreteType);
-        return $"{attribute}{modifier}{GetManagedImportTypeName(concreteType)} {parameter.ManagedName}";
+        return RenderManagedImportParameter(parameter, concreteType, compilation);
     }
 
     private static BindingType SubstituteGenericType(RecordBinding record, BindingType type, RecordGenericInstantiationBinding instantiation, IReadOnlyList<BindingGenericParameter>? methodParameters = null, RecordGenericInstantiationBinding? methodInstantiation = null)
@@ -992,7 +984,9 @@ public static partial class BindingOutputRenderer
 
         if (concreteType.IsPointerType)
         {
-            return $"global::SharpCpp.Support.NativeObject.GetHandle({parameter.ManagedName})";
+            return CanUseManagedHandleParameterImport(parameter, concreteType)
+                ? $"({GetManagedWrapperTypeName(concreteType, compilation)})(object){parameter.ManagedName}!"
+                : $"global::SharpCpp.Support.NativeObject.GetHandle({parameter.ManagedName})";
         }
 
         return $"({GetManagedWrapperTypeName(concreteType, compilation)})(object){parameter.ManagedName}!";

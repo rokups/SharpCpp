@@ -273,6 +273,47 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Managed_output_uses_wrapper_types_for_non_ref_handle_import_parameters()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/Composition.hpp" });
+        var ownerRecord = new RecordBinding("record:chain", "chain", "Chain");
+        var payloadRecord = new RecordBinding("record:payload_record", "payload_record", "PayloadRecord");
+        var method = new FunctionBinding(
+            "method:chain:set_payload",
+            "set_payload",
+            "SetPayload",
+            BindingType.Void,
+            "entry_set_payload")
+        {
+            OwningRecordCppTypeName = "chain"
+        };
+        method.Parameters.Add(new ParameterBinding(
+            "parameter:set_payload:value",
+            "value",
+            "value",
+            payloadRecord.HandleType,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "payload_record*"));
+        ownerRecord.Members.Add(method);
+        compilation.Members.Add(ownerRecord);
+        compilation.Members.Add(payloadRecord);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public static void SetPayload(global::SharpCpp.Sample.PayloadRecord value)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial void SetPayload(global::SharpCpp.Sample.PayloadRecord? value);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke.SetPayload(value);", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("GetHandle(value)", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Managed_output_renders_flags_enum_from_ast()
     {
         var compilation = new BindingCompilation(

@@ -803,7 +803,7 @@ public static partial class BindingOutputRenderer
         var writer = new CodeWriter();
         var parameterList = string.Join(
             ", ",
-            function.Parameters.Select(RenderManagedParameter));
+            function.Parameters.Select(parameter => RenderManagedImportParameter(parameter, compilation)));
         var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
         var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
         var importMethodName = GetManagedImportMethodName(function);
@@ -1596,7 +1596,10 @@ public static partial class BindingOutputRenderer
         if (property.Setter is not null)
         {
             var requiresWrapping = RequiresHandleWrapping(property.Setter.Parameters[0].Type);
-            var setterArgument = requiresWrapping
+            var useManagedHandleImport = CanUseManagedHandleParameterImport(property.Setter.Parameters[0], property.Setter.Parameters[0].Type);
+            var setterArgument = useManagedHandleImport
+                ? "value"
+                : requiresWrapping
                 ? "global::SharpCpp.Support.NativeObject.GetHandle(value)"
                 : "value";
             var setterKeepAlive = requiresWrapping
@@ -1888,7 +1891,7 @@ public static partial class BindingOutputRenderer
         var writer = new CodeWriter();
         var parameterList = string.Join(
             ", ",
-            function.Parameters.Select(RenderManagedParameter));
+            function.Parameters.Select(parameter => RenderManagedImportParameter(parameter, compilation)));
         var importMethodName = GetManagedImportMethodName(function);
 
         writer.Write($$"""
@@ -2112,7 +2115,7 @@ public static partial class BindingOutputRenderer
         var writer = new CodeWriter();
         var parameterList = string.Join(
             ", ",
-            function.Parameters.Select(RenderManagedParameter));
+            function.Parameters.Select(parameter => RenderManagedImportParameter(parameter, compilation)));
         var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
         var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
         var importMethodName = GetManagedImportMethodName(function);
@@ -2290,7 +2293,7 @@ public static partial class BindingOutputRenderer
         var writer = new CodeWriter();
         var parameterList = function.Parameters.Count == 0
             ? $"{recordManagedName} self"
-            : string.Join(", ", new[] { $"{recordManagedName} self" }.Concat(function.Parameters.Select(p => RenderManagedSafeHandleParameter(p, compilation))));
+            : string.Join(", ", new[] { $"{recordManagedName} self" }.Concat(function.Parameters.Select(p => RenderManagedImportParameter(p, compilation))));
         var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
         var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
@@ -2310,7 +2313,7 @@ public static partial class BindingOutputRenderer
         var writer = new CodeWriter();
         Func<ParameterBinding, string> parameterRenderer = useSafeHandleParams
             ? (Func<ParameterBinding, string>)(p => RenderManagedSafeHandleParameter(p))
-            : (Func<ParameterBinding, string>)(p => RenderManagedParameter(p));
+            : (Func<ParameterBinding, string>)(p => RenderManagedImportParameter(p, compilation));
         var parameterList = string.Join(
             ", ",
             new[] { $"{recordManagedName} self" }.Concat(function.Parameters.Select(parameterRenderer)));
@@ -2334,7 +2337,7 @@ public static partial class BindingOutputRenderer
         var writer = new CodeWriter();
         var parameterList = string.Join(
             ", ",
-            new[] { $"{recordManagedName} self" }.Concat(function.Parameters.Select(RenderManagedParameter)));
+            new[] { $"{recordManagedName} self" }.Concat(function.Parameters.Select(parameter => RenderManagedImportParameter(parameter, compilation))));
         var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
         var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
         var importMethodName = GetManagedCallbaseImportMethodName(function);
@@ -2448,7 +2451,17 @@ public static partial class BindingOutputRenderer
 
         if (!field.IsReadOnly)
         {
-            var setterArgument = RequiresHandleWrapping(field.Type)
+            var setterParameter = new ParameterBinding(
+                $"field:set:{field.NativeName}",
+                "value",
+                "value",
+                field.Type,
+                BindingParameterDirection.In,
+                BindingParameterAbiKind.Pointer,
+                field.CppTypeName);
+            var setterArgument = CanUseManagedHandleParameterImport(setterParameter, field.Type)
+                ? "value"
+                : RequiresHandleWrapping(field.Type)
                 ? "global::SharpCpp.Support.NativeObject.GetHandle(value)"
                 : "value";
             var setterKeepAlive = RequiresHandleWrapping(field.Type)
@@ -2488,7 +2501,7 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedFieldSetterImportDeclaration(BindingCompilation compilation, FieldBinding field, string recordManagedName)
     {
         var writer = new CodeWriter();
-        var parameter = RenderManagedParameter(
+        var parameter = RenderManagedImportParameter(
             new ParameterBinding(
                 $"field:set:{field.NativeName}",
                 "value",
@@ -2496,7 +2509,8 @@ public static partial class BindingOutputRenderer
                 field.Type,
                 BindingParameterDirection.In,
                 BindingParameterAbiKind.Pointer,
-                field.CppTypeName));
+                field.CppTypeName),
+            compilation);
 
         writer.Write($$"""
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_set", StringMarshalling = StringMarshalling.Utf8)]
@@ -3081,6 +3095,42 @@ public static partial class BindingOutputRenderer
         return $"{attribute}{modifier}{typeName} {parameter.ManagedName}";
     }
 
+    private static bool CanUseManagedHandleParameterImport(ParameterBinding parameter, BindingType type)
+    {
+        return type.Kind == BindingTypeKind.Handle &&
+            parameter.Direction is not (BindingParameterDirection.Ref or BindingParameterDirection.Out);
+    }
+
+    private static string RenderManagedImportParameter(ParameterBinding parameter, BindingCompilation? compilation = null)
+    {
+        return RenderManagedImportParameter(parameter, parameter.Type, compilation);
+    }
+
+    private static string RenderManagedImportParameter(ParameterBinding parameter, BindingType type, BindingCompilation? compilation = null)
+    {
+        if (CanUseManagedHandleParameterImport(parameter, type))
+        {
+            var modifier = parameter.Direction switch
+            {
+                BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => "in ",
+                _ => string.Empty
+            };
+            var attribute = GetManagedParameterAttribute(type);
+            var typeName = $"{GetManagedWrapperTypeName(type, compilation)}?";
+            return $"{attribute}{modifier}{typeName} {parameter.ManagedName}";
+        }
+
+        var modifierFallback = parameter.Direction switch
+        {
+            BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => "in ",
+            BindingParameterDirection.Ref => "ref ",
+            BindingParameterDirection.Out => "out ",
+            _ => string.Empty
+        };
+        var attributeFallback = GetManagedParameterAttribute(type);
+        return $"{attributeFallback}{modifierFallback}{GetManagedImportTypeName(type)} {parameter.ManagedName}";
+    }
+
     private static string RenderManagedParameter(ParameterBinding parameter)
     {
         var modifier = parameter.Direction switch
@@ -3353,6 +3403,12 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedInvocationArgument(ParameterBinding parameter)
     {
         var requiresWrapping = RequiresHandleWrapping(parameter.Type);
+
+        if (requiresWrapping && CanUseManagedHandleParameterImport(parameter, parameter.Type))
+        {
+            return RenderManagedSafeHandleInvocationArgument(parameter);
+        }
+
         var valueExpression = requiresWrapping
             ? $"global::SharpCpp.Support.NativeObject.GetHandle({parameter.ManagedName})"
             : parameter.ManagedName;
@@ -4069,7 +4125,7 @@ public static partial class BindingOutputRenderer
         foreach (var keepCount in GetVariantParameterIndices(function))
         {
             var variantParams = GetUnexpressibleVariantParams(function, keepCount);
-            var parameterList = string.Join(", ", variantParams.Select(RenderManagedParameter));
+            var parameterList = string.Join(", ", variantParams.Select(parameter => RenderManagedImportParameter(parameter, compilation)));
             var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
             var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
             var importName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
@@ -4093,7 +4149,7 @@ public static partial class BindingOutputRenderer
         foreach (var keepCount in GetVariantParameterIndices(function))
         {
             var variantParams = GetUnexpressibleVariantParams(function, keepCount);
-            var parameterList = string.Join(", ", variantParams.Select(RenderManagedParameter));
+            var parameterList = string.Join(", ", variantParams.Select(parameter => RenderManagedImportParameter(parameter, compilation)));
             var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
             var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
             var variantImportName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
@@ -4125,7 +4181,7 @@ public static partial class BindingOutputRenderer
         foreach (var keepCount in GetVariantParameterIndices(function))
         {
             var variantParams = GetUnexpressibleVariantParams(function, keepCount);
-            var parameterList = string.Join(", ", new[] { $"{recordManagedName} self" }.Concat(variantParams.Select(RenderManagedParameter)));
+            var parameterList = string.Join(", ", new[] { $"{recordManagedName} self" }.Concat(variantParams.Select(parameter => RenderManagedImportParameter(parameter, compilation))));
             var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
             var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
             var variantImportName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
@@ -4150,7 +4206,7 @@ public static partial class BindingOutputRenderer
         foreach (var keepCount in GetVariantParameterIndices(function))
         {
             var variantParams = GetUnexpressibleVariantParams(function, keepCount);
-            var parameterList = string.Join(", ", variantParams.Select(RenderManagedParameter));
+            var parameterList = string.Join(", ", variantParams.Select(parameter => RenderManagedImportParameter(parameter, compilation)));
             var variantImportName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
             var variantEntrypointName = GetUnexpressibleVariantEntrypointName(function.EntryPointName, keepCount);
 
