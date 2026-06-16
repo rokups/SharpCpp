@@ -20,7 +20,7 @@ public readonly struct StringHash : IEquatable<StringHash>
         Hash = Calculate(value);
     }
 
-    public StringHash(Type type)
+    public StringHash(global::System.Type type)
     {
         ArgumentNullException.ThrowIfNull(type);
         Hash = Calculate(type.Name);
@@ -38,7 +38,7 @@ public readonly struct StringHash : IEquatable<StringHash>
         return new StringHash(value);
     }
 
-    public static implicit operator StringHash(Type type)
+    public static implicit operator StringHash(global::System.Type type)
     {
         return new StringHash(type);
     }

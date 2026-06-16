@@ -236,6 +236,49 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         Assert.False(accept.IsIgnored(), $"Ignored because '{accept.GetIgnoreReason()}'.");
     }
 
+    [Fact]
+    public void Bootstrap_pipeline_fully_qualifies_value_aliases_inside_vector_cpp_signatures()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "VectorOfValueAliasCollision");
+        var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+        var marshallerHeader = Path.Combine(fixtureDir, "SampleMarshallers.h");
+
+        var parser = new ClangSharpHeaderParser();
+        var clangArgs = new[] { "-x", "c++", "-std=c++20", $"-I{fixtureDir}" };
+        var marshallerFiles = new[] { marshallerHeader };
+
+        var compilation = parser.Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test.Namespace",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: clangArgs,
+            MarshallerConfigurationFiles: marshallerFiles,
+            EntryPointPrefix: "Test_"));
+
+        BindingCompilationBootstrapPipeline.Apply(compilation, marshallerFiles, clangArgs);
+
+        var hullBuilder = Assert.Single(compilation.Records.Where(static record => record.NativeName == "HullBuilder"));
+        var getVertices = Assert.Single(hullBuilder.Members.OfType<FunctionBinding>().Where(static function => function.NativeName == "GetVertices"));
+        var setVertices = Assert.Single(hullBuilder.Members.OfType<FunctionBinding>().Where(static function => function.NativeName == "SetVertices"));
+        var stored = Assert.Single(hullBuilder.Members.OfType<FieldBinding>().Where(static field => field.NativeName == "stored_"));
+
+        Assert.Equal("Ea.Vector<global::Urho3D.Math.Vector3>", getVertices.ReturnType.ManagedTypeName);
+        Assert.Equal("Ea.Vector<global::Urho3D.Math.Vector3>", setVertices.Parameters[0].Type.ManagedTypeName);
+        Assert.Equal("Ea.Vector<global::Urho3D.Math.Vector3>", stored.Type.ManagedTypeName);
+
+        Assert.Equal("const eastl::vector<Urho3D::BaseVector3<float>>&", getVertices.CppReturnTypeName);
+        Assert.Equal("const eastl::vector<Urho3D::BaseVector3<float>>&", setVertices.Parameters[0].CppTypeName);
+        Assert.Equal("eastl::vector<Urho3D::BaseVector3<float>>", stored.CppTypeName);
+
+        Assert.DoesNotContain("Rml::Vector3", getVertices.CppReturnTypeName, StringComparison.Ordinal);
+        Assert.DoesNotContain("Rml::Vector3", setVertices.Parameters[0].CppTypeName, StringComparison.Ordinal);
+        Assert.DoesNotContain("Rml::Vector3", stored.CppTypeName, StringComparison.Ordinal);
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

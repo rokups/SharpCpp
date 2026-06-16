@@ -411,6 +411,24 @@ public static class DegradeUnsupportedSurfacePass
             }
         }
 
+        foreach (var argument in type.GenericArguments)
+        {
+            if (TryGetUnsupportedTypeReason(argument, argument.CppTypeName, recordsById, enumsByCppName, disallowNonPointerHandles: false, out var nestedReason))
+            {
+                if (argument.Kind == BindingTypeKind.Handle &&
+                    argument.RecordId is not null &&
+                    recordsById.TryGetValue(argument.RecordId, out var nestedRecord) &&
+                    nestedRecord.IsIgnored() &&
+                    !IsFatalIgnoredGenericArgumentRecord(nestedRecord))
+                {
+                    continue;
+                }
+
+                reason = $"generic argument '{argument.ManagedTypeName}' is unsupported: {nestedReason}";
+                return true;
+            }
+        }
+
         if (HasUnresolvedNamespaceColons(type))
         {
             reason = $"managed type name '{type.ManagedTypeName}' is not yet renderer-ready C#";
@@ -511,6 +529,24 @@ public static class DegradeUnsupportedSurfacePass
     {
         return !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ||
             record.Members.OfType<FunctionBinding>().Any(static member => member.HasMetadata(MetadataKeys.MarshallerExposedMethod));
+    }
+
+    private static bool IsFatalIgnoredGenericArgumentRecord(RecordBinding record)
+    {
+        if (record.GetMetadata<bool>(MetadataKeys.ForwardDeclaration))
+        {
+            return true;
+        }
+
+        if (record.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) &&
+            !record.GetMetadata<bool>(MetadataKeys.SuppressEmission))
+        {
+            return true;
+        }
+
+        var ignoreReason = record.GetIgnoreReason() ?? string.Empty;
+        return ignoreReason.Contains("outside the configured namespace mappings", StringComparison.Ordinal) ||
+            ignoreReason.Contains("wrapper materialization requires a complete definition", StringComparison.Ordinal);
     }
 
     private static bool TryGetNamespaceExclusionReason(

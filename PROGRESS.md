@@ -110,6 +110,14 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **Incorrect generated bindings from alias/template-name leakage**:
+  - `ClangSharpHeaderParser.ResolveQualifiedTypeName` now rewrites top-level template arguments from Clang's canonical spelling while preserving the spelled container surface. This stops native thunk signatures from leaking colliding short names such as `Rml::Vector3` into rbfx APIs that should resolve to fully qualified `Urho3D::*` types.
+  - `ClangSharpHeaderParser.ParseTypeToken` now consults alias-origin names when parsing nested generic arguments, so alias-backed value types inside containers resolve to their configured managed types instead of canonical template spellings like `BaseVector3<float>` / `BaseVector2<float>`.
+  - `MarshallerMetadataPhase2.ApplyAliasSurfaces` is no longer used to rewrite callable signatures to alias names. This avoids broad alias-surface pollution such as `FileTime`, `ThreadID`, `NetworkId`, and `VariantVector` leaking into generated P/Invoke and public signatures when the underlying concrete managed type is the correct surface.
+  - `DegradeUnsupportedSurfacePass` now rejects container surfaces whose nested generic arguments resolve to fatally ignored records (for example `eastl::pair` from excluded namespace roots), while still allowing supported handle containers like `eastl::vector<Urho3D::Object*>`.
+  - Hand-written `Type` references now use `global::System.Type` in `rbfx/SharpCpp.Rbfx.Bindings/Math/StringHash.cs` and `rbfx/SharpCpp.Rbfx.Tests.E2E/StringBindingTests.cs`, avoiding accidental resolution to generated `Urho3D.Type`.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj`, `dotnet test tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj`, `cmake --build --preset Debug`, and `ctest --preset Debug` all pass.
+
 - **C++ namespace separators (`::`) leaking into managed type names**: Fixed at 6 sites in `ClangSharpHeaderParser.cs` where `::` could enter `ManagedName`/`PublicTypeName`:
   - Placeholder record creation (3 sites) — use `GetManagedTypeHead` to strip `::` before `ToPascalCase`
   - `RegisterRecord`/`RegisterTemplateRecord` (2 sites) — same fix for nested type spellings from ClangSharp

@@ -1942,6 +1942,22 @@ public sealed partial class ClangSharpHeaderParser
             ? BuildQualifiedAliasSurfaceTypeName(type, ownedAliasInfo.CppQualifiedName)
             : resolvedTypeName;
 
+        // When the resolved type contains template arguments, use the
+        // canonical type's fully-qualified argument names.  This keeps
+        // the outer type alias (e.g. "ea::vector") while guaranteeing
+        // that template argument resolution is driven by the Clang AST
+        // rather than by text-based short-name lookup, which can collide
+        // with records from non-owned headers (e.g. "Rml::Vector2" vs
+        // "Urho3D::Vector2").
+        if (ownedAliasInfo is null &&
+            surfaceCppTypeName.Contains('<') &&
+            canonicalTypeName.Contains('<') &&
+            TryGetTopLevelTemplateArguments(surfaceCppTypeName, out var surfaceHead, out _) &&
+            TryGetTopLevelTemplateArguments(canonicalTypeName, out _, out var canonicalArgs))
+        {
+            surfaceCppTypeName = $"{surfaceHead}<{string.Join(", ", canonicalArgs)}>";
+        }
+
         // When the spelled name is unqualified (no ::), derive the
         // fully-qualified version from the underlying Clang declaration
         // cursor so that managed-type-override lookups keyed on the
@@ -2404,6 +2420,7 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         var spelling = NormalizeTypeName(type.Spelling.ToString());
+        var canonicalTypeName = NormalizeTypeName(type.CanonicalType.Spelling.ToString());
 
         if (TryGetQualifiedNamedType(type, out var unqualifiedName, out var qualifiedName))
         {
@@ -2429,7 +2446,31 @@ public sealed partial class ClangSharpHeaderParser
             spelling = Regex.Replace(spelling, pattern, record.CppQualifiedName, RegexOptions.CultureInvariant);
         }
 
+        // For templated spellings, keep the spelled outer surface (e.g.
+        // eastl::vector / ea::vector plus const/ref qualifiers) but replace
+        // the top-level template arguments with Clang's canonical arguments.
+        // This avoids short-name collisions such as Vector3 resolving to
+        // Rml::Vector3 instead of Urho3D::Vector3 inside container signatures.
+        spelling = RewriteTopLevelTemplateArgumentsFromCanonical(spelling, canonicalTypeName);
+
         return spelling;
+    }
+
+    private static string RewriteTopLevelTemplateArgumentsFromCanonical(string surfaceTypeName, string canonicalTypeName)
+    {
+        var surfaceStart = surfaceTypeName.IndexOf('<');
+        var surfaceEnd = surfaceTypeName.LastIndexOf('>');
+        if (surfaceStart < 0 || surfaceEnd <= surfaceStart)
+        {
+            return surfaceTypeName;
+        }
+
+        if (!TryGetTopLevelTemplateArguments(canonicalTypeName, out _, out var canonicalArguments))
+        {
+            return surfaceTypeName;
+        }
+
+        return $"{surfaceTypeName[..(surfaceStart + 1)]}{string.Join(", ", canonicalArguments)}{surfaceTypeName[surfaceEnd..]}";
     }
 
     private static string BuildQualifiedAliasSurfaceTypeName(CXType type, string qualifiedAliasName)
@@ -3560,7 +3601,10 @@ public sealed partial class ClangSharpHeaderParser
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         IReadOnlyDictionary<string, BindingType> genericParameters)
     {
-        var normalized = SelectConcreteTemplateTypeName(NormalizeTypeName(token), ResolveAliasTypeName(token));
+        var spelledTypeName = NormalizeTypeName(token);
+        var resolvedTypeName = SelectConcreteTemplateTypeName(spelledTypeName, ResolveAliasTypeName(token));
+        var qualifiedSpelledTypeName = GetQualifiedTypeTokenName(spelledTypeName, resolvedTypeName, recordsByName);
+        var normalized = resolvedTypeName;
 
         if (TryMapGenericParameterType(normalized, genericParameters, out var genericParameterType))
         {
@@ -3582,9 +3626,12 @@ public sealed partial class ClangSharpHeaderParser
             }
         }
 
-        if (TryGetManagedTypeOverride(normalized, normalized, normalized, managedTypeOverrides, isReturn: false, out var managedTypeOverride))
+        if (TryGetManagedTypeOverride(spelledTypeName, resolvedTypeName, qualifiedSpelledTypeName, managedTypeOverrides, isReturn: false, out var managedTypeOverride))
         {
-            return CreateConfiguredOrWrapperType(managedTypeOverride!, recordsByName, enumsByName, managedTypeOverrides, genericParameters, normalized);
+            var surfaceCppTypeName = qualifiedSpelledTypeName.Contains("::", StringComparison.Ordinal)
+                ? qualifiedSpelledTypeName
+                : normalized;
+            return CreateConfiguredOrWrapperType(managedTypeOverride!, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName);
         }
 
         return normalized switch
@@ -3623,6 +3670,66 @@ public sealed partial class ClangSharpHeaderParser
                     : shortRecord.HandleType,
             _ => throw new NotSupportedException($"ClangSharp sample parser does not support generic argument token '{normalized}'.")
         };
+    }
+
+    private static string GetQualifiedTypeTokenName(string spelledTypeName, string resolvedTypeName, IDictionary<string, RecordBinding> recordsByName)
+    {
+        if (string.IsNullOrWhiteSpace(spelledTypeName))
+        {
+            return resolvedTypeName;
+        }
+
+        if (TryGetQualifiedAliasOriginName(resolvedTypeName, out var qualifiedAliasName))
+        {
+            return qualifiedAliasName;
+        }
+
+        if (spelledTypeName.Contains("::", StringComparison.Ordinal))
+        {
+            return spelledTypeName;
+        }
+
+        var head = NormalizeNamedTypeName(StripGenericArguments(spelledTypeName));
+        return recordsByName.TryGetValue(head, out var record)
+            ? record.CppQualifiedName
+            : spelledTypeName;
+    }
+
+    private static bool TryGetQualifiedAliasOriginName(string resolvedTypeName, out string qualifiedAliasName)
+    {
+        var normalized = NormalizeTypeName(resolvedTypeName);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            qualifiedAliasName = string.Empty;
+            return false;
+        }
+
+        if (s_typeAliasOriginNames.TryGetValue(normalized, out var originNames) && originNames.Count > 0)
+        {
+            qualifiedAliasName = PickBestOriginName(originNames);
+            return true;
+        }
+
+        if (TryGetTopLevelTemplateArguments(normalized, out var head, out _) &&
+            s_typeAliasOriginNames.TryGetValue(head, out originNames) && originNames.Count > 0)
+        {
+            qualifiedAliasName = PickBestOriginName(originNames);
+            return true;
+        }
+
+        foreach (var kv in s_typeAliasOriginNames)
+        {
+            if ((kv.Key.EndsWith(normalized, StringComparison.Ordinal) ||
+                 normalized.EndsWith(kv.Key, StringComparison.Ordinal)) &&
+                kv.Value.Count > 0)
+            {
+                qualifiedAliasName = PickBestOriginName(kv.Value);
+                return true;
+            }
+        }
+
+        qualifiedAliasName = string.Empty;
+        return false;
     }
 
     private static bool TryCreateSpecializedRecordHandleType(

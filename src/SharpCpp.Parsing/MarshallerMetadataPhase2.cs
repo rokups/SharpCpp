@@ -726,6 +726,11 @@ public static class MarshallerMetadataPhase2
 
     private static BindingType StampAlias(BindingType type, IReadOnlyDictionary<string, string> aliasByTargetName)
     {
+        if (type.Kind == BindingTypeKind.Primitive && type.PrimitiveKind != BindingPrimitiveKind.Unsupported)
+        {
+            return type;
+        }
+
         var unaliased = type.UnaliasedManagedTypeName;
         if (aliasByTargetName.TryGetValue(unaliased, out var aliasName) &&
             !string.Equals(aliasName, type.ManagedTypeName, StringComparison.Ordinal))
@@ -733,8 +738,9 @@ public static class MarshallerMetadataPhase2
             type = type.WithManagedTypeFormatOverride(aliasName);
         }
 
-        // Recurse into generic arguments so that aliased types nested inside
-        // containers (e.g., Ea.Vector<BaseIntegerVector3<int>>) are stamped.
+        // Recurse into generic arguments. For configured value types and
+        // handles this mutates the nested BindingType instances directly,
+        // but built-in primitive singletons are intentionally left alone.
         foreach (var genericArg in type.GenericArguments)
         {
             StampAlias(genericArg, aliasByTargetName);

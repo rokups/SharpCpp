@@ -18,8 +18,8 @@ public sealed class StringBindingTests
 
         Assert.True(eaStringType.IsSubclassOf(typeof(StringBase)));
 
-        Assert.Equal(eaStringType, typeof(Connection).GetMethod(nameof(Connection.GetAddress), Type.EmptyTypes)!.ReturnType);
-        Assert.Equal(eaStringType, typeof(Network).GetMethod(nameof(Network.GetPackageCacheDir), Type.EmptyTypes)!.ReturnType);
+        Assert.Equal(eaStringType, typeof(Connection).GetMethod(nameof(Connection.GetAddress), global::System.Type.EmptyTypes)!.ReturnType);
+        Assert.Equal(eaStringType, typeof(Network).GetMethod(nameof(Network.GetPackageCacheDir), global::System.Type.EmptyTypes)!.ReturnType);
 
         Assert.Contains(
             typeof(UIElement).GetMethods(),

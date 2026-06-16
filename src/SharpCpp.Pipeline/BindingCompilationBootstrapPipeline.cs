@@ -40,11 +40,6 @@ public static class BindingCompilationBootstrapPipeline
         // namespace mappings, unsupported surface, etc.).
         RunTimed("PruneDegradedAliases", () => PruneAliasesTargetingDegradedRecords(compilation));
 
-        // Re-apply alias surfaces now that degraded aliases have been pruned.
-        // This must run AFTER all degradation passes so that only surviving
-        // aliases are stamped on function/method signatures.
-        MarshallerMetadataPhase2.ApplyAliasSurfaces(compilation);
-
         // Invalidate cached member lookups so rendering picks up any members
         // added by pipeline passes (MI projections, generic instantiations, etc.)
         compilation.InvalidateCaches();
