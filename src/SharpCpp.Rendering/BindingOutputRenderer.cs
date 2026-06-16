@@ -566,9 +566,9 @@ public static partial class BindingOutputRenderer
         {
             writer.WriteLine();
             writer.Write($$"""
-                void {{GetNativeProtectedFieldSetterHelperName(field)}}(arg_t<{{field.CppTypeName}}> value)
+                void {{GetNativeProtectedFieldSetterHelperName(field)}}(field_t<{{field.CppTypeName}}> value)
                 {
-                this->{{field.NativeName}} = value;
+                this->{{field.NativeName}} = *value;
                 }
                 """);
         }
@@ -2455,7 +2455,7 @@ public static partial class BindingOutputRenderer
                 "value",
                 field.Type,
                 BindingParameterDirection.In,
-                BindingParameterAbiKind.Value,
+                BindingParameterAbiKind.Pointer,
                 field.CppTypeName));
 
         writer.Write($$"""
@@ -2790,7 +2790,7 @@ public static partial class BindingOutputRenderer
             {
                 writer.WriteLine();
                 writer.Write($$"""
-                    SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_set(arg_t<{{field.OwningRecordCppTypeName}}*> self, arg_t<{{nativeFieldCppType}}> value)
+                    SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_set(arg_t<{{field.OwningRecordCppTypeName}}*> self, field_t<{{nativeFieldCppType}}> value)
                     {
                     {{(field.AccessModifier == BindingAccessModifier.Protected
                         ? RenderNativeProtectedFieldSetInvocation(compilation, field)

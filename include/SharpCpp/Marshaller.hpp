@@ -715,6 +715,9 @@ template <class T>
 using arg_t = typename Marshaller<T>::abi_type;
 
 template <class T>
+using field_t = T*;
+
+template <class T>
 using ParameterMarshaller = Marshaller<T>;
 
 template <class T>

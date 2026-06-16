@@ -117,7 +117,7 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
   - `ParseTypeToken` record/enum lookups (4 sites) — use `StripGenericArguments` before lookups to prevent `NotSupportedException` fallback that created types with raw `::` tokens
   - `ParseConcreteTemplateArgumentsOrOpaque` fallback — NO normalization; unresolvable types keep raw `::` in `PublicTypeName` so that `HasUnresolvedNamespaceColons` catches and degrades them. The `::` → `.` string conversion was reverted as architectural violation (string guesswork instead of AST-based configuration).
 - **`HasUnresolvedNamespaceColons`** restored to its original role as a valid degradation gate in `DegradeUnsupportedSurfacePass`: types lacking managed type configuration (e.g., external library types not in `NamespaceMappings`) are properly degraded rather than generating broken C# output.
-- **Test results**: model, metadata, rendering, and E2E all pass (168/168). Rbfx E2E has 1 pre-existing failure due to `eastl::pair*` native thunk rendering bug.
+- **Native field setters pass values by pointer (Issue #2)**: Added `field_t<T>` alias (`T*`) in `Marshaller.hpp` and a new `MarshallerInvoker::set_field` overload accepting `field_t<TValue>` that dereferences directly. Updated native setter template in `BindingOutputRenderer.cs` from `arg_t<T>` to `field_t<T>` (by pointer). Also updated director protected field setter helpers and managed P/Invoke declarations to use `in` modifier for pointer-compatible ABI. All 4 SharpCpp core test suites pass (model, metadata, rendering, E2E). Rbfx E2E still has 1 pre-existing failure due to `eastl::pair*` native thunk rendering bug compounded by a broken rbfx managed build pre-dating this change.
 
 ## Doc Anchors
 
