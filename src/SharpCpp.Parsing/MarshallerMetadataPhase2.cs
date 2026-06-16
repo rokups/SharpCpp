@@ -730,7 +730,7 @@ public static class MarshallerMetadataPhase2
         if (aliasByTargetName.TryGetValue(unaliased, out var aliasName) &&
             !string.Equals(aliasName, type.ManagedTypeName, StringComparison.Ordinal))
         {
-            type.SetManagedTypeFormatOverride(aliasName);
+            type = type.WithManagedTypeFormatOverride(aliasName);
         }
 
         // Recurse into generic arguments so that aliased types nested inside
