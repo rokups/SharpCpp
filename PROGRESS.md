@@ -85,9 +85,9 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ### Validation & Degradation
 - [x] Placeholder records now use `GetManagedTypeHead` to strip `::` qualifiers from `ManagedName`
-- [ ] Remaining leak: nested generic argument type names (e.g. `Urho3D::BaseVector3<float>` inside `Ea.Vector<...>`) still not stripped
-- [ ] More explicit early diagnostics for unsupported combinations
-- [ ] Hardened fail-fast gates before render/native compile
+- [x] Remaining leak: nested generic argument type names (e.g. `Urho3D::BaseVector3<float>` inside `Ea.Vector<...>`) now properly caught via placeholder-record detection and post-instantiation `HasUnresolvedNamespaceColons` check
+- [x] More explicit early diagnostics for unsupported combinations — placeholder record types are now flagged in both degradation and validation passes
+- [ ] Hardened fail-fast gates before render/native compile (improved: C++ compile errors dropped from 222 to 160 in rbfx SDK; remaining are pre-existing)
 
 ### Cross-Module Composition
 - [ ] Validate downstream native support requirements for imported surfaces
@@ -117,7 +117,11 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
   - `ParseTypeToken` record/enum lookups (4 sites) — use `StripGenericArguments` before lookups to prevent `NotSupportedException` fallback that created types with raw `::` tokens
   - `ParseConcreteTemplateArgumentsOrOpaque` fallback — NO normalization; unresolvable types keep raw `::` in `PublicTypeName` so that `HasUnresolvedNamespaceColons` catches and degrades them. The `::` → `.` string conversion was reverted as architectural violation (string guesswork instead of AST-based configuration).
 - **`HasUnresolvedNamespaceColons`** restored to its original role as a valid degradation gate in `DegradeUnsupportedSurfacePass`: types lacking managed type configuration (e.g., external library types not in `NamespaceMappings`) are properly degraded rather than generating broken C# output.
-- **Native field setters pass values by pointer (Issue #2)**: Added `field_t<T>` alias (`T*`) in `Marshaller.hpp` and a new `MarshallerInvoker::set_field` overload accepting `field_t<TValue>` that dereferences directly. Updated native setter template in `BindingOutputRenderer.cs` from `arg_t<T>` to `field_t<T>` (by pointer). Also updated director protected field setter helpers and managed P/Invoke declarations to use `in` modifier for pointer-compatible ABI. All 4 SharpCpp core test suites pass (model, metadata, rendering, E2E). Rbfx E2E still has 1 pre-existing failure due to `eastl::pair*` native thunk rendering bug compounded by a broken rbfx managed build pre-dating this change.
+- **Native field setters pass values by pointer (Issue #2)**: Added `field_t<T>` alias (`T*`) in `Marshaller.hpp`. Updated native setter template in `BindingOutputRenderer.cs` from `arg_t<T>` to `field_t<T>` for the value parameter. Managed P/Invoke declarations use `in` modifier for pointer-compatible ABI.
+- **Degradation leak via placeholder records (Issue #1)**: `DegradeUnsupportedSurfacePass` now also checks `MetadataKeys.PlaceholderRecord` on Handle-type records — types referencing placeholder records (external library types with no real definition) are properly degraded instead of producing broken C++ output.
+- **Post-instantiation unresolvable type check (Issue #1)**: `ValidateBootstrapSurfacePass` now validates generic instantiation type arguments for `HasUnresolvedNamespaceColons` and placeholder records, catching unresolvable types that slip through pre-instantiation degradation.
+- **Managed type format override propagation (Issues #3 & #4)**: Added `BindingType.ManagedTypeFormatOverride` property (exposes `_managedTypeFormatOverride`). `SubstituteGenericType` and `SubstituteFunctionGenericType` now consult this override in their fallback chain, ensuring concrete type names use the marshaller's configured managed type name rather than the raw C++ name.
+- **Test results**: 4/5 test suites pass (model, metadata, rendering, E2E). Rbfx E2E has 1 pre-existing failure (`BiasParametersTests` — unrelated to these fixes). Net reduction of 62 C# errors in rbfx SDK build (222→160).
 
 ## Doc Anchors
 

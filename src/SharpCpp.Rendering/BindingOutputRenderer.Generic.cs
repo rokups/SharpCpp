@@ -866,7 +866,7 @@ public static partial class BindingOutputRenderer
             var cppTypeName = resolvedRecord is not null
                 ? $"{resolvedRecord.FormatCppTypeName(substitutedArguments)}*"
                 : type.CppTypeName;
-            return BindingType.CreateHandle(cppTypeName, resolvedRecord?.ManagedTypeFormat ?? resolvedRecord?.ManagedName ?? type.Marshaller.PublicTypeName, type.RecordId, type.MarshallerTypeName, substitutedArguments);
+            return BindingType.CreateHandle(cppTypeName, resolvedRecord?.ManagedTypeFormat ?? resolvedRecord?.ManagedName ?? type.ManagedTypeFormatOverride ?? type.Marshaller.PublicTypeName, type.RecordId, type.MarshallerTypeName, substitutedArguments);
         }
 
         if (type.Kind == BindingTypeKind.Enum)
@@ -895,7 +895,7 @@ public static partial class BindingOutputRenderer
         var substitutedArguments = type.GenericArguments.Select(argument => SubstituteFunctionGenericType(argument, functionParameters, instantiation)).ToArray();
         if (type.Kind == BindingTypeKind.Handle)
         {
-            return BindingType.CreateHandle(type.CppTypeName, type.Marshaller.PublicTypeName, type.RecordId, type.MarshallerTypeName, substitutedArguments);
+            return BindingType.CreateHandle(type.CppTypeName, type.ManagedTypeFormatOverride ?? type.Marshaller.PublicTypeName, type.RecordId, type.MarshallerTypeName, substitutedArguments);
         }
 
         if (type.Kind == BindingTypeKind.Enum)

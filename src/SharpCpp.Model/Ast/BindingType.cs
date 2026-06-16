@@ -151,6 +151,8 @@ public sealed class BindingType
 
     public bool IsPointerType => Kind == BindingTypeKind.Handle && string.IsNullOrEmpty(Marshaller.MarshallerTypeName);
 
+    public string? ManagedTypeFormatOverride => _managedTypeFormatOverride;
+
     public void SetManagedTypeFormatOverride(string? managedTypeFormatOverride)
     {
         _managedTypeFormatOverride = string.IsNullOrWhiteSpace(managedTypeFormatOverride) ? null : managedTypeFormatOverride;
