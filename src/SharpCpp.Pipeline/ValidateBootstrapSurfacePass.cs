@@ -73,13 +73,12 @@ public static class ValidateBootstrapSurfacePass
             return;
         }
 
-        foreach (var instantiation in record.SupportedGenericInstantiations)
+        FilterUnsupportedInstantiations(record.SupportedGenericInstantiations, recordsById);
+
+        if (record.SupportedGenericInstantiations.Count == 0 &&
+            !record.HasMetadata(MetadataKeys.ExplicitGenericInstantiations))
         {
-            if (!ValidateInstantiationKinds(instantiation, recordsById))
-            {
-                record.SetIgnoreReason($"generic record '{record.ManagedName}' has unsupported concrete type arguments");
-                return;
-            }
+            record.SetIgnoreReason($"generic record '{record.ManagedName}' has no supported concrete instantiations");
         }
     }
 
@@ -97,13 +96,12 @@ public static class ValidateBootstrapSurfacePass
             return;
         }
 
-        foreach (var instantiation in function.SupportedGenericInstantiations)
+        FilterUnsupportedInstantiations(function.SupportedGenericInstantiations, recordsById);
+
+        if (function.SupportedGenericInstantiations.Count == 0 &&
+            !function.HasMetadata(MetadataKeys.ExplicitGenericInstantiations))
         {
-            if (!ValidateInstantiationKinds(instantiation, recordsById))
-            {
-                function.SetIgnoreReason($"generic function '{function.ManagedName}' has unsupported concrete type arguments");
-                return;
-            }
+            function.SetIgnoreReason($"generic function '{function.ManagedName}' has no supported concrete instantiations");
         }
     }
 
@@ -123,15 +121,40 @@ public static class ValidateBootstrapSurfacePass
 
             if (argument.Kind == BindingTypeKind.Handle &&
                 argument.RecordId is not null &&
-                recordsById.TryGetValue(argument.RecordId, out var argRecord) &&
-                argRecord.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) &&
-                !argRecord.GetMetadata<bool>(MetadataKeys.SuppressEmission))
+                recordsById.TryGetValue(argument.RecordId, out var argRecord))
             {
-                return false;
+                // Placeholder records without SuppressEmission are unresolvable
+                // external types that should not produce bindings.
+                if (argRecord.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) &&
+                    !argRecord.GetMetadata<bool>(MetadataKeys.SuppressEmission))
+                {
+                    return false;
+                }
+
+                // SuppressEmission placeholders that reference C++ types from
+                // namespaces not included in the native build (e.g. Rml::Vector3)
+                // produce broken native thunks — filter those instantiations.
+                if (argRecord.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) &&
+                    argRecord.GetMetadata<bool>(MetadataKeys.SuppressEmission) &&
+                    HasUnresolvedNativeNamespaceColons(argRecord))
+                {
+                    return false;
+                }
             }
         }
 
         return true;
+    }
+
+    private static void FilterUnsupportedInstantiations(
+        IList<RecordGenericInstantiationBinding> instantiations,
+        IReadOnlyDictionary<string, RecordBinding> recordsById)
+    {
+        for (var i = instantiations.Count - 1; i >= 0; i--)
+        {
+            if (!ValidateInstantiationKinds(instantiations[i], recordsById))
+                instantiations.RemoveAt(i);
+        }
     }
 
     /// <summary>
@@ -168,5 +191,15 @@ public static class ValidateBootstrapSurfacePass
         }
 
         return false;
+    }
+
+    private static bool HasUnresolvedNativeNamespaceColons(RecordBinding record)
+    {
+        var cppName = record.CppQualifiedName;
+        if (!cppName.Contains("::", StringComparison.Ordinal))
+            return false;
+
+        var root = cppName[..cppName.IndexOf("::", StringComparison.Ordinal)];
+        return root is not ("Urho3D" or "ea" or "eastl" or "std" or "SharpCpp");
     }
 }

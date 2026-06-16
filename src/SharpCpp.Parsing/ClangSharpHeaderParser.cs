@@ -240,8 +240,10 @@ public sealed partial class ClangSharpHeaderParser
                     break;
 
                 case EnumDecl enumChildDecl:
-                    RegisterEnum(enumChildDecl, compilation, enumsByName,
-                        ResolveDeclIncludePath(child, ownedFileRoots, request.HeaderIncludePath));
+                    if (!string.IsNullOrEmpty(enumChildDecl.Name) &&
+                        !GetCppQualifiedName(enumChildDecl).Contains("(unnamed enum", StringComparison.Ordinal))
+                        RegisterEnum(enumChildDecl, compilation, enumsByName,
+                            ResolveDeclIncludePath(child, ownedFileRoots, request.HeaderIncludePath));
                     break;
 
                 case FunctionTemplateDecl funcTemplateDecl:
@@ -564,7 +566,7 @@ public sealed partial class ClangSharpHeaderParser
 
         ApplyDestructorMetadata(cxxRecord, record);
         PopulateRecordBases(cxxRecord, record, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
-        PopulateRecordMembers(recordDecl, record, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters, entryPointPrefix);
+        PopulateRecordMembers(recordDecl, record, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters, entryPointPrefix, compilation, headerIncludePath);
 
         UpdatePolymorphism(record, recordsByName);
     }
@@ -658,7 +660,7 @@ public sealed partial class ClangSharpHeaderParser
         var genericParameters = CreateGenericParameterScope(templateParameters);
         ApplyDestructorMetadata(templatedRecord as CXXRecordDecl, record);
         PopulateRecordBases(templatedRecord as CXXRecordDecl, record, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
-        PopulateRecordMembers(templatedRecord, record, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
+        PopulateRecordMembers(templatedRecord, record, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix, compilation, headerIncludePath);
 
         UpdatePolymorphism(record, recordsByName);
     }
@@ -714,7 +716,9 @@ public sealed partial class ClangSharpHeaderParser
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         IReadOnlyDictionary<string, BindingType> genericParameters,
-        string entryPointPrefix)
+        string entryPointPrefix,
+        BindingCompilation compilation,
+        string? headerIncludePath)
     {
         foreach (var child in recordDecl.Decls)
         {
@@ -851,6 +855,12 @@ public sealed partial class ClangSharpHeaderParser
                     record.Members.Add(field);
                     break;
                 }
+
+                case EnumDecl enumDecl:
+                    if (!string.IsNullOrEmpty(enumDecl.Name) &&
+                        !GetCppQualifiedName(enumDecl).Contains("(unnamed enum", StringComparison.Ordinal))
+                        RegisterEnum(enumDecl, compilation, enumsByName, headerIncludePath);
+                    break;
             }
         }
 
@@ -3430,8 +3440,10 @@ public sealed partial class ClangSharpHeaderParser
                     break;
 
                 case EnumDecl enumChildDecl:
-                    RegisterEnum(enumChildDecl, compilation, enumsByName,
-                        ResolveDeclIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty));
+                    if (!string.IsNullOrEmpty(enumChildDecl.Name) &&
+                        !GetCppQualifiedName(enumChildDecl).Contains("(unnamed enum", StringComparison.Ordinal))
+                        RegisterEnum(enumChildDecl, compilation, enumsByName,
+                            ResolveDeclIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty));
                     break;
 
                 case FunctionTemplateDecl funcTemplateDecl:

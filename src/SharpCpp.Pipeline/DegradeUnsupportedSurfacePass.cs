@@ -387,6 +387,13 @@ public static class DegradeUnsupportedSurfacePass
             return true;
         }
 
+        if (type.Kind == BindingTypeKind.Enum &&
+            !enumsByCppName.ContainsKey(type.CppTypeName))
+        {
+            reason = $"external enum type '{rawCppTypeName}' is not owned by this compilation";
+            return true;
+        }
+
         if (type.Kind == BindingTypeKind.Handle &&
             !string.IsNullOrWhiteSpace(type.RecordId) &&
             !recordsById.ContainsKey(type.RecordId))
