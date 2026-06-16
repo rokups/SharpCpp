@@ -395,15 +395,6 @@ public static class DegradeUnsupportedSurfacePass
             return true;
         }
 
-        if (type.Kind == BindingTypeKind.Handle &&
-            !string.IsNullOrWhiteSpace(type.RecordId) &&
-            recordsById.TryGetValue(type.RecordId, out var placeholderRecord) &&
-            placeholderRecord.GetMetadata<bool>(MetadataKeys.PlaceholderRecord))
-        {
-            reason = $"handle type '{rawCppTypeName}' references a placeholder record (type from a library not configured for this compilation)";
-            return true;
-        }
-
         if (type.Kind == BindingTypeKind.Primitive && type.PrimitiveKind == BindingPrimitiveKind.Unsupported)
         {
             if (string.Equals(type.ManagedTypeName, rawCppTypeName, StringComparison.Ordinal))

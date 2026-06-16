@@ -124,7 +124,8 @@ public static class ValidateBootstrapSurfacePass
             if (argument.Kind == BindingTypeKind.Handle &&
                 argument.RecordId is not null &&
                 recordsById.TryGetValue(argument.RecordId, out var argRecord) &&
-                argRecord.GetMetadata<bool>(MetadataKeys.PlaceholderRecord))
+                argRecord.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) &&
+                !argRecord.GetMetadata<bool>(MetadataKeys.SuppressEmission))
             {
                 return false;
             }
