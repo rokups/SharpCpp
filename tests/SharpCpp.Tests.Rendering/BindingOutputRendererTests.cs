@@ -483,7 +483,9 @@ public sealed class BindingOutputRendererTests
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("return global::SharpCpp.Sample.Widget.CreateManagedWrapper(__result, ownsHandle: true);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__WidgetOwnedReturnMarshaller", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial global::SharpCpp.Sample.Widget CreateWidget();", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("return __result;", managedOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -515,7 +517,9 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("internal static readonly global::SharpCpp.Support.INativeInstanceCache s_instanceCache = global::Urho3D.Interop.RefCountedInstanceCache.Shared;", managedOutput, StringComparison.Ordinal);
         Assert.Contains("PrepareForOwnedRegistration();", managedOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("protected override bool ReleaseNativeHandle(nint handle)", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("return global::SharpCpp.Sample.Payload.CreateManagedWrapper(__PInvoke.Get_Child(this), ownsHandle: true);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("[return: MarshalUsing(typeof(global::SharpCpp.Sample.__PayloadOwnedReturnMarshaller))]", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial global::SharpCpp.Sample.Payload Get_Child(Payload self);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("return __PInvoke.Get_Child(this);", managedOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -540,7 +544,8 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("global::System.ICloneable", managedOutput, StringComparison.Ordinal);
         Assert.Contains("public CloneCounter Clone()", managedOutput, StringComparison.Ordinal);
         Assert.Contains("object global::System.ICloneable.Clone()", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("internal static partial nint CloneCopyCtor(CloneCounter self);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("[return: MarshalUsing(typeof(global::SharpCpp.Sample.__CloneCounterOwnedReturnMarshaller))]", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial global::SharpCpp.Sample.CloneCounter CloneCopyCtor(CloneCounter self);", managedOutput, StringComparison.Ordinal);
         Assert.Contains("sharpcpp_e2e_clone_counter_clone", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("return detail::TryClone<clone_counter>(instance, 0);", nativeOutput, StringComparison.Ordinal);
     }
@@ -817,7 +822,7 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("typeof(T) == typeof(int)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("typeof(T) == typeof(float)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("public T GetValue()", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("(global::SharpCpp.Sample.BoxOf<T>)(object)global::SharpCpp.Sample.BoxOf<int>.CreateManagedWrapper", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("(global::SharpCpp.Sample.BoxOf<T>)(object)__result!;", managedOutput, StringComparison.Ordinal);
         Assert.Contains("entry_get__1", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("entry_get__2", nativeOutput, StringComparison.Ordinal);
     }

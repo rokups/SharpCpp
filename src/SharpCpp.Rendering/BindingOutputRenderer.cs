@@ -765,7 +765,7 @@ public static partial class BindingOutputRenderer
             }
 
             writer.Write($$"""
-                return {{BuildManagedHandleWrap(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
+                return {{BuildManagedHandleReturnResultExpression(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
                 """);
         }
         else if (function.ReturnType.MarshallerTypeName is not null)
@@ -804,8 +804,8 @@ public static partial class BindingOutputRenderer
         var parameterList = string.Join(
             ", ",
             function.Parameters.Select(RenderManagedParameter));
-        var returnTypeName = GetManagedImportTypeName(function.ReturnType);
-        var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
+        var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
         var importMethodName = GetManagedImportMethodName(function);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static partial {returnTypeName} {importMethodName}({parameterList});"
@@ -817,6 +817,37 @@ public static partial class BindingOutputRenderer
             {{importMethodLine}}
             """);
         return writer.ToString();
+    }
+
+    private static string RenderManagedHandleReturnMarshallerHelpers(BindingCompilation compilation, RecordBinding record, string recordDeclarationName)
+    {
+        var qualifiedRecordTypeName = GetQualifiedManagedRecordDeclarationTypeName(compilation, record, recordDeclarationName);
+        var qualifiedOpenRecordTypeName = GetQualifiedManagedOpenRecordTypeName(compilation, record);
+        var borrowedMarshallerDeclarationName = GetHandleReturnMarshallerDeclarationName(record, ownsHandle: false);
+        var borrowedMarshallerTypeName = GetQualifiedHandleReturnMarshallerTypeName(compilation, record, ownsHandle: false);
+        var ownedMarshallerDeclarationName = GetHandleReturnMarshallerDeclarationName(record, ownsHandle: true);
+        var ownedMarshallerTypeName = GetQualifiedHandleReturnMarshallerTypeName(compilation, record, ownsHandle: true);
+        var genericConstraints = GetGenericRecordConstraints(record);
+
+        return $$"""
+            [CustomMarshaller(typeof({{qualifiedOpenRecordTypeName}}), MarshalMode.ManagedToUnmanagedOut, typeof({{borrowedMarshallerTypeName}}))]
+            internal static class {{borrowedMarshallerDeclarationName}}{{genericConstraints}}
+            {
+                public static {{qualifiedRecordTypeName}} ConvertToManaged(nint unmanaged)
+                {
+                    return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: false);
+                }
+            }
+
+            [CustomMarshaller(typeof({{qualifiedOpenRecordTypeName}}), MarshalMode.ManagedToUnmanagedOut, typeof({{ownedMarshallerTypeName}}))]
+            internal static class {{ownedMarshallerDeclarationName}}{{genericConstraints}}
+            {
+                public static {{qualifiedRecordTypeName}} ConvertToManaged(nint unmanaged)
+                {
+                    return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: true);
+                }
+            }
+            """;
     }
 
     private static string RenderAliasBindings(BindingCompilation? compilation = null, bool includeRegistry = false)
@@ -1304,6 +1335,9 @@ public static partial class BindingOutputRenderer
             """
             }
             """);
+
+        writer.WriteLine();
+        writer.Write(RenderManagedHandleReturnMarshallerHelpers(compilation, record, record.ManagedName));
         return writer.ToString();
     }
 
@@ -1377,21 +1411,21 @@ public static partial class BindingOutputRenderer
                     writer.Write(statement);
                 }
             }
-            else if (function.ReturnType.Kind == BindingTypeKind.Handle)
-            {
-                writer.Write($$"""
-                    var __result = __PInvoke.{{importMethodName}}({{invokeArguments}});
-                    """);
+        else if (function.ReturnType.Kind == BindingTypeKind.Handle)
+        {
+            writer.Write($$"""
+                var __result = __PInvoke.{{importMethodName}}({{invokeArguments}});
+                """);
 
                 foreach (var statement in invocationPlan.PostCallStatements)
                 {
                     writer.Write(statement);
                 }
 
-                writer.Write($$"""
-                    return {{BuildManagedHandleWrap(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
-                    """);
-            }
+            writer.Write($$"""
+                return {{BuildManagedHandleReturnResultExpression(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
+                """);
+        }
             else if (function.ReturnType.MarshallerTypeName is not null)
             {
                 WriteManagedReturnWithMarshallerConversion(writer, function, importMethodName, invokeArguments, invocationPlan);
@@ -1472,9 +1506,15 @@ public static partial class BindingOutputRenderer
 
     private static string RenderManagedCloneImportDeclaration(BindingCompilation compilation, RecordBinding record)
     {
+        var returnTypeName = GetManagedImportReturnTypeName(compilation, record.HandleType);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, record.HandleType, ownsHandle: true);
+        var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
+            ? $"internal static partial {returnTypeName} CloneCopyCtor({record.ManagedName} self);"
+            : $"{returnAttribute}\ninternal static partial {returnTypeName} CloneCopyCtor({record.ManagedName} self);";
+
         return $$"""
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.NativeName)}}_clone", StringMarshalling = StringMarshalling.Utf8)]
-            internal static partial nint CloneCopyCtor({{record.ManagedName}} self);
+            {{importMethodLine}}
             """;
     }
 
@@ -1489,11 +1529,11 @@ public static partial class BindingOutputRenderer
                 public {{(hidesBaseClone ? "new " : string.Empty)}}{{record.ManagedName}} Clone()
                 {
                 var __result = __PInvoke.CloneCopyCtor(this);
-                if (__result == 0)
+                if (__result is null)
                 {
                 throw new NotSupportedException("SharpCpp could not clone this native object because the native type is not copy-constructible.");
                 }
-                return {{record.ManagedName}}.CreateManagedWrapper(__result, ownsHandle: true);
+                return __result;
                 }
 
                 object global::System.ICloneable.Clone()
@@ -1508,11 +1548,11 @@ public static partial class BindingOutputRenderer
                 object global::System.ICloneable.Clone()
                 {
                 var __result = __PInvoke.CloneCopyCtor(this);
-                if (__result == 0)
+                if (__result is null)
                 {
                 throw new NotSupportedException("SharpCpp could not clone this native object because the native type is not copy-constructible.");
                 }
-                return {{record.ManagedName}}.CreateManagedWrapper(__result, ownsHandle: true);
+                return __result;
                 }
                 """);
         }
@@ -1538,7 +1578,7 @@ public static partial class BindingOutputRenderer
                 writer.Write($$"""
                     get
                     {
-                    return {{BuildManagedHandleWrap(compilation, property.Getter.ReturnType, $"__PInvoke.{GetManagedImportMethodName(property.Getter)}(this)", ownsHandle: false)}};
+                    return {{BuildManagedHandleReturnResultExpression(compilation, property.Getter.ReturnType, $"__PInvoke.{GetManagedImportMethodName(property.Getter)}(this)", ownsHandle: false)}};
                     }
                     """);
             }
@@ -2035,7 +2075,7 @@ public static partial class BindingOutputRenderer
                 }
 
                 writer.Write($$"""
-                    return {{BuildManagedHandleWrap(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
+                    return {{BuildManagedHandleReturnResultExpression(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
                     """);
             }
             else if (function.ReturnType.MarshallerTypeName is not null)
@@ -2073,8 +2113,8 @@ public static partial class BindingOutputRenderer
         var parameterList = string.Join(
             ", ",
             function.Parameters.Select(RenderManagedParameter));
-        var returnTypeName = GetManagedImportTypeName(function.ReturnType);
-        var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
+        var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
         var importMethodName = GetManagedImportMethodName(function);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static partial {returnTypeName} {importMethodName}({parameterList});"
@@ -2182,7 +2222,7 @@ public static partial class BindingOutputRenderer
                 writer.Write($$"""
                     public static {{returnTypeName}} operator +({{record.ManagedName}} left, {{parameter}})
                     {
-                    return {{BuildManagedHandleWrap(compilation, function.ReturnType, $"__PInvoke.{function.ManagedName}(left, {RenderManagedSafeHandleInvocationArgument(function.Parameters[0])})", ownsHandle: false)}};
+                    return {{BuildManagedHandleReturnResultExpression(compilation, function.ReturnType, $"__PInvoke.{function.ManagedName}(left, {RenderManagedSafeHandleInvocationArgument(function.Parameters[0])})", ownsHandle: false)}};
                     }
                     """);
             }
@@ -2219,7 +2259,7 @@ public static partial class BindingOutputRenderer
                 writer.Write($$"""
                     public static {{returnTypeName}} operator -({{record.ManagedName}} value)
                     {
-                    return {{BuildManagedHandleWrap(compilation, function.ReturnType, $"__PInvoke.{function.ManagedName}(value)", ownsHandle: false)}};
+                    return {{BuildManagedHandleReturnResultExpression(compilation, function.ReturnType, $"__PInvoke.{function.ManagedName}(value)", ownsHandle: false)}};
                     }
                     """);
             }
@@ -2251,8 +2291,8 @@ public static partial class BindingOutputRenderer
         var parameterList = function.Parameters.Count == 0
             ? $"{recordManagedName} self"
             : string.Join(", ", new[] { $"{recordManagedName} self" }.Concat(function.Parameters.Select(p => RenderManagedSafeHandleParameter(p, compilation))));
-        var returnTypeName = GetManagedImportTypeName(function.ReturnType);
-        var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
+        var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static partial {returnTypeName} {function.ManagedName}({parameterList});"
             : $"{returnAttribute}\ninternal static partial {returnTypeName} {function.ManagedName}({parameterList});";
@@ -2274,8 +2314,8 @@ public static partial class BindingOutputRenderer
         var parameterList = string.Join(
             ", ",
             new[] { $"{recordManagedName} self" }.Concat(function.Parameters.Select(parameterRenderer)));
-        var returnTypeName = GetManagedImportTypeName(function.ReturnType);
-        var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
+        var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
         var importMethodName = GetManagedImportMethodName(function);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static partial {returnTypeName} {importMethodName}({parameterList});"
@@ -2295,8 +2335,8 @@ public static partial class BindingOutputRenderer
         var parameterList = string.Join(
             ", ",
             new[] { $"{recordManagedName} self" }.Concat(function.Parameters.Select(RenderManagedParameter)));
-        var returnTypeName = GetManagedImportTypeName(function.ReturnType);
-        var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
+        var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
         var importMethodName = GetManagedCallbaseImportMethodName(function);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static partial {returnTypeName} {importMethodName}({parameterList});"
@@ -2391,7 +2431,7 @@ public static partial class BindingOutputRenderer
         if (field.Type.Kind == BindingTypeKind.Handle)
         {
             writer.Write($$"""
-                return {{BuildManagedHandleWrap(compilation, field.Type, $"__PInvoke.Get_{field.ManagedName}(this)", field.ReturnsOwnedHandle)}};
+                return {{BuildManagedHandleReturnResultExpression(compilation, field.Type, $"__PInvoke.Get_{field.ManagedName}(this)", field.ReturnsOwnedHandle)}};
                 """);
         }
         else
@@ -2432,8 +2472,8 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedFieldGetterImportDeclaration(BindingCompilation compilation, FieldBinding field, string recordManagedName)
     {
         var writer = new CodeWriter();
-        var returnTypeName = GetManagedImportTypeName(field.Type);
-        var returnAttribute = GetManagedReturnAttribute(field.Type);
+        var returnTypeName = GetManagedImportReturnTypeName(compilation, field.Type);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, field.Type, field.ReturnsOwnedHandle);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static partial {returnTypeName} Get_{field.ManagedName}({recordManagedName} self);"
             : $"{returnAttribute}\ninternal static partial {returnTypeName} Get_{field.ManagedName}({recordManagedName} self);";
@@ -2955,6 +2995,73 @@ public static partial class BindingOutputRenderer
             BindingTypeKind.GenericParameter => type.UnaliasedManagedTypeName,
             _ => throw new NotSupportedException($"Managed import emission does not support '{type.Kind}'.")
         };
+    }
+
+    private static string GetManagedImportReturnTypeName(BindingCompilation compilation, BindingType type)
+    {
+        return CanUseManagedHandleReturnMarshaller(compilation, type)
+            ? GetManagedWrapperTypeName(type, compilation)
+            : GetManagedImportTypeName(type);
+    }
+
+    private static string GetManagedImportReturnAttribute(BindingCompilation compilation, BindingType type, bool ownsHandle)
+    {
+        if (CanUseManagedHandleReturnMarshaller(compilation, type))
+        {
+            return $"[return: MarshalUsing(typeof({GetManagedHandleReturnMarshallerTypeName(compilation, type, ownsHandle)}))]";
+        }
+
+        return GetManagedReturnAttribute(type);
+    }
+
+    private static bool CanUseManagedHandleReturnMarshaller(BindingCompilation compilation, BindingType type)
+    {
+        return type.Kind == BindingTypeKind.Handle && ResolveRecord(compilation, type) is not null;
+    }
+
+    private static string GetManagedHandleReturnMarshallerTypeName(BindingCompilation compilation, BindingType type, bool ownsHandle)
+    {
+        var record = ResolveRecord(compilation, type)
+            ?? throw new InvalidOperationException($"Unable to resolve handle return marshaller record for '{type.ManagedTypeName}'.");
+        return GetQualifiedHandleReturnMarshallerTypeName(compilation, record, ownsHandle);
+    }
+
+    private static string BuildManagedHandleReturnResultExpression(BindingCompilation compilation, BindingType type, string resultExpression, bool ownsHandle)
+    {
+        return CanUseManagedHandleReturnMarshaller(compilation, type)
+            ? resultExpression
+            : BuildManagedHandleWrap(compilation, type, resultExpression, ownsHandle);
+    }
+
+    private static string GetHandleReturnMarshallerDeclarationName(RecordBinding record, bool ownsHandle)
+    {
+        var visibleParameters = GetManagedVisibleGenericParameters(record);
+        var genericSuffix = visibleParameters.Count == 0
+            ? string.Empty
+            : $"<{string.Join(", ", visibleParameters.Select(static parameter => parameter.Name))}>";
+        return $"__{record.ManagedName}{(ownsHandle ? "Owned" : string.Empty)}ReturnMarshaller{genericSuffix}";
+    }
+
+    private static string GetQualifiedHandleReturnMarshallerTypeName(BindingCompilation compilation, RecordBinding record, bool ownsHandle)
+    {
+        var ns = record.ManagedNamespace ?? compilation.ManagedNamespace;
+        var arity = GetManagedVisibleGenericParameters(record).Count;
+        var openGenericSuffix = arity == 0 ? string.Empty : $"<{new string(',', arity - 1)}>";
+        return $"global::{ns}.__{record.ManagedName}{(ownsHandle ? "Owned" : string.Empty)}ReturnMarshaller{openGenericSuffix}";
+    }
+
+    private static string GetQualifiedManagedRecordDeclarationTypeName(BindingCompilation compilation, RecordBinding record, string recordDeclarationName)
+    {
+        var ns = record.ManagedNamespace ?? compilation.ManagedNamespace;
+        return $"global::{ns}.{recordDeclarationName}";
+    }
+
+    private static string GetQualifiedManagedOpenRecordTypeName(BindingCompilation compilation, RecordBinding record)
+    {
+        var ns = record.ManagedNamespace ?? compilation.ManagedNamespace;
+        var arity = GetManagedVisibleGenericParameters(record).Count;
+        var openGenericSuffix = arity == 0 ? string.Empty : $"<{new string(',', arity - 1)}>";
+        return $"global::{ns}.{record.ManagedName}{openGenericSuffix}";
     }
 
     private static string RenderManagedSafeHandleParameter(ParameterBinding parameter, BindingCompilation? compilation = null)
@@ -3963,8 +4070,8 @@ public static partial class BindingOutputRenderer
         {
             var variantParams = GetUnexpressibleVariantParams(function, keepCount);
             var parameterList = string.Join(", ", variantParams.Select(RenderManagedParameter));
-            var returnTypeName = GetManagedImportTypeName(function.ReturnType);
-            var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
+            var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
+            var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
             var importName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
             var entrypointName = GetUnexpressibleVariantEntrypointName(function.EntryPointName, keepCount);
             var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
@@ -3987,8 +4094,8 @@ public static partial class BindingOutputRenderer
         {
             var variantParams = GetUnexpressibleVariantParams(function, keepCount);
             var parameterList = string.Join(", ", variantParams.Select(RenderManagedParameter));
-            var returnTypeName = GetManagedImportTypeName(function.ReturnType);
-            var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
+            var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
+            var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
             var variantImportName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
             var variantEntrypointName = GetUnexpressibleVariantEntrypointName(function.EntryPointName, keepCount);
             var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
@@ -4019,8 +4126,8 @@ public static partial class BindingOutputRenderer
         {
             var variantParams = GetUnexpressibleVariantParams(function, keepCount);
             var parameterList = string.Join(", ", new[] { $"{recordManagedName} self" }.Concat(variantParams.Select(RenderManagedParameter)));
-            var returnTypeName = GetManagedImportTypeName(function.ReturnType);
-            var returnAttribute = GetManagedReturnAttribute(function.ReturnType);
+            var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
+            var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
             var variantImportName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
             var variantEntrypointName = GetUnexpressibleVariantEntrypointName(entryPointName, keepCount);
             var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
@@ -4645,7 +4752,7 @@ public static partial class BindingOutputRenderer
             return variableName;
         }
 
-        return BuildManagedHandleWrap(compilation, type, variableName, returnsOwnedHandle);
+        return BuildManagedHandleReturnResultExpression(compilation, type, variableName, returnsOwnedHandle);
     }
 
     private static void WriteUnexpressibleDefaultCascade(BindingCompilation compilation, CodeWriter writer, FunctionBinding function, string importMethodName, IReadOnlyList<string> leadingArguments)
@@ -4714,7 +4821,7 @@ public static partial class BindingOutputRenderer
                 writer.Write(statement);
 
             writer.Write($$"""
-                return {{BuildManagedHandleWrap(compilation, function.ReturnType, resultVar, function.ReturnsOwnedHandle)}};
+                return {{BuildManagedHandleReturnResultExpression(compilation, function.ReturnType, resultVar, function.ReturnsOwnedHandle)}};
                 """);
         }
         else

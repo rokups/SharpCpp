@@ -57,7 +57,7 @@ public static partial class BindingOutputRenderer
                 }
                 if (concreteReturnType.Kind == BindingTypeKind.Handle)
                 {
-                    writer.WriteLine($"        return ({returnTypeName})(object){BuildManagedHandleWrap(compilation, concreteReturnType, "__result", function.ReturnsOwnedHandle)}!;");
+                    writer.WriteLine($"        return ({returnTypeName})(object){BuildManagedHandleReturnResultExpression(compilation, concreteReturnType, "__result", function.ReturnsOwnedHandle)}!;");
                 }
                 else
                 {
@@ -71,7 +71,7 @@ public static partial class BindingOutputRenderer
                 {
                     writer.WriteLine($"        {keepAlive}");
                 }
-                writer.WriteLine($"        return {BuildManagedHandleWrap(compilation, concreteReturnType, "__result", function.ReturnsOwnedHandle)};");
+                writer.WriteLine($"        return {BuildManagedHandleReturnResultExpression(compilation, concreteReturnType, "__result", function.ReturnsOwnedHandle)};");
             }
             else
             {
@@ -193,6 +193,9 @@ public static partial class BindingOutputRenderer
             """
             }
             """);
+
+        writer.WriteLine();
+        writer.Write(RenderManagedHandleReturnMarshallerHelpers(compilation, record, GetGenericRecordDeclarationName(record)));
         return writer.ToString();
     }
 
@@ -431,13 +434,13 @@ public static partial class BindingOutputRenderer
             writer.WriteLine($"if ({BuildGenericInstantiationCondition(compilation, record, instantiation)})");
             writer.WriteLine("{");
             writer.WriteLine($"    var __result = {GetGenericImportAccessor(compilation)}.{GetGenericCloneImportMethodName(record, instantiation)}(this);");
-            writer.WriteLine($"    return {declarationName(record)}.CreateManagedWrapper(__result, ownsHandle: true);");
+            writer.WriteLine("    if (__result is null)");
+            writer.WriteLine("        throw new NotSupportedException(\"SharpCpp could not clone this native object because the native type is not copy-constructible.\");");
+            writer.WriteLine("    return __result;");
             writer.WriteLine("}");
         }
 
         return writer.ToString();
-
-        static string declarationName(RecordBinding recordBinding) => GetGenericRecordDeclarationName(recordBinding);
     }
 
     private static string RenderGenericManagedGenericMethod(BindingCompilation compilation, RecordBinding record, FunctionBinding function)
@@ -509,7 +512,7 @@ public static partial class BindingOutputRenderer
                     }
                     if (concreteReturnType.Kind == BindingTypeKind.Handle)
                     {
-                        writer.WriteLine($"        return ({returnTypeName})(object){BuildManagedHandleWrap(compilation, concreteReturnType, "__result", function.ReturnsOwnedHandle)}!;");
+                        writer.WriteLine($"        return ({returnTypeName})(object){BuildManagedHandleReturnResultExpression(compilation, concreteReturnType, "__result", function.ReturnsOwnedHandle)}!;");
                     }
                     else
                     {
@@ -523,7 +526,7 @@ public static partial class BindingOutputRenderer
                     {
                         writer.WriteLine($"        {keepAlive}");
                     }
-                    writer.WriteLine($"        return {BuildManagedHandleWrap(compilation, concreteReturnType, "__result", function.ReturnsOwnedHandle)};");
+                    writer.WriteLine($"        return {BuildManagedHandleReturnResultExpression(compilation, concreteReturnType, "__result", function.ReturnsOwnedHandle)};");
                 }
                 else
                 {
@@ -646,7 +649,7 @@ public static partial class BindingOutputRenderer
                 }
                 if (concreteReturnType.Kind == BindingTypeKind.Handle)
                 {
-                    writer.WriteLine($"    return ({GetManagedPublicReturnTypeName(function.ReturnType, compilation)})(object){BuildManagedHandleWrap(compilation, concreteReturnType, "__result", function.ReturnsOwnedHandle)}!;");
+                    writer.WriteLine($"    return ({GetManagedPublicReturnTypeName(function.ReturnType, compilation)})(object){BuildManagedHandleReturnResultExpression(compilation, concreteReturnType, "__result", function.ReturnsOwnedHandle)}!;");
                 }
                 else
                 {
@@ -656,7 +659,7 @@ public static partial class BindingOutputRenderer
             else if (concreteReturnType.Kind == BindingTypeKind.Handle)
             {
                 writer.WriteLine($"    var __result = {GetGenericImportAccessor(compilation)}.{importMethodName}({string.Join(", ", invocationArguments)});");
-                var wrapExpression = BuildManagedHandleWrap(compilation, concreteReturnType, "__result", function.ReturnsOwnedHandle);
+                var wrapExpression = BuildManagedHandleReturnResultExpression(compilation, concreteReturnType, "__result", function.ReturnsOwnedHandle);
                 foreach (var keepAlive in keepAliveStatements)
                 {
                     writer.WriteLine($"    {keepAlive}");
@@ -733,8 +736,8 @@ public static partial class BindingOutputRenderer
     {
         var parameterList = string.Join(", ", new[] { "global::SharpCpp.Support.NativeObject self" }.Concat(function.Parameters.Select((parameter, index) => RenderConcreteManagedParameter(parameter, SubstituteGenericType(record, parameter.Type, instantiation)))));
         var concreteReturnType = SubstituteGenericType(record, function.ReturnType, instantiation);
-        var returnTypeName = GetManagedImportTypeName(concreteReturnType);
-        var returnAttribute = GetManagedReturnAttribute(concreteReturnType);
+        var returnTypeName = GetManagedImportReturnTypeName(compilation, concreteReturnType);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, concreteReturnType, function.ReturnsOwnedHandle);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static partial {returnTypeName} {GetGenericImportMethodName(function, instantiation)}({parameterList});"
             : $"{returnAttribute}\ninternal static partial {returnTypeName} {GetGenericImportMethodName(function, instantiation)}({parameterList});";
@@ -758,8 +761,8 @@ public static partial class BindingOutputRenderer
                 SubstituteGenericType(record, parameter.Type, recordInstantiation, methodParams, methodInstantiation))).ToArray();
         var concreteReturnType = SubstituteGenericType(record, function.ReturnType, recordInstantiation, methodParams, methodInstantiation);
         var parameterList = string.Join(", ", new[] { "global::SharpCpp.Support.NativeObject self" }.Concat(concreteParameters));
-        var returnTypeName = GetManagedImportTypeName(concreteReturnType);
-        var returnAttribute = GetManagedReturnAttribute(concreteReturnType);
+        var returnTypeName = GetManagedImportReturnTypeName(compilation, concreteReturnType);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, concreteReturnType, function.ReturnsOwnedHandle);
         var importMethodName = GetGenericMethodImportName(function, recordInstantiation, methodInstantiation);
         var entryPointName = GetGenericMethodEntryPointName(function, recordInstantiation, methodInstantiation);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
@@ -776,8 +779,8 @@ public static partial class BindingOutputRenderer
     {
         var parameterList = string.Join(", ", function.Parameters.Select((parameter, index) => RenderConcreteManagedParameter(parameter, SubstituteGenericType(record, parameter.Type, instantiation))));
         var concreteReturnType = SubstituteGenericType(record, function.ReturnType, instantiation);
-        var returnTypeName = GetManagedImportTypeName(concreteReturnType);
-        var returnAttribute = GetManagedReturnAttribute(concreteReturnType);
+        var returnTypeName = GetManagedImportReturnTypeName(compilation, concreteReturnType);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, concreteReturnType, function.ReturnsOwnedHandle);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static partial {returnTypeName} {GetGenericImportMethodName(function, instantiation)}({parameterList});"
             : $"{returnAttribute}\ninternal static partial {returnTypeName} {GetGenericImportMethodName(function, instantiation)}({parameterList});";
@@ -793,8 +796,8 @@ public static partial class BindingOutputRenderer
         var methodParams = (IReadOnlyList<BindingGenericParameter>)function.GenericParameters.ToList();
         var parameterList = string.Join(", ", function.Parameters.Select((parameter, index) => RenderConcreteManagedParameter(parameter, SubstituteFunctionGenericType(parameter.Type, methodParams, instantiation))));
         var concreteReturnType = SubstituteFunctionGenericType(function.ReturnType, methodParams, instantiation);
-        var returnTypeName = GetManagedImportTypeName(concreteReturnType);
-        var returnAttribute = GetManagedReturnAttribute(concreteReturnType);
+        var returnTypeName = GetManagedImportReturnTypeName(compilation, concreteReturnType);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, concreteReturnType, function.ReturnsOwnedHandle);
         var importMethodName = GetGenericImportMethodName(function, instantiation);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static partial {returnTypeName} {importMethodName}({parameterList});"
@@ -816,9 +819,16 @@ public static partial class BindingOutputRenderer
 
     private static string RenderGenericCloneImportDeclaration(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
+        var concreteHandleType = SubstituteGenericType(record, record.HandleType, instantiation);
+        var returnTypeName = GetManagedImportReturnTypeName(compilation, concreteHandleType);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, concreteHandleType, ownsHandle: true);
+        var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
+            ? $"internal static partial {returnTypeName} {GetGenericCloneImportMethodName(record, instantiation)}(global::SharpCpp.Support.NativeObject self);"
+            : $"{returnAttribute}\ninternal static partial {returnTypeName} {GetGenericCloneImportMethodName(record, instantiation)}(global::SharpCpp.Support.NativeObject self);";
+
         return $$"""
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetGenericCloneEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
-            internal static partial nint {{GetGenericCloneImportMethodName(record, instantiation)}}(global::SharpCpp.Support.NativeObject self);
+            {{importMethodLine}}
             """;
     }
 
