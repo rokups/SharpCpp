@@ -125,6 +125,44 @@ public sealed class BindingMetadataExporterTests
     }
 
     [Fact]
+    public void Export_uses_shadow_projection_for_type_and_alias_namespaces()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Rbfx.Bindings",
+            "Urho3D",
+            "Bindings",
+            "SharpCpp.Rbfx.Native",
+            new[] { "Urho3D/Urho3DAll.h" });
+        var context = new RecordBinding("record:Context", "Context", "Context", "Urho3D::Context")
+        {
+            ManagedNamespace = "Urho3D"
+        };
+        var alias = new BindingTypeAlias("Urho3D::ContextPtr", "ContextPtr", "ContextPtr", context.HandleType)
+        {
+            ManagedNamespace = "Urho3D"
+        };
+        var factory = new FunctionBinding("function:CreateContext", "CreateContext", "CreateContext", context.HandleType, "scrbfx_CreateContext");
+        compilation.Members.Add(context);
+        compilation.Members.Add(factory);
+        compilation.TypeAliases.Add(alias);
+
+        var projection = new ManagedBindingProjection(compilation.ManagedNamespace);
+        projection.AddDeclaration("Urho3D.Core", context);
+        projection.AddAlias("Urho3D.Core", alias);
+        compilation.SetMetadata(MetadataKeys.ManagedBindingProjection, projection);
+
+        var document = BindingMetadataExporter.Export(compilation);
+        var exportedType = Assert.Single(document.Types);
+        var exportedFunction = Assert.Single(document.Functions);
+        var exportedAlias = Assert.Single(document.Aliases!);
+
+        Assert.Equal("Urho3D.Core", exportedType.ManagedNamespace);
+        Assert.Equal("global::Urho3D.Core.Context", exportedFunction.ReturnType.PublicType);
+        Assert.Equal("Urho3D.Core", exportedAlias.ManagedNamespace);
+        Assert.Equal("global::Urho3D.Core.Context", exportedAlias.TargetType.PublicType);
+    }
+
+    [Fact]
     public void Export_includes_enum_flag_status_and_values()
     {
         var compilation = new BindingCompilation(

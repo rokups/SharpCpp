@@ -111,6 +111,13 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **rbfx managed namespace projection now uses a shadow AST over the parsed AST**:
+  - Added `ManagedBindingProjection` with synthetic namespace nodes and declaration/alias references that do not re-parent original `BindingNode` instances, so original AST traversal remains intact.
+  - Added `RbfxManagedNamespaceProjectionPass` as a terminal rbfx shaping step after rbfx type lowering and before render/export. Actual `Urho3D::` declarations from `Urho3D/<Segment>/**` now project into `Urho3D.<Segment>`, while configured external wrapper namespaces such as `Ea` remain unchanged even when declared from rbfx headers.
+  - Rendering and metadata export resolve record/enum/alias namespaces and fully-qualified type references through the projection when present. Generated C# aliases remain `global using` aliases because consuming projects compile the alias file directly; projected alias namespaces are preserved in metadata for downstream generation.
+  - Regression coverage verifies original/shadow traversal, projected namespace rendering and alias output, and metadata namespace/type-reference export.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj`, `dotnet test tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj`, `dotnet test tests/SharpCpp.Tests.Metadata/SharpCpp.Tests.Metadata.csproj`, `cmake --build --preset Debug`, and `ctest --preset Debug` all pass.
+
 - **Metadata-driven alias preservation and rbfx `FlagSet<TEnum>` lowering are now green end-to-end**:
   - Alias metadata now uses structural type matching (`BindingTypeKey`) so public aliases are restored from model facts instead of formatted type-name strings, while internal/import/P/Invoke signatures stay concrete and fully qualified.
   - Alias emission now treats `BindingCompilation.TypeAliases` as authoritative and recursively drops aliases whose complete target tree lacks a managed projection, preventing invalid aliases such as unresolved nested EASTL implementation types from leaking into `*.Aliases.g.cs`.

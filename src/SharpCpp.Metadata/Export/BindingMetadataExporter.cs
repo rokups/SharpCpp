@@ -4,6 +4,26 @@ namespace SharpCpp.Metadata.Export;
 
 public static class BindingMetadataExporter
 {
+    private static ManagedBindingProjection? GetManagedProjection(BindingCompilation compilation)
+    {
+        return compilation.GetMetadata<ManagedBindingProjection>(MetadataKeys.ManagedBindingProjection);
+    }
+
+    private static string? GetManagedNamespace(BindingCompilation compilation, RecordBinding record)
+    {
+        return GetManagedProjection(compilation)?.GetManagedNamespace(record, compilation) ?? record.ManagedNamespace;
+    }
+
+    private static string? GetManagedNamespace(BindingCompilation compilation, EnumBinding enumBinding)
+    {
+        return GetManagedProjection(compilation)?.GetManagedNamespace(enumBinding, compilation) ?? enumBinding.ManagedNamespace;
+    }
+
+    private static string? GetManagedNamespace(BindingCompilation compilation, BindingTypeAlias alias)
+    {
+        return GetManagedProjection(compilation)?.GetManagedNamespace(alias, compilation) ?? alias.ManagedNamespace;
+    }
+
     public static BindingMetadataDocument Export(BindingCompilation compilation, BindingMetadataExportOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(compilation);
@@ -14,20 +34,20 @@ public static class BindingMetadataExporter
             .Where(static record => !record.IsIgnored() && !record.GetMetadata<bool>(MetadataKeys.SuppressEmission))
             .OrderBy(static record => record.ManagedName, StringComparer.Ordinal)
             .ThenBy(static record => record.SymbolId, StringComparer.Ordinal)
-            .Select(CreateRecordType)
+            .Select(record => CreateRecordType(compilation, record))
             .Concat(
                 compilation.Enums
                     .Where(static @enum => !@enum.IsIgnored() && !@enum.GetMetadata<bool>(MetadataKeys.SuppressEmission))
                     .OrderBy(static @enum => @enum.ManagedName, StringComparer.Ordinal)
                     .ThenBy(static @enum => @enum.SymbolId, StringComparer.Ordinal)
-                    .Select(CreateEnumType))
+                    .Select(@enum => CreateEnumType(compilation, @enum)))
             .ToArray();
 
         var functions = compilation.Functions
             .Where(static function => function.Parent is not RecordBinding && !function.IsIgnored())
             .OrderBy(static function => function.ManagedName, StringComparer.Ordinal)
             .ThenBy(static function => function.SymbolId, StringComparer.Ordinal)
-            .Select(CreateFunction)
+            .Select(function => CreateFunction(compilation, function))
             .ToArray();
 
         var aliases = compilation.TypeAliases
@@ -37,7 +57,7 @@ public static class BindingMetadataExporter
                 alias.CppQualifiedName,
                 alias.NativeName,
                 alias.ManagedName,
-                alias.ManagedNamespace,
+                GetManagedNamespace(compilation, alias),
                 CreateTypeReference(compilation, alias.TargetType, fullyQualifyConcrete: true)))
             .ToArray();
 
@@ -64,7 +84,7 @@ public static class BindingMetadataExporter
             aliases);
     }
 
-    private static BindingMetadataType CreateRecordType(RecordBinding record)
+    private static BindingMetadataType CreateRecordType(BindingCompilation compilation, RecordBinding record)
     {
         var kind = record.IsHandleType ? MetadataTypeKind.Handle : MetadataTypeKind.Record;
         return new BindingMetadataType(
@@ -72,7 +92,7 @@ public static class BindingMetadataExporter
             kind,
             record.NativeName,
             record.ManagedName,
-            record.ManagedNamespace,
+            GetManagedNamespace(compilation, record),
             record.ManagedBaseTypeName,
             CreateTypeReference(record.HandleType),
             ManagedBaseTypeConstraints: record.ManagedBaseTypeConstraints,
@@ -81,19 +101,19 @@ public static class BindingMetadataExporter
             EmitDefaultNativeReleaseOverride: record.EmitDefaultNativeReleaseOverride,
             Members: record.Members
                 .Where(static member => !member.IsIgnored())
-                .Select(CreateRecordMember)
+                .Select(member => CreateRecordMember(compilation, member))
                 .OrderBy(static member => member.ManagedName, StringComparer.Ordinal)
                 .ToArray());
     }
 
-    private static BindingMetadataType CreateEnumType(EnumBinding @enum)
+    private static BindingMetadataType CreateEnumType(BindingCompilation compilation, EnumBinding @enum)
     {
         return new BindingMetadataType(
             @enum.SymbolId,
             MetadataTypeKind.Enum,
             @enum.NativeName,
             @enum.ManagedName,
-            @enum.ManagedNamespace,
+            GetManagedNamespace(compilation, @enum),
             ManagedBaseTypeName: null,
             CreateTypeReference(BindingType.CreateEnum(@enum.NativeName, @enum.ManagedName)),
             IsFlags: @enum.IsFlags,
@@ -103,7 +123,7 @@ public static class BindingMetadataExporter
                 .ToArray());
     }
 
-    private static BindingMetadataFunction CreateFunction(FunctionBinding function)
+    private static BindingMetadataFunction CreateFunction(BindingCompilation compilation, FunctionBinding function)
     {
         var parameters = function.Parameters
             .OrderBy(static parameter => parameter.ManagedName, StringComparer.Ordinal)
@@ -111,7 +131,7 @@ public static class BindingMetadataExporter
             .Select(parameter => new BindingMetadataParameter(
                 parameter.ManagedName,
                 parameter.Direction.ToString().ToLowerInvariant(),
-                CreateTypeReference(parameter.Type),
+                CreateTypeReference(compilation, parameter.Type, fullyQualifyConcrete: true),
                 parameter.ManagedDefaultValueExpression))
             .ToArray();
 
@@ -120,12 +140,12 @@ public static class BindingMetadataExporter
             function.NativeName,
             function.ManagedName,
             function.EntryPointName,
-            CreateTypeReference(function.ReturnType),
+            CreateTypeReference(compilation, function.ReturnType, fullyQualifyConcrete: true),
             parameters,
             function.ReturnsOwnedHandle);
     }
 
-    private static BindingMetadataRecordMember CreateRecordMember(BindingNode member)
+    private static BindingMetadataRecordMember CreateRecordMember(BindingCompilation compilation, BindingNode member)
     {
         return member switch
         {
@@ -133,14 +153,14 @@ public static class BindingMetadataExporter
                 function.IsConstructor ? "constructor" : "method",
                 function.NativeName,
                 function.ManagedName,
-                function.IsConstructor ? null : CreateTypeReference(function.ReturnType),
+                function.IsConstructor ? null : CreateTypeReference(compilation, function.ReturnType, fullyQualifyConcrete: true),
                 function.Parameters
                     .OrderBy(static parameter => parameter.ManagedName, StringComparer.Ordinal)
                     .ThenBy(static parameter => parameter.SymbolId, StringComparer.Ordinal)
                     .Select(parameter => new BindingMetadataParameter(
                         parameter.ManagedName,
                         parameter.Direction.ToString().ToLowerInvariant(),
-                        CreateTypeReference(parameter.Type),
+                        CreateTypeReference(compilation, parameter.Type, fullyQualifyConcrete: true),
                         parameter.ManagedDefaultValueExpression))
                     .ToArray(),
                 IsReadOnly: false,
@@ -155,7 +175,7 @@ public static class BindingMetadataExporter
                 "field",
                 field.NativeName,
                 field.ManagedName,
-                CreateTypeReference(field.Type),
+                CreateTypeReference(compilation, field.Type, fullyQualifyConcrete: true),
                 Parameters: null,
                 field.IsReadOnly,
                 IsStatic: false,
@@ -213,7 +233,7 @@ public static class BindingMetadataExporter
             ? head
             : head.Contains('.', StringComparison.Ordinal)
                 ? $"global::{head}"
-                : $"global::{record.ManagedNamespace ?? compilation.ManagedNamespace}.{head}";
+                : $"global::{GetManagedNamespace(compilation, record) ?? compilation.ManagedNamespace}.{head}";
         if (type.GenericArguments.Count == 0)
         {
             return qualifiedHead;
@@ -226,6 +246,7 @@ public static class BindingMetadataExporter
     {
         var enumBinding = compilation.Enums.FirstOrDefault(candidate =>
             string.Equals(candidate.CppQualifiedName, type.CppTypeName, StringComparison.Ordinal) ||
+            string.Equals(candidate.NativeName, type.CppTypeName, StringComparison.Ordinal) ||
             string.Equals(candidate.ManagedName, type.UnaliasedManagedTypeName, StringComparison.Ordinal));
         if (enumBinding is null)
         {
@@ -243,7 +264,7 @@ public static class BindingMetadataExporter
             return $"global::{managedName}";
         }
 
-        return $"global::{enumBinding.ManagedNamespace ?? compilation.ManagedNamespace}.{managedName}";
+        return $"global::{GetManagedNamespace(compilation, enumBinding) ?? compilation.ManagedNamespace}.{managedName}";
     }
 
     private static string FormatConfiguredManagedTypeName(BindingCompilation compilation, BindingType type)

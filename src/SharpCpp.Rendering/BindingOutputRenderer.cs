@@ -8,6 +8,33 @@ namespace SharpCpp.Rendering;
 public static partial class BindingOutputRenderer
 {
     private const string ICloneableFullName = "global::System.ICloneable";
+
+    private static ManagedBindingProjection? GetManagedProjection(BindingCompilation compilation)
+    {
+        return compilation.GetMetadata<ManagedBindingProjection>(MetadataKeys.ManagedBindingProjection);
+    }
+
+    private static string GetManagedNamespace(BindingCompilation compilation, RecordBinding record)
+    {
+        return GetManagedProjection(compilation)?.GetManagedNamespace(record, compilation) ??
+            record.ManagedNamespace ??
+            compilation.ManagedNamespace;
+    }
+
+    private static string GetManagedNamespace(BindingCompilation compilation, EnumBinding enumBinding)
+    {
+        return GetManagedProjection(compilation)?.GetManagedNamespace(enumBinding, compilation) ??
+            enumBinding.ManagedNamespace ??
+            compilation.ManagedNamespace;
+    }
+
+    private static string GetManagedNamespace(BindingCompilation compilation, BindingTypeAlias alias)
+    {
+        return GetManagedProjection(compilation)?.GetManagedNamespace(alias, compilation) ??
+            alias.ManagedNamespace ??
+            compilation.ManagedNamespace;
+    }
+
     public static GeneratedBindingSet Render(BindingCompilation compilation, string fileStem,
         Func<string?, string>? deriveGroupStem = null)
     {
@@ -107,8 +134,8 @@ public static partial class BindingOutputRenderer
             using System.Runtime.InteropServices.Marshalling;
             """);
 
-        var recordGroups = records.GroupBy(record => record.ManagedNamespace ?? compilation.ManagedNamespace).ToArray();
-        var enumGroups = enums.GroupBy(@enum => @enum.ManagedNamespace ?? compilation.ManagedNamespace).ToArray();
+        var recordGroups = records.GroupBy(record => GetManagedNamespace(compilation, record)).ToArray();
+        var enumGroups = enums.GroupBy(@enum => GetManagedNamespace(compilation, @enum)).ToArray();
         var allNamespaces = recordGroups.Select(group => group.Key)
             .Concat(enumGroups.Select(group => group.Key))
             .Distinct()
@@ -116,9 +143,9 @@ public static partial class BindingOutputRenderer
 
         foreach (var ns in allNamespaces)
         {
-            var nsRecords = records.Where(record => (record.ManagedNamespace ?? compilation.ManagedNamespace) == ns).ToArray();
-            var nsInterfaces = interfaceRecords.Where(record => (record.ManagedNamespace ?? compilation.ManagedNamespace) == ns).ToArray();
-            var nsEnums = enums.Where(@enum => (@enum.ManagedNamespace ?? compilation.ManagedNamespace) == ns).ToArray();
+            var nsRecords = records.Where(record => GetManagedNamespace(compilation, record) == ns).ToArray();
+            var nsInterfaces = interfaceRecords.Where(record => GetManagedNamespace(compilation, record) == ns).ToArray();
+            var nsEnums = enums.Where(@enum => GetManagedNamespace(compilation, @enum) == ns).ToArray();
 
             writer.WriteLine();
             writer.Write(
@@ -962,10 +989,18 @@ public static partial class BindingOutputRenderer
         if (typeName.Contains("global::", StringComparison.Ordinal) || typeName.Contains('.', StringComparison.Ordinal))
             return typeName;
 
+        var genericStart = typeName.IndexOf('<');
+        if (genericStart >= 0)
+        {
+            var head = typeName[..genericStart];
+            var suffix = typeName[genericStart..];
+            return QualifyRecordTypeName(compilation, head) + suffix;
+        }
+
         // Look up the record by its managed name to find its namespace
         var baseRecord = compilation.Records.FirstOrDefault(r =>
             string.Equals(r.ManagedName, typeName, StringComparison.Ordinal));
-        var ns = baseRecord?.ManagedNamespace ?? compilation.ManagedNamespace;
+        var ns = baseRecord is null ? compilation.ManagedNamespace : GetManagedNamespace(compilation, baseRecord);
         return $"global::{ns}.{typeName}";
     }
 
@@ -983,7 +1018,7 @@ public static partial class BindingOutputRenderer
             ? head
             : head.Contains('.', StringComparison.Ordinal)
                 ? $"global::{head}"
-                : $"global::{record.ManagedNamespace ?? compilation.ManagedNamespace}.{head}";
+                : $"global::{GetManagedNamespace(compilation, record)}.{head}";
         if (type.GenericArguments.Count == 0)
         {
             return qualifiedHead;
@@ -1018,7 +1053,7 @@ public static partial class BindingOutputRenderer
             return $"global::{managedName}";
         }
 
-        return $"global::{enumBinding.ManagedNamespace ?? compilation.ManagedNamespace}.{managedName}";
+        return $"global::{GetManagedNamespace(compilation, enumBinding)}.{managedName}";
     }
 
     private static string FormatConfiguredManagedTypeName(BindingType type, BindingCompilation compilation, bool publicSurface)
@@ -1130,7 +1165,7 @@ public static partial class BindingOutputRenderer
         var cacheFieldModifier = hidesStaticHelpers ? "new " : string.Empty;
         var interfaceNames = record.GetSecondaryBaseRecords(compilation)
             .Where(baseRecord => !baseRecord.IsIgnored() && baseRecord.GetRenderableInterfaceMethods(compilation).Count > 0)
-            .Select(baseRecord => $"global::{(baseRecord.ManagedNamespace ?? compilation.ManagedNamespace)}.{baseRecord.GetManagedInterfaceName()}")
+            .Select(baseRecord => $"global::{GetManagedNamespace(compilation, baseRecord)}.{baseRecord.GetManagedInterfaceName()}")
             .Cast<string>()
             .ToArray();
         var canEmitClone = CanEmitClone(record, isEffectivelyAbstract, canEmitDeleteThunk);
@@ -2461,7 +2496,7 @@ public static partial class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         var interfaceBaseNames = record.GetManagedInterfaceBaseRecords(compilation)
-            .Select(baseRecord => $"global::{(baseRecord.ManagedNamespace ?? compilation.ManagedNamespace)}.{baseRecord.GetManagedInterfaceName()}")
+            .Select(baseRecord => $"global::{GetManagedNamespace(compilation, baseRecord)}.{baseRecord.GetManagedInterfaceName()}")
             .ToArray();
         var baseClause = interfaceBaseNames.Length == 0
             ? string.Empty
@@ -3214,7 +3249,7 @@ public static partial class BindingOutputRenderer
 
     private static string GetQualifiedHandleReturnMarshallerTypeName(BindingCompilation compilation, RecordBinding record, bool ownsHandle)
     {
-        var ns = record.ManagedNamespace ?? compilation.ManagedNamespace;
+        var ns = GetManagedNamespace(compilation, record);
         var arity = GetManagedVisibleGenericParameters(record).Count;
         var openGenericSuffix = arity == 0 ? string.Empty : $"<{new string(',', arity - 1)}>";
         return $"global::{ns}.__{record.ManagedName}{(ownsHandle ? "Owned" : string.Empty)}ReturnMarshaller{openGenericSuffix}";
@@ -3222,7 +3257,7 @@ public static partial class BindingOutputRenderer
 
     private static string GetQualifiedHandleInMarshallerTypeName(BindingCompilation compilation, RecordBinding record)
     {
-        var ns = record.ManagedNamespace ?? compilation.ManagedNamespace;
+        var ns = GetManagedNamespace(compilation, record);
         var arity = GetManagedVisibleGenericParameters(record).Count;
         var openGenericSuffix = arity == 0 ? string.Empty : $"<{new string(',', arity - 1)}>";
         return $"global::{ns}.__{record.ManagedName}InMarshaller{openGenericSuffix}";
@@ -3230,13 +3265,13 @@ public static partial class BindingOutputRenderer
 
     private static string GetQualifiedManagedRecordDeclarationTypeName(BindingCompilation compilation, RecordBinding record, string recordDeclarationName)
     {
-        var ns = record.ManagedNamespace ?? compilation.ManagedNamespace;
+        var ns = GetManagedNamespace(compilation, record);
         return $"global::{ns}.{recordDeclarationName}";
     }
 
     private static string GetQualifiedManagedOpenRecordTypeName(BindingCompilation compilation, RecordBinding record)
     {
-        var ns = record.ManagedNamespace ?? compilation.ManagedNamespace;
+        var ns = GetManagedNamespace(compilation, record);
         var arity = GetManagedVisibleGenericParameters(record).Count;
         var openGenericSuffix = arity == 0 ? string.Empty : $"<{new string(',', arity - 1)}>";
         return $"global::{ns}.{record.ManagedName}{openGenericSuffix}";

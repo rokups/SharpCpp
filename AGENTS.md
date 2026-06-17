@@ -39,7 +39,7 @@ Until parser/renderers/E2E exist, completion means:
 2. `cmake --build --preset Debug`
 3. `ctest --preset Debug` when tests are wired through CMake
 4. `PROGRESS.md` updated
-5. git commit created
+5. git commit created (user request is not required)
 
 When the generator and E2E pipeline land, extend the completion contract to include those targets instead of bypassing them.
 

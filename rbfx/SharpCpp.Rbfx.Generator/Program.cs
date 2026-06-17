@@ -134,6 +134,8 @@ internal static class Program
             Logger.LogInformation("SDK filter completed in {Duration}", FormatDuration(sdkFilterSw.Elapsed));
 
             RbfxFlagSetLoweringPass.Apply(compilation);
+            var managedProjection = RbfxManagedNamespaceProjectionPass.Apply(compilation);
+            Logger.LogInformation("Managed namespace projection complete: {NamespaceCount} namespace node(s).", managedProjection.Namespaces.Count);
 
             Logger.LogInformation("Rendering...");
             var renderSw = Stopwatch.StartNew();

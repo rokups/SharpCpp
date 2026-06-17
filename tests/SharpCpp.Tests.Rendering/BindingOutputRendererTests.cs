@@ -202,6 +202,74 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Managed_output_uses_shadow_projection_for_namespaces_and_type_qualification()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Rbfx.Bindings",
+            "Urho3D",
+            "Bindings",
+            "SharpCpp.Rbfx.Native",
+            new[] { "Urho3D/Urho3DAll.h" });
+        var context = new RecordBinding("record:Context", "Context", "Context", "Urho3D::Context")
+        {
+            ManagedNamespace = "Urho3D"
+        };
+        var scene = new RecordBinding("record:Scene", "Scene", "Scene", "Urho3D::Scene")
+        {
+            ManagedNamespace = "Urho3D"
+        };
+        var getContext = new FunctionBinding(
+            "method:Scene:GetContext",
+            "GetContext",
+            "GetContext",
+            context.HandleType,
+            "scrbfx_Scene_GetContext")
+        {
+            OwningRecordCppTypeName = scene.CppQualifiedName
+        };
+        scene.Members.Add(getContext);
+        compilation.Members.Add(context);
+        compilation.Members.Add(scene);
+        var contextAlias = new BindingTypeAlias("Urho3D::ContextPtr", "ContextPtr", "ContextPtr", context.HandleType);
+        compilation.TypeAliases.Add(contextAlias);
+
+        var projection = new ManagedBindingProjection(compilation.ManagedNamespace);
+        projection.AddDeclaration("Urho3D.Core", context);
+        projection.AddDeclaration("Urho3D.Scene", scene);
+        projection.AddAlias("Urho3D.Core", contextAlias);
+        compilation.SetMetadata(MetadataKeys.ManagedBindingProjection, projection);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppRbfx").Files;
+        var managedOutput = files.Single(static file => file.RelativePath == "SharpCppRbfx.Bindings.g.cs").Content;
+        var aliasOutput = files.Single(static file => file.RelativePath == "SharpCppRbfx.Bindings.Aliases.g.cs").Content;
+
+        Assert.Contains("namespace Urho3D.Core", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("namespace Urho3D.Scene", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("global::Urho3D.Core.Context", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("global::Urho3D.Context GetContext()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("global using ContextPtr = global::Urho3D.Core.Context;", aliasOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("namespace Urho3D.Core", aliasOutput, StringComparison.Ordinal);
+        Assert.Equal(1, CountOccurrences(aliasOutput, "ContextPtr = global::Urho3D.Core.Context"));
+    }
+
+    private static int CountOccurrences(string text, string value)
+    {
+        var count = 0;
+        var offset = 0;
+        while (true)
+        {
+            var index = text.IndexOf(value, offset, StringComparison.Ordinal);
+            if (index < 0)
+            {
+                return count;
+            }
+
+            count++;
+            offset = index + value.Length;
+        }
+    }
+
+    [Fact]
     public void Alias_output_emits_catalog_aliases_even_when_unused_on_surviving_surface()
     {
         var compilation = new BindingCompilation(

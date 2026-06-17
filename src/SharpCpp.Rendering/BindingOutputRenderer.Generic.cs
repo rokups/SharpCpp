@@ -114,7 +114,7 @@ public static partial class BindingOutputRenderer
         var concreteInstanceMethods = instanceMethods.Where(static function => !function.IsGeneric).ToArray();
         var staticMethods = record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic && function.OperatorToken is null && !function.IsConversionOperator && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
         var instantiations = record.SupportedGenericInstantiations.OrderBy(static instantiation => string.Join("|", instantiation.TypeArguments.Select(static argument => argument.CppTypeName)), StringComparer.Ordinal).ToArray();
-        var baseTypeName = GetGenericManagedBaseTypeName(record);
+        var baseTypeName = GetGenericManagedBaseTypeName(compilation, record);
         var genericConstraints = GetGenericRecordConstraints(record);
         var canEmitClone = CanEmitClone(record, isEffectivelyAbstract: false, canEmitDeleteThunk: true);
 
@@ -303,7 +303,7 @@ public static partial class BindingOutputRenderer
         return $"{record.ManagedName}{GetGenericParameterList(record)}";
     }
 
-    private static string GetGenericManagedBaseTypeName(RecordBinding record)
+    private static string GetGenericManagedBaseTypeName(BindingCompilation compilation, RecordBinding record)
     {
         if (string.IsNullOrWhiteSpace(record.ManagedBaseTypeName))
         {
@@ -312,11 +312,12 @@ public static partial class BindingOutputRenderer
 
         if (!record.ManagedBaseTypeName.Contains('{', StringComparison.Ordinal))
         {
-            return record.ManagedBaseTypeName;
+            return QualifyRecordTypeName(compilation, record.ManagedBaseTypeName);
         }
 
         var typeArguments = record.GenericParameters.Select(static parameter => parameter.Name).Cast<object>().ToArray();
-        return string.Format(System.Globalization.CultureInfo.InvariantCulture, record.ManagedBaseTypeName, typeArguments);
+        var formattedBaseTypeName = string.Format(System.Globalization.CultureInfo.InvariantCulture, record.ManagedBaseTypeName, typeArguments);
+        return QualifyRecordTypeName(compilation, formattedBaseTypeName);
     }
 
     private static string GetGenericRecordConstraints(RecordBinding record)
