@@ -150,6 +150,167 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Managed_output_restores_exact_aliases_only_on_public_surface_for_generic_containers()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "Urho3D",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Container/VariantMap.hpp" });
+        var stringHashRecord = new RecordBinding("record:string_hash", "StringHash", "StringHash", "Urho3D::StringHash")
+        {
+            ManagedNamespace = "Urho3D"
+        };
+        var variantRecord = new RecordBinding("record:variant", "Variant", "Variant", "Urho3D::Variant")
+        {
+            ManagedNamespace = "Urho3D"
+        };
+        var unorderedMapRecord = new RecordBinding("record:ea_unordered_map", "hash_map", "UnorderedMap", "eastl::hash_map")
+        {
+            ManagedNamespace = "Ea",
+            ManagedTypeFormat = "UnorderedMap<{0}, {1}>"
+        };
+        unorderedMapRecord.GenericParameters.Add(new BindingGenericParameter("TKey", 0));
+        unorderedMapRecord.GenericParameters.Add(new BindingGenericParameter("TValue", 1));
+        compilation.Members.Add(stringHashRecord);
+        compilation.Members.Add(variantRecord);
+        compilation.Members.Add(unorderedMapRecord);
+
+        var variantMapType = BindingType.CreateHandle(
+            "eastl::hash_map<Urho3D::StringHash, Urho3D::Variant>",
+            "UnorderedMap",
+            unorderedMapRecord.SymbolId,
+            genericArguments: new[] { stringHashRecord.HandleType, variantRecord.HandleType });
+        compilation.TypeAliases.Add(new BindingTypeAlias("Urho3D::VariantMap", "VariantMap", "VariantMap", variantMapType));
+
+        var function = new FunctionBinding(
+            "function:get_event_data_map",
+            "get_event_data_map",
+            "GetEventDataMap",
+            variantMapType,
+            "sharpcpp_sample_get_event_data_map");
+        compilation.Members.Add(function);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath == "SharpCppSample.Bindings.g.cs").Content;
+        var aliasOutput = files.Single(static file => file.RelativePath == "SharpCppSample.Bindings.Aliases.g.cs").Content;
+
+        Assert.Contains("public static VariantMap GetEventDataMap()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial global::Ea.UnorderedMap<global::Urho3D.StringHash, global::Urho3D.Variant> GetEventDataMap();", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("global using VariantMap = global::Ea.UnorderedMap<global::Urho3D.StringHash, global::Urho3D.Variant>;", aliasOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Alias_output_emits_catalog_aliases_even_when_unused_on_surviving_surface()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "Urho3D",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Container/VariantMap.hpp" });
+        var stringRecord = new RecordBinding("record:ea_string", "basic_string", "String", "eastl::basic_string")
+        {
+            ManagedNamespace = "Ea"
+        };
+        var variantRecord = new RecordBinding("record:variant", "Variant", "Variant", "Urho3D::Variant")
+        {
+            ManagedNamespace = "Urho3D"
+        };
+        var unorderedMapRecord = new RecordBinding("record:ea_unordered_map", "hash_map", "UnorderedMap", "eastl::hash_map")
+        {
+            ManagedNamespace = "Ea",
+            ManagedTypeFormat = "UnorderedMap<{0}, {1}>"
+        };
+        unorderedMapRecord.GenericParameters.Add(new BindingGenericParameter("TKey", 0));
+        unorderedMapRecord.GenericParameters.Add(new BindingGenericParameter("TValue", 1));
+        compilation.Members.Add(stringRecord);
+        compilation.Members.Add(variantRecord);
+        compilation.Members.Add(unorderedMapRecord);
+
+        var stringVariantMapType = BindingType.CreateHandle(
+            "eastl::hash_map<eastl::basic_string<char>, Urho3D::Variant>",
+            "UnorderedMap",
+            unorderedMapRecord.SymbolId,
+            genericArguments: new[] { stringRecord.HandleType, variantRecord.HandleType });
+        compilation.TypeAliases.Add(new BindingTypeAlias("Urho3D::StringVariantMap", "StringVariantMap", "StringVariantMap", stringVariantMapType));
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var aliasOutput = files.Single(static file => file.RelativePath == "SharpCppSample.Bindings.Aliases.g.cs").Content;
+
+        Assert.Contains("global using StringVariantMap = global::Ea.UnorderedMap<global::Ea.String, global::Urho3D.Variant>;", aliasOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Managed_output_keeps_aliases_public_but_internal_generic_signatures_fully_qualified()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "Urho3D",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Container/VectorOfVector3.hpp" });
+        var vector3TargetType = BindingType.CreateConfigured(
+            "Urho3D::Vector3",
+            "global::Urho3D.Math.Vector3",
+            "global::Urho3D.Math.Vector3");
+        var vectorRecord = new RecordBinding("record:ea_vector", "vector", "Vector", "eastl::vector")
+        {
+            ManagedNamespace = "Ea",
+            ManagedTypeFormat = "Vector<{0}>"
+        };
+        vectorRecord.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        compilation.Members.Add(vectorRecord);
+        compilation.TypeAliases.Add(new BindingTypeAlias("Urho3D::Vector3", "Vector3", "Vector3", vector3TargetType));
+
+        var vectorOfVector3 = BindingType.CreateHandle(
+            "eastl::vector<Urho3D::Vector3>",
+            "Vector",
+            vectorRecord.SymbolId,
+            genericArguments: new[] { vector3TargetType });
+        var function = new FunctionBinding(
+            "function:get_path",
+            "get_path",
+            "GetPath",
+            vectorOfVector3,
+            "sharpcpp_sample_get_path");
+        compilation.Members.Add(function);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath == "SharpCppSample.Bindings.g.cs").Content;
+
+        Assert.Contains("public static global::Ea.Vector<Vector3> GetPath()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial global::Ea.Vector<global::Urho3D.Math.Vector3> GetPath();", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("internal static partial global::Ea.Vector<Vector3> GetPath();", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Managed_output_uses_concrete_primitive_types_when_no_alias_metadata_exists()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "Urho3D",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Core/Thread.hpp" });
+        var function = new FunctionBinding(
+            "function:get_current_thread_id",
+            "get_current_thread_id",
+            "GetCurrentThreadID",
+            BindingType.CreateConfigured("unsigned long", "ThreadID", primitiveKind: BindingPrimitiveKind.NativeUInt),
+            "sharpcpp_sample_get_current_thread_id");
+        compilation.Members.Add(function);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath == "SharpCppSample.Bindings.g.cs").Content;
+
+        Assert.Contains("public static nuint GetCurrentThreadID()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial nuint GetCurrentThreadID();", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("ThreadID GetCurrentThreadID", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Native_output_uses_arg_t_for_const_char_pointer_parameter()
     {
         var compilation = new BindingCompilation(
@@ -308,7 +469,8 @@ public sealed class BindingOutputRendererTests
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
         Assert.Contains("public static void SetPayload(global::SharpCpp.Sample.PayloadRecord value)", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("internal static partial void SetPayload(global::SharpCpp.Sample.PayloadRecord? value);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("[MarshalUsing(typeof(global::SharpCpp.Sample.__PayloadRecordInMarshaller))] global::SharpCpp.Sample.PayloadRecord? value", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial void SetPayload(", managedOutput, StringComparison.Ordinal);
         Assert.Contains("__PInvoke.SetPayload(value);", managedOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("GetHandle(value)", managedOutput, StringComparison.Ordinal);
     }

@@ -8,7 +8,8 @@ public sealed record BindingMetadataDocument(
     IReadOnlyList<BindingMetadataImport> Imports,
     BindingMetadataFingerprint Fingerprint,
     IReadOnlyList<BindingMetadataType> Types,
-    IReadOnlyList<BindingMetadataFunction> Functions);
+    IReadOnlyList<BindingMetadataFunction> Functions,
+    IReadOnlyList<BindingMetadataAlias>? Aliases = null);
 
 public sealed record BindingMetadataSource(string Package, string ManagedNamespace, string NativeLibrary);
 
@@ -62,6 +63,13 @@ public sealed record BindingMetadataFunction(
     IReadOnlyList<BindingMetadataParameter> Parameters,
     bool ReturnsOwnedHandle = false);
 
+public sealed record BindingMetadataAlias(
+    string CppQualifiedName,
+    string NativeName,
+    string ManagedName,
+    string? ManagedNamespace,
+    BindingMetadataTypeReference TargetType);
+
 public sealed record BindingMetadataParameter(string Name, string Direction, BindingMetadataTypeReference Type, string? DefaultValueExpression = null);
 
 public sealed record BindingMetadataTypeReference(
@@ -70,7 +78,8 @@ public sealed record BindingMetadataTypeReference(
     string PublicType,
     string? Primitive,
     string? RecordId,
-    string? MarshallerType);
+    string? MarshallerType,
+    IReadOnlyList<BindingMetadataTypeReference>? GenericArguments = null);
 
 public sealed record BindingMetadataExportOptions(
     string PackageId,

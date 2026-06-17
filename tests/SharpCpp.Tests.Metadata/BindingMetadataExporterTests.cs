@@ -59,7 +59,7 @@ public sealed class BindingMetadataExporterTests
         var json = BindingMetadataSerializer.Serialize(original);
         var roundTripped = BindingMetadataSerializer.Deserialize(json);
 
-        Assert.Contains("\"schema_version\": 2", json, StringComparison.Ordinal);
+        Assert.Contains("\"schema_version\": 3", json, StringComparison.Ordinal);
         Assert.EndsWith(Environment.NewLine, json, StringComparison.Ordinal);
         Assert.Equal(original.SchemaVersion, roundTripped.SchemaVersion);
         Assert.Equal(original.GeneratorVersion, roundTripped.GeneratorVersion);
@@ -79,6 +79,49 @@ public sealed class BindingMetadataExporterTests
             original.Types.Select(static type => type.Members?.Count ?? 0),
             roundTripped.Types.Select(static type => type.Members?.Count ?? 0));
         Assert.Equal(original.Functions, roundTripped.Functions);
+        Assert.Equal(original.Aliases, roundTripped.Aliases);
+    }
+
+    [Fact]
+    public void Export_includes_aliases_with_fully_qualified_concrete_targets()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "Urho3D",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "aliases.hpp" });
+        var vectorRecord = new RecordBinding("record:ea_vector", "vector", "Vector", "eastl::vector")
+        {
+            ManagedNamespace = "Ea",
+            ManagedTypeFormat = "Vector<{0}>"
+        };
+        vectorRecord.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        compilation.Members.Add(vectorRecord);
+
+        var vector3Type = BindingType.CreateConfigured(
+            "Urho3D::Vector3",
+            "global::Urho3D.Math.Vector3",
+            "global::Urho3D.Math.Vector3");
+        var pathPointsType = BindingType.CreateHandle(
+            "eastl::vector<Urho3D::Vector3>",
+            "Vector",
+            vectorRecord.SymbolId,
+            genericArguments: new[] { vector3Type });
+        var alias = new BindingTypeAlias("Urho3D::PathPoints", "PathPoints", "PathPoints", pathPointsType)
+        {
+            ManagedNamespace = "Urho3D"
+        };
+        compilation.TypeAliases.Add(alias);
+
+        var document = BindingMetadataExporter.Export(compilation);
+        var exportedAlias = Assert.Single(document.Aliases!);
+
+        Assert.Equal("PathPoints", exportedAlias.ManagedName);
+        Assert.Equal("Urho3D", exportedAlias.ManagedNamespace);
+        Assert.Equal("global::Ea.Vector<global::Urho3D.Math.Vector3>", exportedAlias.TargetType.PublicType);
+        Assert.Single(exportedAlias.TargetType.GenericArguments!);
+        Assert.Equal("global::Urho3D.Math.Vector3", exportedAlias.TargetType.GenericArguments![0].PublicType);
     }
 
     [Fact]

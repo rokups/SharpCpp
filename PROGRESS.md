@@ -64,7 +64,8 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - Structured logging (`ILogger` with elapsed timestamps)
 - Degradation pass: auto-ignores unsupported constructs with diagnostic reasons
 - Record reference return support (`T&` → handle ABI)
-- Type alias pipeline (`using` / `typedef` → C# using directives)
+- Type alias pipeline (`using` / `typedef` → metadata-backed C# using directives)
+- rbfx `FlagSet<TEnum>` lowering to public `[Flags]` enum surfaces
 
 ## Remaining Work
 
@@ -109,6 +110,27 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - All type-specific behaviors configured through C++/C# marshallers, never hardcoded in core
 
 ## Recently Fixed
+
+- **Metadata-driven alias preservation and rbfx `FlagSet<TEnum>` lowering are now green end-to-end**:
+  - Alias metadata now uses structural type matching (`BindingTypeKey`) so public aliases are restored from model facts instead of formatted type-name strings, while internal/import/P/Invoke signatures stay concrete and fully qualified.
+  - Alias emission now treats `BindingCompilation.TypeAliases` as authoritative and recursively drops aliases whose complete target tree lacks a managed projection, preventing invalid aliases such as unresolved nested EASTL implementation types from leaking into `*.Aliases.g.cs`.
+  - rbfx now runs `RbfxFlagSetLoweringPass` after SDK export filtering and before rendering/export. It rewrites `FlagSet<TEnum>` aliases, function types, parameters, and fields to the enum surface, marks the referenced enums as `[Flags]`, suppresses the `FlagSet` record itself, and drops remaining aliases targeting unavailable ignored records.
+  - Regression coverage includes alias metadata export/import, hash-map alias parsing, alias pruning for unresolved generic targets, renderer alias emission, and rbfx `FlagSet<TEnum>` lowering.
+  - Generated rbfx and user-code aliases include restored public aliases such as `VariantMap`, `StringVariantMap`, `AnimationChannelFlags`, and `RenderOutputFlags`; no generated `FlagSet` type remains.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj`, `dotnet test tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj`, `dotnet test tests/SharpCpp.Tests.Metadata/SharpCpp.Tests.Metadata.csproj`, `cmake --build --preset Debug`, and `ctest --preset Debug` all pass.
+
+- **Public alias restoration is now isolated to the public surface, with concrete internal signatures preserved**:
+  - `BindingOutputRenderer` now distinguishes public alias presentation from concrete/internal type emission using `BindingType` facts (`PrimitiveKind`, `RecordId`, `GenericArguments`, `ManagedTypeFormatOverride`) instead of aliasing `LibraryImport` signatures directly.
+  - Public signatures can collapse exact typedef aliases such as `VariantMap`, `StringVariantMap`, `FileTime`, and `NetworkId`, while internal/import signatures remain concrete and fully qualified.
+  - Generated `*.Aliases.g.cs` files now restore alias availability for alias-shaped types used on public record methods as well as free functions/fields, closing the `ThreadID` regression where the public API referenced an alias name without an emitted alias declaration.
+  - Direct wrapper-typed `LibraryImport` parameters now use generated per-record `ManagedToUnmanagedIn` custom marshallers that route through `NativeObject.GetHandle(...)`, restoring null-to-zero behavior for nullable wrapper inputs without falling back to raw `nint` public signatures.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj`, `dotnet test tests/SharpCpp.Tests.Metadata/SharpCpp.Tests.Metadata.csproj`, `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj`, `cmake --build --preset Debug`, and `ctest --preset Debug` all pass.
+
+- **Alias metadata now round-trips through `SharpCpp.Metadata`, including generic alias targets**:
+  - `BindingMetadataDocument` schema version advanced to `3` and now carries `aliases` plus structural `generic_arguments` on `BindingMetadataTypeReference`.
+  - `BindingMetadataExporter` now exports alias targets as fully-qualified concrete type references while preserving generic argument structure.
+  - `BindingMetadataImportCatalog` now seeds imported aliases back into `BindingCompilation.TypeAliases`, restores imported generic record facts (`ManagedTypeFormat`, generic parameters), and reconstructs alias target types structurally for downstream rendering.
+  - This fixes downstream imported alias cases such as `FloatRange` / `UintRange` and keeps user-code alias files coherent after importing upstream rbfx metadata.
 
 - **Desugared EASTL associative-container matching now accepts `unordered_map` / `hash_map` equivalence**:
   - `MarshallerConfigExtractor` now prefers Clang's desugared template argument while preserving the source namespace qualification, so rbfx marshaller metadata authored against EASTL unordered-map surfaces resolves to the actual parsed `eastl::hash_map<...>` container type.

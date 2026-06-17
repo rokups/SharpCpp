@@ -139,7 +139,7 @@ public sealed class BindingType
 
     public string UnaliasedManagedTypeName => Kind == BindingTypeKind.GenericParameter
         ? GenericParameterName ?? Marshaller.PublicTypeName
-        : FormatManagedTypeName(managedTypeFormatOverride: null);
+        : FormatManagedTypeName(managedTypeFormatOverride: null, unaliasGenericArguments: true);
 
     public string? MarshallerTypeName => Marshaller.MarshallerTypeName;
 
@@ -212,18 +212,20 @@ public sealed class BindingType
     public static BindingType CreateConfigured(
         string cppTypeName,
         string publicTypeName,
-        BindingPrimitiveKind primitiveKind = BindingPrimitiveKind.Unsupported)
+        BindingPrimitiveKind primitiveKind = BindingPrimitiveKind.Unsupported,
+        IEnumerable<BindingType>? genericArguments = null)
     {
-        return CreateConfigured(cppTypeName, publicTypeName, null, null, primitiveKind);
+        return CreateConfigured(cppTypeName, publicTypeName, null, null, primitiveKind, genericArguments);
     }
 
     public static BindingType CreateConfigured(
         string cppTypeName,
         string publicTypeName,
         string? marshallerTypeName,
-        BindingPrimitiveKind primitiveKind = BindingPrimitiveKind.Unsupported)
+        BindingPrimitiveKind primitiveKind = BindingPrimitiveKind.Unsupported,
+        IEnumerable<BindingType>? genericArguments = null)
     {
-        return CreateConfigured(cppTypeName, publicTypeName, marshallerTypeName, null, primitiveKind);
+        return CreateConfigured(cppTypeName, publicTypeName, marshallerTypeName, null, primitiveKind, genericArguments);
     }
 
     public static BindingType CreateConfigured(
@@ -231,12 +233,14 @@ public sealed class BindingType
         string publicTypeName,
         string? marshallerTypeName,
         string? managedMarshaller,
-        BindingPrimitiveKind primitiveKind = BindingPrimitiveKind.Unsupported)
+        BindingPrimitiveKind primitiveKind = BindingPrimitiveKind.Unsupported,
+        IEnumerable<BindingType>? genericArguments = null)
     {
         return new BindingType(
             BindingTypeKind.Primitive,
             primitiveKind,
-            new MarshallerDescriptor(cppTypeName, publicTypeName, marshallerTypeName, managedMarshaller));
+            new MarshallerDescriptor(cppTypeName, publicTypeName, marshallerTypeName, managedMarshaller),
+            genericArguments: genericArguments);
     }
 
     public override string ToString()
@@ -279,7 +283,7 @@ public sealed class BindingType
             GenericArguments);
     }
 
-    private string FormatManagedTypeName(string? managedTypeFormatOverride = null)
+    private string FormatManagedTypeName(string? managedTypeFormatOverride = null, bool unaliasGenericArguments = false)
     {
         // When an explicit managed type format override is set (via
         // Marshaller<T> attributes) and contains no format placeholders,
@@ -298,9 +302,12 @@ public sealed class BindingType
             return managedTypeFormat;
         }
 
-        var argumentNames = GenericArguments.Select(static argument => argument.ManagedTypeName).Cast<object>().ToArray();
+        var renderedArguments = GenericArguments
+            .Select(argument => unaliasGenericArguments ? argument.UnaliasedManagedTypeName : argument.ManagedTypeName)
+            .ToArray();
+        var argumentNames = renderedArguments.Cast<object>().ToArray();
         return managedTypeFormat.Contains('{', StringComparison.Ordinal)
             ? string.Format(System.Globalization.CultureInfo.InvariantCulture, managedTypeFormat, argumentNames)
-            : $"{managedTypeFormat}<{string.Join(", ", GenericArguments.Select(static argument => argument.ManagedTypeName))}>";
+            : $"{managedTypeFormat}<{string.Join(", ", renderedArguments)}>";
     }
 }

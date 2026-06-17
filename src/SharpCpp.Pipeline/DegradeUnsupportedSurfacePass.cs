@@ -166,23 +166,6 @@ public static class DegradeUnsupportedSurfacePass
     {
         var functionAllowsOpenGenericTypes = function.IsGeneric || (function.Parent as RecordBinding)?.IsGeneric == true;
 
-        // When the return type's C++ name matches a compilation-level type
-        // alias, replace the return type with the alias target so the
-        // renderer emits the proper managed type instead of the raw template
-        // internals (e.g. VariantVector → Ea.Vector<Variant> instead of
-        // Ea.Vector<T>, or Vector3 → global::Urho3D.Math.Vector3 instead of
-        // BaseVector3<float>).
-        var returnAlias = compilation.TypeAliases.FirstOrDefault(
-            alias => string.Equals(alias.NativeName, function.CppReturnTypeName, StringComparison.Ordinal) ||
-                     function.CppReturnTypeName.EndsWith("::" + alias.NativeName, StringComparison.Ordinal) ||
-                     string.Equals(alias.CppQualifiedName, function.CppReturnTypeName, StringComparison.Ordinal) ||
-                     function.CppReturnTypeName.EndsWith("::" + alias.ManagedName, StringComparison.Ordinal));
-
-        if (returnAlias is not null)
-        {
-            function.ReturnType = returnAlias.TargetType;
-        }
-
         if (!functionAllowsOpenGenericTypes && ContainsOpenGenericParameter(function.ReturnType))
         {
             reason = $"return type is unsupported in this bootstrap surface: open generic parameter usage is not renderer-ready in a non-generic callable";

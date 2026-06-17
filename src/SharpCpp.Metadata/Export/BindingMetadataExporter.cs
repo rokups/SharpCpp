@@ -30,6 +30,17 @@ public static class BindingMetadataExporter
             .Select(CreateFunction)
             .ToArray();
 
+        var aliases = compilation.TypeAliases
+            .OrderBy(static alias => alias.ManagedName, StringComparer.Ordinal)
+            .ThenBy(static alias => alias.CppQualifiedName, StringComparer.Ordinal)
+            .Select(alias => new BindingMetadataAlias(
+                alias.CppQualifiedName,
+                alias.NativeName,
+                alias.ManagedName,
+                alias.ManagedNamespace,
+                CreateTypeReference(compilation, alias.TargetType, fullyQualifyConcrete: true)))
+            .ToArray();
+
         var imports = (options.Imports ?? Array.Empty<BindingMetadataImport>())
             .OrderBy(static importItem => importItem.Package, StringComparer.Ordinal)
             .ThenBy(static importItem => importItem.Hash, StringComparer.Ordinal)
@@ -49,7 +60,8 @@ public static class BindingMetadataExporter
             imports,
             fingerprint,
             types,
-            functions);
+            functions,
+            aliases);
     }
 
     private static BindingMetadataType CreateRecordType(RecordBinding record)
@@ -155,12 +167,121 @@ public static class BindingMetadataExporter
 
     private static BindingMetadataTypeReference CreateTypeReference(BindingType type)
     {
+        return CreateTypeReference(null, type, fullyQualifyConcrete: false);
+    }
+
+    private static BindingMetadataTypeReference CreateTypeReference(BindingCompilation? compilation, BindingType type, bool fullyQualifyConcrete)
+    {
         return new BindingMetadataTypeReference(
             type.Kind.ToString().ToLowerInvariant(),
             type.CppTypeName,
-            type.ManagedTypeName,
+            fullyQualifyConcrete && compilation is not null
+                ? FormatQualifiedConcreteManagedTypeName(compilation, type)
+                : type.ManagedTypeName,
             type.Kind == BindingTypeKind.Primitive ? type.PrimitiveKind.ToString().ToLowerInvariant() : null,
             type.RecordId,
-            type.MarshallerTypeName);
+            type.MarshallerTypeName,
+            type.GenericArguments.Count == 0
+                ? null
+                : type.GenericArguments.Select(argument => CreateTypeReference(compilation, argument, fullyQualifyConcrete)).ToArray());
     }
+
+    private static string FormatQualifiedConcreteManagedTypeName(BindingCompilation compilation, BindingType type)
+    {
+        return type.Kind switch
+        {
+            BindingTypeKind.GenericParameter => type.GenericParameterName ?? "T",
+            BindingTypeKind.Primitive when type.PrimitiveKind != BindingPrimitiveKind.Unsupported => type.UnaliasedManagedTypeName,
+            BindingTypeKind.Primitive => FormatConfiguredManagedTypeName(compilation, type),
+            BindingTypeKind.Handle => FormatQualifiedRecordTypeName(compilation, type),
+            BindingTypeKind.Enum => FormatQualifiedEnumTypeName(compilation, type),
+            _ => type.UnaliasedManagedTypeName
+        };
+    }
+
+    private static string FormatQualifiedRecordTypeName(BindingCompilation compilation, BindingType type)
+    {
+        var record = compilation.FindRecordBySymbolId(type.RecordId);
+        if (record is null)
+        {
+            return FormatConfiguredManagedTypeName(compilation, type);
+        }
+
+        var managedName = record.ManagedTypeFormat ?? record.ManagedName;
+        var head = GetManagedTypeHead(managedName);
+        var qualifiedHead = head.StartsWith("global::", StringComparison.Ordinal)
+            ? head
+            : head.Contains('.', StringComparison.Ordinal)
+                ? $"global::{head}"
+                : $"global::{record.ManagedNamespace ?? compilation.ManagedNamespace}.{head}";
+        if (type.GenericArguments.Count == 0)
+        {
+            return qualifiedHead;
+        }
+
+        return $"{qualifiedHead}<{string.Join(", ", type.GenericArguments.Select(argument => FormatQualifiedConcreteManagedTypeName(compilation, argument)))}>";
+    }
+
+    private static string FormatQualifiedEnumTypeName(BindingCompilation compilation, BindingType type)
+    {
+        var enumBinding = compilation.Enums.FirstOrDefault(candidate =>
+            string.Equals(candidate.CppQualifiedName, type.CppTypeName, StringComparison.Ordinal) ||
+            string.Equals(candidate.ManagedName, type.UnaliasedManagedTypeName, StringComparison.Ordinal));
+        if (enumBinding is null)
+        {
+            return QualifyManagedTypeText(type.UnaliasedManagedTypeName);
+        }
+
+        var managedName = enumBinding.ManagedName;
+        if (managedName.StartsWith("global::", StringComparison.Ordinal))
+        {
+            return managedName;
+        }
+
+        if (managedName.Contains('.', StringComparison.Ordinal))
+        {
+            return $"global::{managedName}";
+        }
+
+        return $"global::{enumBinding.ManagedNamespace ?? compilation.ManagedNamespace}.{managedName}";
+    }
+
+    private static string FormatConfiguredManagedTypeName(BindingCompilation compilation, BindingType type)
+    {
+        if (type.GenericArguments.Count == 0)
+        {
+            return QualifyManagedTypeText(type.UnaliasedManagedTypeName);
+        }
+
+        var head = QualifyManagedTypeText(GetManagedTypeHead(type.UnaliasedManagedTypeName));
+        var arguments = string.Join(", ", type.GenericArguments.Select(argument => FormatQualifiedConcreteManagedTypeName(compilation, argument)));
+        return $"{head}<{arguments}>";
+    }
+
+    private static string GetManagedTypeHead(string managedTypeName)
+    {
+        var genericStart = managedTypeName.IndexOf('<');
+        return genericStart >= 0 ? managedTypeName[..genericStart] : managedTypeName;
+    }
+
+    private static string QualifyManagedTypeText(string managedTypeName)
+    {
+        if (string.IsNullOrWhiteSpace(managedTypeName) ||
+            managedTypeName.StartsWith("global::", StringComparison.Ordinal) ||
+            IsManagedKeywordTypeName(managedTypeName))
+        {
+            return managedTypeName;
+        }
+
+        return managedTypeName.Contains('.', StringComparison.Ordinal)
+            ? $"global::{managedTypeName}"
+            : managedTypeName;
+    }
+
+    private static bool IsManagedKeywordTypeName(string managedTypeName) => managedTypeName switch
+    {
+        "void" or "bool" or "byte" or "sbyte" or "short" or "ushort" or "int" or "uint" or "long" or "ulong" or
+        "float" or "double" or "nint" or "nuint" or "char" or "string" or "object" or "IntPtr" or "UIntPtr" => true,
+        _ => false
+    };
 }

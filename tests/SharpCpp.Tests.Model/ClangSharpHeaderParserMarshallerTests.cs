@@ -1,3 +1,5 @@
+using System.Reflection;
+
 using SharpCpp.Model.Ast;
 using SharpCpp.Pipeline;
 using SharpCpp.Parsing;
@@ -184,10 +186,62 @@ public sealed class ClangSharpHeaderParserMarshallerTests
 
         var eventHub = Assert.Single(compilation.Records.Where(static record => record.NativeName == "EventHub"));
         var getEventDataMap = Assert.Single(eventHub.Members.OfType<FunctionBinding>().Where(static function => function.NativeName == "GetEventDataMap"));
+        var getStringEventDataMap = Assert.Single(eventHub.Members.OfType<FunctionBinding>().Where(static function => function.NativeName == "GetStringEventDataMap"));
 
-        Assert.False(getEventDataMap.IsIgnored(), $"Ignored because '{getEventDataMap.GetIgnoreReason()}'.");
-        Assert.Equal("Ea.UnorderedMap<int, int>", getEventDataMap.ReturnType.ManagedTypeName);
-        Assert.Equal("const VariantMap&", getEventDataMap.CppReturnTypeName);
+        Assert.False(getEventDataMap.IsIgnored(), $"Ignored because '{getEventDataMap.GetIgnoreReason()}'. Type: {DescribeType(getEventDataMap.ReturnType)}");
+        Assert.False(getStringEventDataMap.IsIgnored(), $"Ignored because '{getStringEventDataMap.GetIgnoreReason()}'. Type: {DescribeType(getStringEventDataMap.ReturnType)}");
+        Assert.NotEmpty(compilation.TypeAliases);
+        var variantMapAlias = Assert.Single(compilation.TypeAliases.Where(static alias => alias.NativeName == "VariantMap"));
+        var stringVariantMapAlias = Assert.Single(compilation.TypeAliases.Where(static alias => alias.NativeName == "StringVariantMap"));
+        Assert.Equal("VariantMap", variantMapAlias.ManagedName);
+        Assert.Equal("StringVariantMap", stringVariantMapAlias.ManagedName);
+        Assert.Equal("Ea.UnorderedMap<global::Urho3D.Math.StringHash, Variant>", variantMapAlias.TargetType.ManagedTypeName);
+        Assert.Equal("Ea.UnorderedMap<Ea.String, Variant>", stringVariantMapAlias.TargetType.ManagedTypeName);
+
+        Assert.True(
+            string.Equals("VariantMap", getEventDataMap.ReturnType.ManagedTypeName, StringComparison.Ordinal),
+            $"Expected VariantMap but got {DescribeType(getEventDataMap.ReturnType)}; alias target {DescribeType(variantMapAlias.TargetType)}");
+        Assert.True(
+            string.Equals("StringVariantMap", getStringEventDataMap.ReturnType.ManagedTypeName, StringComparison.Ordinal),
+            $"Expected StringVariantMap but got {DescribeType(getStringEventDataMap.ReturnType)}; alias target {DescribeType(stringVariantMapAlias.TargetType)}");
+        Assert.Equal("const Urho3D::VariantMap&", getEventDataMap.CppReturnTypeName);
+        Assert.Equal("const Urho3D::StringVariantMap&", getStringEventDataMap.CppReturnTypeName);
+    }
+
+    [Fact]
+    public void Bootstrap_pipeline_prunes_aliases_with_unresolved_configured_generic_arguments()
+    {
+        var compilation = new BindingCompilation("TestProject", "Urho3D", "Bindings", "Test.Native", ["Sample.hpp"]);
+        var vectorRecord = new RecordBinding("record:eastl::vector", "eastl::vector", "Vector", "eastl::vector")
+        {
+            ManagedTypeFormat = "global::Ea.Vector<{0}>"
+        };
+        compilation.Members.Add(vectorRecord);
+
+        var unresolvedPair = BindingType.CreateConfigured("ea::pair<ea::string, bool>", "ea::pair<ea::string, bool>");
+        var aliasTarget = BindingType.CreateHandle(
+            "ea::vector<ea::pair<ea::string, bool>>*",
+            "global::Ea.Vector<{0}>",
+            vectorRecord.SymbolId,
+            genericArguments: [unresolvedPair]);
+        compilation.TypeAliases.Add(new BindingTypeAlias("Urho3D::EnabledRenderPasses", "EnabledRenderPasses", "EnabledRenderPasses", aliasTarget));
+
+        var prune = typeof(BindingCompilationBootstrapPipeline).GetMethod(
+            "PruneAliasesTargetingDegradedRecords",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(prune);
+
+        prune.Invoke(null, [compilation]);
+
+        Assert.Empty(compilation.TypeAliases);
+    }
+
+    private static string DescribeType(BindingType type)
+    {
+        var args = type.GenericArguments.Count == 0
+            ? string.Empty
+            : $"<{string.Join(", ", type.GenericArguments.Select(DescribeType))}>";
+        return $"{type.Kind}:{type.ManagedTypeName}:{type.RecordId}:{type.CppTypeName}{args}";
     }
 
     [Fact(Skip = "Known issue: MapParameter passes canonical type for record references, losing typedef identity for managed-type-override lookup.")]

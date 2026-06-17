@@ -31,7 +31,22 @@ public sealed class BindingMetadataImportCatalogTests
                     ManagedInstanceCacheTypeName: "global::SharpCpp.Support.INativeInstanceCache",
                     EmitDefaultNativeReleaseOverride: false)
             ],
-            Functions: Array.Empty<BindingMetadataFunction>());
+            Functions: Array.Empty<BindingMetadataFunction>(),
+            Aliases:
+            [
+                new BindingMetadataAlias(
+                    CppQualifiedName: "Urho3D::LogicComponentRef",
+                    NativeName: "LogicComponentRef",
+                    ManagedName: "LogicComponentRef",
+                    ManagedNamespace: "Urho3D",
+                    TargetType: new BindingMetadataTypeReference(
+                        "handle",
+                        "Urho3D::LogicComponent*",
+                        "global::Urho3D.LogicComponent",
+                        null,
+                        "record:LogicComponent",
+                        null))
+            ]);
 
         var tempFile = Path.Combine(Path.GetTempPath(), $"SharpCpp.Tests.Metadata.{Guid.NewGuid():N}.json");
         try
@@ -55,7 +70,85 @@ public sealed class BindingMetadataImportCatalogTests
             Assert.True(importedRecord.GetMetadata<bool>(MetadataKeys.SuppressEmission));
             Assert.Same(importedRecord, recordsByName["LogicComponent"]);
             Assert.Same(importedRecord, recordsByName["Urho3D::LogicComponent"]);
+            var importedAlias = Assert.Single(compilation.TypeAliases);
+            Assert.Equal("LogicComponentRef", importedAlias.ManagedName);
+            Assert.Equal("Urho3D", importedAlias.ManagedNamespace);
+            Assert.Equal(importedRecord.SymbolId, importedAlias.TargetType.RecordId);
+            Assert.Equal("global::Urho3D.LogicComponent", importedAlias.TargetType.ManagedTypeName);
             Assert.Equal("SharpCpp.Rbfx.Bindings", Assert.Single(catalog.Imports).Package);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
+        }
+    }
+
+    [Fact]
+    public void Load_preserves_generic_projection_shape_for_imported_alias_targets()
+    {
+        var document = new BindingMetadataDocument(
+            SchemaVersion: BindingMetadataSchema.CurrentVersion,
+            GeneratorVersion: BindingMetadataSchema.PreviewGeneratorVersion,
+            SupportRuntimeVersion: BindingMetadataSchema.PreviewSupportRuntimeVersion,
+            Source: new BindingMetadataSource("SharpCpp.Rbfx.Bindings", "Urho3D", "SharpCpp.Rbfx.Native"),
+            Imports: Array.Empty<BindingMetadataImport>(),
+            Fingerprint: new BindingMetadataFingerprint("phase2", "clang", "attrs", ["Urho3D/Math/NumericRange.h"]),
+            Types:
+            [
+                new BindingMetadataType(
+                    SymbolId: "record:NumericRange",
+                    Kind: "handle",
+                    NativeName: "NumericRange",
+                    ManagedName: "NumericRange",
+                    ManagedNamespace: "Urho3D",
+                    ManagedBaseTypeName: null,
+                    Projection: new BindingMetadataTypeReference(
+                        "handle",
+                        "Urho3D::NumericRange<T>*",
+                        "NumericRange<T>",
+                        null,
+                        "record:NumericRange",
+                        null,
+                        [new BindingMetadataTypeReference("genericparameter", "T", "T", null, null, null)]))
+            ],
+            Functions: Array.Empty<BindingMetadataFunction>(),
+            Aliases:
+            [
+                new BindingMetadataAlias(
+                    CppQualifiedName: "Urho3D::FloatRange",
+                    NativeName: "FloatRange",
+                    ManagedName: "FloatRange",
+                    ManagedNamespace: "Urho3D",
+                    TargetType: new BindingMetadataTypeReference(
+                        "handle",
+                        "Urho3D::NumericRange<float>*",
+                        "global::Urho3D.NumericRange<float>",
+                        null,
+                        "record:NumericRange",
+                        null,
+                        [new BindingMetadataTypeReference("primitive", "float", "float", "single", null, null)]))
+            ]);
+
+        var tempFile = Path.Combine(Path.GetTempPath(), $"SharpCpp.Tests.Metadata.{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(tempFile, BindingMetadataSerializer.Serialize(document));
+            var catalog = BindingMetadataImportCatalog.Load([tempFile]);
+
+            var compilation = new BindingCompilation("Consumer", "RbfxUserCode", "Bindings", "Consumer.Native", ["RbfxUserCode/RotatingComponent.hpp"]);
+            var recordsByName = new Dictionary<string, RecordBinding>(StringComparer.Ordinal);
+            var enumsByName = new Dictionary<string, EnumBinding>(StringComparer.Ordinal);
+
+            catalog.Seed(compilation, recordsByName, enumsByName);
+
+            var importedRecord = Assert.Single(compilation.Records);
+            var importedAlias = Assert.Single(compilation.TypeAliases);
+            Assert.Single(importedRecord.GenericParameters);
+            Assert.Equal("global::Urho3D.NumericRange<{0}>", importedRecord.ManagedTypeFormat);
+            Assert.Equal("global::Urho3D.NumericRange<float>", importedAlias.TargetType.ManagedTypeName);
         }
         finally
         {

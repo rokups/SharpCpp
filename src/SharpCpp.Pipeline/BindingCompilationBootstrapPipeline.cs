@@ -82,35 +82,39 @@ public static class BindingCompilationBootstrapPipeline
 
     private static bool ShouldPruneAliasTarget(BindingTypeAlias alias, BindingCompilation compilation)
     {
-        var targetType = alias.TargetType;
+        return ShouldPruneAliasType(alias.TargetType, compilation);
+    }
 
-        // Check if the target record or enum was degraded.
-        if (targetType.Kind == BindingTypeKind.Handle && targetType.RecordId is not null)
+    private static bool ShouldPruneAliasType(BindingType type, BindingCompilation compilation)
+    {
+        if (type.Kind == BindingTypeKind.Handle && type.RecordId is not null)
         {
-            var record = compilation.Records.FirstOrDefault(r =>
-                string.Equals(r.SymbolId, targetType.RecordId, StringComparison.Ordinal));
-            if (record is null || record.IsIgnored())
+            var records = compilation.Records
+                .Where(r => string.Equals(r.SymbolId, type.RecordId, StringComparison.Ordinal))
+                .ToArray();
+            if (records.Length == 0 || records.All(ShouldPruneHandleAliasTarget))
             {
                 return true;
             }
         }
-        else if (targetType.Kind == BindingTypeKind.Enum)
+        else if (type.Kind == BindingTypeKind.Enum)
         {
-            // Enum aliases target the enum's ManagedName.  Check whether the
-            // underlying enum survived degradation.
             var enumTarget = compilation.Enums.FirstOrDefault(e =>
-                string.Equals(e.ManagedName, targetType.ManagedTypeName, StringComparison.Ordinal) ||
-                string.Equals(e.NativeName, targetType.Marshaller.PublicTypeName, StringComparison.Ordinal));
+                string.Equals(e.ManagedName, type.ManagedTypeName, StringComparison.Ordinal) ||
+                string.Equals(e.NativeName, type.Marshaller.PublicTypeName, StringComparison.Ordinal));
             if (enumTarget is null || enumTarget.IsIgnored())
             {
                 return true;
             }
         }
-        else if (targetType.Kind == BindingTypeKind.Primitive)
+        else if (type.Kind == BindingTypeKind.Primitive)
         {
-            // Configured types use CppTypeName as the lookup key for the
-            // backing record/enum.  If the backing type was degraded, prune.
-            var cppName = targetType.CppTypeName;
+            if (IsUnresolvedConfiguredPrimitive(type))
+            {
+                return true;
+            }
+
+            var cppName = type.CppTypeName;
             if (!string.IsNullOrWhiteSpace(cppName))
             {
                 var backingRecord = compilation.Records.FirstOrDefault(r =>
@@ -131,21 +135,66 @@ public static class BindingCompilationBootstrapPipeline
             }
         }
 
-        // Recurse into generic arguments — each must also be live.
-        foreach (var argument in targetType.GenericArguments)
+        foreach (var argument in type.GenericArguments)
         {
-            if (argument.Kind == BindingTypeKind.Handle &&
-                argument.RecordId is not null)
-            {
-                var argRecord = compilation.Records.FirstOrDefault(r =>
-                    string.Equals(r.SymbolId, argument.RecordId, StringComparison.Ordinal));
-                if (argRecord is null || argRecord.IsIgnored())
-                {
-                    return true;
-                }
-            }
+            if (ShouldPruneAliasType(argument, compilation))
+                return true;
         }
 
         return false;
+    }
+
+    private static bool IsUnresolvedConfiguredPrimitive(BindingType type)
+    {
+        return type.PrimitiveKind == BindingPrimitiveKind.Unsupported &&
+            string.IsNullOrWhiteSpace(type.MarshallerTypeName) &&
+            string.Equals(type.Marshaller.PublicTypeName, type.CppTypeName, StringComparison.Ordinal);
+    }
+
+    private static bool ShouldPruneHandleAliasTarget(RecordBinding record)
+    {
+        if (record.IsIgnored() && ShouldPruneIgnoredHandleAliasTarget(record))
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(record.ManagedTypeFormat) ||
+            !string.IsNullOrWhiteSpace(record.HandleMarshallerTypeName))
+        {
+            return false;
+        }
+
+        if (record.HasMetadata(MetadataKeys.PlaceholderRecord))
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(record.ManagedNamespace))
+        {
+            return false;
+        }
+
+        return false;
+    }
+
+    private static bool ShouldPruneIgnoredHandleAliasTarget(RecordBinding record)
+    {
+        if (record.GetMetadata<bool>(MetadataKeys.SuppressEmission))
+        {
+            return false;
+        }
+
+        if (record.IsGeneric)
+        {
+            if (!string.IsNullOrWhiteSpace(record.ManagedBaseTypeName))
+            {
+                return false;
+            }
+
+            return record.SupportedGenericInstantiations.Count == 0 &&
+                !record.HasMetadata(MetadataKeys.ExplicitGenericInstantiations);
+        }
+
+        return string.IsNullOrWhiteSpace(record.HandleMarshallerTypeName);
     }
 }

@@ -133,6 +133,8 @@ internal static class Program
             Logger.LogInformation("SDK filter complete.");
             Logger.LogInformation("SDK filter completed in {Duration}", FormatDuration(sdkFilterSw.Elapsed));
 
+            RbfxFlagSetLoweringPass.Apply(compilation);
+
             Logger.LogInformation("Rendering...");
             var renderSw = Stopwatch.StartNew();
             var renderedBindings = BindingOutputRenderer.Render(compilation, GeneratedFileStem, DeriveGroupStem);

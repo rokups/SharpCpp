@@ -9,6 +9,7 @@
     <ProjectReference Include="../../src/SharpCpp.Model/SharpCpp.Model.csproj" />
     <ProjectReference Include="../../src/SharpCpp.Parsing/SharpCpp.Parsing.csproj" />
     <ProjectReference Include="../../src/SharpCpp.Pipeline/SharpCpp.Pipeline.csproj" />
+    <ProjectReference Include="../../rbfx/SharpCpp.Rbfx.Generator/SharpCpp.Rbfx.Generator.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio">
