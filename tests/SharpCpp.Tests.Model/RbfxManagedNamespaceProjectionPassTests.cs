@@ -21,6 +21,11 @@ public sealed class RbfxManagedNamespaceProjectionPassTests
             HeaderIncludePath = "Urho3D/Scene/Scene.h",
             ManagedNamespace = "Urho3D"
         };
+        var rigidBody = new RecordBinding("record:RigidBody", "RigidBody", "RigidBody", "Urho3D::RigidBody")
+        {
+            HeaderIncludePath = "Physics/RigidBody.h",
+            ManagedNamespace = "Urho3D"
+        };
         var vector = new RecordBinding("record:Vector", "vector", "Vector", "eastl::vector")
         {
             HeaderIncludePath = "Urho3D/Container/Vector.h",
@@ -33,24 +38,52 @@ public sealed class RbfxManagedNamespaceProjectionPassTests
         };
         compilation.Members.Add(context);
         compilation.Members.Add(scene);
+        compilation.Members.Add(rigidBody);
         compilation.Members.Add(vector);
         compilation.Members.Add(mode);
+        var alias = new BindingTypeAlias("Urho3D::RigidBodyPtr", "RigidBodyPtr", "RigidBodyPtr", rigidBody.HandleType)
+        {
+            ManagedNamespace = "Urho3D"
+        };
+        compilation.TypeAliases.Add(alias);
 
         var projection = RbfxManagedNamespaceProjectionPass.Apply(compilation);
 
         Assert.Same(compilation, context.Parent);
         Assert.Same(compilation, scene.Parent);
+        Assert.Same(compilation, rigidBody.Parent);
         Assert.Same(compilation, mode.Parent);
-        Assert.Equal(new[] { context, scene, vector }, compilation.Records);
+        Assert.Equal(new[] { context, scene, rigidBody, vector }, compilation.Records);
         Assert.True(projection.TryGetManagedNamespace(context, out var contextNamespace));
         Assert.True(projection.TryGetManagedNamespace(scene, out var sceneNamespace));
+        Assert.True(projection.TryGetManagedNamespace(rigidBody, out var rigidBodyNamespace));
         Assert.True(projection.TryGetManagedNamespace(vector, out var vectorNamespace));
         Assert.True(projection.TryGetManagedNamespace(mode, out var modeNamespace));
         Assert.Equal("Urho3D.Core", contextNamespace);
         Assert.Equal("Urho3D.Scene", sceneNamespace);
+        Assert.Equal("Urho3D.Physics", rigidBodyNamespace);
         Assert.Equal("Ea", vectorNamespace);
         Assert.Equal("Urho3D.Core", modeNamespace);
         Assert.Contains(projection.Root.DescendantsAndSelf(), ns => ns.FullName == "Urho3D.Core");
         Assert.Contains(projection.Root.DescendantsAndSelf(), ns => ns.FullName == "Urho3D.Scene");
+        Assert.Contains(projection.Root.DescendantsAndSelf(), ns => ns.FullName == "Urho3D.Physics");
+    }
+
+    [Fact]
+    public void Handwritten_type_suppression_uses_projected_managed_namespace()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Rbfx.Bindings", "Urho3D", "Bindings", "Native", ["Urho3D/Urho3DAll.h"]);
+        var intersection = new EnumBinding("enum:Intersection", "Intersection", "Intersection", cppQualifiedName: "Urho3D::Intersection")
+        {
+            HeaderIncludePath = "Math/MathDefs.h",
+            ManagedNamespace = "Urho3D"
+        };
+        compilation.Members.Add(intersection);
+        RbfxManagedNamespaceProjectionPass.Apply(compilation);
+
+        var suppressed = RbfxHandwrittenManagedTypeSuppressionPass.Apply(compilation);
+
+        Assert.Equal(1, suppressed);
+        Assert.True(intersection.GetMetadata<bool>(MetadataKeys.SuppressEmission));
     }
 }

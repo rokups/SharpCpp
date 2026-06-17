@@ -28,13 +28,6 @@ public static partial class BindingOutputRenderer
             compilation.ManagedNamespace;
     }
 
-    private static string GetManagedNamespace(BindingCompilation compilation, BindingTypeAlias alias)
-    {
-        return GetManagedProjection(compilation)?.GetManagedNamespace(alias, compilation) ??
-            alias.ManagedNamespace ??
-            compilation.ManagedNamespace;
-    }
-
     public static GeneratedBindingSet Render(BindingCompilation compilation, string fileStem,
         Func<string?, string>? deriveGroupStem = null)
     {
@@ -1039,7 +1032,7 @@ public static partial class BindingOutputRenderer
             string.Equals(candidate.NativeName, type.CppTypeName, StringComparison.Ordinal));
         if (enumBinding is null)
         {
-            return QualifyManagedTypeText(normalizedName);
+            return QualifyManagedTypeText(compilation, normalizedName);
         }
 
         var managedName = enumBinding.ManagedName;
@@ -1061,10 +1054,10 @@ public static partial class BindingOutputRenderer
         var managedTypeName = type.UnaliasedManagedTypeName;
         if (type.GenericArguments.Count == 0)
         {
-            return QualifyManagedTypeText(managedTypeName);
+            return QualifyManagedTypeText(compilation, managedTypeName, type.CppTypeName);
         }
 
-        var qualifiedHead = QualifyManagedTypeText(GetManagedTypeHead(managedTypeName));
+        var qualifiedHead = QualifyManagedTypeText(compilation, GetManagedTypeHead(managedTypeName), type.CppTypeName);
         var renderedArguments = string.Join(", ", type.GenericArguments.Select(argument => publicSurface
             ? GetManagedPublicReturnTypeName(argument, compilation)
             : FormatGlobalTypeName(argument, compilation)));
@@ -1099,6 +1092,91 @@ public static partial class BindingOutputRenderer
         return managedTypeName.Contains('.', StringComparison.Ordinal)
             ? $"global::{managedTypeName}{suffix}"
             : managedTypeName + suffix;
+    }
+
+    private static string QualifyManagedTypeText(BindingCompilation compilation, string managedTypeName, string? cppTypeName = null)
+    {
+        if (string.IsNullOrWhiteSpace(managedTypeName) ||
+            managedTypeName.StartsWith("global::", StringComparison.Ordinal) ||
+            IsManagedKeywordTypeName(managedTypeName) ||
+            managedTypeName.Contains('.', StringComparison.Ordinal))
+        {
+            return QualifyManagedTypeText(managedTypeName);
+        }
+
+        var nullableSuffix = string.Empty;
+        if (managedTypeName.EndsWith("?", StringComparison.Ordinal))
+        {
+            nullableSuffix = "?";
+            managedTypeName = managedTypeName[..^1];
+        }
+
+        var normalizedCppTypeName = NormalizeCppTypeName(cppTypeName);
+        var records = compilation.Records.Where(static record => !record.IsIgnored() && !record.GetMetadata<bool>(MetadataKeys.SuppressEmission));
+        var record = !string.IsNullOrWhiteSpace(normalizedCppTypeName)
+            ? records.FirstOrDefault(record => string.Equals(record.CppQualifiedName, normalizedCppTypeName, StringComparison.Ordinal))
+            : null;
+
+        if (record is null)
+        {
+            var matches = records
+                .Where(record =>
+                    string.Equals(record.ManagedName, managedTypeName, StringComparison.Ordinal) ||
+                    string.Equals(GetManagedTypeHead(record.ManagedTypeFormat ?? record.ManagedName), managedTypeName, StringComparison.Ordinal))
+                .Take(2)
+                .ToArray();
+            record = matches.Length == 1 ? matches[0] : null;
+        }
+
+        if (record is not null)
+        {
+            return $"global::{GetManagedNamespace(compilation, record)}.{managedTypeName}{nullableSuffix}";
+        }
+
+        var normalizedEnumName = NormalizeEnumManagedTypeName(managedTypeName);
+        var enums = compilation.Enums.Where(static @enum => !@enum.IsIgnored() && !@enum.GetMetadata<bool>(MetadataKeys.SuppressEmission));
+        var enumBinding = !string.IsNullOrWhiteSpace(normalizedCppTypeName)
+            ? enums.FirstOrDefault(candidate => string.Equals(candidate.CppQualifiedName, normalizedCppTypeName, StringComparison.Ordinal))
+            : null;
+
+        if (enumBinding is null)
+        {
+            var matches = enums
+                .Where(candidate =>
+                    string.Equals(candidate.ManagedName, managedTypeName, StringComparison.Ordinal) ||
+                    string.Equals(candidate.ManagedName, normalizedEnumName, StringComparison.Ordinal))
+                .Take(2)
+                .ToArray();
+            enumBinding = matches.Length == 1 ? matches[0] : null;
+        }
+
+        if (enumBinding is not null)
+        {
+            return $"global::{GetManagedNamespace(compilation, enumBinding)}.{enumBinding.ManagedName}{nullableSuffix}";
+        }
+
+        return QualifyManagedTypeText(managedTypeName + nullableSuffix);
+    }
+
+    private static string? NormalizeCppTypeName(string? cppTypeName)
+    {
+        if (string.IsNullOrWhiteSpace(cppTypeName))
+        {
+            return null;
+        }
+
+        var normalized = cppTypeName.Trim();
+        if (normalized.StartsWith("const ", StringComparison.Ordinal))
+        {
+            normalized = normalized["const ".Length..].TrimStart();
+        }
+
+        while (normalized.EndsWith("*", StringComparison.Ordinal) || normalized.EndsWith("&", StringComparison.Ordinal))
+        {
+            normalized = normalized[..^1].TrimEnd();
+        }
+
+        return normalized;
     }
 
     private static bool IsManagedKeywordTypeName(string managedTypeName) => managedTypeName switch
@@ -2316,7 +2394,7 @@ public static partial class BindingOutputRenderer
 
         if (function.OperatorToken == "!" && function.Parameters.Count == 0)
         {
-            var returnTypeName = GetManagedWrapperTypeName(function.ReturnType);
+            var returnTypeName = GetManagedWrapperTypeName(function.ReturnType, compilation);
             writer.Write($$"""
                 public static {{returnTypeName}} operator !({{record.ManagedName}} value)
                 {
@@ -2328,7 +2406,7 @@ public static partial class BindingOutputRenderer
 
         if (function.OperatorToken == "!" && function.Parameters.Count == 0)
         {
-            var returnTypeName = GetManagedWrapperTypeName(function.ReturnType);
+            var returnTypeName = GetManagedWrapperTypeName(function.ReturnType, compilation);
             writer.Write($$"""
                 public static {{returnTypeName}} operator !({{record.ManagedName}} value)
                 {
@@ -2340,7 +2418,7 @@ public static partial class BindingOutputRenderer
 
         if (function.IsConversionOperator)
         {
-            var targetTypeName = GetManagedWrapperTypeName(function.ReturnType);
+            var targetTypeName = GetManagedWrapperTypeName(function.ReturnType, compilation);
             var conversionKeyword = function.IsExplicitConversionOperator ? "explicit" : "implicit";
             writer.Write($$"""
                 public static {{conversionKeyword}} operator {{targetTypeName}}({{record.ManagedName}} value)
@@ -2353,8 +2431,8 @@ public static partial class BindingOutputRenderer
 
         if (function.OperatorToken == "+" && function.Parameters.Count == 1)
         {
-            var returnTypeName = GetManagedWrapperTypeName(function.ReturnType);
-            var parameter = RenderManagedPublicParameter(function.Parameters[0]);
+            var returnTypeName = GetManagedWrapperTypeName(function.ReturnType, compilation);
+            var parameter = RenderManagedPublicParameter(function.Parameters[0], compilation);
             if (function.ReturnType.Kind == BindingTypeKind.Handle)
             {
                 writer.Write($$"""
@@ -2378,8 +2456,8 @@ public static partial class BindingOutputRenderer
 
         if (function.Parameters.Count == 1 && function.OperatorToken is "==" or "!=" or "<" or ">")
         {
-            var returnTypeName = GetManagedWrapperTypeName(function.ReturnType);
-            var parameterTypeName = GetManagedWrapperTypeName(function.Parameters[0].Type);
+            var returnTypeName = GetManagedWrapperTypeName(function.ReturnType, compilation);
+            var parameterTypeName = GetManagedWrapperTypeName(function.Parameters[0].Type, compilation);
             writer.Write($$"""
                 public static {{returnTypeName}} operator {{function.OperatorToken}}({{record.ManagedName}} left, {{parameterTypeName}} right)
                 {
@@ -2391,7 +2469,7 @@ public static partial class BindingOutputRenderer
 
         if (function.OperatorToken == "-" && function.Parameters.Count == 0)
         {
-            var returnTypeName = GetManagedWrapperTypeName(function.ReturnType);
+            var returnTypeName = GetManagedWrapperTypeName(function.ReturnType, compilation);
             if (function.ReturnType.Kind == BindingTypeKind.Handle)
             {
                 writer.Write($$"""
@@ -3469,7 +3547,7 @@ public static partial class BindingOutputRenderer
 
         if (parameter.ManagedDefaultValueExpression is { Length: > 0 } defaultValueExpression)
         {
-            return RenderManagedDefaultValueExpression(parameter, defaultValueExpression);
+            return RenderManagedDefaultValueExpression(parameter, defaultValueExpression, compilation);
         }
 
         return "default";
@@ -3535,14 +3613,14 @@ public static partial class BindingOutputRenderer
             {
                 var fallbackDefault = defaultValueExpression == "null"
                     ? "default"
-                    : RenderManagedDefaultValueExpression(parameter, defaultValueExpression);
+                    : RenderManagedDefaultValueExpression(parameter, defaultValueExpression, compilation);
                 signature += $" = {fallbackDefault}";
             }
         }
         return signature;
     }
 
-    private static string RenderManagedDefaultValueExpression(ParameterBinding parameter, string defaultValueExpression)
+    private static string RenderManagedDefaultValueExpression(ParameterBinding parameter, string defaultValueExpression, BindingCompilation? compilation)
     {
         if (defaultValueExpression.Length >= 3 &&
             defaultValueExpression[0] == '\'' &&
@@ -3554,6 +3632,22 @@ public static partial class BindingOutputRenderer
                 BindingPrimitiveKind.UInt8 => $"(byte){defaultValueExpression}",
                 _ => defaultValueExpression
             };
+        }
+
+        if (compilation is not null && parameter.Type.Kind == BindingTypeKind.Enum)
+        {
+            var separator = defaultValueExpression.IndexOf('.');
+            if (separator > 0)
+            {
+                var enumTypeName = defaultValueExpression[..separator];
+                var enumMemberName = defaultValueExpression[(separator + 1)..];
+                var qualifiedEnumTypeName = GetQualifiedEnumTypeName(compilation, parameter.Type);
+                if (string.Equals(enumTypeName, parameter.Type.UnaliasedManagedTypeName, StringComparison.Ordinal) ||
+                    string.Equals(enumTypeName, NormalizeEnumManagedTypeName(parameter.Type.UnaliasedManagedTypeName), StringComparison.Ordinal))
+                {
+                    return $"{qualifiedEnumTypeName}.{enumMemberName}";
+                }
+            }
         }
 
         return defaultValueExpression;
@@ -3986,8 +4080,9 @@ public static partial class BindingOutputRenderer
 
         foreach (var record in records.OrderBy(static record => record.ManagedName, StringComparer.Ordinal))
         {
+            var qualifiedRecordTypeName = FormatQualifiedRecordTypeName(compilation, record.HandleType, publicSurface: false);
             writer.Write($$"""
-                global::SharpCpp.Support.NativeObjectRegistry.RegisterType<{{record.ManagedName}}>();
+                global::SharpCpp.Support.NativeObjectRegistry.RegisterType<{{qualifiedRecordTypeName}}>();
                 """);
         }
 
@@ -4672,14 +4767,14 @@ public static partial class BindingOutputRenderer
             else if (function.IsStatic)
             {
                 writer.Write($$"""
-                    {{GetManagedVisibility(function.AccessModifier)}} static {{GetManagedPublicReturnTypeName(function.ReturnType)}} {{function.ManagedName}}({{aParamList}})
+                    {{GetManagedVisibility(function.AccessModifier)}} static {{GetManagedPublicReturnTypeName(function.ReturnType, compilation)}} {{function.ManagedName}}({{aParamList}})
                     {
                     """);
             }
             else
             {
                 writer.Write($$"""
-                    {{GetManagedVisibility(function.AccessModifier)}} {{GetManagedPublicReturnTypeName(function.ReturnType)}} {{function.ManagedName}}({{aParamList}})
+                    {{GetManagedVisibility(function.AccessModifier)}} {{GetManagedPublicReturnTypeName(function.ReturnType, compilation)}} {{function.ManagedName}}({{aParamList}})
                     {
                     """);
             }
@@ -4799,14 +4894,14 @@ public static partial class BindingOutputRenderer
             else if (function.IsStatic)
             {
                 writer.Write($$"""
-                    {{GetManagedVisibility(function.AccessModifier)}} static {{GetManagedPublicReturnTypeName(function.ReturnType)}} {{function.ManagedName}}({{bParamList}})
+                    {{GetManagedVisibility(function.AccessModifier)}} static {{GetManagedPublicReturnTypeName(function.ReturnType, compilation)}} {{function.ManagedName}}({{bParamList}})
                     {
                     """);
             }
             else
             {
                 writer.Write($$"""
-                    {{GetManagedVisibility(function.AccessModifier)}} {{GetManagedPublicReturnTypeName(function.ReturnType)}} {{function.ManagedName}}({{bParamList}})
+                    {{GetManagedVisibility(function.AccessModifier)}} {{GetManagedPublicReturnTypeName(function.ReturnType, compilation)}} {{function.ManagedName}}({{bParamList}})
                     {
                     """);
             }

@@ -218,6 +218,15 @@ public sealed class BindingOutputRendererTests
         {
             ManagedNamespace = "Urho3D"
         };
+        var vectorBuffer = new RecordBinding("record:VectorBuffer", "VectorBuffer", "VectorBuffer", "Urho3D::VectorBuffer")
+        {
+            ManagedNamespace = "Urho3D"
+        };
+        var cubeMapFace = new EnumBinding("enum:CubeMapFace", "CubeMapFace", "CubeMapFace", "unsigned int", "Urho3D::CubeMapFace", BindingPrimitiveKind.UInt32)
+        {
+            ManagedNamespace = "Urho3D"
+        };
+        cubeMapFace.Values.Add(new EnumValueBinding("FACE_POSITIVE_X", "FACEPOSITIVEX", "0u"));
         var getContext = new FunctionBinding(
             "method:Scene:GetContext",
             "GetContext",
@@ -228,15 +237,51 @@ public sealed class BindingOutputRendererTests
             OwningRecordCppTypeName = scene.CppQualifiedName
         };
         scene.Members.Add(getContext);
+        var useBuffer = new FunctionBinding(
+            "method:Scene:UseBuffer",
+            "UseBuffer",
+            "UseBuffer",
+            BindingType.Void,
+            "scrbfx_Scene_UseBuffer")
+        {
+            OwningRecordCppTypeName = scene.CppQualifiedName
+        };
+        useBuffer.Parameters.Add(new ParameterBinding(
+            "parameter:Scene:UseBuffer:buffer",
+            "buffer",
+            "buffer",
+            BindingType.CreateConfigured("Urho3D::VectorBuffer", "VectorBuffer")));
+        scene.Members.Add(useBuffer);
+        var clearFace = new FunctionBinding(
+            "method:Scene:ClearFace",
+            "ClearFace",
+            "ClearFace",
+            BindingType.Void,
+            "scrbfx_Scene_ClearFace")
+        {
+            OwningRecordCppTypeName = scene.CppQualifiedName
+        };
+        clearFace.Parameters.Add(new ParameterBinding(
+            "parameter:Scene:ClearFace:face",
+            "face",
+            "face",
+            BindingType.CreateEnum("Urho3D::CubeMapFace", "CubeMapFace"))
+        {
+            ManagedDefaultValueExpression = "CubeMapFace.FACEPOSITIVEX"
+        });
+        scene.Members.Add(clearFace);
         compilation.Members.Add(context);
         compilation.Members.Add(scene);
+        compilation.Members.Add(vectorBuffer);
+        compilation.Members.Add(cubeMapFace);
         var contextAlias = new BindingTypeAlias("Urho3D::ContextPtr", "ContextPtr", "ContextPtr", context.HandleType);
         compilation.TypeAliases.Add(contextAlias);
 
         var projection = new ManagedBindingProjection(compilation.ManagedNamespace);
         projection.AddDeclaration("Urho3D.Core", context);
         projection.AddDeclaration("Urho3D.Scene", scene);
-        projection.AddAlias("Urho3D.Core", contextAlias);
+        projection.AddDeclaration("Urho3D.IO", vectorBuffer);
+        projection.AddDeclaration("Urho3D.Graphics", cubeMapFace);
         compilation.SetMetadata(MetadataKeys.ManagedBindingProjection, projection);
 
         var files = BindingOutputRenderer.Render(compilation, "SharpCppRbfx").Files;
@@ -246,10 +291,40 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("namespace Urho3D.Core", managedOutput, StringComparison.Ordinal);
         Assert.Contains("namespace Urho3D.Scene", managedOutput, StringComparison.Ordinal);
         Assert.Contains("global::Urho3D.Core.Context", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("global::Urho3D.IO.VectorBuffer buffer", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("global::Urho3D.Graphics.CubeMapFace face = global::Urho3D.Graphics.CubeMapFace.FACEPOSITIVEX", managedOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("global::Urho3D.Context GetContext()", managedOutput, StringComparison.Ordinal);
         Assert.Contains("global using ContextPtr = global::Urho3D.Core.Context;", aliasOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("namespace Urho3D.Core", aliasOutput, StringComparison.Ordinal);
         Assert.Equal(1, CountOccurrences(aliasOutput, "ContextPtr = global::Urho3D.Core.Context"));
+    }
+
+    [Fact]
+    public void Grouped_alias_output_uses_projected_namespaces_for_registry_types()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Rbfx.Bindings",
+            "Urho3D",
+            "Bindings",
+            "SharpCpp.Rbfx.Native",
+            new[] { "Urho3D/Urho3DAll.h" });
+        var rigidBody = new RecordBinding("record:RigidBody", "RigidBody", "RigidBody", "Urho3D::RigidBody")
+        {
+            HeaderIncludePath = "Physics/RigidBody.h",
+            ManagedNamespace = "Urho3D",
+            IsPolymorphic = true
+        };
+        compilation.Members.Add(rigidBody);
+
+        var projection = new ManagedBindingProjection(compilation.ManagedNamespace);
+        projection.AddDeclaration("Urho3D.Physics", rigidBody);
+        compilation.SetMetadata(MetadataKeys.ManagedBindingProjection, projection);
+
+        var aliasOutput = BindingOutputRenderer.Render(compilation, "SharpCppRbfx", _ => "SharpCppRbfx.Physics").Files
+            .Single(static file => file.RelativePath == "SharpCppRbfx.Bindings.Aliases.g.cs").Content;
+
+        Assert.Contains("global::SharpCpp.Support.NativeObjectRegistry.RegisterType<global::Urho3D.Physics.RigidBody>();", aliasOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("RegisterType<RigidBody>()", aliasOutput, StringComparison.Ordinal);
     }
 
     private static int CountOccurrences(string text, string value)
@@ -848,8 +923,8 @@ public sealed class BindingOutputRendererTests
 
         Assert.Contains("internal static readonly global::SharpCpp.Support.DefaultNativeInstanceCache s_instanceCache = new global::SharpCpp.Support.DefaultNativeInstanceCache();", managedOutput, StringComparison.Ordinal);
         Assert.Contains("global::SharpCpp.Support.NativeObjectRegistry.Create<BaseCounter>(handle, ownsHandle)", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("global::SharpCpp.Support.NativeObjectRegistry.RegisterType<BaseCounter>();", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("global::SharpCpp.Support.NativeObjectRegistry.RegisterType<DerivedCounter>();", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("global::SharpCpp.Support.NativeObjectRegistry.RegisterType<global::SharpCpp.Sample.BaseCounter>();", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("global::SharpCpp.Support.NativeObjectRegistry.RegisterType<global::SharpCpp.Sample.DerivedCounter>();", managedOutput, StringComparison.Ordinal);
         Assert.Contains("INativeObjectRegistration<BaseCounter>", managedOutput, StringComparison.Ordinal);
         Assert.Contains("sharpcpp_e2e_base_counter_type_id", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("sharpcpp_e2e_base_counter_metadata", nativeOutput, StringComparison.Ordinal);

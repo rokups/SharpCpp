@@ -148,7 +148,6 @@ public sealed class BindingMetadataExporterTests
 
         var projection = new ManagedBindingProjection(compilation.ManagedNamespace);
         projection.AddDeclaration("Urho3D.Core", context);
-        projection.AddAlias("Urho3D.Core", alias);
         compilation.SetMetadata(MetadataKeys.ManagedBindingProjection, projection);
 
         var document = BindingMetadataExporter.Export(compilation);
@@ -158,7 +157,7 @@ public sealed class BindingMetadataExporterTests
 
         Assert.Equal("Urho3D.Core", exportedType.ManagedNamespace);
         Assert.Equal("global::Urho3D.Core.Context", exportedFunction.ReturnType.PublicType);
-        Assert.Equal("Urho3D.Core", exportedAlias.ManagedNamespace);
+        Assert.Equal("Urho3D", exportedAlias.ManagedNamespace);
         Assert.Equal("global::Urho3D.Core.Context", exportedAlias.TargetType.PublicType);
     }
 

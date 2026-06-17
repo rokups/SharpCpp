@@ -21,7 +21,7 @@ public static class BindingMetadataExporter
 
     private static string? GetManagedNamespace(BindingCompilation compilation, BindingTypeAlias alias)
     {
-        return GetManagedProjection(compilation)?.GetManagedNamespace(alias, compilation) ?? alias.ManagedNamespace;
+        return alias.ManagedNamespace;
     }
 
     public static BindingMetadataDocument Export(BindingCompilation compilation, BindingMetadataExportOptions? options = null)

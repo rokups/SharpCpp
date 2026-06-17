@@ -3,6 +3,8 @@ using System.Linq;
 using SharpCpp.Support;
 
 using Urho3D;
+using Urho3D.Network;
+using Urho3D.UI;
 
 using Xunit;
 

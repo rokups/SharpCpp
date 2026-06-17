@@ -1,4 +1,5 @@
 using Urho3D;
+using Urho3D.Graphics;
 
 using Xunit;
 

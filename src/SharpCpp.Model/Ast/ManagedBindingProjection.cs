@@ -4,7 +4,6 @@ public sealed class ManagedBindingProjection
 {
     private readonly Dictionary<string, ManagedNamespaceProjection> _namespacesByFullName = new(StringComparer.Ordinal);
     private readonly Dictionary<BindingNode, ManagedNamespaceProjection> _declarationNamespaces = new();
-    private readonly Dictionary<string, ManagedNamespaceProjection> _aliasNamespaces = new(StringComparer.Ordinal);
 
     public ManagedBindingProjection(string defaultNamespace)
     {
@@ -31,36 +30,11 @@ public sealed class ManagedBindingProjection
         return declaration;
     }
 
-    public ManagedAliasProjection AddAlias(string managedNamespace, BindingTypeAlias alias)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(managedNamespace);
-        ArgumentNullException.ThrowIfNull(alias);
-
-        var namespaceNode = GetOrCreateNamespace(managedNamespace);
-        var aliasProjection = namespaceNode.AddAlias(alias);
-        _aliasNamespaces[GetAliasKey(alias)] = namespaceNode;
-        return aliasProjection;
-    }
-
     public bool TryGetManagedNamespace(BindingNode node, out string managedNamespace)
     {
         ArgumentNullException.ThrowIfNull(node);
 
         if (_declarationNamespaces.TryGetValue(node, out var namespaceNode))
-        {
-            managedNamespace = namespaceNode.FullName;
-            return true;
-        }
-
-        managedNamespace = string.Empty;
-        return false;
-    }
-
-    public bool TryGetManagedNamespace(BindingTypeAlias alias, out string managedNamespace)
-    {
-        ArgumentNullException.ThrowIfNull(alias);
-
-        if (_aliasNamespaces.TryGetValue(GetAliasKey(alias), out var namespaceNode))
         {
             managedNamespace = namespaceNode.FullName;
             return true;
@@ -88,16 +62,6 @@ public sealed class ManagedBindingProjection
         return TryGetManagedNamespace(enumBinding, out var managedNamespace)
             ? managedNamespace
             : enumBinding.ManagedNamespace ?? compilation.ManagedNamespace;
-    }
-
-    public string GetManagedNamespace(BindingTypeAlias alias, BindingCompilation compilation)
-    {
-        ArgumentNullException.ThrowIfNull(alias);
-        ArgumentNullException.ThrowIfNull(compilation);
-
-        return TryGetManagedNamespace(alias, out var managedNamespace)
-            ? managedNamespace
-            : alias.ManagedNamespace ?? compilation.ManagedNamespace;
     }
 
     private ManagedNamespaceProjection GetOrCreateNamespace(string fullName)
@@ -129,18 +93,12 @@ public sealed class ManagedBindingProjection
 
         return current;
     }
-
-    private static string GetAliasKey(BindingTypeAlias alias)
-    {
-        return $"{alias.CppQualifiedName}\u001f{alias.NativeName}\u001f{alias.ManagedName}";
-    }
 }
 
 public sealed class ManagedNamespaceProjection
 {
     private readonly List<ManagedNamespaceProjection> _namespaces = new();
     private readonly List<ManagedDeclarationProjection> _declarations = new();
-    private readonly List<ManagedAliasProjection> _aliases = new();
 
     internal ManagedNamespaceProjection(string name, string fullName, ManagedNamespaceProjection? parent)
     {
@@ -158,8 +116,6 @@ public sealed class ManagedNamespaceProjection
     public IReadOnlyList<ManagedNamespaceProjection> Namespaces => _namespaces;
 
     public IReadOnlyList<ManagedDeclarationProjection> Declarations => _declarations;
-
-    public IReadOnlyList<ManagedAliasProjection> Aliases => _aliases;
 
     public IEnumerable<ManagedNamespaceProjection> DescendantsAndSelf()
     {
@@ -188,12 +144,6 @@ public sealed class ManagedNamespaceProjection
         return declaration;
     }
 
-    internal ManagedAliasProjection AddAlias(BindingTypeAlias alias)
-    {
-        var projection = new ManagedAliasProjection(this, alias);
-        _aliases.Add(projection);
-        return projection;
-    }
 }
 
 public sealed class ManagedDeclarationProjection
@@ -207,17 +157,4 @@ public sealed class ManagedDeclarationProjection
     public ManagedNamespaceProjection ParentNamespace { get; }
 
     public BindingNode OriginalNode { get; }
-}
-
-public sealed class ManagedAliasProjection
-{
-    internal ManagedAliasProjection(ManagedNamespaceProjection parentNamespace, BindingTypeAlias alias)
-    {
-        ParentNamespace = parentNamespace;
-        Alias = alias;
-    }
-
-    public ManagedNamespaceProjection ParentNamespace { get; }
-
-    public BindingTypeAlias Alias { get; }
 }
