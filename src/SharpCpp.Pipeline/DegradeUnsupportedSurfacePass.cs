@@ -546,6 +546,7 @@ public static class DegradeUnsupportedSurfacePass
 
         var ignoreReason = record.GetIgnoreReason() ?? string.Empty;
         return ignoreReason.Contains("outside the configured namespace mappings", StringComparison.Ordinal) ||
+            ignoreReason.Contains("internal detail namespace", StringComparison.Ordinal) ||
             ignoreReason.Contains("wrapper materialization requires a complete definition", StringComparison.Ordinal);
     }
 

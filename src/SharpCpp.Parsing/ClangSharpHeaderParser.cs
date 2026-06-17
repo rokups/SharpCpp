@@ -1802,7 +1802,7 @@ public sealed partial class ClangSharpHeaderParser
             return false;
         }
 
-        if (!string.Equals(candidateHead, configuredHead, StringComparison.Ordinal) ||
+        if (!TemplateHeadsEquivalent(candidateHead, configuredHead) ||
             candidateArguments.Count < configuredArguments.Count)
         {
             return false;
@@ -1831,14 +1831,16 @@ public sealed partial class ClangSharpHeaderParser
             return false;
         }
 
-        foreach (var candidateTypeName in new[] { spelledTypeName, canonicalTypeName })
+        foreach (var candidateTypeName in new[] { spelledTypeName, canonicalTypeName }
+                     .Where(static candidateTypeName => !string.IsNullOrWhiteSpace(candidateTypeName))
+                     .Distinct(StringComparer.Ordinal))
         {
             if (!TryGetTopLevelTemplateArguments(candidateTypeName, out var candidateHead, out var candidateArguments))
             {
                 continue;
             }
 
-            if (string.Equals(candidateHead, patternHead, StringComparison.Ordinal) &&
+            if (TemplateHeadsEquivalent(candidateHead, patternHead) &&
                 patternArguments.Count == expectedArgumentCount &&
                 candidateArguments.Count >= visibleArgumentCount &&
                 candidateArguments.Count <= expectedArgumentCount)
@@ -1848,6 +1850,20 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         return false;
+    }
+
+    private static bool TemplateHeadsEquivalent(string leftHead, string rightHead)
+    {
+        var normalizedLeft = NormalizeNamedTypeName(leftHead);
+        var normalizedRight = NormalizeNamedTypeName(rightHead);
+        if (string.Equals(normalizedLeft, normalizedRight, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var canonicalLeft = StripGenericArguments(ResolveAliasTypeName(normalizedLeft));
+        var canonicalRight = StripGenericArguments(ResolveAliasTypeName(normalizedRight));
+        return string.Equals(canonicalLeft, canonicalRight, StringComparison.Ordinal);
     }
 
     private static int GetVisibleTemplateArgumentCount(ManagedTypeOverride managedTypeOverride)
@@ -1938,9 +1954,7 @@ public sealed partial class ClangSharpHeaderParser
         var ownedAliasInfo = TryGetOwnedManagedAliasInfo(type, out var aliasInfo) ? aliasInfo : null;
         var overrideLookupTypeName = ownedAliasInfo is not null ? spelledTypeName : aliasResolvedTypeName;
         var resolvedTypeName = SelectConcreteTemplateTypeName(aliasResolvedTypeName, canonicalTypeName);
-        var surfaceCppTypeName = ownedAliasInfo is not null
-            ? BuildQualifiedAliasSurfaceTypeName(type, ownedAliasInfo.CppQualifiedName)
-            : resolvedTypeName;
+        var surfaceCppTypeName = resolvedTypeName;
 
         // When the resolved type contains template arguments, use the
         // canonical type's fully-qualified argument names.  This keeps
@@ -3882,7 +3896,7 @@ public sealed partial class ClangSharpHeaderParser
     {
         var aliasName = GetCppQualifiedName(typedefNameDecl);
         var shortAliasName = typedefNameDecl.Name ?? typedefNameDecl.Spelling.ToString();
-        var underlyingTypeName = NormalizeTypeName(typedefNameDecl.UnderlyingType.Handle.Spelling.ToString());
+        var underlyingTypeName = GetDesugaredAliasTargetTypeName(typedefNameDecl.UnderlyingType.Handle);
 
         if (string.IsNullOrWhiteSpace(underlyingTypeName))
         {
@@ -3891,6 +3905,28 @@ public sealed partial class ClangSharpHeaderParser
 
         AddTypeAlias(aliasName, underlyingTypeName);
         AddTypeAlias(shortAliasName, underlyingTypeName);
+    }
+
+    private static string GetDesugaredAliasTargetTypeName(CXType type)
+    {
+        var spelledTypeName = NormalizeTypeName(type.Spelling.ToString());
+        var canonicalTypeName = NormalizeTypeName(type.CanonicalType.Spelling.ToString());
+        var desugaredTypeName = SelectConcreteTemplateTypeName(spelledTypeName, canonicalTypeName);
+
+        if (TryGetTopLevelTemplateArguments(desugaredTypeName, out _, out var concreteArguments))
+        {
+            var canonicalDeclaration = type.CanonicalType.Declaration;
+            if (!canonicalDeclaration.IsNull)
+            {
+                var canonicalHead = NormalizeTypeName(GetCppQualifiedName(canonicalDeclaration));
+                if (!string.IsNullOrWhiteSpace(canonicalHead))
+                {
+                    return $"{canonicalHead}<{string.Join(", ", concreteArguments)}>";
+                }
+            }
+        }
+
+        return desugaredTypeName;
     }
 
     private static void AddTypeAlias(string aliasName, string underlyingTypeName)
@@ -3977,7 +4013,7 @@ public sealed partial class ClangSharpHeaderParser
         try
         {
             var aliasName = NormalizeTypeName(GetCppQualifiedName(typedefNameDecl));
-            var underlyingTypeName = NormalizeTypeName(typedefNameDecl.UnderlyingType.Handle.Spelling.ToString());
+            var underlyingTypeName = GetDesugaredAliasTargetTypeName(typedefNameDecl.UnderlyingType.Handle);
 
             // Only match a managed type override directly keyed on the alias name.
             // Generic pattern matches (Step 3 of TryGetManagedTypeOverride) match
@@ -3999,13 +4035,12 @@ public sealed partial class ClangSharpHeaderParser
                     underlyingTypeName);
             }
 
-            return MapType(
-                typedefNameDecl.UnderlyingType.Handle,
+            return ParseTypeToken(
+                underlyingTypeName,
                 recordsByName,
                 enumsByName,
                 managedTypeOverrides,
-                EmptyGenericParameters,
-                preserveAliasSurface: false);
+                EmptyGenericParameters);
         }
         catch (NotSupportedException)
         {
@@ -4039,6 +4074,16 @@ public sealed partial class ClangSharpHeaderParser
         var declaration = resolvedType.Declaration;
         if (declaration.Kind is not (CXCursorKind.CXCursor_TypedefDecl or CXCursorKind.CXCursor_TypeAliasDecl))
         {
+            var resolvedTypeName = SelectConcreteTemplateTypeName(
+                NormalizeTypeName(resolvedType.Spelling.ToString()),
+                NormalizeTypeName(resolvedType.CanonicalType.Spelling.ToString()));
+            if (TryGetQualifiedAliasOriginName(resolvedTypeName, out qualifiedAliasName))
+            {
+                var lastColons = qualifiedAliasName.LastIndexOf("::", StringComparison.Ordinal);
+                unqualifiedAliasName = lastColons >= 0 ? qualifiedAliasName[(lastColons + 2)..] : qualifiedAliasName;
+                return true;
+            }
+
             unqualifiedAliasName = string.Empty;
             qualifiedAliasName = string.Empty;
             return false;

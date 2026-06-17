@@ -862,13 +862,11 @@ internal static class MarshallerConfigExtractor
     private static string? ExtractTemplateArgFromCursorType(Decl decl)
     {
         var sourceText = GetSourceText(decl.Handle.TranslationUnit, decl.Extent);
-        if (TryExtractTemplateArgumentFromSource(sourceText, out var sourceTypeName))
-        {
-            return NormalizeTypeName(sourceTypeName);
-        }
+        var hasSourceTypeName = TryExtractTemplateArgumentFromSource(sourceText, out var sourceTypeName);
 
-        // Use the managed ClassTemplateSpecializationDecl API for template argument access.
-        // This handles explicit specializations like template<> struct Marshaller<const char*>.
+        // Prefer Clang's desugared template-argument type when available so
+        // marshaller metadata is keyed on the canonical container surface
+        // (e.g. eastl::hash_map instead of the unordered_map template alias).
         if (decl is ClassTemplateSpecializationDecl specDecl)
         {
             var templateArgs = specDecl.TemplateArgs;
@@ -877,12 +875,45 @@ internal static class MarshallerConfigExtractor
                 var typeName = templateArgs[0].AsType.AsString;
                 if (!string.IsNullOrWhiteSpace(typeName))
                 {
-                    return NormalizeTypeName(typeName);
+                    var normalizedTypeName = NormalizeTypeName(typeName);
+                    return hasSourceTypeName
+                        ? QualifyDesugaredTypeName(normalizedTypeName, NormalizeTypeName(sourceTypeName))
+                        : normalizedTypeName;
                 }
             }
         }
 
+        if (hasSourceTypeName)
+        {
+            return NormalizeTypeName(sourceTypeName);
+        }
+
         return null;
+    }
+
+    private static string QualifyDesugaredTypeName(string desugaredTypeName, string sourceTypeName)
+    {
+        if (string.IsNullOrWhiteSpace(desugaredTypeName) ||
+            desugaredTypeName.Contains("::", StringComparison.Ordinal))
+        {
+            return desugaredTypeName;
+        }
+
+        var sourceHead = sourceTypeName;
+        var sourceGenericStart = sourceHead.IndexOf('<');
+        if (sourceGenericStart >= 0)
+        {
+            sourceHead = sourceHead[..sourceGenericStart];
+        }
+
+        var sourceNamespaceSeparator = sourceHead.LastIndexOf("::", StringComparison.Ordinal);
+        if (sourceNamespaceSeparator < 0)
+        {
+            return desugaredTypeName;
+        }
+
+        var sourceNamespace = sourceHead[..sourceNamespaceSeparator];
+        return $"{sourceNamespace}::{desugaredTypeName}";
     }
 
     private static bool TryExtractTemplateArgumentFromSource(string sourceText, out string typeName)

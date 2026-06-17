@@ -157,6 +157,39 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         Assert.Equal("const eastl::vector<Urho3D::Object*>&", method.Parameters[0].CppTypeName);
     }
 
+    [Fact]
+    public void Bootstrap_pipeline_supports_hash_map_alias_return_surface()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "HashMapAlias");
+        var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+        var marshallerHeader = Path.Combine(fixtureDir, "SampleMarshallers.h");
+
+        var parser = new ClangSharpHeaderParser();
+        var clangArgs = new[] { "-x", "c++", "-std=c++20", $"-I{fixtureDir}" };
+        var marshallerFiles = new[] { marshallerHeader };
+
+        var compilation = parser.Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: clangArgs,
+            MarshallerConfigurationFiles: marshallerFiles,
+            EntryPointPrefix: "Test_"));
+
+        BindingCompilationBootstrapPipeline.Apply(compilation, marshallerFiles, clangArgs);
+
+        var eventHub = Assert.Single(compilation.Records.Where(static record => record.NativeName == "EventHub"));
+        var getEventDataMap = Assert.Single(eventHub.Members.OfType<FunctionBinding>().Where(static function => function.NativeName == "GetEventDataMap"));
+
+        Assert.False(getEventDataMap.IsIgnored(), $"Ignored because '{getEventDataMap.GetIgnoreReason()}'.");
+        Assert.Equal("Ea.UnorderedMap<int, int>", getEventDataMap.ReturnType.ManagedTypeName);
+        Assert.Equal("const VariantMap&", getEventDataMap.CppReturnTypeName);
+    }
+
     [Fact(Skip = "Known issue: MapParameter passes canonical type for record references, losing typedef identity for managed-type-override lookup.")]
     public void Bootstrap_pipeline_preserves_alias_backed_value_type_parameters_and_emits_alias_metadata()
     {

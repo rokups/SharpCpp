@@ -110,6 +110,13 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **Desugared EASTL associative-container matching now accepts `unordered_map` / `hash_map` equivalence**:
+  - `MarshallerConfigExtractor` now prefers Clang's desugared template argument while preserving the source namespace qualification, so rbfx marshaller metadata authored against EASTL unordered-map surfaces resolves to the actual parsed `eastl::hash_map<...>` container type.
+  - `ClangSharpHeaderParser` now desugars typedef targets through AST facts (`CanonicalType.Declaration`) and treats equivalent template heads as the same generic container surface during managed-type-override matching.
+  - `DegradeUnsupportedSurfacePass` now treats ignored internal-detail generic arguments as fatal when evaluating container wrapper surfaces, preventing invalid `Ea.UnorderedMap<..., Detail::*...>` wrappers from leaking into generated API.
+  - Added `Bootstrap_pipeline_supports_hash_map_alias_return_surface` plus a focused `HashMapAlias` fixture to keep the desugared hash-map projection path covered.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj` passes. The rbfx generator now materializes previously excluded `VariantMap` / `StringVariantMap` surfaces, but the follow-up public-alias restoration work is still incomplete in this snapshot.
+
 - **Incorrect generated bindings from alias/template-name leakage**:
   - `ClangSharpHeaderParser.ResolveQualifiedTypeName` now rewrites top-level template arguments from Clang's canonical spelling while preserving the spelled container surface. This stops native thunk signatures from leaking colliding short names such as `Rml::Vector3` into rbfx APIs that should resolve to fully qualified `Urho3D::*` types.
   - `ClangSharpHeaderParser.ParseTypeToken` now consults alias-origin names when parsing nested generic arguments, so alias-backed value types inside containers resolve to their configured managed types instead of canonical template spellings like `BaseVector3<float>` / `BaseVector2<float>`.
