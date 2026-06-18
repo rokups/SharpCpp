@@ -5,71 +5,64 @@ namespace SharpCpp.Tests.E2E.Ignore;
 public sealed class IgnoreTests
 {
     [Fact]
-    public void Ignored_record_produces_comment_stub_in_generated_output()
+    public void Ignored_record_is_omitted_from_generated_output()
     {
         var content = ReadAllGeneratedCSharpContent();
 
-        var lines = content.Replace("\r\n", "\n").Split('\n');
-
-        Assert.Contains("    // struct skipped_record { int value; int get_value() const; } // excluded: marked [[sharpcpp::ignore]]", lines);
+        Assert.DoesNotContain("excluded: marked [[sharpcpp::ignore]]", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("skipped_record", content, StringComparison.Ordinal);
         Assert.DoesNotContain("public partial class SkippedRecord", content, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Ignored_free_function_produces_comment_stub_in_generated_output()
+    public void Ignored_free_function_is_omitted_from_generated_output()
     {
         var content = ReadAllGeneratedCSharpContent();
 
-        var lines = content.Replace("\r\n", "\n").Split('\n');
-
-        Assert.Contains("        // inline int skipped_free_function(int x) // excluded: manual stub", lines);
+        Assert.DoesNotContain("excluded: manual stub", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("skipped_free_function", content, StringComparison.Ordinal);
         Assert.DoesNotContain("\n    public static int SkippedFreeFunction(", content, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Ignored_enum_produces_comment_stub_in_generated_output()
+    public void Ignored_enum_is_omitted_from_generated_output()
     {
         var content = ReadAllGeneratedCSharpContent();
 
-        var lines = content.Replace("\r\n", "\n").Split('\n');
-
-        Assert.Contains("    // enum class skipped_enum : int { value_a = 0, value_b = 1 } // excluded: marked [[sharpcpp::ignore]]", lines);
+        Assert.DoesNotContain("skipped_enum", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("public enum SkippedEnum", content, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Macro_backed_ignored_declarations_use_decl_spelling_not_macro_invocation()
+    public void Macro_backed_ignored_declarations_are_omitted()
     {
         var content = ReadAllGeneratedCSharpContent();
 
-        var lines = content.Replace("\r\n", "\n").Split('\n');
-
-        Assert.Contains(lines, static line => line.Contains("macro_generated_macro_record", StringComparison.Ordinal) && line.Contains("excluded: marked [[sharpcpp::ignore]]", StringComparison.Ordinal));
-        Assert.Contains(lines, static line => line.Contains("macro_generated_macro_enum", StringComparison.Ordinal) && line.Contains("excluded: marked [[sharpcpp::ignore]]", StringComparison.Ordinal));
+        Assert.DoesNotContain("macro_generated_macro_record", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("macro_generated_macro_enum", content, StringComparison.Ordinal);
         Assert.DoesNotContain("SHARPCPP_IGNORED_PAIR", content, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Ignored_record_with_reason_includes_reason_in_stub()
+    public void Ignored_record_with_reason_is_omitted()
     {
         var content = ReadAllGeneratedCSharpContent();
 
-        var lines = content.Replace("\r\n", "\n").Split('\n');
-
-        Assert.Contains("    // struct skipped_record_with_reason { int count; } // excluded: not yet supported", lines);
+        Assert.DoesNotContain("skipped_record_with_reason", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("excluded: not yet supported", content, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Ignored_members_within_record_produce_comment_stubs()
+    public void Ignored_members_within_record_are_omitted()
     {
         var content = ReadAllGeneratedCSharpContent();
 
-        var lines = content.Replace("\r\n", "\n").Split('\n');
-
-        Assert.Contains("        // int internal_method() // excluded: internal use only", lines);
-        Assert.Contains("        // int skipped_field // excluded: marked [[sharpcpp::ignore]]", lines);
-        Assert.Contains("        // static int skipped_static() // excluded: marked [[sharpcpp::ignore]]", lines);
-        Assert.Contains("        // partially_ignored_record(int debug_value) // excluded: debug constructor", lines);
-        Assert.Contains("        // partially_ignored_record operator+(const partially_ignored_record &other) const // excluded: marked [[sharpcpp::ignore]]", lines);
+        Assert.DoesNotContain("internal_method", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("skipped_field", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("skipped_static", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("debug_value", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("operator+", content, StringComparison.Ordinal);
+        Assert.Contains("VisibleField", content, StringComparison.Ordinal);
     }
 
     private static string ReadAllGeneratedCSharpContent()

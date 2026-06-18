@@ -14,6 +14,12 @@ public static class BindingNodeIgnoreExtensions
         return node.GetMetadata<string>(MetadataKeys.IgnoreReason);
     }
 
+    public static bool IsSilentlyExcluded(this BindingNode node)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        return node.GetMetadata<bool>(MetadataKeys.SilentExclusion);
+    }
+
     public static void SetIgnoreReason(this BindingNode node, string reason, bool overwriteExisting = false)
     {
         ArgumentNullException.ThrowIfNull(node);
@@ -25,6 +31,15 @@ public static class BindingNodeIgnoreExtensions
         }
 
         node.SetMetadata(MetadataKeys.IgnoreReason, reason);
+    }
+
+    public static void SetSilentExclusionReason(this BindingNode node, string reason, bool overwriteExisting = false)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+
+        node.SetMetadata(MetadataKeys.SilentExclusion, true);
+        node.SetIgnoreReason(reason, overwriteExisting);
     }
 
     public static IReadOnlyList<string> GetWarnings(this BindingNode node)

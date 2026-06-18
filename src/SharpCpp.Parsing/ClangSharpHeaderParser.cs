@@ -1599,7 +1599,7 @@ public sealed partial class ClangSharpHeaderParser
 
     private static void ApplyDeletedCallableIgnore(FunctionDecl functionDecl, FunctionBinding function)
     {
-        if (!functionDecl.IsDeleted || function.IsIgnored())
+        if (!functionDecl.IsDeleted)
         {
             return;
         }
@@ -1607,7 +1607,7 @@ public sealed partial class ClangSharpHeaderParser
         var callableLabel = function.IsConstructor
             ? $"constructor '{function.CppQualifiedName}'"
             : $"callable '{function.CppQualifiedName}'";
-        function.SetIgnoreReason($"{callableLabel} is deleted in the native surface");
+        function.SetSilentExclusionReason($"{callableLabel} is deleted in the native surface");
     }
 
     private static void ApplyCallableDefinitionMetadata(Decl decl, FunctionBinding function)
@@ -2932,7 +2932,7 @@ public sealed partial class ClangSharpHeaderParser
                 if (matchingAnnotation is not null)
                 {
                     var reason = matchingAnnotation.Reason ?? "marked [[sharpcpp::ignore]]";
-                    node.SetMetadata(MetadataKeys.IgnoreReason, reason);
+                    node.SetSilentExclusionReason(reason, overwriteExisting: true);
                     return;
                 }
             }
@@ -2940,7 +2940,7 @@ public sealed partial class ClangSharpHeaderParser
             return;
         }
 
-        node.SetMetadata(MetadataKeys.IgnoreReason, NormalizeIgnoreReason(match.Body) ?? "marked [[sharpcpp::ignore]]");
+        node.SetSilentExclusionReason(NormalizeIgnoreReason(match.Body) ?? "marked [[sharpcpp::ignore]]", overwriteExisting: true);
     }
 
     private static readonly Dictionary<string, List<IgnoreAnnotation>> s_ignoreAnnotations = new(StringComparer.Ordinal);

@@ -46,6 +46,35 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Silent_exclusions_do_not_render_comment_stubs()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });
+        var record = new RecordBinding("record:silent", "silent", "Silent");
+        record.SetSilentExclusionReason("internal detail");
+        var function = new FunctionBinding("function:silent_fn", "silent_fn", "SilentFn", BindingType.Int32, "entry_silent");
+        function.SetSilentExclusionReason("internal detail");
+        var visibleRecord = new RecordBinding("record:visible", "visible", "Visible");
+        var silentMethod = new FunctionBinding("method:visible:silent_method", "silent_method", "SilentMethod", BindingType.Int32, "entry_silent_method")
+        {
+            OwningRecordCppTypeName = "visible"
+        };
+        silentMethod.SetSilentExclusionReason("internal detail");
+        visibleRecord.Members.Add(silentMethod);
+        compilation.Members.Add(record);
+        compilation.Members.Add(function);
+        compilation.Members.Add(visibleRecord);
+
+        var managedOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.DoesNotContain("excluded: internal detail", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("public partial class Silent", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("SilentFn", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("SilentMethod", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public partial class Visible", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Native_output_uses_export_macro_with_extern_c()
     {
         var compilation = new BindingCompilation(
@@ -1211,7 +1240,7 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
-    public void Managed_output_renders_comment_stub_for_ignored_record()
+    public void Managed_output_renders_comment_stub_for_non_silent_ignored_record()
     {
         var compilation = new BindingCompilation(
             "SharpCpp.Sample",
@@ -1233,7 +1262,7 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
-    public void Managed_output_renders_comment_stub_for_ignored_free_function()
+    public void Managed_output_renders_comment_stub_for_non_silent_ignored_free_function()
     {
         var compilation = new BindingCompilation(
             "SharpCpp.Sample",
@@ -1255,7 +1284,7 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
-    public void Managed_output_renders_comment_stub_for_ignored_enum()
+    public void Managed_output_renders_comment_stub_for_non_silent_ignored_enum()
     {
         var compilation = new BindingCompilation(
             "SharpCpp.Sample",
@@ -1276,7 +1305,7 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
-    public void Managed_output_renders_comment_stub_for_ignored_members_within_record()
+    public void Managed_output_renders_comment_stub_for_non_silent_ignored_members_within_record()
     {
         var compilation = new BindingCompilation(
             "SharpCpp.Sample",
@@ -1297,7 +1326,7 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
-    public void Managed_output_renders_comment_stub_for_ignored_field()
+    public void Managed_output_renders_comment_stub_for_non_silent_ignored_field()
     {
         var compilation = new BindingCompilation(
             "SharpCpp.Sample",
@@ -1570,6 +1599,31 @@ public sealed class BindingOutputRendererTests
 
         var managedOutput = files.Single(static file => file.RelativePath == "SharpCpp.Rbfx.Bindings.g.cs").Content;
         Assert.Contains("// std::basic_string<char>; // excluded: outside bindings api", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Grouped_render_keeps_files_for_silent_only_groups()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Rbfx.Bindings",
+            "Urho3D",
+            "Bindings",
+            "SharpCpp.Rbfx.Native",
+            new[] { "Urho3D/Urho3DAll.h" });
+        var silentRecord = new RecordBinding("record:Urho3D::Detail::Hidden", "Hidden", "Hidden", "Urho3D::Detail::Hidden")
+        {
+            HeaderIncludePath = "Urho3D/RmlUI/Hidden.h"
+        };
+        silentRecord.SetSilentExclusionReason("internal detail");
+        compilation.Members.Add(silentRecord);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCpp.Rbfx", DeriveRbfxGroupStem).Files;
+
+        var managedOutput = Assert.Single(files, static file => file.RelativePath == "RmlUI/SharpCpp.Rbfx.Hidden.g.cs").Content;
+        var nativeOutput = Assert.Single(files, static file => file.RelativePath == "RmlUI/SharpCpp.Rbfx.Hidden.g.cpp").Content;
+        Assert.DoesNotContain("excluded: internal detail", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("public partial class Hidden", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("// <auto-generated />", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]

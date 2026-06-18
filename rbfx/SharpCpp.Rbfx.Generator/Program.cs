@@ -128,6 +128,9 @@ internal static class Program
             Logger.LogInformation("Pipeline complete: {Retained}/{Total} records retained.", compilation.Records.Count(r => !r.IsIgnored()), compilation.Records.Count);
             Logger.LogInformation("Pipeline completed in {Duration}", FormatDuration(pipelineSw.Elapsed));
 
+            var silentExclusionCount = RbfxSilentExclusionPass.Apply(compilation);
+            Logger.LogInformation("Silently excluded {Count} rbfx non-public implementation declaration(s).", silentExclusionCount);
+
             var unsupportedApiCount = RbfxUnsupportedApisPass.Apply(compilation);
             Logger.LogInformation("Suppressed {Count} rbfx API(s) with known unsupported linkage or surface constraints.", unsupportedApiCount);
 

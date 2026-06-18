@@ -27,6 +27,7 @@ public static class BindingCompilationBootstrapPipeline
 
         RunTimed("NormalizeManagedNamespaces", () => NormalizeManagedNamespacesPass.Apply(compilation));
         RunTimed("MarshallerMetadataPhase2", () => MarshallerMetadataPhase2.ApplyWithClang(compilation, marshallerConfigFiles, clangArgs));
+        RunTimed("SilentlyExcludeExternalDeclarations", () => SilentlyExcludeExternalDeclarationsPass.Apply(compilation));
         RunTimed("DegradeUnsupportedSurface", () => DegradeUnsupportedSurfacePass.Apply(compilation));
         RunTimed("GenericInstantiation", () => BindingCompilationGenericInstantiationPass.Apply(compilation));
         RunTimed("Inheritance", () => BindingCompilationInheritancePass.Apply(compilation));

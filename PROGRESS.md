@@ -112,6 +112,13 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **Silent exclusions now suppress generated `// excluded:` comment stubs**:
+  - Added silent-exclusion metadata layered over `IgnoreReason`, preserving ignored-node dependency behavior while allowing renderers to omit selected declarations entirely.
+  - Explicit `[[sharpcpp::ignore]]` attributes, deleted native callables, unconfigured external placeholder records, rbfx non-`Urho3D` declarations, and rbfx `detail`/`Detail` implementation namespaces are now silently excluded.
+  - Ordinary non-silent degradation reasons still render diagnostic comment stubs, so unsupported-surface diagnostics remain visible unless a pass explicitly marks the node silent.
+  - Grouped rendering still emits stable generated files for silent-only groups, avoiding stale CMake source-list failures while keeping the files free of excluded API comments.
+  - Verification: focused model/rendering tests, `cmake --build --preset Debug`, and `ctest --preset Debug` all pass.
+
 - **rbfx managed namespace projection now uses a shadow AST over the parsed AST**:
   - Added `ManagedBindingProjection` with synthetic namespace nodes and declaration references that do not re-parent original `BindingNode` instances, so original AST traversal remains intact.
   - Added `RbfxManagedNamespaceProjectionPass` as a terminal rbfx shaping step after rbfx type lowering and before render/export. Actual `Urho3D::` declarations from owned rbfx headers such as `Urho3D/<Segment>/**` and grouped relative paths such as `<Segment>/**` now project into `Urho3D.<Segment>`, while configured external wrapper namespaces such as `Ea` remain unchanged even when declared from rbfx headers.

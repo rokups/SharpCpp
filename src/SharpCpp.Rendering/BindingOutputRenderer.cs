@@ -85,9 +85,9 @@ public static partial class BindingOutputRenderer
         Func<BindingNode, bool>? memberFilter = null, string? groupHeaderPath = null)
     {
         var writer = new CodeWriter();
-        var allRecords = compilation.Records.Where(static record => !record.GetMetadata<bool>(MetadataKeys.SuppressEmission)).AsEnumerable();
-        var allEnums = compilation.Enums.Where(static @enum => !@enum.GetMetadata<bool>(MetadataKeys.SuppressEmission)).AsEnumerable();
-        var allFunctions = compilation.Functions.AsEnumerable();
+        var allRecords = compilation.Records.Where(static record => !record.GetMetadata<bool>(MetadataKeys.SuppressEmission) && !record.IsSilentlyExcluded()).AsEnumerable();
+        var allEnums = compilation.Enums.Where(static @enum => !@enum.GetMetadata<bool>(MetadataKeys.SuppressEmission) && !@enum.IsSilentlyExcluded()).AsEnumerable();
+        var allFunctions = compilation.Functions.Where(static function => !function.IsSilentlyExcluded()).AsEnumerable();
 
         if (memberFilter is not null)
         {
@@ -1351,7 +1351,7 @@ public static partial class BindingOutputRenderer
             }
         }
 
-        foreach (var constructor in record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor).OrderBy(static function => function.Parameters.Count))
+        foreach (var constructor in record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor && !function.IsSilentlyExcluded()).OrderBy(static function => function.Parameters.Count))
         {
             var isIgnoredStub = constructor.HasMetadata(MetadataKeys.IgnoreReason);
             WriteRecordMemberSeparator(isIgnoredStub);
@@ -1386,7 +1386,7 @@ public static partial class BindingOutputRenderer
             }
         }
 
-        foreach (var method in record.Members.OfType<FunctionBinding>().Where(function => !function.IsConstructor && !function.IsStatic && !function.IsConversionOperator && function.OperatorToken is null && !accessorMethodIds.Contains(function.SymbolId)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        foreach (var method in record.Members.OfType<FunctionBinding>().Where(function => !function.IsConstructor && !function.IsStatic && !function.IsConversionOperator && function.OperatorToken is null && !function.IsSilentlyExcluded() && !accessorMethodIds.Contains(function.SymbolId)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             var isIgnoredStub = method.HasMetadata(MetadataKeys.IgnoreReason);
             WriteRecordMemberSeparator(isIgnoredStub);
@@ -1417,7 +1417,7 @@ public static partial class BindingOutputRenderer
             }
         }
 
-        foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic && !function.IsConversionOperator && function.OperatorToken is null).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic && !function.IsConversionOperator && function.OperatorToken is null && !function.IsSilentlyExcluded()).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             var isIgnoredStub = method.HasMetadata(MetadataKeys.IgnoreReason);
             WriteRecordMemberSeparator(isIgnoredStub);
@@ -1436,7 +1436,7 @@ public static partial class BindingOutputRenderer
             }
         }
 
-        foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => function.IsConversionOperator || function.OperatorToken is not null).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => (function.IsConversionOperator || function.OperatorToken is not null) && !function.IsSilentlyExcluded()).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             var isIgnoredStub = method.HasMetadata(MetadataKeys.IgnoreReason);
             WriteRecordMemberSeparator(isIgnoredStub);
@@ -1451,7 +1451,7 @@ public static partial class BindingOutputRenderer
             }
         }
 
-        foreach (var field in record.Members.OfType<FieldBinding>().OrderBy(static field => field.ManagedName, StringComparer.Ordinal))
+        foreach (var field in record.Members.OfType<FieldBinding>().Where(static field => !field.IsSilentlyExcluded()).OrderBy(static field => field.ManagedName, StringComparer.Ordinal))
         {
             if (record.HasOwnManagedNonFieldMemberNamed(field.ManagedName))
             {
