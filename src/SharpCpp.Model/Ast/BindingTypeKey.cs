@@ -8,6 +8,7 @@ public sealed class BindingTypeKey : IEquatable<BindingTypeKey>
         BindingTypeKind kind,
         BindingPrimitiveKind primitiveKind,
         string? recordId,
+        string? enumId,
         string? genericParameterName,
         string cppTypeName,
         string publicTypeName,
@@ -18,6 +19,7 @@ public sealed class BindingTypeKey : IEquatable<BindingTypeKey>
         Kind = kind;
         PrimitiveKind = primitiveKind;
         RecordId = recordId;
+        EnumId = enumId;
         GenericParameterName = genericParameterName;
         CppTypeName = cppTypeName;
         PublicTypeName = publicTypeName;
@@ -31,6 +33,8 @@ public sealed class BindingTypeKey : IEquatable<BindingTypeKey>
     public BindingPrimitiveKind PrimitiveKind { get; }
 
     public string? RecordId { get; }
+
+    public string? EnumId { get; }
 
     public string? GenericParameterName { get; }
 
@@ -50,6 +54,7 @@ public sealed class BindingTypeKey : IEquatable<BindingTypeKey>
             type.Kind,
             type.PrimitiveKind,
             type.RecordId,
+            type.EnumId,
             type.GenericParameterName,
             type.CppTypeName,
             type.Marshaller.PublicTypeName,
@@ -73,6 +78,7 @@ public sealed class BindingTypeKey : IEquatable<BindingTypeKey>
         return Kind == other.Kind &&
             PrimitiveKind == other.PrimitiveKind &&
             string.Equals(RecordId, other.RecordId, StringComparison.Ordinal) &&
+            string.Equals(EnumId, other.EnumId, StringComparison.Ordinal) &&
             string.Equals(GenericParameterName, other.GenericParameterName, StringComparison.Ordinal) &&
             string.Equals(PublicTypeName, other.PublicTypeName, StringComparison.Ordinal) &&
             string.Equals(MarshallerTypeName, other.MarshallerTypeName, StringComparison.Ordinal) &&
@@ -88,6 +94,7 @@ public sealed class BindingTypeKey : IEquatable<BindingTypeKey>
         hash.Add(Kind);
         hash.Add(PrimitiveKind);
         hash.Add(RecordId, StringComparer.Ordinal);
+        hash.Add(EnumId, StringComparer.Ordinal);
         hash.Add(GenericParameterName, StringComparer.Ordinal);
         hash.Add(PublicTypeName, StringComparer.Ordinal);
         hash.Add(MarshallerTypeName, StringComparer.Ordinal);

@@ -33,6 +33,12 @@ public static class BindingNodeIgnoreExtensions
         node.SetMetadata(MetadataKeys.IgnoreReason, reason);
     }
 
+    public static bool ClearIgnoreReason(this BindingNode node)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        return node.RemoveMetadata(MetadataKeys.IgnoreReason);
+    }
+
     public static void SetSilentExclusionReason(this BindingNode node, string reason, bool overwriteExisting = false)
     {
         ArgumentNullException.ThrowIfNull(node);

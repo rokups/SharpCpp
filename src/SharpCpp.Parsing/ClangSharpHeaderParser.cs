@@ -2114,7 +2114,7 @@ public sealed partial class ClangSharpHeaderParser
             var enumName = NormalizeNamedTypeName(normalizedType.Spelling.ToString());
             if (enumsByName.TryGetValue(enumName, out var @enum))
             {
-                return TryApplyManagedAliasSurface(type, BindingType.CreateEnum(enumName, @enum.ManagedName), preserveAliasSurface);
+                return TryApplyManagedAliasSurface(type, BindingType.CreateEnum(enumName, @enum.ManagedName, enumId: @enum.SymbolId), preserveAliasSurface);
             }
 
             return TryApplyManagedAliasSurface(type, BindingType.CreateEnum(enumName, ToPascalCase(GetManagedTypeHead(enumName))), preserveAliasSurface);
@@ -3689,8 +3689,8 @@ public sealed partial class ClangSharpHeaderParser
             "long" => BindingType.NativeInt,
             "unsigned long" => BindingType.NativeUInt,
             "char" => BindingType.Int8,
-            _ when enumsByName.TryGetValue(NormalizeNamedTypeName(StripGenericArguments(normalized)), out var @enum) => BindingType.CreateEnum(@enum.NativeName, @enum.ManagedName),
-            _ when normalized.Contains("::", StringComparison.Ordinal) && enumsByName.TryGetValue(NormalizeNamedTypeName(StripGenericArguments(normalized[(normalized.LastIndexOf("::", StringComparison.Ordinal) + 2)..])), out var shortEnum) => BindingType.CreateEnum(shortEnum.NativeName, shortEnum.ManagedName),
+            _ when enumsByName.TryGetValue(NormalizeNamedTypeName(StripGenericArguments(normalized)), out var @enum) => BindingType.CreateEnum(@enum.NativeName, @enum.ManagedName, enumId: @enum.SymbolId),
+            _ when normalized.Contains("::", StringComparison.Ordinal) && enumsByName.TryGetValue(NormalizeNamedTypeName(StripGenericArguments(normalized[(normalized.LastIndexOf("::", StringComparison.Ordinal) + 2)..])), out var shortEnum) => BindingType.CreateEnum(shortEnum.NativeName, shortEnum.ManagedName, enumId: shortEnum.SymbolId),
             _ when recordsByName.TryGetValue(NormalizeNamedTypeName(StripGenericArguments(normalized)), out var record) =>
                 TryCreateSpecializedRecordHandleType($"{normalized}*", normalized, recordsByName, enumsByName, managedTypeOverrides, genericParameters, out var concreteHandleType)
                     ? concreteHandleType

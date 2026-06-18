@@ -79,7 +79,8 @@ public sealed record BindingMetadataTypeReference(
     string? Primitive,
     string? RecordId,
     string? MarshallerType,
-    IReadOnlyList<BindingMetadataTypeReference>? GenericArguments = null);
+    IReadOnlyList<BindingMetadataTypeReference>? GenericArguments = null,
+    string? EnumId = null);
 
 public sealed record BindingMetadataExportOptions(
     string PackageId,

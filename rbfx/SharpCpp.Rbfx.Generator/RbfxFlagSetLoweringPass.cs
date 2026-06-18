@@ -19,9 +19,11 @@ public static class RbfxFlagSetLoweringPass
 
         foreach (var function in compilation.Functions)
         {
+            var loweredFunction = false;
             if (TryLowerFlagSetType(compilation, function.ReturnType, out var returnType))
             {
                 function.ReturnType = returnType;
+                loweredFunction = true;
             }
 
             foreach (var parameter in function.Parameters)
@@ -29,7 +31,13 @@ public static class RbfxFlagSetLoweringPass
                 if (TryLowerFlagSetType(compilation, parameter.Type, out var parameterType))
                 {
                     parameter.Type = parameterType;
+                    loweredFunction = true;
                 }
+            }
+
+            if (loweredFunction && CanRescueLoweredConstructor(function))
+            {
+                function.ClearIgnoreReason();
             }
         }
 
@@ -38,6 +46,12 @@ public static class RbfxFlagSetLoweringPass
             if (TryLowerFlagSetType(compilation, field.Type, out var fieldType))
             {
                 field.Type = fieldType;
+                if (!field.IsSilentlyExcluded() &&
+                    field.Parent?.IsSilentlyExcluded() != true &&
+                    !ContainsOpenGenericParameter(field.Type))
+                {
+                    field.ClearIgnoreReason();
+                }
             }
         }
 
@@ -73,7 +87,7 @@ public static class RbfxFlagSetLoweringPass
         }
 
         enumBinding.IsFlags = true;
-        enumType = BindingType.CreateEnum(enumArgument.CppTypeName, GetQualifiedEnumManagedName(compilation, enumBinding));
+        enumType = BindingType.CreateEnum(enumArgument.CppTypeName, GetQualifiedEnumManagedName(compilation, enumBinding), enumId: enumBinding.SymbolId);
         return true;
     }
 
@@ -91,14 +105,32 @@ public static class RbfxFlagSetLoweringPass
 
     private static bool TryFindEnum(BindingCompilation compilation, BindingType enumType, out EnumBinding enumBinding)
     {
-        var matches = compilation.Enums.Where(candidate =>
-            string.Equals(GetQualifiedEnumManagedName(compilation, candidate), enumType.ManagedTypeName, StringComparison.Ordinal) ||
-            string.Equals(candidate.ManagedName, enumType.Marshaller.PublicTypeName, StringComparison.Ordinal) ||
-            string.Equals(candidate.NativeName, enumType.CppTypeName, StringComparison.Ordinal) ||
-            string.Equals(candidate.CppQualifiedName, enumType.CppTypeName, StringComparison.Ordinal));
-
-        enumBinding = matches.FirstOrDefault(static candidate => !candidate.IsIgnored()) ?? matches.FirstOrDefault()!;
+        enumBinding = compilation.FindEnumBySymbolId(enumType.EnumId)!;
         return enumBinding is not null;
+    }
+
+    private static bool CanRescueLoweredConstructor(FunctionBinding function)
+    {
+        if (!function.IsConstructor ||
+            function.IsSilentlyExcluded() ||
+            function.Parent?.IsSilentlyExcluded() == true ||
+            ContainsOpenGenericParameter(function.ReturnType) ||
+            function.Parameters.Any(static parameter => ContainsOpenGenericParameter(parameter.Type)))
+        {
+            return false;
+        }
+
+        return function.Parent is not RecordBinding record || !record.IsEffectivelyAbstract;
+    }
+
+    private static bool ContainsOpenGenericParameter(BindingType type)
+    {
+        if (type.Kind == BindingTypeKind.GenericParameter)
+        {
+            return true;
+        }
+
+        return type.GenericArguments.Any(ContainsOpenGenericParameter);
     }
 
     private static string GetQualifiedEnumManagedName(BindingCompilation compilation, EnumBinding enumBinding)

@@ -4972,6 +4972,7 @@ public static partial class BindingOutputRenderer
                 writer.Write(
                     """
                         throw new global::System.ArgumentException("SharpCpp optional arguments that depend on native defaults must be supplied as a trailing contiguous suffix.");
+                        }
                     """);
             }
             else

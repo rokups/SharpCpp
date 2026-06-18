@@ -874,7 +874,7 @@ public static partial class BindingOutputRenderer
 
         if (type.Kind == BindingTypeKind.Enum)
         {
-            return BindingType.CreateEnum(type.CppTypeName, type.Marshaller.PublicTypeName, substitutedArguments);
+            return BindingType.CreateEnum(type.CppTypeName, type.Marshaller.PublicTypeName, substitutedArguments, type.EnumId);
         }
 
         return type;
@@ -903,7 +903,7 @@ public static partial class BindingOutputRenderer
 
         if (type.Kind == BindingTypeKind.Enum)
         {
-            return BindingType.CreateEnum(type.CppTypeName, type.Marshaller.PublicTypeName, substitutedArguments);
+            return BindingType.CreateEnum(type.CppTypeName, type.Marshaller.PublicTypeName, substitutedArguments, type.EnumId);
         }
 
         return type;

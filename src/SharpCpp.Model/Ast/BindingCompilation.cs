@@ -50,6 +50,7 @@ public sealed class BindingCompilation : BindingContainerNode
     private IReadOnlyList<EnumBinding>? _enums;
     private IReadOnlyList<FunctionBinding>? _functions;
     private IReadOnlyDictionary<string, RecordBinding>? _recordsBySymbolId;
+    private IReadOnlyDictionary<string, EnumBinding>? _enumsBySymbolId;
 
     public IReadOnlyList<RecordBinding> Records => _records ??= Descendants<RecordBinding>().ToArray();
 
@@ -71,6 +72,20 @@ public sealed class BindingCompilation : BindingContainerNode
         return _recordsBySymbolId.TryGetValue(symbolId, out var record) ? record : null;
     }
 
+    public EnumBinding? FindEnumBySymbolId(string? symbolId)
+    {
+        if (string.IsNullOrWhiteSpace(symbolId))
+        {
+            return null;
+        }
+
+        _enumsBySymbolId ??= Enums
+            .GroupBy(static @enum => @enum.SymbolId, StringComparer.Ordinal)
+            .ToDictionary(static group => group.Key, static group => group.Last(), StringComparer.Ordinal);
+
+        return _enumsBySymbolId.TryGetValue(symbolId, out var @enum) ? @enum : null;
+    }
+
     /// <summary>Invalidate cached descendants (call after pipeline passes that add members).</summary>
     public void InvalidateCaches()
     {
@@ -78,5 +93,6 @@ public sealed class BindingCompilation : BindingContainerNode
         _enums = null;
         _functions = null;
         _recordsBySymbolId = null;
+        _enumsBySymbolId = null;
     }
 }

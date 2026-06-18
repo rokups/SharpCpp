@@ -115,7 +115,7 @@ public static class BindingMetadataExporter
             @enum.ManagedName,
             GetManagedNamespace(compilation, @enum),
             ManagedBaseTypeName: null,
-            CreateTypeReference(BindingType.CreateEnum(@enum.NativeName, @enum.ManagedName)),
+            CreateTypeReference(BindingType.CreateEnum(@enum.NativeName, @enum.ManagedName, enumId: @enum.SymbolId)),
             IsFlags: @enum.IsFlags,
             Values: @enum.Values
                 .OrderBy(static value => value.ManagedName, StringComparer.Ordinal)
@@ -203,7 +203,8 @@ public static class BindingMetadataExporter
             type.MarshallerTypeName,
             type.GenericArguments.Count == 0
                 ? null
-                : type.GenericArguments.Select(argument => CreateTypeReference(compilation, argument, fullyQualifyConcrete)).ToArray());
+                : type.GenericArguments.Select(argument => CreateTypeReference(compilation, argument, fullyQualifyConcrete)).ToArray(),
+            type.EnumId);
     }
 
     private static string FormatQualifiedConcreteManagedTypeName(BindingCompilation compilation, BindingType type)
@@ -244,10 +245,7 @@ public static class BindingMetadataExporter
 
     private static string FormatQualifiedEnumTypeName(BindingCompilation compilation, BindingType type)
     {
-        var enumBinding = compilation.Enums.FirstOrDefault(candidate =>
-            string.Equals(candidate.CppQualifiedName, type.CppTypeName, StringComparison.Ordinal) ||
-            string.Equals(candidate.NativeName, type.CppTypeName, StringComparison.Ordinal) ||
-            string.Equals(candidate.ManagedName, type.UnaliasedManagedTypeName, StringComparison.Ordinal));
+        var enumBinding = compilation.FindEnumBySymbolId(type.EnumId);
         if (enumBinding is null)
         {
             return QualifyManagedTypeText(type.UnaliasedManagedTypeName);

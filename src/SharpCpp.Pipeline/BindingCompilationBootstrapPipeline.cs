@@ -100,9 +100,7 @@ public static class BindingCompilationBootstrapPipeline
         }
         else if (type.Kind == BindingTypeKind.Enum)
         {
-            var enumTarget = compilation.Enums.FirstOrDefault(e =>
-                string.Equals(e.ManagedName, type.ManagedTypeName, StringComparison.Ordinal) ||
-                string.Equals(e.NativeName, type.Marshaller.PublicTypeName, StringComparison.Ordinal));
+            var enumTarget = compilation.FindEnumBySymbolId(type.EnumId);
             if (enumTarget is null || enumTarget.IsIgnored())
             {
                 return true;

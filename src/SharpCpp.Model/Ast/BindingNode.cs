@@ -99,6 +99,12 @@ public abstract class BindingNode
         return _metadata is not null && _metadata.ContainsKey(key);
     }
 
+    public bool RemoveMetadata(string key)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        return _metadata?.Remove(key) == true;
+    }
+
     public void CopyMetadataFrom(BindingNode other, bool overwriteExisting = false)
     {
         ArgumentNullException.ThrowIfNull(other);

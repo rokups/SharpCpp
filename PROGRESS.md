@@ -112,6 +112,13 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **Enum identity now drives ownership checks and rbfx `FlagSet<TEnum>` rescue stays narrow**:
+  - `BindingType` enum references now carry `EnumId`, which is populated from parser-resolved `EnumBinding.SymbolId`, survives generic substitution/type-key comparisons, and round-trips through metadata schema version 4.
+  - `DegradeUnsupportedSurfacePass`, alias pruning, and rbfx flag-set lowering now resolve enum ownership by symbol identity instead of formatted/native type-name strings. This fixes false exclusions for owned enums whose spelling differs across typedefs, aliases, or generated surfaces.
+  - rbfx `FlagSet<TEnum>` lowering only clears stale ignore metadata for concrete constructors and fields whose lowered type tree no longer contains open generic parameters. Constructors on abstract records remain ignored, preventing invalid native thunks that instantiate abstract C++ classes such as `Drawable` or `OctreeQuery`.
+  - Regression coverage verifies generic enum ownership by `EnumId` and that abstract-record constructors are not rescued after flag-set lowering.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj`, `dotnet test tests/SharpCpp.Tests.Metadata/SharpCpp.Tests.Metadata.csproj`, `dotnet test tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj`, `cmake --build --preset Debug`, and `ctest --preset Debug` all pass.
+
 - **Silent exclusions now suppress generated `// excluded:` comment stubs**:
   - Added silent-exclusion metadata layered over `IgnoreReason`, preserving ignored-node dependency behavior while allowing renderers to omit selected declarations entirely.
   - Explicit `[[sharpcpp::ignore]]` attributes, deleted native callables, unconfigured external placeholder records, core iterator endpoint functions, core assignment operators, rbfx non-`Urho3D` declarations, rbfx `detail`/`Detail` implementation namespaces, rbfx smart-pointer wrapper declarations, and rbfx flagset-only bitwise operators are now silently excluded.

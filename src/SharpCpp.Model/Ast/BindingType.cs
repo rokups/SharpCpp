@@ -58,6 +58,7 @@ public sealed class BindingType
         BindingPrimitiveKind primitiveKind,
         MarshallerDescriptor marshaller,
         string? recordId = null,
+        string? enumId = null,
         string? genericParameterName = null,
         IEnumerable<BindingType>? genericArguments = null)
     {
@@ -65,6 +66,7 @@ public sealed class BindingType
         PrimitiveKind = primitiveKind;
         Marshaller = marshaller;
         RecordId = recordId;
+        EnumId = enumId;
         GenericParameterName = genericParameterName;
         _genericArguments = genericArguments?.ToArray() ?? Array.Empty<BindingType>();
     }
@@ -127,6 +129,8 @@ public sealed class BindingType
 
     public string? RecordId { get; }
 
+    public string? EnumId { get; }
+
     public string? GenericParameterName { get; }
 
     public IReadOnlyList<BindingType> GenericArguments => _genericArguments;
@@ -173,6 +177,7 @@ public sealed class BindingType
             PrimitiveKind,
             Marshaller,
             RecordId,
+            EnumId,
             GenericParameterName,
             GenericArguments)
         {
@@ -200,12 +205,13 @@ public sealed class BindingType
             genericArguments: genericArguments);
     }
 
-    public static BindingType CreateEnum(string cppTypeName, string publicTypeName, IEnumerable<BindingType>? genericArguments = null)
+    public static BindingType CreateEnum(string cppTypeName, string publicTypeName, IEnumerable<BindingType>? genericArguments = null, string? enumId = null)
     {
         return new BindingType(
             BindingTypeKind.Enum,
             BindingPrimitiveKind.Unsupported,
             new MarshallerDescriptor(cppTypeName, publicTypeName),
+            enumId: enumId,
             genericArguments: genericArguments);
     }
 
@@ -279,6 +285,7 @@ public sealed class BindingType
             PrimitiveKind,
             Marshaller with { CppIsRecordValue = value },
             RecordId,
+            EnumId,
             GenericParameterName,
             GenericArguments);
     }

@@ -163,7 +163,7 @@ public sealed class BindingMetadataImportCatalog
             return;
         }
 
-        var targetType = CreateAliasTargetType(recordsByName, enumsByName, alias.TargetType);
+        var targetType = CreateAliasTargetType(recordsByName, enumsByName, document, alias.TargetType);
         var bindingAlias = new BindingTypeAlias(alias.CppQualifiedName, alias.NativeName, alias.ManagedName, targetType)
         {
             ManagedNamespace = alias.ManagedNamespace ?? document.Source.ManagedNamespace
@@ -196,16 +196,17 @@ public sealed class BindingMetadataImportCatalog
     private static BindingType CreateAliasTargetType(
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
+        BindingMetadataDocument document,
         BindingMetadataTypeReference typeReference)
     {
         var genericArguments = typeReference.GenericArguments?
-            .Select(argument => CreateAliasTargetType(recordsByName, enumsByName, argument))
+            .Select(argument => CreateAliasTargetType(recordsByName, enumsByName, document, argument))
             .ToArray();
 
         return typeReference.Kind switch
         {
             MetadataTypeKind.Handle => CreateAliasHandleTargetType(recordsByName, typeReference, genericArguments),
-            MetadataTypeKind.Enum => CreateAliasEnumTargetType(enumsByName, typeReference, genericArguments),
+            MetadataTypeKind.Enum => CreateAliasEnumTargetType(enumsByName, document, typeReference, genericArguments),
             _ => BindingType.CreateConfigured(
                 typeReference.CppType,
                 GetConcreteManagedTypeHead(typeReference),
@@ -239,16 +240,27 @@ public sealed class BindingMetadataImportCatalog
 
     private static BindingType CreateAliasEnumTargetType(
         IDictionary<string, EnumBinding> enumsByName,
+        BindingMetadataDocument document,
         BindingMetadataTypeReference typeReference,
         IReadOnlyList<BindingType>? genericArguments)
     {
+        if (!string.IsNullOrWhiteSpace(typeReference.EnumId))
+        {
+            var importedEnumId = $"import:{document.Source.Package}:{typeReference.EnumId}";
+            var enumById = enumsByName.Values.FirstOrDefault(candidate => string.Equals(candidate.SymbolId, importedEnumId, StringComparison.Ordinal));
+            if (enumById is not null)
+            {
+                return BindingType.CreateEnum(typeReference.CppType, enumById.ManagedName, genericArguments, enumById.SymbolId);
+            }
+        }
+
         var qualifiedCppTypeName = GetQualifiedCppTypeName(typeReference.CppType);
         if (!string.IsNullOrWhiteSpace(qualifiedCppTypeName) && enumsByName.TryGetValue(qualifiedCppTypeName, out var enumBinding))
         {
-            return BindingType.CreateEnum(typeReference.CppType, enumBinding.ManagedName, genericArguments);
+            return BindingType.CreateEnum(typeReference.CppType, enumBinding.ManagedName, genericArguments, enumBinding.SymbolId);
         }
 
-        return BindingType.CreateEnum(typeReference.CppType, typeReference.PublicType, genericArguments);
+        return BindingType.CreateEnum(typeReference.CppType, typeReference.PublicType, genericArguments, typeReference.EnumId);
     }
 
     private static BindingPrimitiveKind ParsePrimitiveKind(string? primitive)
