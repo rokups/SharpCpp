@@ -114,6 +114,25 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **Direct `dotnet test` / IDE runs now validate CMake-produced artifacts before compiling tests**:
+  - `.CMakeLast.props` now carries the last configured build/output/generated/native/runsettings artifact paths needed by direct MSBuild consumers.
+  - `SharpCpp.Build.targets` validates generated C# sources, generation stamps, native libraries, rbfx runsettings, and user-code runtime artifacts for projects that consume CMake-produced outputs.
+  - Direct MSBuild does not invoke CMake, avoiding CMake/MSBuild recursion; missing artifacts fail fast with actionable `cmake --build --preset <Configuration>` guidance.
+  - Verification: `cmake --preset dev`, `cmake --build --preset Debug`, direct `dotnet test` for synthetic E2E and rbfx E2E, root `dotnet test`, and `ctest --preset Debug --output-on-failure` all pass.
+
+- **Handle-typed field setters now marshal wrappers by value instead of by-ref**:
+  - Generated field setter imports for handle fields now use the same by-value `[MarshalUsing]` shape as ordinary handle parameters, avoiding a test-host crash from `in` by-ref custom marshalling.
+  - The synthetic setter parameter remains pointer-shaped for non-handle fields, preserving existing field ABI behavior.
+  - Regression coverage verifies handle field setter imports no longer emit `in Payload?` and the base-typed field E2E roundtrip preserves derived wrappers.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj --configuration Debug`, `dotnet test tests/SharpCpp.Tests.E2E/SharpCpp.Tests.E2E.csproj --configuration Debug --filter Base_typed_fields_can_store_derived_wrappers`, and full `ctest --preset Debug --output-on-failure` all pass.
+
+- **rbfx ignore-by-header filtering now removes selected implementation headers coherently**:
+  - `RbfxSilentExclusionPass` now silently excludes declarations defined in the configured rbfx implementation headers (`Container/Ptr.h`, `Container/Str.h`, `Container/Hash.h`, `Container/FlagSet.h`, `Container/IndexAllocator.h`, `Container/Functors.h`, `Container/Allocator.h`, `Core/Assert.h`, `Core/AssertBase.h`, `Core/Mutex.h`) while intentionally leaving `Container/RefCounted.h` available.
+  - Include matching canonicalizes grouped, `Urho3D/`-prefixed, and absolute SDK paths. Member functions and fields fall back to the nearest ancestor header because parser members do not carry their own include path.
+  - APIs that reference header-blocked records/enums are non-silently ignored so generated diagnostics explain dependent removals, while retained records drop unavailable C++ bases and projected inherited members without changing virtual/override flags or promoting runtime bases.
+  - Alias pruning is scoped to aliases targeting records/enums defined in blocked headers, preventing unrelated ignored aliases from being removed.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj --filter RbfxSilentExclusionPassTests`, `cmake --build --preset Debug`, and `ctest --preset Debug -R sharpcpp.rbfx.e2e --output-on-failure` all pass.
+
 - **Protected handle fields now render through the director protected-member path**:
   - Removed the bootstrap blanket degradation for protected handle fields; unsupported target records/enums and other invalid field shapes still degrade through the normal type checks.
   - Added a renderer `NativeFieldInteropPlan` with structural setter modes for primitive/value fields, non-borrowed handle fields, and borrowed-storage handle fields. Protected `SharedPtr<T>`-style fields now use `ReturnMarshaller<T>` / `ParameterMarshaller<T>` conversion, while protected map/vector/list-style fields return borrowed storage and preserve null-clear setter behavior.

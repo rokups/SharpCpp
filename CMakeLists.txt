@@ -123,50 +123,82 @@ function(sharpcpp_write_last_props)
   get_property(build_props_file GLOBAL PROPERTY SHARPCPP_BUILD_PROPS_FILE)
   get_property(compat_props_file GLOBAL PROPERTY SHARPCPP_COMPAT_PROPS_FILE)
   get_property(e2e_generated_dir GLOBAL PROPERTY SHARPCPP_E2E_GENERATED_DIR)
+  get_property(e2e_generated_stamp GLOBAL PROPERTY SHARPCPP_E2E_GENERATED_STAMP)
   get_property(rbfx_generated_dir GLOBAL PROPERTY SHARPCPP_RBFX_GENERATED_DIR)
+  get_property(rbfx_generated_stamp GLOBAL PROPERTY SHARPCPP_RBFX_GENERATED_STAMP)
+  get_property(rbfx_runsettings_file GLOBAL PROPERTY SHARPCPP_RBFX_RUNSETTINGS_FILE)
   get_property(rbfx_usercode_generated_dir GLOBAL PROPERTY SHARPCPP_RBFX_USERCODE_GENERATED_DIR)
+  get_property(rbfx_usercode_generated_stamp GLOBAL PROPERTY SHARPCPP_RBFX_USERCODE_GENERATED_STAMP)
   get_property(rbfx_tests_e2e_generated_dir GLOBAL PROPERTY SHARPCPP_RBFX_TESTS_E2E_GENERATED_DIR)
 
   string(REPLACE "\\" "/" output_root "${output_root}")
   string(REPLACE "\\" "/" intermediate_root "${intermediate_root}")
+  string(REPLACE "\\" "/" cmake_build_dir "${CMAKE_BINARY_DIR}")
+
+  set(shared_library_prefix "${CMAKE_SHARED_LIBRARY_PREFIX}")
+  set(shared_library_suffix "${CMAKE_SHARED_LIBRARY_SUFFIX}")
+  set(e2e_native_file_name "${shared_library_prefix}SharpCppTestsE2E_Native${shared_library_suffix}")
+  set(rbfx_native_file_name "${shared_library_prefix}SharpCpp.Rbfx.Native${shared_library_suffix}")
+  set(rbfx_usercode_native_file_name "${shared_library_prefix}SharpCpp.Rbfx.UserCode.Native${shared_library_suffix}")
+  set(rbfx_urho3d_runtime_file_name "${shared_library_prefix}Urho3D${shared_library_suffix}")
 
   set(content "<Project>\n")
   string(APPEND content
     "  <PropertyGroup Condition=\"'$(Configuration)' == ''\">\n"
+    "    <SharpCppCMakeBuildDir>${cmake_build_dir}</SharpCppCMakeBuildDir>\n"
     "    <SharpCppOutputDir>${output_root}/${default_configuration}</SharpCppOutputDir>\n"
     "    <SharpCppIntermediateRoot>${intermediate_root}/${default_configuration}</SharpCppIntermediateRoot>\n"
+    "    <SharpCppE2ENativeLibraryPath>${output_root}/${default_configuration}/${e2e_native_file_name}</SharpCppE2ENativeLibraryPath>\n"
+    "    <SharpCppRbfxNativeLibraryPath>${output_root}/${default_configuration}/${rbfx_native_file_name}</SharpCppRbfxNativeLibraryPath>\n"
+    "    <SharpCppRbfxUserCodeNativeLibraryPath>${output_root}/${default_configuration}/${rbfx_usercode_native_file_name}</SharpCppRbfxUserCodeNativeLibraryPath>\n"
+    "    <SharpCppRbfxUserCodeBindingsDll>${output_root}/${default_configuration}/Rbfx.UserCode.Bindings.dll</SharpCppRbfxUserCodeBindingsDll>\n"
+    "    <SharpCppRbfxRunSettingsPath>${output_root}/${default_configuration}/SharpCpp.Rbfx.Tests.runsettings</SharpCppRbfxRunSettingsPath>\n"
+    "    <SharpCppRbfxUrho3DRuntimeLibraryPath>${output_root}/${default_configuration}/${rbfx_urho3d_runtime_file_name}</SharpCppRbfxUrho3DRuntimeLibraryPath>\n"
     "  </PropertyGroup>\n")
 
   foreach(configuration IN LISTS configurations)
     string(APPEND content
       "  <PropertyGroup Condition=\"'$(Configuration)' == '${configuration}'\">\n"
+      "    <SharpCppCMakeBuildDir>${cmake_build_dir}</SharpCppCMakeBuildDir>\n"
       "    <SharpCppOutputDir>${output_root}/${configuration}</SharpCppOutputDir>\n"
       "    <SharpCppIntermediateRoot>${intermediate_root}/${configuration}</SharpCppIntermediateRoot>\n"
+      "    <SharpCppE2ENativeLibraryPath>${output_root}/${configuration}/${e2e_native_file_name}</SharpCppE2ENativeLibraryPath>\n"
+      "    <SharpCppRbfxNativeLibraryPath>${output_root}/${configuration}/${rbfx_native_file_name}</SharpCppRbfxNativeLibraryPath>\n"
+      "    <SharpCppRbfxUserCodeNativeLibraryPath>${output_root}/${configuration}/${rbfx_usercode_native_file_name}</SharpCppRbfxUserCodeNativeLibraryPath>\n"
+      "    <SharpCppRbfxUserCodeBindingsDll>${output_root}/${configuration}/Rbfx.UserCode.Bindings.dll</SharpCppRbfxUserCodeBindingsDll>\n"
+      "    <SharpCppRbfxRunSettingsPath>${output_root}/${configuration}/SharpCpp.Rbfx.Tests.runsettings</SharpCppRbfxRunSettingsPath>\n"
+      "    <SharpCppRbfxUrho3DRuntimeLibraryPath>${output_root}/${configuration}/${rbfx_urho3d_runtime_file_name}</SharpCppRbfxUrho3DRuntimeLibraryPath>\n"
       "  </PropertyGroup>\n")
   endforeach()
 
   if(NOT e2e_generated_dir STREQUAL "")
     string(REPLACE "\\" "/" e2e_generated_dir "${e2e_generated_dir}")
+    string(REPLACE "\\" "/" e2e_generated_stamp "${e2e_generated_stamp}")
     string(APPEND content
       "  <PropertyGroup Condition=\"'$(MSBuildProjectName)' == 'SharpCpp.Tests.E2E'\">\n"
       "    <SharpCppGeneratedDir>${e2e_generated_dir}</SharpCppGeneratedDir>\n"
+      "    <SharpCppGeneratedStamp>${e2e_generated_stamp}</SharpCppGeneratedStamp>\n"
       "  </PropertyGroup>\n")
   endif()
 
   if(NOT rbfx_generated_dir STREQUAL "")
     string(REPLACE "\\" "/" rbfx_generated_dir "${rbfx_generated_dir}")
+    string(REPLACE "\\" "/" rbfx_generated_stamp "${rbfx_generated_stamp}")
     string(APPEND content
       "  <PropertyGroup Condition=\"'$(MSBuildProjectName)' == 'SharpCpp.Rbfx.Bindings'\">\n"
       "    <SharpCppGeneratedDir>${rbfx_generated_dir}</SharpCppGeneratedDir>\n"
+      "    <SharpCppGeneratedStamp>${rbfx_generated_stamp}</SharpCppGeneratedStamp>\n"
       "  </PropertyGroup>\n")
   endif()
 
   if(NOT rbfx_usercode_generated_dir STREQUAL "")
     string(REPLACE "\\" "/" rbfx_usercode_generated_dir "${rbfx_usercode_generated_dir}")
+    string(REPLACE "\\" "/" rbfx_usercode_generated_stamp "${rbfx_usercode_generated_stamp}")
     string(APPEND content
       "  <PropertyGroup Condition=\"'$(MSBuildProjectName)' == 'Rbfx.UserCode.Bindings'\">\n"
       "    <SharpCppGeneratedDir>${rbfx_usercode_generated_dir}</SharpCppGeneratedDir>\n"
       "    <SharpCppUserCodeGeneratedDir>${rbfx_usercode_generated_dir}</SharpCppUserCodeGeneratedDir>\n"
+      "    <SharpCppGeneratedStamp>${rbfx_usercode_generated_stamp}</SharpCppGeneratedStamp>\n"
       "  </PropertyGroup>\n")
   endif()
 
@@ -175,6 +207,9 @@ function(sharpcpp_write_last_props)
     string(APPEND content
       "  <PropertyGroup Condition=\"'$(MSBuildProjectName)' == 'SharpCpp.Rbfx.Tests.E2E'\">\n"
       "    <SharpCppGeneratedDir>${rbfx_tests_e2e_generated_dir}</SharpCppGeneratedDir>\n"
+      "    <SharpCppGeneratedStamp>${rbfx_generated_stamp}</SharpCppGeneratedStamp>\n"
+      "    <SharpCppUserCodeGeneratedDir>${rbfx_usercode_generated_dir}</SharpCppUserCodeGeneratedDir>\n"
+      "    <SharpCppUserCodeGeneratedStamp>${rbfx_usercode_generated_stamp}</SharpCppUserCodeGeneratedStamp>\n"
       "  </PropertyGroup>\n")
   endif()
 
@@ -352,6 +387,7 @@ file(GLOB_RECURSE SHARPCPP_E2E_GENERATOR_INPUTS CONFIGURE_DEPENDS
 set(SHARPCPP_E2E_METADATA_FILE "${SHARPCPP_E2E_GENERATED_ROOT}/${SHARPCPP_E2E_FILE_STEM}.Bindings.json")
 set(SHARPCPP_E2E_GENERATOR_LOG_FILE "${SHARPCPP_E2E_GENERATED_ROOT}/generator.log")
 set_property(GLOBAL PROPERTY SHARPCPP_E2E_GENERATED_DIR "${SHARPCPP_E2E_GENERATED_ROOT}")
+set_property(GLOBAL PROPERTY SHARPCPP_E2E_GENERATED_STAMP "${SHARPCPP_E2E_GENERATED_STAMP}")
 
 add_custom_command(
   OUTPUT "${SHARPCPP_E2E_GENERATED_STAMP}"

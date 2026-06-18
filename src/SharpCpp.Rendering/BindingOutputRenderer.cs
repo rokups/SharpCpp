@@ -2806,7 +2806,7 @@ public static partial class BindingOutputRenderer
                 "value",
                 field.Type,
                 BindingParameterDirection.In,
-                BindingParameterAbiKind.Pointer,
+                field.Type.Kind == BindingTypeKind.Handle ? BindingParameterAbiKind.Value : BindingParameterAbiKind.Pointer,
                 field.CppTypeName),
             compilation);
 

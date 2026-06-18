@@ -1281,6 +1281,8 @@ public sealed class BindingOutputRendererTests
 
         Assert.Contains("protected global::SharpCpp.Sample.Payload Payload", managedOutput, StringComparison.Ordinal);
         Assert.Contains("internal static partial global::SharpCpp.Sample.Payload Get_Payload(ProtectedCounter self);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial void Set_Payload(ProtectedCounter self, [MarshalUsing(typeof(global::SharpCpp.Sample.__PayloadInMarshaller))] global::SharpCpp.Sample.Payload? value);", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("Set_Payload(ProtectedCounter self, [MarshalUsing(typeof(global::SharpCpp.Sample.__PayloadInMarshaller))] in global::SharpCpp.Sample.Payload? value);", managedOutput, StringComparison.Ordinal);
         Assert.Contains("__PInvoke.Set_Payload(this, value);", managedOutput, StringComparison.Ordinal);
         Assert.Contains("ret_t<payload*> __get_Payload()", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("ReturnMarshaller<payload*> __return_marshaller;", nativeOutput, StringComparison.Ordinal);
