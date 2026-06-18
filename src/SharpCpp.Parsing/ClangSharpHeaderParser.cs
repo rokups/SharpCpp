@@ -227,17 +227,17 @@ public sealed partial class ClangSharpHeaderParser
             switch (child)
             {
                 case NamespaceDecl nsChild:
-                    VisitNamespace(nsChild, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix, ownedFileRoots, request.HeaderIncludePath);
+                    VisitNamespace(nsChild, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix, ownedFileRoots, request.HeaderIncludePath, request.DirectorRecordCppTypeNames);
                     break;
 
                 case RecordDecl recordDecl:
                     RegisterRecord(recordDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix,
-                        ResolveDeclIncludePath(recordDecl, ownedFileRoots, request.HeaderIncludePath));
+                        ResolveDeclIncludePath(recordDecl, ownedFileRoots, request.HeaderIncludePath), request.DirectorRecordCppTypeNames);
                     break;
 
                 case ClassTemplateDecl classTemplateDecl:
                     RegisterTemplateRecord(classTemplateDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix,
-                        ResolveDeclIncludePath(classTemplateDecl, ownedFileRoots, request.HeaderIncludePath));
+                        ResolveDeclIncludePath(classTemplateDecl, ownedFileRoots, request.HeaderIncludePath), request.DirectorRecordCppTypeNames);
                     break;
 
                 case EnumDecl enumChildDecl:
@@ -482,6 +482,12 @@ public sealed partial class ClangSharpHeaderParser
         return fallbackHeaderIncludePath;
     }
 
+    private static bool IsForcedDirectorRecord(string cppQualifiedName, IReadOnlySet<string>? directorRecordCppTypeNames)
+    {
+        return !string.IsNullOrWhiteSpace(cppQualifiedName) &&
+            directorRecordCppTypeNames?.Contains(cppQualifiedName) == true;
+    }
+
     private static void RegisterRecord(
         RecordDecl recordDecl,
         BindingCompilation compilation,
@@ -489,14 +495,15 @@ public sealed partial class ClangSharpHeaderParser
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         string entryPointPrefix,
-        string? headerIncludePath)
+        string? headerIncludePath,
+        IReadOnlySet<string>? directorRecordCppTypeNames)
     {
         // If this record is the templated declaration of a class template,
         // delegate to RegisterTemplateRecord for proper generic parameter
         // extraction (RecordDecl.DescribedClassTemplate fills this role).
         if (recordDecl is CXXRecordDecl cxx && cxx.DescribedClassTemplate is { } classTemplate)
         {
-            RegisterTemplateRecord(classTemplate, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, headerIncludePath);
+            RegisterTemplateRecord(classTemplate, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, headerIncludePath, directorRecordCppTypeNames);
             return;
         }
 
@@ -548,7 +555,7 @@ public sealed partial class ClangSharpHeaderParser
         var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(GetManagedTypeHead(nativeName)), cppQualifiedName)
         {
             IsAbstract = cxxRecord?.IsAbstract ?? false,
-            IsDirector = HasSharpCppAttribute(declarationText, "director"),
+            IsDirector = HasSharpCppAttribute(declarationText, "director") || IsForcedDirectorRecord(cppQualifiedName, directorRecordCppTypeNames),
             HasCopyConstructor = recordDecl.Handle.HasUserDeclaredCopyConstructor ||
                 ContainsCopyConstructorDeclaration(sourceText, nativeName) ||
                 ContainsCopyConstructorDeclaration(GetDeclFileText(recordDecl), nativeName)
@@ -579,7 +586,8 @@ public sealed partial class ClangSharpHeaderParser
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         string entryPointPrefix,
-        string? headerIncludePath)
+        string? headerIncludePath,
+        IReadOnlySet<string>? directorRecordCppTypeNames)
     {
         var nativeName = classTemplate.Spelling;
         if (string.IsNullOrWhiteSpace(nativeName))
@@ -634,7 +642,7 @@ public sealed partial class ClangSharpHeaderParser
         var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(GetManagedTypeHead(nativeName)), cppQualifiedName)
         {
             IsAbstract = templatedRecord is CXXRecordDecl cxx && cxx.IsAbstract,
-            IsDirector = HasSharpCppAttribute(declarationText, "director"),
+            IsDirector = HasSharpCppAttribute(declarationText, "director") || IsForcedDirectorRecord(cppQualifiedName, directorRecordCppTypeNames),
             HasCopyConstructor = classTemplate.Handle.HasUserDeclaredCopyConstructor ||
                 ContainsCopyConstructorDeclaration(sourceText, nativeName) ||
                 ContainsCopyConstructorDeclaration(GetDeclFileText(classTemplate), nativeName)
@@ -3486,7 +3494,8 @@ public sealed partial class ClangSharpHeaderParser
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         string entryPointPrefix,
         IReadOnlyList<string> ownedFileRoots,
-        string? headerIncludePath)
+        string? headerIncludePath,
+        IReadOnlySet<string>? directorRecordCppTypeNames)
     {
         foreach (var child in nsDecl.Decls)
         {
@@ -3498,17 +3507,17 @@ public sealed partial class ClangSharpHeaderParser
             switch (child)
             {
                 case NamespaceDecl nsChild:
-                    VisitNamespace(nsChild, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, ownedFileRoots, headerIncludePath);
+                    VisitNamespace(nsChild, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, ownedFileRoots, headerIncludePath, directorRecordCppTypeNames);
                     break;
 
                 case RecordDecl recordDecl:
                     RegisterRecord(recordDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix,
-                        ResolveDeclIncludePath(recordDecl, ownedFileRoots, headerIncludePath ?? string.Empty));
+                        ResolveDeclIncludePath(recordDecl, ownedFileRoots, headerIncludePath ?? string.Empty), directorRecordCppTypeNames);
                     break;
 
                 case ClassTemplateDecl classTemplateDecl:
                     RegisterTemplateRecord(classTemplateDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix,
-                        ResolveDeclIncludePath(classTemplateDecl, ownedFileRoots, headerIncludePath ?? string.Empty));
+                        ResolveDeclIncludePath(classTemplateDecl, ownedFileRoots, headerIncludePath ?? string.Empty), directorRecordCppTypeNames);
                     break;
 
                 case EnumDecl enumChildDecl:

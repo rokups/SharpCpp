@@ -17,6 +17,7 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - Parses records, enums, free functions, member methods/fields/constructors, operators, class/function templates
 - Managed ClangSharp API (`Decl` subtypes) — no raw `CXCursor`/`VisitChildren`
 - `[[sharpcpp::ignore]]`, `[[sharpcpp::rename]]`, `[[sharpcpp::director]]`, `[[sharpcpp::flags]]`, `[[sharpcpp::instantiate]]`
+- Parse requests can force selected records to be director-capable before member parsing
 - Documentation comment extraction (`///`, `/** */`)
 - Marshaller config extraction via AST walk (not regex)
 
@@ -60,6 +61,7 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - `SharpPtr<T>` / `WeakPtr<T>` projection via marshaller configuration
 - `ea::string` / `eastl::string` projected as `Ea.String`
 - Cross-module composition: `rbfx/Rbfx.UserCode` imports upstream metadata, extends wrappers
+- rbfx inheritable SDK classes are marked director-capable at parse time so abstract constructors can support managed subclasses without weakening the core abstract-constructor gate
 
 ### Infrastructure
 - Structured logging (`ILogger` with elapsed timestamps)
@@ -111,6 +113,20 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - All type-specific behaviors configured through C++/C# marshallers, never hardcoded in core
 
 ## Recently Fixed
+
+- **Director callback rendering now supports the rbfx inheritable SDK surface end-to-end**:
+  - Managed director callback helpers now qualify callback owner types with `global::...`, preventing inherited callbacks from resolving against the wrong generated namespace in grouped rbfx output.
+  - Protected inherited callbacks dispatch through the current director wrapper type and use string method names instead of inaccessible `nameof(Base.ProtectedMethod)` expressions, preserving C# protected-access rules.
+  - Managed callback handle returns now use `NativeObject.GetHandle(...)` instead of assuming a public `.Handle` property, covering `StringBase`, object-reflection wrappers, and ordinary generated native objects uniformly.
+  - Native director callbacks now marshal native override parameters to ABI values before invoking managed callbacks and marshal ABI returns back to native return values.
+  - Protected native helper methods now perform explicit ABI-to-C++ parameter conversion and ABI return conversion while preserving direct protected member access. Callbase helper and entrypoint names now use deduplicated import method names, avoiding overloaded virtual callbase collisions.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj`, `dotnet test tests/SharpCpp.Tests.Metadata/SharpCpp.Tests.Metadata.csproj`, `dotnet test tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj`, `cmake --build --preset Debug`, and `ctest --preset Debug` all pass.
+
+- **rbfx inheritable SDK classes are force-marked as director-capable before parser member population**:
+  - Added a parse-request director override set so composition roots can opt specific records into director handling without editing third-party SDK headers or adding type-specific core special cases.
+  - `SharpCpp.Rbfx.Generator` now marks the rbfx inheritable surface (`Object`, `Application`, `ApplicationState`, `Serializable`, `Animatable`, `Component`, `LogicComponent`, `PluginApplication`, `Drawable`, `MoveAndOrbitComponent`, `Resource`, `TriggerAnimator`, `Drawable2D`, `RmlUIComponent`) as director-capable during parsing.
+  - The existing core gate that ignores abstract non-director constructors remains intact; forced director records pass that gate before constructors and protected members are populated.
+  - Regression coverage verifies that an abstract constructor remains ignored by default but is preserved when the record is supplied in the forced director set.
 
 - **Enum identity now drives ownership checks and rbfx `FlagSet<TEnum>` rescue stays narrow**:
   - `BindingType` enum references now carry `EnumId`, which is populated from parser-resolved `EnumBinding.SymbolId`, survives generic substitution/type-key comparisons, and round-trips through metadata schema version 4.

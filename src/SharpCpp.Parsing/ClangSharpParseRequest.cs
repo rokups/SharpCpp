@@ -13,4 +13,5 @@ public sealed record ClangSharpParseRequest(
     IReadOnlyList<string> MarshallerConfigurationFiles,
     string EntryPointPrefix,
     IReadOnlyList<string>? OwnedFileRoots = null,
-    BindingMetadataImportCatalog? ImportedBindingMetadata = null);
+    BindingMetadataImportCatalog? ImportedBindingMetadata = null,
+    IReadOnlySet<string>? DirectorRecordCppTypeNames = null);

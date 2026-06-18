@@ -67,6 +67,49 @@ public sealed class ClangSharpHeaderParserIgnoreTests
         Assert.True(deletedOperator.IsSilentlyExcluded());
     }
 
+    [Fact]
+    public void Parse_forced_director_records_preserves_abstract_constructors()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "ForcedDirectors");
+        var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+
+        var parser = new ClangSharpHeaderParser();
+        var defaultCompilation = parser.Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test.Namespace",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: ["-x", "c++", "-std=c++20", $"-I{fixtureDir}"],
+            MarshallerConfigurationFiles: Array.Empty<string>(),
+            EntryPointPrefix: "Test_"));
+        var defaultRecord = Assert.Single(defaultCompilation.Records, static record => record.CppQualifiedName == "Test::ForcedAbstract");
+        var defaultConstructor = Assert.Single(defaultRecord.Members.OfType<FunctionBinding>(), static function => function.IsConstructor);
+
+        var forcedCompilation = parser.Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test.Namespace",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: ["-x", "c++", "-std=c++20", $"-I{fixtureDir}"],
+            MarshallerConfigurationFiles: Array.Empty<string>(),
+            EntryPointPrefix: "Test_",
+            DirectorRecordCppTypeNames: new HashSet<string>(StringComparer.Ordinal) { "Test::ForcedAbstract" }));
+        var forcedRecord = Assert.Single(forcedCompilation.Records, static record => record.CppQualifiedName == "Test::ForcedAbstract");
+        var forcedConstructor = Assert.Single(forcedRecord.Members.OfType<FunctionBinding>(), static function => function.IsConstructor);
+
+        Assert.True(defaultRecord.IsAbstract);
+        Assert.False(defaultRecord.IsDirector);
+        Assert.True(defaultConstructor.IsIgnored());
+        Assert.True(forcedRecord.IsAbstract);
+        Assert.True(forcedRecord.IsDirector);
+        Assert.False(forcedConstructor.IsIgnored(), forcedConstructor.GetIgnoreReason());
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

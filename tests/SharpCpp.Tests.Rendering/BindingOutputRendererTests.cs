@@ -1016,6 +1016,7 @@ public sealed class BindingOutputRendererTests
         {
             IsDirector = true
         };
+        var childRecord = new RecordBinding("record:callback_child", "callback_child", "CallbackChild");
         var ctor = new FunctionBinding("ctor:callback_counter:int", "callback_counter", "CallbackCounter", record.HandleType, "entry_ctor")
         {
             IsConstructor = true,
@@ -1029,15 +1030,25 @@ public sealed class BindingOutputRendererTests
             IsConstMethod = true,
             OwningRecordCppTypeName = "callback_counter"
         };
+        getValue.Parameters.Add(new ParameterBinding("parameter:callback_counter:get_value:amount", "amount", "amount", BindingType.Int32, cppTypeName: "int"));
         var callTwice = new FunctionBinding("method:callback_counter:call_virtual_twice", "call_virtual_twice", "CallVirtualTwice", BindingType.Int32, "entry_call")
         {
             IsStatic = false,
             IsConstMethod = true,
             OwningRecordCppTypeName = "callback_counter"
         };
+        var getChild = new FunctionBinding("method:callback_counter:get_child", "get_child", "GetChild", childRecord.HandleType, "entry_get_child")
+        {
+            IsStatic = false,
+            IsVirtual = true,
+            IsConstMethod = true,
+            OwningRecordCppTypeName = "callback_counter"
+        };
         record.Members.Add(ctor);
         record.Members.Add(getValue);
         record.Members.Add(callTwice);
+        record.Members.Add(getChild);
+        compilation.Members.Add(childRecord);
         compilation.Members.Add(record);
 
         BindingCompilationPolymorphismPass.Apply(compilation);
@@ -1046,11 +1057,102 @@ public sealed class BindingOutputRendererTests
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
         var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("public virtual int GetValue()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public virtual int GetValue(int amount)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("private void ConnectDirector()", managedOutput, StringComparison.Ordinal);
         Assert.Contains("Marshal.GetFunctionPointerForDelegate", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("ParameterMarshaller<int> __arg0_marshaller;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("auto __abi_arg0 = __arg0_marshaller.ConvertToAbi(amount);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("ReturnMarshaller<int> __return_marshaller;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return __return_marshaller.ConvertToCpp(__abi_result);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return global::SharpCpp.Support.NativeObject.GetHandle(__result);", managedOutput, StringComparison.Ordinal);
         Assert.Contains("class __callback_counter_director : public callback_counter", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("sharpcpp_e2e_callback_counter_connect_director", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Director_callbase_entrypoints_are_unique_for_overloaded_virtual_methods()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/Director.hpp" });
+        var record = new RecordBinding("record:overloaded_director", "overloaded_director", "OverloadedDirector")
+        {
+            IsDirector = true
+        };
+        var loadFromId = new FunctionBinding("method:overloaded_director:load:int", "load", "Load", BindingType.Boolean, "entry_load_int")
+        {
+            IsStatic = false,
+            IsVirtual = true,
+            OwningRecordCppTypeName = "overloaded_director"
+        };
+        loadFromId.Parameters.Add(new ParameterBinding("parameter:overloaded_director:load:id", "id", "id", BindingType.Int32, cppTypeName: "int"));
+        var loadFromName = new FunctionBinding("method:overloaded_director:load:name", "load", "Load", BindingType.Boolean, "entry_load_name")
+        {
+            IsStatic = false,
+            IsVirtual = true,
+            OwningRecordCppTypeName = "overloaded_director"
+        };
+        loadFromName.Parameters.Add(new ParameterBinding("parameter:overloaded_director:load:name", "name", "name", BindingType.CreateConfigured("const char*", "global::System.IntPtr"), cppTypeName: "const char*"));
+        record.Members.Add(loadFromId);
+        record.Members.Add(loadFromName);
+        compilation.Members.Add(record);
+
+        BindingCompilationPolymorphismPass.Apply(compilation);
+
+        var nativeOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("sharpcpp_e2e_overloaded_director_callbase_Load(", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("sharpcpp_e2e_overloaded_director_callbase_Load2(", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("__callbase_Load2", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Director_records_qualify_inherited_callback_owner_references()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/Director.hpp" });
+        var baseRecord = new RecordBinding("record:base_callback", "base_callback", "BaseCallback", "Sample::BaseCallback")
+        {
+            IsDirector = true,
+            ManagedNamespace = "SharpCpp.Sample.Core"
+        };
+        var onEvent = new FunctionBinding("method:base_callback:on_event", "on_event", "OnEvent", BindingType.Void, "entry_on_event")
+        {
+            IsStatic = false,
+            IsVirtual = true,
+            AccessModifier = BindingAccessModifier.Protected,
+            OwningRecordCppTypeName = "Sample::BaseCallback"
+        };
+        baseRecord.Members.Add(onEvent);
+
+        var derivedRecord = new RecordBinding("record:derived_callback", "derived_callback", "DerivedCallback", "Sample::DerivedCallback")
+        {
+            IsDirector = true,
+            ManagedBaseTypeName = "global::SharpCpp.Sample.Core.BaseCallback",
+            ManagedNamespace = "SharpCpp.Sample.Graphics"
+        };
+        derivedRecord.Bases.Add(new RecordBaseBinding(baseRecord.SymbolId, baseRecord.NativeName, baseRecord.ManagedName, baseRecord.CppQualifiedName, isVirtual: false));
+        compilation.Members.Add(baseRecord);
+        compilation.Members.Add(derivedRecord);
+
+        BindingCompilationPolymorphismPass.Apply(compilation);
+
+        var managedOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("global::SharpCpp.Sample.Graphics.DerivedCallback.__GetBaseCallback_OnEventPointer(runtimeType)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("typeof(global::SharpCpp.Sample.Core.BaseCallback)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("\"OnEvent\"", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("global::SharpCpp.Sample.Graphics.DerivedCallback.CreateManagedWrapper(self, ownsHandle: false)", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("return HasManagedOverride(runtimeType, typeof(BaseCallback)", managedOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1114,6 +1216,53 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("__call_Scale", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("__get_Factor", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("protected member access requires a director-backed instance", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Director_records_skip_ignored_protected_field_helpers()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/Protected.hpp" });
+        var context = new RecordBinding("record:context", "context", "Context");
+        var record = new RecordBinding("record:protected_counter", "protected_counter", "ProtectedCounter")
+        {
+            IsDirector = true
+        };
+        var getValue = new FunctionBinding("method:protected_counter:get_value", "get_value", "GetValue", BindingType.Int32, "entry_get")
+        {
+            IsStatic = false,
+            IsVirtual = true,
+            IsConstMethod = true,
+            OwningRecordCppTypeName = "protected_counter"
+        };
+        var contextField = new FieldBinding(
+            "field:protected_counter:context_",
+            "context_",
+            "Context",
+            BindingType.CreateHandle("context*", "Context", context.SymbolId),
+            "context*",
+            "protected_counter")
+        {
+            AccessModifier = BindingAccessModifier.Protected
+        };
+        contextField.SetIgnoreReason("protected handle fields are not yet supported in this bootstrap surface");
+
+        record.Members.Add(getValue);
+        record.Members.Add(contextField);
+        compilation.Members.Add(context);
+        compilation.Members.Add(record);
+
+        BindingCompilationPolymorphismPass.Apply(compilation);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.DoesNotContain("__get_Context", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("__set_Context", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]

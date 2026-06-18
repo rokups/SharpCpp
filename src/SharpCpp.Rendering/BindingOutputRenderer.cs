@@ -330,13 +330,13 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
-        foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && function.AccessModifier == BindingAccessModifier.Protected))
+        foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && function.AccessModifier == BindingAccessModifier.Protected && !function.HasMetadata(MetadataKeys.IgnoreReason)))
         {
             writer.WriteLine();
             writer.Write(RenderNativeProtectedMethodHelper(record, method));
         }
 
-        foreach (var field in record.Members.OfType<FieldBinding>().Where(static field => field.AccessModifier == BindingAccessModifier.Protected))
+        foreach (var field in record.Members.OfType<FieldBinding>().Where(static field => field.AccessModifier == BindingAccessModifier.Protected && !field.HasMetadata(MetadataKeys.IgnoreReason)))
         {
             writer.WriteLine();
             writer.Write(RenderNativeProtectedFieldHelpers(record, field));
@@ -391,6 +391,7 @@ public static partial class BindingOutputRenderer
         var method = slot.Method;
         var parameterList = string.Join(", ", method.Parameters.Select(parameter => $"{parameter.CppTypeName} {parameter.NativeName}"));
         var arguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
+        var callbackArguments = string.Join(", ", new[] { "const_cast<void*>(static_cast<const void*>(this))" }.Concat(method.Parameters.Select((_, parameterIndex) => $"__abi_arg{parameterIndex}")));
         var writer = new CodeWriter();
 
         writer.Write($$"""
@@ -400,14 +401,22 @@ public static partial class BindingOutputRenderer
             {
             """);
 
+        foreach (var (parameter, parameterIndex) in method.Parameters.Select((parameter, parameterIndex) => (parameter, parameterIndex)))
+        {
+            writer.WriteLine($"    ParameterMarshaller<{parameter.CppTypeName}> __arg{parameterIndex}_marshaller;");
+            writer.WriteLine($"    auto __abi_arg{parameterIndex} = __arg{parameterIndex}_marshaller.ConvertToAbi({parameter.NativeName});");
+        }
+
         if (method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
         {
-            writer.WriteLine($"    {GetNativeDirectorCallbackFieldName(index)}(const_cast<void*>(static_cast<const void*>(this)){(arguments.Length > 0 ? $", {arguments}" : string.Empty)});");
+            writer.WriteLine($"    {GetNativeDirectorCallbackFieldName(index)}({callbackArguments});");
             writer.WriteLine("    return;");
         }
         else
         {
-            writer.WriteLine($"    return {GetNativeDirectorCallbackFieldName(index)}(const_cast<void*>(static_cast<const void*>(this)){(arguments.Length > 0 ? $", {arguments}" : string.Empty)});");
+            writer.WriteLine($"    ReturnMarshaller<{method.CppReturnTypeName}> __return_marshaller;");
+            writer.WriteLine($"    auto __abi_result = {GetNativeDirectorCallbackFieldName(index)}({callbackArguments});");
+            writer.WriteLine("    return __return_marshaller.ConvertToCpp(__abi_result);");
         }
 
         writer.WriteLine("}");
@@ -542,7 +551,7 @@ public static partial class BindingOutputRenderer
         ValidateProtectedMemberSupport(method);
 
         var parameterList = string.Join(", ", method.Parameters.Select(RenderNativeParameter));
-        var abiArguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
+        var arguments = string.Join(", ", method.Parameters.Select((_, parameterIndex) => $"__arg{parameterIndex}"));
         var writer = new CodeWriter();
         var helperName = GetNativeProtectedMethodHelperName(method);
 
@@ -551,17 +560,33 @@ public static partial class BindingOutputRenderer
             {
             """);
 
-        if (method.IsStatic)
+        foreach (var (parameter, parameterIndex) in method.Parameters.Select((parameter, parameterIndex) => (parameter, parameterIndex)))
         {
-            writer.WriteLine(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
-                ? $"{record.CppQualifiedName}::{method.NativeName}({abiArguments});"
-                : $"return {record.CppQualifiedName}::{method.NativeName}({abiArguments});");
+            writer.WriteLine($"ParameterMarshaller<{parameter.CppTypeName}> __arg{parameterIndex}_marshaller;");
+            writer.WriteLine($"auto&& __arg{parameterIndex} = __arg{parameterIndex}_marshaller.ConvertToCpp({parameter.NativeName});");
+        }
+
+        var invocation = method.IsStatic
+            ? $"{record.CppQualifiedName}::{method.NativeName}({arguments})"
+            : $"this->{method.NativeName}({arguments})";
+
+        if (method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+        {
+            writer.WriteLine($"{invocation};");
+            foreach (var parameterIndex in Enumerable.Range(0, method.Parameters.Count))
+            {
+                writer.WriteLine($"detail::SyncMarshaller(__arg{parameterIndex}_marshaller);");
+            }
         }
         else
         {
-            writer.WriteLine(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
-                ? $"this->{method.NativeName}({abiArguments});"
-                : $"return this->{method.NativeName}({abiArguments});");
+            writer.WriteLine($"ReturnMarshaller<{method.CppReturnTypeName}> __return_marshaller;");
+            writer.WriteLine($"decltype(auto) __result = {invocation};");
+            foreach (var parameterIndex in Enumerable.Range(0, method.Parameters.Count))
+            {
+                writer.WriteLine($"detail::SyncMarshaller(__arg{parameterIndex}_marshaller);");
+            }
+            writer.WriteLine("return __return_marshaller.ConvertToAbi(__result);");
         }
 
         writer.Write(
@@ -702,12 +727,12 @@ public static partial class BindingOutputRenderer
 
     private static string GetNativeCallbaseHelperName(FunctionBinding method)
     {
-        return $"__callbase_{SanitizeManagedToken(method.ManagedName)}";
+        return $"__callbase_{SanitizeManagedToken(method.ImportMethodName)}";
     }
 
     private static string GetNativeCallbaseEntrypointName(RecordBinding record, FunctionBinding method)
     {
-        return $"sharpcpp_e2e_{record.NativeName}_callbase_{method.NativeName}";
+        return $"sharpcpp_e2e_{record.NativeName}_callbase_{method.ImportMethodName}";
     }
 
     private static string GetManagedCallbaseImportMethodName(FunctionBinding function)
@@ -1022,6 +1047,11 @@ public static partial class BindingOutputRenderer
             ? GetManagedPublicReturnTypeName(argument, compilation)
             : FormatGlobalTypeName(argument, compilation)));
         return $"{qualifiedHead}<{renderedArguments}>";
+    }
+
+    private static string GetManagedRecordTypeName(BindingCompilation compilation, RecordBinding record)
+    {
+        return FormatQualifiedRecordTypeName(compilation, record.HandleType, publicSurface: false);
     }
 
     private static string GetQualifiedEnumTypeName(BindingCompilation compilation, BindingType type)
@@ -1511,11 +1541,11 @@ public static partial class BindingOutputRenderer
             foreach (var slot in virtualSlots)
             {
                 writer.WriteLine();
-                writer.Write(RenderManagedVirtualCallbackMembers(compilation, slot));
+                writer.Write(RenderManagedVirtualCallbackMembers(compilation, record, slot));
             }
 
             writer.WriteLine();
-            writer.Write(RenderManagedConnectDirector(record, virtualSlots));
+            writer.Write(RenderManagedConnectDirector(compilation, record, virtualSlots));
             writer.WriteLine();
         }
 
@@ -2130,13 +2160,13 @@ public static partial class BindingOutputRenderer
             """;
     }
 
-    private static string RenderManagedConnectDirector(RecordBinding record, IReadOnlyList<VirtualMethodSlotBinding> slots)
+    private static string RenderManagedConnectDirector(BindingCompilation compilation, RecordBinding record, IReadOnlyList<VirtualMethodSlotBinding> slots)
     {
         var callbackArguments = slots.Count == 0
             ? string.Empty
             : ", " + string.Join(
                 ", ",
-                slots.Select(slot => $"{slot.ManagedCallbackOwnerRecord.ManagedName}.{GetVirtualCallbackPointerAccessorName(slot.ManagedCallbackMethod)}(runtimeType)"));
+                slots.Select(slot => $"{GetManagedRecordTypeName(compilation, record)}.{GetVirtualCallbackPointerAccessorName(slot.ManagedCallbackMethod)}(runtimeType)"));
 
         return $$"""
             private void ConnectDirector()
@@ -2147,12 +2177,18 @@ public static partial class BindingOutputRenderer
             """;
     }
 
-    private static string RenderManagedVirtualCallbackMembers(BindingCompilation compilation, VirtualMethodSlotBinding slot)
+    private static string RenderManagedVirtualCallbackMembers(BindingCompilation compilation, RecordBinding record, VirtualMethodSlotBinding slot)
     {
         var method = slot.ManagedCallbackMethod;
         ValidateVirtualCallbackSupport(method);
 
         var ownerRecord = slot.ManagedCallbackOwnerRecord;
+        var dispatchRecord = method.AccessModifier == BindingAccessModifier.Protected ? record : ownerRecord;
+        var ownerTypeName = GetManagedRecordTypeName(compilation, ownerRecord);
+        var dispatchTypeName = GetManagedRecordTypeName(compilation, dispatchRecord);
+        var methodNameExpression = method.AccessModifier == BindingAccessModifier.Protected
+            ? $"\"{method.ManagedName}\""
+            : $"nameof({ownerTypeName}.{method.ManagedName})";
         var writer = new CodeWriter();
         var callbackReturnType = GetManagedImportTypeName(method.ReturnType, compilation);
         var returnAttribute = GetManagedReturnAttribute(method.ReturnType);
@@ -2177,7 +2213,7 @@ public static partial class BindingOutputRenderer
 
             internal static nint {{GetVirtualCallbackPointerAccessorName(method)}}(Type runtimeType)
             {
-            return HasManagedOverride(runtimeType, typeof({{ownerRecord.ManagedName}}), nameof({{ownerRecord.ManagedName}}.{{method.ManagedName}}), {{FormatReflectionParameterTypes(compilation, method)}})
+            return HasManagedOverride(runtimeType, typeof({{ownerTypeName}}), {{methodNameExpression}}, {{FormatReflectionParameterTypes(compilation, method)}})
                 ? {{GetVirtualCallbackPointerFieldName(method)}}
                 : 0;
             }
@@ -2192,7 +2228,7 @@ public static partial class BindingOutputRenderer
         writer.Write($$"""
             private static {{callbackReturnType}} {{GetVirtualCallbackDispatchName(method)}}({{callbackParameterList}})
             {
-            var owner = {{ownerRecord.ManagedName}}.CreateManagedWrapper(self, ownsHandle: false);
+            var owner = {{dispatchTypeName}}.CreateManagedWrapper(self, ownsHandle: false);
             """);
 
         var invocation = $"owner.{method.ManagedName}({invocationArguments})";
@@ -2209,7 +2245,7 @@ public static partial class BindingOutputRenderer
         {
             writer.Write($$"""
                 var __result = {{invocation}};
-                return __result is null ? 0 : __result.Handle;
+                return global::SharpCpp.Support.NativeObject.GetHandle(__result);
             }
             """);
             return writer.ToString();

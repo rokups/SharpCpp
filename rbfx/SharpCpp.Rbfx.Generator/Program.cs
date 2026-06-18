@@ -56,6 +56,23 @@ internal static class Program
     private const string GeneratedFileStem = "SharpCpp.Rbfx";
     private const string EntryPointPrefix = "scrbfx";
     private const string NativeOutputHeader = "Urho3D/Urho3DAll.h";
+    private static readonly HashSet<string> InheritableDirectorRecordCppTypeNames = new(StringComparer.Ordinal)
+    {
+        "Urho3D::Object",
+        "Urho3D::Application",
+        "Urho3D::ApplicationState",
+        "Urho3D::Serializable",
+        "Urho3D::Animatable",
+        "Urho3D::Component",
+        "Urho3D::LogicComponent",
+        "Urho3D::PluginApplication",
+        "Urho3D::Drawable",
+        "Urho3D::MoveAndOrbitComponent",
+        "Urho3D::Resource",
+        "Urho3D::TriggerAnimator",
+        "Urho3D::Drawable2D",
+        "Urho3D::RmlUIComponent"
+    };
 
     public static int Main(string[] args)
     {
@@ -111,7 +128,8 @@ internal static class Program
                     clangArguments,
                     marshallerConfigurationFiles,
                     EntryPointPrefix,
-                    OwnedFileRoots: new[] { urhoIncludeRoot }));
+                    OwnedFileRoots: new[] { urhoIncludeRoot },
+                    DirectorRecordCppTypeNames: InheritableDirectorRecordCppTypeNames));
             Logger.LogInformation("Parse complete: {Records} records, {Functions} functions.", compilation.Records.Count, compilation.Functions.Count);
             Logger.LogInformation("Parse completed in {Duration}", FormatDuration(parseSw.Elapsed));
 

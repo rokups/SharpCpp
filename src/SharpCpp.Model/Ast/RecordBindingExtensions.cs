@@ -45,7 +45,7 @@ public static class RecordBindingExtensions
 
         return record.Members
             .OfType<FunctionBinding>()
-            .Where(static function => function.IsVirtual && !function.IsStatic)
+            .Where(static function => function.IsVirtual && !function.IsStatic && !function.IsIgnored())
             .ToArray();
     }
 

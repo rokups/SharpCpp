@@ -233,6 +233,36 @@ public static class DegradeUnsupportedSurfacePass
             return true;
         }
 
+        if (function.Parent is RecordBinding directorRecord &&
+            directorRecord.IsDirector &&
+            function.IsVirtual &&
+            TryGetUnsupportedDirectorCallbackReason(function, out var callbackReason))
+        {
+            reason = $"director callback '{function.ManagedName}' is unsupported in this bootstrap surface: {callbackReason}";
+            return true;
+        }
+
+        reason = string.Empty;
+        return false;
+    }
+
+    private static bool TryGetUnsupportedDirectorCallbackReason(FunctionBinding function, out string reason)
+    {
+        foreach (var parameter in function.Parameters)
+        {
+            if (parameter.Direction is not BindingParameterDirection.In || parameter.AbiKind is not BindingParameterAbiKind.Value)
+            {
+                reason = $"parameter '{parameter.ManagedName}' must be an in-value parameter";
+                return true;
+            }
+        }
+
+        if (function.ReturnType.Kind == BindingTypeKind.Handle && function.ReturnsOwnedHandle)
+        {
+            reason = "owned-handle returns are not yet supported";
+            return true;
+        }
+
         reason = string.Empty;
         return false;
     }
@@ -243,6 +273,18 @@ public static class DegradeUnsupportedSurfacePass
         IReadOnlyDictionary<string, RecordBinding> recordsById,
         out string reason)
     {
+        if (record.IsDirector)
+        {
+            foreach (var method in record.Members.OfType<FunctionBinding>().Where(static method => method.IsPureVirtual && !method.IsIgnored()))
+            {
+                if (TryGetUnsupportedDirectorCallbackReason(method, out var callbackReason))
+                {
+                    reason = $"pure virtual director callback '{method.ManagedName}' is unsupported in this bootstrap surface: {callbackReason}";
+                    return true;
+                }
+            }
+        }
+
         // Records with no user-defined members are template utility types
         // (metafunctions like IndexInTuple) that shouldn't be wrapped.
         // Their only members would be the synthetic wrapper boilerplate (Handle,
@@ -321,6 +363,12 @@ public static class DegradeUnsupportedSurfacePass
         IReadOnlyDictionary<string, EnumBinding> enumsById,
         out string reason)
     {
+        if (field.AccessModifier == BindingAccessModifier.Protected && field.Type.Kind == BindingTypeKind.Handle)
+        {
+            reason = "protected handle fields are not yet supported in this bootstrap surface";
+            return true;
+        }
+
         if ((field.Parent as RecordBinding)?.IsGeneric != true && field.Type.ContainsGenericParameters)
         {
             reason = "field type is unsupported in this bootstrap surface: open generic parameter usage is not renderer-ready in a non-generic record";
