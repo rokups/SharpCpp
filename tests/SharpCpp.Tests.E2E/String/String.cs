@@ -63,6 +63,55 @@ public sealed class StringTests
     }
 
     [Fact]
+    public void StringViewLength_returns_correct_length()
+    {
+        Assert.Equal(5, E2EBindings.StringViewLength("hello"u8));
+    }
+
+    [Fact]
+    public void StringViewEquals_compares_span_contents()
+    {
+        Assert.True(E2EBindings.StringViewEquals("hello"u8, "hello"u8));
+        Assert.False(E2EBindings.StringViewEquals("hello"u8, "world"u8));
+    }
+
+    [Fact]
+    public void StringViewLength_preserves_embedded_nulls()
+    {
+        Assert.Equal(4, E2EBindings.StringViewEmbeddedNullLength("hi\0x"u8));
+    }
+
+    [Fact]
+    public void GetStringViewMessage_returns_span()
+    {
+        Assert.True(E2EBindings.GetStringViewMessage().SequenceEqual("Hello from string_view"u8));
+    }
+
+    [Fact]
+    public void GetStringViewWithEmbeddedNull_returns_full_span()
+    {
+        Assert.True(E2EBindings.GetStringViewWithEmbeddedNull().SequenceEqual("a\0b"u8));
+    }
+
+    [Fact]
+    public void EaStringViewLength_returns_correct_length()
+    {
+        Assert.Equal(5, E2EBindings.EaStringViewLength("hello"u8));
+    }
+
+    [Fact]
+    public void EaStringViewLength_preserves_embedded_nulls()
+    {
+        Assert.Equal(4, E2EBindings.EaStringViewEmbeddedNullLength("hi\0x"u8));
+    }
+
+    [Fact]
+    public void GetEaStringViewMessage_returns_span()
+    {
+        Assert.True(E2EBindings.GetEaStringViewMessage().SequenceEqual("Hello from ea::string_view"u8));
+    }
+
+    [Fact]
     public void String_type_exists_and_inherits_StringBase()
     {
         Assert.True(typeof(Std.String).IsSubclassOf(typeof(StringBase)));

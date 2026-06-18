@@ -20,6 +20,7 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
 
         var parser = new ClangSharpHeaderParser();
+        var clangArgs = CreateStandardLibraryClangArgs(fixtureDir, includeDir);
         var compilation = parser.Parse(new ClangSharpParseRequest(
             ProjectName: "TestProject",
             ManagedNamespace: "Test.Namespace",
@@ -27,13 +28,22 @@ public sealed class ClangSharpHeaderParserMarshallerTests
             NativeLibraryName: "Test.Native",
             HeaderFilePath: headerPath,
             HeaderIncludePath: fixtureDir,
-            ClangArguments: ["-x", "c++", "-std=c++20", $"-I{fixtureDir}", $"-I{includeDir}"],
+            ClangArguments: clangArgs,
             MarshallerConfigurationFiles: [marshallerHeader],
             EntryPointPrefix: "Test_"));
 
-        var function = Assert.Single(compilation.Functions);
-        Assert.Equal("global::System.ReadOnlySpan<byte>", function.ReturnType.ManagedTypeName);
-        Assert.Equal("const char*", function.ReturnType.CppTypeName);
+        var pointerFunction = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "GetName"));
+        Assert.Equal("global::System.ReadOnlySpan<byte>", pointerFunction.ReturnType.ManagedTypeName);
+        Assert.Equal("const char*", pointerFunction.ReturnType.CppTypeName);
+
+        var viewReturnFunction = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "GetNameView"));
+        Assert.Equal("global::System.ReadOnlySpan<byte>", viewReturnFunction.ReturnType.ManagedTypeName);
+        Assert.Equal("global::SharpCpp.Support.Utf8SpanAbiReturnMarshaller", viewReturnFunction.ReturnType.ManagedMarshaller);
+
+        var viewParameterFunction = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "MeasureNameView"));
+        Assert.Equal("global::System.ReadOnlySpan<byte>", viewParameterFunction.Parameters[0].Type.ManagedTypeName);
+        Assert.Equal("global::SharpCpp.Support.Utf8SpanAbiMarshaller", viewParameterFunction.Parameters[0].Type.ManagedMarshaller);
+        Assert.Equal(BindingParameterAbiKind.Value, viewParameterFunction.Parameters[0].AbiKind);
     }
 
     [Fact]
@@ -72,6 +82,44 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         Assert.Contains(record.Members.OfType<FunctionBinding>(), static member => member.ManagedName == "GetCountCore");
         Assert.Contains(record.Members.OfType<FunctionBinding>(), static member => member.ManagedName == "AddCore");
         Assert.Contains(record.Members.OfType<FunctionBinding>(), static member => member.ManagedName == "ClearCore");
+    }
+
+    [Fact]
+    public void Parse_recognizes_alias_spelled_string_view_marshaller()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "AliasStringViewMarshaller");
+        var includeDir = Path.Combine(repoRoot, "include");
+        var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+        var marshallerHeader = Path.Combine(fixtureDir, "SampleMarshallers.h");
+
+        var parser = new ClangSharpHeaderParser();
+        var clangArgs = CreateStandardLibraryClangArgs(fixtureDir, includeDir);
+        var marshallerFiles = new[] { marshallerHeader };
+
+        var compilation = parser.Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test.Namespace",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: clangArgs,
+            MarshallerConfigurationFiles: marshallerFiles,
+            EntryPointPrefix: "Test_"));
+
+        var parameterFunction = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "measure_ea_string_view"));
+        Assert.Equal("global::System.ReadOnlySpan<byte>", parameterFunction.Parameters[0].Type.ManagedTypeName);
+        Assert.Equal("global::SharpCpp.Support.Utf8SpanAbiMarshaller", parameterFunction.Parameters[0].Type.ManagedMarshaller);
+        Assert.Equal(BindingParameterAbiKind.Value, parameterFunction.Parameters[0].AbiKind);
+
+        var defaultedFunction = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "measure_default_ea_string_view"));
+        Assert.True(defaultedFunction.Parameters[0].HasMetadata(MetadataKeys.UndefaultableParam));
+        Assert.False(defaultedFunction.Parameters[0].HasMetadata(MetadataKeys.UnexpressibleDefault));
+
+        var returnFunction = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "get_ea_string_view"));
+        Assert.Equal("global::System.ReadOnlySpan<byte>", returnFunction.ReturnType.ManagedTypeName);
+        Assert.Equal("global::SharpCpp.Support.Utf8SpanAbiReturnMarshaller", returnFunction.ReturnType.ManagedMarshaller);
     }
 
     [Fact]
@@ -381,5 +429,23 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         }
 
         throw new InvalidOperationException("Unable to locate repository root.");
+    }
+
+    private static string[] CreateStandardLibraryClangArgs(params string[] includeDirs)
+    {
+        var args = new List<string> { "-x", "c++", "-std=c++20" };
+        args.AddRange(includeDirs.Select(static includeDir => $"-I{includeDir}"));
+
+        var systemIncludeDirs = new[]
+        {
+            "/usr/include/c++/16.1.1",
+            "/usr/include/c++/16.1.1/x86_64-pc-linux-gnu",
+            "/usr/include/c++/16.1.1/backward",
+            "/usr/lib/gcc/x86_64-pc-linux-gnu/16.1.1/include",
+            "/usr/include"
+        };
+
+        args.AddRange(systemIncludeDirs.Where(Directory.Exists).Select(static includeDir => $"-I{includeDir}"));
+        return args.ToArray();
     }
 }

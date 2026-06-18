@@ -139,6 +139,7 @@ public sealed partial class ClangSharpHeaderParser
         new Dictionary<string, BindingType>(StringComparer.Ordinal);
 
     private static readonly Dictionary<string, string> s_typeAliases = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, string> s_namespaceAliases = new(StringComparer.Ordinal);
     // Reverse lookup: underlying canonical type -> list of typedef names.
     private static readonly Dictionary<string, List<string>> s_typeAliasOriginNames = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, OwnedAliasInfo> s_ownedManagedAliases = new(StringComparer.Ordinal);
@@ -3359,7 +3360,12 @@ public sealed partial class ClangSharpHeaderParser
         var defaultValue = GetManagedDefaultValueExpression(parameterDecl, parameterType);
         parameter.ManagedDefaultValueExpression = defaultValue;
 
-        if (defaultValue is null && parameterDecl.HasDefaultArg)
+        var isUndefaultableDefault = parameterDecl.HasDefaultArg &&
+            managedTypeOverrides is not null &&
+            managedTypeOverrides.TryGetValue(parameterType.CppTypeName, out var overrideInfo) &&
+            overrideInfo.Undefaultable;
+
+        if (defaultValue is null && parameterDecl.HasDefaultArg && !isUndefaultableDefault)
         {
             parameter.SetMetadata(MetadataKeys.UnexpressibleDefault, true);
         }
@@ -3367,10 +3373,7 @@ public sealed partial class ClangSharpHeaderParser
         // Only mark as undefaultable if the parameter actually has a C++ default value.
         // If there's no default at all, the overload split is unnecessary — the parameter
         // is already required.
-        if (parameterDecl.HasDefaultArg &&
-            managedTypeOverrides is not null &&
-            managedTypeOverrides.TryGetValue(parameterType.CppTypeName, out var overrideInfo) &&
-            overrideInfo.Undefaultable)
+        if (isUndefaultableDefault)
         {
             parameter.SetMetadata(MetadataKeys.UndefaultableParam, true);
         }
@@ -3866,6 +3869,7 @@ public sealed partial class ClangSharpHeaderParser
     private static void BuildTypeAliasIndex(Decl decl)
     {
         s_typeAliases.Clear();
+        s_namespaceAliases.Clear();
         s_typeAliasOriginNames.Clear();
         CollectTypeAliases(decl);
     }
@@ -3922,7 +3926,22 @@ public sealed partial class ClangSharpHeaderParser
                 RegisterTypeAlias(aliasDecl);
             }
 
+            if (child is NamespaceAliasDecl namespaceAliasDecl)
+            {
+                RegisterNamespaceAlias(namespaceAliasDecl);
+            }
+
             CollectTypeAliases(child);
+        }
+    }
+
+    private static void RegisterNamespaceAlias(NamespaceAliasDecl namespaceAliasDecl)
+    {
+        var aliasName = NormalizeTypeName(GetCppQualifiedName(namespaceAliasDecl));
+        var targetName = NormalizeTypeName(GetCppQualifiedName(namespaceAliasDecl.AliasedNamespace));
+        if (!string.IsNullOrWhiteSpace(aliasName) && !string.IsNullOrWhiteSpace(targetName))
+        {
+            s_namespaceAliases[aliasName] = targetName;
         }
     }
 
@@ -3994,7 +4013,7 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         var suffix = string.Empty;
-        var baseTypeName = normalizedTypeName;
+        var baseTypeName = ApplyNamespaceAliases(normalizedTypeName);
         while (baseTypeName.EndsWith("*", StringComparison.Ordinal) || baseTypeName.EndsWith("&", StringComparison.Ordinal))
         {
             suffix = baseTypeName[^1] + suffix;
@@ -4004,10 +4023,28 @@ public sealed partial class ClangSharpHeaderParser
         var visited = new HashSet<string>(StringComparer.Ordinal);
         while (s_typeAliases.TryGetValue(baseTypeName, out var aliasedTypeName) && visited.Add(baseTypeName))
         {
-            baseTypeName = NormalizeTypeName(aliasedTypeName);
+            baseTypeName = ApplyNamespaceAliases(NormalizeTypeName(aliasedTypeName));
         }
 
         return baseTypeName + suffix;
+    }
+
+    private static string ApplyNamespaceAliases(string typeName)
+    {
+        foreach (var (aliasName, targetName) in s_namespaceAliases.OrderByDescending(static entry => entry.Key.Length))
+        {
+            if (string.Equals(typeName, aliasName, StringComparison.Ordinal))
+            {
+                return targetName;
+            }
+
+            if (typeName.StartsWith(aliasName + "::", StringComparison.Ordinal))
+            {
+                return targetName + typeName[aliasName.Length..];
+            }
+        }
+
+        return typeName;
     }
 
     private static bool TryCreateManagedTypeAlias(
@@ -4093,6 +4130,7 @@ public sealed partial class ClangSharpHeaderParser
     {
         if (!preserveAliasSurface ||
             !CanRenderManagedAliasTarget(mappedType) ||
+            mappedType.Marshaller.IsRefStruct ||
             !TryGetOwnedManagedAliasInfo(sourceType, out var aliasInfo))
         {
             return mappedType;

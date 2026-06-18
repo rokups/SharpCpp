@@ -7,6 +7,7 @@
 #include <EASTL/list.h>
 #include <EASTL/map.h>
 #include <EASTL/string.h>
+#include <EASTL/string_view.h>
 #include <EASTL/unordered_map.h>
 #include <EASTL/vector.h>
 
@@ -35,6 +36,23 @@ struct Marshaller<eastl::basic_string<char>*> : OwnedStringPointerMarshallerBase
 
 template <>
 struct ReturnMarshaller<eastl::basic_string<char>> : OwnedStringReturnMarshallerBase<eastl::basic_string<char>> {};
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::System.ReadOnlySpan<byte>",
+    managed_marshaller = "global::SharpCpp.Support.Utf8SpanAbiMarshaller",
+    undefaultable = true
+)]]
+Marshaller<ea::string_view> : StringViewMarshallerBase<ea::string_view> {};
+
+template <>
+struct Marshaller<const ea::string_view&> : StringViewConstReferenceMarshallerBase<ea::string_view> {};
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::System.ReadOnlySpan<byte>",
+    managed_marshaller = "global::SharpCpp.Support.Utf8SpanAbiReturnMarshaller"
+)]] ReturnMarshaller<ea::string_view> : Marshaller<ea::string_view> {};
 
 template <typename T, typename TAllocator>
 struct [[sharpcpp::managed_type(

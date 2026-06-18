@@ -109,6 +109,43 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Managed_output_uses_configured_marshaller_for_string_view_parameter()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "String/String.hpp" });
+        var stringViewType = BindingType.CreateConfigured(
+            "std::string_view",
+            "global::System.ReadOnlySpan<byte>",
+            null,
+            "global::SharpCpp.Support.Utf8SpanAbiMarshaller");
+        var function = new FunctionBinding(
+            "function:measure_view",
+            "measure_view",
+            "MeasureView",
+            BindingType.Int32,
+            "sharpcpp_sample_measure_view");
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:measure_view:value",
+            "value",
+            "value",
+            stringViewType,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "std::string_view"));
+        compilation.Members.Add(function);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public static int MeasureView(global::System.ReadOnlySpan<byte> value)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("[MarshalUsing(typeof(global::SharpCpp.Support.Utf8SpanAbiMarshaller))] global::System.ReadOnlySpan<byte> value", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Managed_output_preserves_alias_shaped_public_signatures_and_emits_alias_file()
     {
         var compilation = new BindingCompilation(

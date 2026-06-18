@@ -3,6 +3,7 @@
     <AssemblyName>Rbfx.UserCode.Bindings</AssemblyName>
     <SharpCppUserCodeGeneratedDir Condition="'$(SharpCppUserCodeGeneratedDir)' == '' and '$(SharpCppGeneratedDir)' != ''">$(SharpCppGeneratedDir)</SharpCppUserCodeGeneratedDir>
     <SharpCppUserCodeGeneratedDir Condition="'$(SharpCppUserCodeGeneratedDir)' == ''">$(BaseIntermediateOutputPath)generated/rbfx-usercode</SharpCppUserCodeGeneratedDir>
+    <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
     <NoWarn>$(NoWarn);CS0108;CS0109</NoWarn>
   </PropertyGroup>
 

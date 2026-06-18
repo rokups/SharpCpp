@@ -128,6 +128,9 @@ internal static class Program
             Logger.LogInformation("Pipeline complete: {Retained}/{Total} records retained.", compilation.Records.Count(r => !r.IsIgnored()), compilation.Records.Count);
             Logger.LogInformation("Pipeline completed in {Duration}", FormatDuration(pipelineSw.Elapsed));
 
+            var unsupportedApiCount = RbfxUnsupportedApisPass.Apply(compilation);
+            Logger.LogInformation("Suppressed {Count} rbfx API(s) with known unsupported linkage or surface constraints.", unsupportedApiCount);
+
             var sdkFilterSw = Stopwatch.StartNew();
             ApplySdkExportFilter(compilation, options.SdkLibraryPath);
             Logger.LogInformation("SDK filter complete.");
@@ -262,23 +265,6 @@ internal static class Program
             return;
         }
 
-        // Build a HashSet of exported function signatures for O(1) lookup.
-        // nm --demangle produces lines like:
-        //   void Urho3D::Context::AddRef()
-        //   unsigned long Urho3D::StringHash::CalculateHash()
-        // Extract the function name portion (before '(') as the key.
-        var exportedSignatures = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var symbol in exportedSymbols)
-        {
-            var parenIndex = symbol.IndexOf('(', StringComparison.Ordinal);
-            if (parenIndex < 0) continue;
-            // Walk back from '(' past the return type to find the function name start.
-            var nameStart = symbol.LastIndexOf(' ', parenIndex);
-            if (nameStart < 0) continue;
-            var signature = symbol[(nameStart + 1)..parenIndex];
-            exportedSignatures.Add(signature);
-        }
-
         var removedCount = 0;
         foreach (var function in compilation.Functions.Where(static function => (function.Parent is null || function.IsStatic) && !function.IsIgnored()))
         {
@@ -292,7 +278,7 @@ internal static class Program
                 continue;
             }
 
-            if (exportedSignatures.Contains(function.CppQualifiedName))
+            if (exportedSymbols.Any(symbol => symbol.Contains($"{function.CppQualifiedName}(", StringComparison.Ordinal)))
             {
                 continue;
             }
@@ -300,9 +286,10 @@ internal static class Program
             function.SetIgnoreReason($"function '{function.CppQualifiedName}' is not exported by the linked rbfx SDK library");
             removedCount++;
         }
+
         if (removedCount > 0)
         {
-            Logger.LogInformation("Ignored {Count} top-level function(s) that are not exported by '{LibraryPath}'.", removedCount, sdkLibraryPath);
+            Logger.LogInformation("Ignored {Count} function(s) that are not exported by '{LibraryPath}'.", removedCount, sdkLibraryPath);
         }
     }
 

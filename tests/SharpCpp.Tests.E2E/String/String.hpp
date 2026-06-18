@@ -3,6 +3,42 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <string_view>
+
+namespace eastl
+{
+template <typename T>
+class basic_string_view
+{
+public:
+    using size_type = std::size_t;
+
+    constexpr basic_string_view() = default;
+
+    constexpr basic_string_view(const T* value)
+        : value_(value)
+        , size_(value != nullptr ? std::char_traits<T>::length(value) : 0)
+    {
+    }
+
+    constexpr basic_string_view(const T* value, size_type size)
+        : value_(value)
+        , size_(value != nullptr ? size : 0)
+    {
+    }
+
+    constexpr const T* data() const noexcept { return value_; }
+    constexpr size_type size() const noexcept { return size_; }
+
+private:
+    const T* value_{};
+    size_type size_{};
+};
+
+using string_view = basic_string_view<char>;
+}
+
+namespace ea = eastl;
 
 inline int string_length(const char* value)
 {
@@ -49,6 +85,47 @@ inline const char* get_message()
 inline int measure_std_string(const std::string& value)
 {
     return static_cast<int>(value.size());
+}
+
+inline int string_view_length(std::string_view value)
+{
+    return static_cast<int>(value.size());
+}
+
+inline bool string_view_equals(std::string_view lhs, std::string_view rhs)
+{
+    return lhs == rhs;
+}
+
+inline int string_view_embedded_null_length(std::string_view value)
+{
+    return static_cast<int>(value.size());
+}
+
+inline std::string_view get_string_view_message()
+{
+    return "Hello from string_view";
+}
+
+inline std::string_view get_string_view_with_embedded_null()
+{
+    static constexpr char value[] = { 'a', '\0', 'b' };
+    return std::string_view(value, sizeof(value));
+}
+
+inline int ea_string_view_length(ea::string_view value)
+{
+    return static_cast<int>(value.size());
+}
+
+inline int ea_string_view_embedded_null_length(ea::string_view value)
+{
+    return static_cast<int>(value.size());
+}
+
+inline ea::string_view get_ea_string_view_message()
+{
+    return "Hello from ea::string_view";
 }
 
 class ea_compat_string

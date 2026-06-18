@@ -32,7 +32,7 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - Managed type overrides (`managed_type`, `managed_base_type`, `managed_base_type_constraints`)
 - Container wrappers: `vector`, `list`, `map`, `unordered_map`
 - Math primitives as value types: `Vector3`, `Matrix3`, `StringHash`, etc.
-- String support: `const char*` → `ReadOnlySpan<byte>`, `const char**` → `out string`, `std::string` → `StringBase`
+- String support: `const char*`, `std::string_view`, `ea::string_view` / `eastl::string_view` → `ReadOnlySpan<byte>`, `const char**` → `out string`, `std::string` → `StringBase`
 
 ### Inheritance & Polymorphism
 - Single inheritance with managed class hierarchy
@@ -52,7 +52,8 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - `NativeObject : SafeHandle` with lifecycle management
 - `DefaultNativeInstanceCache`, `NativeObjectRegistry`
 - `StringBase : NativeObject, IReadOnlyList<char>`
-- `Utf8SpanReturnMarshaller` (custom P/Invoke marshaller)
+- `Utf8SpanReturnMarshaller` for null-terminated `const char*` returns
+- `Utf8SpanAbiMarshaller` / `Utf8SpanAbiReturnMarshaller` for explicit UTF-8 ptr+len span ABI
 
 ### rbfx Consumer Slice
 - `rbfx/SharpCpp.Rbfx.Generator` parses `Urho3DAll.h` against SDK CMake flags
@@ -118,7 +119,14 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
   - rbfx generator now has a small manual handwritten-type suppression list for generated managed types provided by handwritten rbfx sources (currently `Urho3D.Math.Intersection`), avoiding fragile source scanning and keeping rbfx-specific exceptions out of core.
   - Native object registry initialization and rbfx E2E tests now use projected namespaces, so grouped output compiles after records move out of the flat `Urho3D` namespace.
   - Regression coverage verifies original/shadow traversal, projected namespace rendering and alias output, and metadata namespace/type-reference export.
-  - Verification: `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj`, `dotnet test tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj`, `dotnet test tests/SharpCpp.Tests.Metadata/SharpCpp.Tests.Metadata.csproj`, `cmake --build --preset Debug`, and `ctest --preset Debug` all pass.
+- **String view parameters and returns now use an explicit UTF-8 ptr+len span ABI**:
+  - Added core `std::string_view` marshaller configuration and rbfx `ea::string_view` / `eastl::string_view` configuration, all projecting to `global::System.ReadOnlySpan<byte>`.
+  - Added `Utf8SpanAbi` plus separate input and return custom marshallers. Input spans are copied to owned unmanaged buffers and freed by the input marshaller; returned views are wrapped without freeing native memory.
+  - Parser marshaller extraction now distinguishes `Marshaller<T>` from `ReturnMarshaller<T>` by the actual template declaration token, preventing return marshaller metadata from overwriting parameter marshaller metadata for the same C++ type.
+  - Renderer emits `[MarshalUsing]` on configured span parameters, avoids invalid default-value branches for undefaultable ref-struct parameters, and only emits managed `override` when the managed return type remains compatible with the base method.
+  - rbfx generator explicitly suppresses `Urho3D::Graph::LoadJSON` in `RbfxUnsupportedApisPass` because the SDK header declares it but the linked `libUrho3D.so` does not define/export the symbol; this keeps the generated native library loadable while documenting the unsupported API reason.
+  - E2E coverage verifies `std::string_view` and synthetic `ea::string_view` parameters/returns, including embedded NUL bytes.
+  - Verification: focused model/rendering tests, `cmake --build --preset Debug`, and `ctest --preset Debug` all pass.
 
 - **Metadata-driven alias preservation and rbfx `FlagSet<TEnum>` lowering are now green end-to-end**:
   - Alias metadata now uses structural type matching (`BindingTypeKey`) so public aliases are restored from model facts instead of formatted type-name strings, while internal/import/P/Invoke signatures stay concrete and fully qualified.

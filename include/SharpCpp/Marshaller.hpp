@@ -5,6 +5,7 @@
 #include <list>
 #include <map>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -232,6 +233,48 @@ struct OwnedHandleConstPointerMarshallerBase
 template <class TValue>
 struct OwnedHandleReturnMarshallerBase : OwnedHandleMarshallerBase<TValue>
 {
+};
+
+template <class TStringView>
+struct StringViewMarshallerBase
+{
+    using cpp_type = TStringView;
+    struct abi_type
+    {
+        const char* data{};
+        std::size_t size{};
+    };
+
+    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return { value.data(), value.size() };
+    }
+
+    constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        return value.data == nullptr ? cpp_type{} : cpp_type(value.data, value.size);
+    }
+};
+
+template <class TStringView>
+struct StringViewConstReferenceMarshallerBase
+{
+    using cpp_type = const TStringView&;
+    using abi_type = typename StringViewMarshallerBase<TStringView>::abi_type;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return { value.data(), value.size() };
+    }
+
+    cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        storage_ = value.data == nullptr ? TStringView{} : TStringView(value.data, value.size);
+        return storage_;
+    }
+
+private:
+    mutable TStringView storage_{};
 };
 
 template <class TCollection, class T>
@@ -576,6 +619,27 @@ struct [[sharpcpp::managed_type(public_type = "global::System.ReadOnlySpan<byte>
 };
 
 template <>
+struct Marshaller<const char*&>
+{
+    using cpp_type = const char*&;
+    using abi_type = const char*;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return value;
+    }
+
+    cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        storage_ = value;
+        return storage_;
+    }
+
+private:
+    mutable const char* storage_{};
+};
+
+template <>
 struct [[sharpcpp::managed_type(public_type = "string")]] Marshaller<const char**>
 {
     using cpp_type = const char**;
@@ -628,6 +692,17 @@ struct Marshaller<const std::string*> : OwnedStringConstPointerMarshallerBase<st
 
 template <>
 struct Marshaller<std::string*> : OwnedStringPointerMarshallerBase<std::string> {};
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::System.ReadOnlySpan<byte>",
+    managed_marshaller = "global::SharpCpp.Support.Utf8SpanAbiMarshaller",
+    undefaultable = true
+)]]
+Marshaller<std::string_view> : StringViewMarshallerBase<std::string_view> {};
+
+template <>
+struct Marshaller<const std::string_view&> : StringViewConstReferenceMarshallerBase<std::string_view> {};
 
 template <typename T, typename TAllocator>
 struct [[sharpcpp::managed_type(
@@ -725,6 +800,12 @@ struct ReturnMarshaller : Marshaller<T> {};
 
 template <>
 struct ReturnMarshaller<std::basic_string<char> > : OwnedStringReturnMarshallerBase<std::basic_string<char>> {};
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::System.ReadOnlySpan<byte>",
+    managed_marshaller = "global::SharpCpp.Support.Utf8SpanAbiReturnMarshaller"
+)]] ReturnMarshaller<std::string_view> : Marshaller<std::string_view> {};
 
 template <typename T, typename TAllocator>
 struct ReturnMarshaller<std::vector<T, TAllocator>> : OwnedHandleReturnMarshallerBase<std::vector<T, TAllocator>> {};

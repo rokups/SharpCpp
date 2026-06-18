@@ -522,7 +522,7 @@ public static partial class BindingOutputRenderer
 
     private static string BuildNativeDirectorCallbackSignature(FunctionBinding method)
     {
-        var parameterList = string.Join(", ", new[] { "void* self" }.Concat(method.Parameters.Select(parameter => $"arg_t<{parameter.CppTypeName}>")));
+        var parameterList = string.Join(", ", new[] { "void* self" }.Concat(method.Parameters.Select(parameter => $"arg_t<{GetNativeParameterMarshallerCppTypeName(parameter)}>")));
         return $"ret_t<{method.CppReturnTypeName}> (*)({parameterList})";
     }
 
@@ -540,7 +540,7 @@ public static partial class BindingOutputRenderer
     {
         ValidateProtectedMemberSupport(method);
 
-        var parameterList = string.Join(", ", method.Parameters.Select(parameter => $"arg_t<{parameter.CppTypeName}> {parameter.NativeName}"));
+        var parameterList = string.Join(", ", method.Parameters.Select(RenderNativeParameter));
         var abiArguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
         var writer = new CodeWriter();
         var helperName = GetNativeProtectedMethodHelperName(method);
@@ -3655,7 +3655,14 @@ public static partial class BindingOutputRenderer
 
     private static string RenderNativeParameter(ParameterBinding parameter)
     {
-        return $"arg_t<{parameter.CppTypeName}> {parameter.NativeName}";
+        return $"arg_t<{GetNativeParameterMarshallerCppTypeName(parameter)}> {parameter.NativeName}";
+    }
+
+    private static string GetNativeParameterMarshallerCppTypeName(ParameterBinding parameter)
+    {
+        return parameter.Type.Marshaller.IsRefStruct
+            ? parameter.Type.CppTypeName
+            : parameter.CppTypeName;
     }
 
     private static string BuildNativeFunctionSignature(FunctionBinding function)
@@ -3814,10 +3821,18 @@ public static partial class BindingOutputRenderer
 
         if (function.IsVirtual)
         {
-            var modifier = primaryBaseVirtualMatch is null
-                ? (function.IsOverride && !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
-                   record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal) ? "override " : "virtual ")
-                : "override ";
+            string modifier;
+            if (primaryBaseVirtualMatch is null)
+            {
+                modifier = ShouldUseNewModifier(compilation, record, function.ManagedName)
+                    ? "new virtual "
+                    : (function.IsOverride && !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
+                        record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal) ? "override " : "virtual ");
+            }
+            else
+            {
+                modifier = "override ";
+            }
 
             if (function.IsFinal && modifier == "override ")
             {
@@ -3918,7 +3933,11 @@ public static partial class BindingOutputRenderer
 
             var match = current.Members
                 .OfType<FunctionBinding>()
-                .FirstOrDefault(candidate => !candidate.IsIgnored() && candidate.IsVirtual && RecordBindingExtensions.SignaturesMatch(candidate, function));
+                .FirstOrDefault(candidate =>
+                    !candidate.IsIgnored() &&
+                    candidate.IsVirtual &&
+                    RecordBindingExtensions.SignaturesMatch(candidate, function) &&
+                    string.Equals(candidate.ReturnType.ManagedTypeName, function.ReturnType.ManagedTypeName, StringComparison.Ordinal));
             if (match is not null)
             {
                 return match;
@@ -4129,6 +4148,11 @@ public static partial class BindingOutputRenderer
 
     private static string GetManagedParameterAttribute(BindingType type)
     {
+        if (type.ManagedMarshaller is not null)
+        {
+            return $"[MarshalUsing(typeof({type.ManagedMarshaller}))] ";
+        }
+
         return type.PrimitiveKind == BindingPrimitiveKind.Boolean
             ? "[MarshalAs(UnmanagedType.I1)] "
             : string.Empty;
@@ -4914,7 +4938,9 @@ public static partial class BindingOutputRenderer
 
             // Check if after-firstU params have unexpressible defaults
             var afterParams = function.Parameters.Skip(firstU).ToArray();
-            var afterHasUnexpressible = afterParams.Any(p => p.HasMetadata(MetadataKeys.UnexpressibleDefault));
+            var afterHasUnexpressible = afterParams.Any(static p =>
+                p.HasMetadata(MetadataKeys.UnexpressibleDefault) &&
+                !p.HasMetadata(MetadataKeys.UndefaultableParam));
 
             if (afterHasUnexpressible)
             {
@@ -4924,7 +4950,8 @@ public static partial class BindingOutputRenderer
                 var afterDefaultIndices = new List<int>();
                 for (var i = firstU; i < function.Parameters.Count; i++)
                 {
-                    if (function.Parameters[i].HasMetadata(MetadataKeys.UnexpressibleDefault))
+                    if (function.Parameters[i].HasMetadata(MetadataKeys.UnexpressibleDefault) &&
+                        !function.Parameters[i].HasMetadata(MetadataKeys.UndefaultableParam))
                     {
                         afterDefaultIndices.Add(i);
                     }

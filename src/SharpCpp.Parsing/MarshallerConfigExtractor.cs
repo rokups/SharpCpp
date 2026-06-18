@@ -243,14 +243,9 @@ internal static class MarshallerConfigExtractor
         {
             if (child is RecordDecl or ClassTemplateDecl or ClassTemplatePartialSpecializationDecl)
             {
-                var spelling = child is NamedDecl named ? named.Name ?? named.Spelling.ToString() : child.Spelling.ToString();
-                if (string.Equals(spelling, "Marshaller", StringComparison.Ordinal))
+                if (TryGetMarshallerTemplateKind(child, out var isReturn))
                 {
-                    ProcessMarshallerDeclaration(child, declIndex, isReturn: false, result);
-                }
-                else if (string.Equals(spelling, "ReturnMarshaller", StringComparison.Ordinal))
-                {
-                    ProcessMarshallerDeclaration(child, declIndex, isReturn: true, result);
+                    ProcessMarshallerDeclaration(child, declIndex, isReturn, result);
                 }
             }
 
@@ -285,7 +280,7 @@ internal static class MarshallerConfigExtractor
 
         // Extract the C++ template argument type from cursor-extent source text.
         // GetSourceText preserves spaces between tokens so "const char*" stays correct.
-        var cppTypeName = ExtractTemplateArgFromCursorType(decl);
+        var cppTypeName = ExtractTemplateArgFromCursorType(decl, isReturn);
         if (string.IsNullOrWhiteSpace(cppTypeName))
         {
             return;
@@ -348,9 +343,7 @@ internal static class MarshallerConfigExtractor
         {
             if (child is RecordDecl or ClassTemplateDecl or ClassTemplatePartialSpecializationDecl)
             {
-                var spelling = child is NamedDecl named ? named.Name ?? named.Spelling.ToString() : child.Spelling.ToString();
-                if (string.Equals(spelling, "Marshaller", StringComparison.Ordinal) ||
-                    string.Equals(spelling, "ReturnMarshaller", StringComparison.Ordinal))
+                if (TryGetMarshallerTemplateKind(child, out var isReturn) && !isReturn)
                 {
                     ProcessMarshallerBody(child, declIndex, result);
                 }
@@ -382,7 +375,7 @@ internal static class MarshallerConfigExtractor
         var managedInstanceCacheTypeMatch = ManagedInstanceCacheTypeExpression.Match(body);
         var releaseStrategyMatch = ReleaseStrategyExpression.Match(body);
 
-        var cppTypeName = ExtractTemplateArgFromCursorType(decl);
+        var cppTypeName = ExtractTemplateArgFromCursorType(decl, isReturn: false);
         if (string.IsNullOrWhiteSpace(cppTypeName) || result.ContainsKey(cppTypeName))
         {
             return;
@@ -717,7 +710,7 @@ internal static class MarshallerConfigExtractor
             return Array.Empty<string>();
         }
 
-        if (!TryExtractTemplateArgumentFromSource($"Marshaller<{cppTypeName}>", out var argumentText))
+        if (!TryExtractTemplateArgumentFromSource($"Marshaller<{cppTypeName}>", isReturn: false, out var argumentText))
         {
             return Array.Empty<string>();
         }
@@ -859,10 +852,10 @@ internal static class MarshallerConfigExtractor
     /// in the cursor extent text (with spaces preserved between tokens).
     /// The cursor extent IS the AST's definitive representation of the node.
     /// </summary>
-    private static string? ExtractTemplateArgFromCursorType(Decl decl)
+    private static string? ExtractTemplateArgFromCursorType(Decl decl, bool isReturn)
     {
         var sourceText = GetSourceText(decl.Handle.TranslationUnit, decl.Extent);
-        var hasSourceTypeName = TryExtractTemplateArgumentFromSource(sourceText, out var sourceTypeName);
+        var hasSourceTypeName = TryExtractTemplateArgumentFromSource(sourceText, isReturn, out var sourceTypeName);
 
         // Prefer Clang's desugared template-argument type when available so
         // marshaller metadata is keyed on the canonical container surface
@@ -916,17 +909,30 @@ internal static class MarshallerConfigExtractor
         return $"{sourceNamespace}::{desugaredTypeName}";
     }
 
-    private static bool TryExtractTemplateArgumentFromSource(string sourceText, out string typeName)
+    private static bool TryGetMarshallerTemplateKind(Decl decl, out bool isReturn)
     {
-        typeName = string.Empty;
-        var marshallerIndex = sourceText.IndexOf("Marshaller", StringComparison.Ordinal);
-        if (marshallerIndex < 0)
+        var sourceText = GetSourceText(decl.Handle.TranslationUnit, decl.Extent);
+        if (TryFindTemplateArgumentStart(sourceText, "ReturnMarshaller", out _))
         {
-            return false;
+            isReturn = true;
+            return true;
         }
 
-        var genericStart = sourceText.IndexOf('<', marshallerIndex);
-        if (genericStart < 0)
+        if (TryFindTemplateArgumentStart(sourceText, "Marshaller", out _))
+        {
+            isReturn = false;
+            return true;
+        }
+
+        isReturn = false;
+        return false;
+    }
+
+    private static bool TryExtractTemplateArgumentFromSource(string sourceText, bool isReturn, out string typeName)
+    {
+        typeName = string.Empty;
+        var templateName = isReturn ? "ReturnMarshaller" : "Marshaller";
+        if (!TryFindTemplateArgumentStart(sourceText, templateName, out var genericStart))
         {
             return false;
         }
@@ -951,6 +957,36 @@ internal static class MarshallerConfigExtractor
             }
         }
 
+        return false;
+    }
+
+    private static bool TryFindTemplateArgumentStart(string sourceText, string templateName, out int genericStart)
+    {
+        var searchIndex = 0;
+        while (searchIndex < sourceText.Length)
+        {
+            var templateNameIndex = sourceText.IndexOf(templateName, searchIndex, StringComparison.Ordinal);
+            if (templateNameIndex < 0)
+            {
+                break;
+            }
+
+            var nextIndex = templateNameIndex + templateName.Length;
+            while (nextIndex < sourceText.Length && char.IsWhiteSpace(sourceText[nextIndex]))
+            {
+                nextIndex++;
+            }
+
+            if (nextIndex < sourceText.Length && sourceText[nextIndex] == '<')
+            {
+                genericStart = nextIndex;
+                return true;
+            }
+
+            searchIndex = templateNameIndex + templateName.Length;
+        }
+
+        genericStart = -1;
         return false;
     }
 
