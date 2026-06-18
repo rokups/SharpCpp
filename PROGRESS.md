@@ -114,10 +114,11 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 - **Silent exclusions now suppress generated `// excluded:` comment stubs**:
   - Added silent-exclusion metadata layered over `IgnoreReason`, preserving ignored-node dependency behavior while allowing renderers to omit selected declarations entirely.
-  - Explicit `[[sharpcpp::ignore]]` attributes, deleted native callables, unconfigured external placeholder records, rbfx non-`Urho3D` declarations, and rbfx `detail`/`Detail` implementation namespaces are now silently excluded.
+  - Explicit `[[sharpcpp::ignore]]` attributes, deleted native callables, unconfigured external placeholder records, core iterator endpoint functions, core assignment operators, rbfx non-`Urho3D` declarations, rbfx `detail`/`Detail` implementation namespaces, rbfx smart-pointer wrapper declarations, and rbfx flagset-only bitwise operators are now silently excluded.
   - Ordinary non-silent degradation reasons still render diagnostic comment stubs, so unsupported-surface diagnostics remain visible unless a pass explicitly marks the node silent.
-  - Grouped rendering still emits stable generated files for silent-only groups, avoiding stale CMake source-list failures while keeping the files free of excluded API comments.
-  - Verification: focused model/rendering tests, `cmake --build --preset Debug`, and `ctest --preset Debug` all pass.
+  - Grouped rendering still emits stable generated files for silent-only groups, avoiding stale CMake source-list failures while keeping the files free of excluded API comments. Functions whose parent record is silently excluded are now omitted as well, preventing stale member comment stubs under silent records.
+  - Bootstrap pipeline pass start/completion lifecycle logs now use trace level; warnings and high-level generator progress remain visible at normal verbosity.
+  - Verification: focused model/rendering tests, `cmake --build --preset Debug`, targeted generated-stub checks for rbfx smart-pointer and `PacketType` flagset comments, and `ctest --preset Debug` all pass.
 
 - **rbfx managed namespace projection now uses a shadow AST over the parsed AST**:
   - Added `ManagedBindingProjection` with synthetic namespace nodes and declaration references that do not re-parent original `BindingNode` instances, so original AST traversal remains intact.

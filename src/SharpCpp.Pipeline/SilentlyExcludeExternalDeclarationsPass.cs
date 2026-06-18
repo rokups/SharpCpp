@@ -15,6 +15,14 @@ public static class SilentlyExcludeExternalDeclarationsPass
                 record.SetSilentExclusionReason($"record '{record.CppQualifiedName}' is defined outside headers owned by this compilation");
             }
         }
+
+        foreach (var function in compilation.Functions)
+        {
+            if (ShouldSilentlyExcludeFunction(function, out var reason))
+            {
+                function.SetSilentExclusionReason(reason);
+            }
+        }
     }
 
     private static bool ShouldSilentlyExcludeRecord(RecordBinding record)
@@ -38,5 +46,24 @@ public static class SilentlyExcludeExternalDeclarationsPass
             !string.IsNullOrWhiteSpace(record.ManagedTypeFormat) ||
             !string.IsNullOrWhiteSpace(record.HandleMarshallerTypeName) ||
             record.Members.OfType<FunctionBinding>().Any(static member => member.HasMetadata(MetadataKeys.MarshallerExposedMethod));
+    }
+
+    private static bool ShouldSilentlyExcludeFunction(FunctionBinding function, out string reason)
+    {
+        if (string.Equals(function.NativeName, "begin", StringComparison.Ordinal) ||
+            string.Equals(function.NativeName, "end", StringComparison.Ordinal))
+        {
+            reason = $"callable '{function.CppQualifiedName}' is an iterator endpoint not projected into the managed surface";
+            return true;
+        }
+
+        if (string.Equals(function.NativeName, "operator=", StringComparison.Ordinal))
+        {
+            reason = $"assignment operator '{function.CppQualifiedName}' is not projected into the managed surface";
+            return true;
+        }
+
+        reason = string.Empty;
+        return false;
     }
 }

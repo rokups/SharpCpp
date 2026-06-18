@@ -51,6 +51,12 @@ public sealed class BindingOutputRendererTests
         var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });
         var record = new RecordBinding("record:silent", "silent", "Silent");
         record.SetSilentExclusionReason("internal detail");
+        var ignoredMethodOnSilentRecord = new FunctionBinding("method:silent:ignored", "ignored", "Ignored", BindingType.Int32, "entry_ignored")
+        {
+            OwningRecordCppTypeName = "silent"
+        };
+        ignoredMethodOnSilentRecord.SetIgnoreReason("unsupported member");
+        record.Members.Add(ignoredMethodOnSilentRecord);
         var function = new FunctionBinding("function:silent_fn", "silent_fn", "SilentFn", BindingType.Int32, "entry_silent");
         function.SetSilentExclusionReason("internal detail");
         var visibleRecord = new RecordBinding("record:visible", "visible", "Visible");
@@ -71,6 +77,7 @@ public sealed class BindingOutputRendererTests
         Assert.DoesNotContain("public partial class Silent", managedOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("SilentFn", managedOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("SilentMethod", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("unsupported member", managedOutput, StringComparison.Ordinal);
         Assert.Contains("public partial class Visible", managedOutput, StringComparison.Ordinal);
     }
 

@@ -37,9 +37,9 @@ public static class RbfxSilentExclusionPass
             }
         }
 
-        foreach (var function in compilation.Functions.Where(static function => function.Parent is not RecordBinding))
+        foreach (var function in compilation.Functions)
         {
-            if (TryGetSilentExclusionReason(function.CppQualifiedName, out var reason))
+            if (ShouldSilentlyExcludeFunction(function, out var reason))
             {
                 function.SetSilentExclusionReason(reason);
                 count++;
@@ -63,6 +63,45 @@ public static class RbfxSilentExclusionPass
         return parts.Length < 2 || !string.Equals(parts[0], "Urho3D", StringComparison.Ordinal);
     }
 
+    private static bool ShouldSilentlyExcludeFunction(FunctionBinding function, out string reason)
+    {
+        if (TryGetFlagSetOperatorSilentExclusionReason(function, out reason))
+        {
+            return true;
+        }
+
+        if (function.Parent is RecordBinding parentRecord)
+        {
+            return TryGetSmartPointerSilentExclusionReason(parentRecord.NativeName, function.CppQualifiedName, out reason) ||
+                TryGetSmartPointerSilentExclusionReason(parentRecord.CppQualifiedName, function.CppQualifiedName, out reason) ||
+                TryGetSmartPointerDeductionGuideSilentExclusionReason(function, out reason);
+        }
+
+        if (TryGetSilentExclusionReason(function.CppQualifiedName, out reason) ||
+            TryGetSmartPointerSilentExclusionReason(function.NativeName, function.CppQualifiedName, out reason) ||
+            TryGetSmartPointerDeductionGuideSilentExclusionReason(function, out reason))
+        {
+            return true;
+        }
+
+        reason = string.Empty;
+        return false;
+    }
+
+    private static bool TryGetSmartPointerDeductionGuideSilentExclusionReason(FunctionBinding function, out string reason)
+    {
+        var declarationText = function.GetMetadata<string>(MetadataKeys.DeclarationDisplayText) ?? string.Empty;
+        if ((declarationText.Contains(" SharedPtr(", StringComparison.Ordinal) && declarationText.Contains(" -> SharedPtr<", StringComparison.Ordinal)) ||
+            (declarationText.Contains(" WeakPtr(", StringComparison.Ordinal) && declarationText.Contains(" -> WeakPtr<", StringComparison.Ordinal)))
+        {
+            reason = $"rbfx smart pointer deduction guide '{function.CppQualifiedName}' is provided by custom marshaller support";
+            return true;
+        }
+
+        reason = string.Empty;
+        return false;
+    }
+
     private static bool TryGetSilentExclusionReason(string cppQualifiedName, out string reason)
     {
         if (string.IsNullOrWhiteSpace(cppQualifiedName))
@@ -84,6 +123,11 @@ public static class RbfxSilentExclusionPass
             return true;
         }
 
+        if (TryGetSmartPointerSilentExclusionReason(parts[^1], cppQualifiedName, out reason))
+        {
+            return true;
+        }
+
         if (parts.Skip(1).Take(parts.Length - 2).Any(static part =>
                 string.Equals(part, "detail", StringComparison.Ordinal) ||
                 string.Equals(part, "Detail", StringComparison.Ordinal)))
@@ -94,5 +138,125 @@ public static class RbfxSilentExclusionPass
 
         reason = string.Empty;
         return false;
+    }
+
+    private static bool TryGetSmartPointerSilentExclusionReason(string name, string cppQualifiedName, out string reason)
+    {
+        if (IsSmartPointerWrapperName(name))
+        {
+            reason = $"rbfx smart pointer wrapper '{cppQualifiedName}' is provided by custom marshaller support";
+            return true;
+        }
+
+        reason = string.Empty;
+        return false;
+    }
+
+    private static bool IsSmartPointerWrapperName(string name)
+    {
+        var namespaceDelimiterIndex = name.LastIndexOf("::", StringComparison.Ordinal);
+        if (namespaceDelimiterIndex >= 0)
+        {
+            name = name[(namespaceDelimiterIndex + 2)..];
+        }
+
+        var genericDelimiterIndex = name.IndexOf('<', StringComparison.Ordinal);
+        if (genericDelimiterIndex >= 0)
+        {
+            name = name[..genericDelimiterIndex];
+        }
+
+        return string.Equals(name, "SharedPtr", StringComparison.Ordinal) ||
+            string.Equals(name, "WeakPtr", StringComparison.Ordinal);
+    }
+
+    private static bool TryGetFlagSetOperatorSilentExclusionReason(FunctionBinding function, out string reason)
+    {
+        var declarationText = function.GetMetadata<string>(MetadataKeys.DeclarationDisplayText) ?? string.Empty;
+        if (!IsFlagSetOperator(function, declarationText))
+        {
+            reason = string.Empty;
+            return false;
+        }
+
+        if (TryGetFlagSetArgument(declarationText, out _))
+        {
+            reason = $"rbfx FlagSet operator '{function.CppQualifiedName}' is lowered to the enum managed surface";
+            return true;
+        }
+
+        if (!TryGetFlagSetArgument(function.ReturnType.CppTypeName, out var enumType))
+        {
+            reason = string.Empty;
+            return false;
+        }
+
+        foreach (var parameter in function.Parameters)
+        {
+            if (!IsSameFlagSetFamilyType(parameter.CppTypeName, enumType) &&
+                !IsSameFlagSetFamilyType(parameter.Type.CppTypeName, enumType))
+            {
+                reason = string.Empty;
+                return false;
+            }
+        }
+
+        reason = $"rbfx FlagSet operator '{function.CppQualifiedName}' is lowered to the enum managed surface";
+        return true;
+    }
+
+    private static bool IsFlagSetOperator(FunctionBinding function, string declarationText)
+    {
+        var token = function.OperatorToken;
+        if (string.IsNullOrWhiteSpace(token) && function.NativeName.StartsWith("operator", StringComparison.Ordinal))
+        {
+            token = function.NativeName["operator".Length..];
+        }
+
+        return token is "&" or "^" or "|" or "~" ||
+            declarationText.Contains(" operator&(", StringComparison.Ordinal) ||
+            declarationText.Contains(" operator^(", StringComparison.Ordinal) ||
+            declarationText.Contains(" operator|(", StringComparison.Ordinal) ||
+            declarationText.Contains(" operator~(", StringComparison.Ordinal);
+    }
+
+    private static bool IsSameFlagSetFamilyType(string cppTypeName, string enumType)
+    {
+        return TryGetFlagSetArgument(cppTypeName, out var flagSetArgument)
+            ? string.Equals(flagSetArgument, enumType, StringComparison.Ordinal)
+            : string.Equals(NormalizeCppTypeName(cppTypeName), enumType, StringComparison.Ordinal);
+    }
+
+    private static bool TryGetFlagSetArgument(string cppTypeName, out string enumType)
+    {
+        cppTypeName = NormalizeCppTypeName(cppTypeName);
+        var prefixIndex = cppTypeName.IndexOf("FlagSet<", StringComparison.Ordinal);
+        if (prefixIndex < 0)
+        {
+            enumType = string.Empty;
+            return false;
+        }
+
+        var argumentStart = prefixIndex + "FlagSet<".Length;
+        var argumentEnd = cppTypeName.IndexOf('>', argumentStart);
+        if (argumentEnd < 0)
+        {
+            enumType = string.Empty;
+            return false;
+        }
+
+        enumType = NormalizeCppTypeName(cppTypeName[argumentStart..argumentEnd]);
+        return enumType.Length > 0;
+    }
+
+    private static string NormalizeCppTypeName(string cppTypeName)
+    {
+        cppTypeName = cppTypeName.Trim();
+        while (cppTypeName.StartsWith("const ", StringComparison.Ordinal))
+        {
+            cppTypeName = cppTypeName["const ".Length..].TrimStart();
+        }
+
+        return cppTypeName.TrimEnd('&', '*').Trim();
     }
 }

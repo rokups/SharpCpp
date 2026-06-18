@@ -49,7 +49,7 @@ public static class BindingCompilationBootstrapPipeline
     private static void RunTimed(string name, Action action)
     {
         var sw = Stopwatch.StartNew();
-        Logger.LogInformation("Pass '{Name}' starting", name);
+        Logger.LogTrace("Pass '{Name}' starting", name);
         try
         {
             action();
@@ -59,7 +59,7 @@ public static class BindingCompilationBootstrapPipeline
             Logger.LogWarning("Pass '{Name}' FAILED after {Duration}", name, FormatDuration(sw.Elapsed));
             throw;
         }
-        Logger.LogInformation("Pass '{Name}' completed in {Duration}", name, FormatDuration(sw.Elapsed));
+        Logger.LogTrace("Pass '{Name}' completed in {Duration}", name, FormatDuration(sw.Elapsed));
     }
 
     private static string FormatDuration(TimeSpan elapsed) => elapsed.TotalSeconds < 1 ? $"{elapsed.TotalMilliseconds:F0}ms" : $"{elapsed.TotalSeconds:F1}s";

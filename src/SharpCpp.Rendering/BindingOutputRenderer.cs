@@ -87,7 +87,8 @@ public static partial class BindingOutputRenderer
         var writer = new CodeWriter();
         var allRecords = compilation.Records.Where(static record => !record.GetMetadata<bool>(MetadataKeys.SuppressEmission) && !record.IsSilentlyExcluded()).AsEnumerable();
         var allEnums = compilation.Enums.Where(static @enum => !@enum.GetMetadata<bool>(MetadataKeys.SuppressEmission) && !@enum.IsSilentlyExcluded()).AsEnumerable();
-        var allFunctions = compilation.Functions.Where(static function => !function.IsSilentlyExcluded()).AsEnumerable();
+        var allFunctions = compilation.Functions.Where(static function => !function.IsSilentlyExcluded() &&
+            (function.Parent is not RecordBinding parentRecord || !parentRecord.IsSilentlyExcluded())).AsEnumerable();
 
         if (memberFilter is not null)
         {
