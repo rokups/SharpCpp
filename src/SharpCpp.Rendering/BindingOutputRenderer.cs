@@ -339,7 +339,7 @@ public static partial class BindingOutputRenderer
         foreach (var field in record.Members.OfType<FieldBinding>().Where(static field => field.AccessModifier == BindingAccessModifier.Protected && !field.HasMetadata(MetadataKeys.IgnoreReason)))
         {
             writer.WriteLine();
-            writer.Write(RenderNativeProtectedFieldHelpers(record, field));
+            writer.Write(RenderNativeProtectedFieldHelpers(compilation, field));
         }
 
         var callbaseSlots = record.GetEffectiveVirtualMethodSlots(compilation)
@@ -596,15 +596,17 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string RenderNativeProtectedFieldHelpers(RecordBinding record, FieldBinding field)
+    private static string RenderNativeProtectedFieldHelpers(BindingCompilation compilation, FieldBinding field)
     {
-        ValidateProtectedMemberSupport(field);
+        var plan = CreateNativeFieldInteropPlan(compilation, field);
 
         var writer = new CodeWriter();
         writer.Write($$"""
-            ret_t<{{field.CppTypeName}}> {{GetNativeProtectedFieldGetterHelperName(field)}}()
+            ret_t<{{plan.StorageCppType}}> {{GetNativeProtectedFieldGetterHelperName(field)}}()
             {
-            return this->{{field.NativeName}};
+            {{(plan.BorrowsStorage
+                ? $"return &this->{field.NativeName};"
+                : $"ReturnMarshaller<{plan.StorageCppType}> __return_marshaller;\nreturn __return_marshaller.ConvertToAbi(this->{field.NativeName});")}}
             }
             """);
 
@@ -612,9 +614,9 @@ public static partial class BindingOutputRenderer
         {
             writer.WriteLine();
             writer.Write($$"""
-                void {{GetNativeProtectedFieldSetterHelperName(field)}}(field_t<{{field.CppTypeName}}> value)
+                void {{GetNativeProtectedFieldSetterHelperName(field)}}({{plan.SetterParameterCppType}} value)
                 {
-                this->{{field.NativeName}} = *value;
+                {{RenderNativeProtectedFieldSetterBody(field, plan)}}
                 }
                 """);
         }
@@ -664,6 +666,60 @@ public static partial class BindingOutputRenderer
                 """;
     }
 
+    private enum FieldSetterMode
+    {
+        ValuePointer,
+        HandleAbi,
+        BorrowedStorage
+    }
+
+    private sealed record NativeFieldInteropPlan(
+        string StorageCppType,
+        bool BorrowsStorage,
+        FieldSetterMode SetterMode)
+    {
+        public string SetterParameterCppType => SetterMode == FieldSetterMode.HandleAbi
+            ? $"arg_t<{StorageCppType}>"
+            : $"field_t<{StorageCppType}>";
+    }
+
+    private static NativeFieldInteropPlan CreateNativeFieldInteropPlan(BindingCompilation compilation, FieldBinding field)
+    {
+        var storageCppType = GetNativeFieldCppType(compilation, field);
+        var borrowsStorage = ShouldBorrowFieldStorage(compilation, field);
+        var setterMode = borrowsStorage
+            ? FieldSetterMode.BorrowedStorage
+            : field.Type.Kind == BindingTypeKind.Handle
+                ? FieldSetterMode.HandleAbi
+                : FieldSetterMode.ValuePointer;
+
+        return new NativeFieldInteropPlan(storageCppType, borrowsStorage, setterMode);
+    }
+
+    private static string RenderNativeProtectedFieldSetterBody(FieldBinding field, NativeFieldInteropPlan plan)
+    {
+        return plan.SetterMode switch
+        {
+            FieldSetterMode.ValuePointer => $"this->{field.NativeName} = *value;",
+            FieldSetterMode.HandleAbi => $$"""
+                ParameterMarshaller<{{plan.StorageCppType}}> __value_marshaller;
+                this->{{field.NativeName}} = __value_marshaller.ConvertToCpp(value);
+                detail::SyncMarshaller(__value_marshaller);
+                """,
+            FieldSetterMode.BorrowedStorage => $$"""
+                if (value == nullptr)
+                {
+                this->{{field.NativeName}}.clear();
+                return;
+                }
+
+                auto* source = static_cast<{{plan.StorageCppType}}*>(value);
+                this->{{field.NativeName}} = std::move(*source);
+                """,
+            _ => throw new ArgumentOutOfRangeException(nameof(plan), plan.SetterMode, "Unknown field setter mode.")
+        };
+    }
+
     private static string GetNativeProtectedMethodHelperName(FunctionBinding method)
     {
         return $"__call_{SanitizeManagedToken(method.ImportMethodName)}";
@@ -684,14 +740,6 @@ public static partial class BindingOutputRenderer
         if (method.Parameters.Any(parameter => parameter.Direction is not BindingParameterDirection.In || parameter.AbiKind is not BindingParameterAbiKind.Value))
         {
             throw new NotSupportedException($"Protected member '{method.ManagedName}' only supports in-value parameters in this slice.");
-        }
-    }
-
-    private static void ValidateProtectedMemberSupport(FieldBinding field)
-    {
-        if (field.Type.Kind == BindingTypeKind.Handle)
-        {
-            throw new NotSupportedException($"Protected field '{field.ManagedName}' does not support handle-typed storage in this slice.");
         }
     }
 
@@ -3076,15 +3124,15 @@ public static partial class BindingOutputRenderer
 
         foreach (var field in records.Where(static record => !record.HasMetadata(MetadataKeys.IgnoreReason)).SelectMany(static record => record.Members.OfType<FieldBinding>()).Where(static field => !field.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static field => field.ManagedName, StringComparer.Ordinal))
         {
-            var nativeFieldCppType = GetNativeFieldCppType(compilation, field);
-            var borrowFieldStorage = ShouldBorrowFieldStorage(compilation, field);
+            var plan = CreateNativeFieldInteropPlan(compilation, field);
+            var nativeFieldCppType = plan.StorageCppType;
             writer.WriteLine();
             writer.Write($$"""
                 SHARPCPP_EXPORT ret_t<{{nativeFieldCppType}}> sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_get(arg_t<{{field.OwningRecordCppTypeName}}*> self)
                 {
                 {{(field.AccessModifier == BindingAccessModifier.Protected
                     ? RenderNativeProtectedFieldGetInvocation(compilation, field)
-                    : borrowFieldStorage
+                    : plan.BorrowsStorage
                         ? RenderNativeBorrowedFieldGetInvocation(field)
                         : $"return MarshallerInvoker::get_field<{nativeFieldCppType}>(&{field.OwningRecordCppTypeName}::{field.NativeName}, self);")}}
                 }
@@ -3094,11 +3142,11 @@ public static partial class BindingOutputRenderer
             {
                 writer.WriteLine();
                 writer.Write($$"""
-                    SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_set(arg_t<{{field.OwningRecordCppTypeName}}*> self, field_t<{{nativeFieldCppType}}> value)
+                    SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_set(arg_t<{{field.OwningRecordCppTypeName}}*> self, {{plan.SetterParameterCppType}} value)
                     {
                     {{(field.AccessModifier == BindingAccessModifier.Protected
                         ? RenderNativeProtectedFieldSetInvocation(compilation, field)
-                        : borrowFieldStorage
+                        : plan.BorrowsStorage
                             ? RenderNativeBorrowedFieldSetInvocation(field)
                             : $"MarshallerInvoker::set_field<{nativeFieldCppType}>(&{field.OwningRecordCppTypeName}::{field.NativeName}, self, value);")}}
                     }

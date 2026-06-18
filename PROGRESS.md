@@ -40,7 +40,7 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - Polymorphic wrapping: runtime type ID, instance caches, `CreateManagedWrapper`
 - Director/Managed virtual overrides (native→managed dispatch)
 - Multiple inheritance: projected secondary-base methods, managed `I*` interfaces
-- Protected member access for director-capable records
+- Protected member access for director-capable records, including protected handle fields
 - Base-call delegation (`callbase_*` entrypoints)
 
 ### Generics / Templates
@@ -113,6 +113,13 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - All type-specific behaviors configured through C++/C# marshallers, never hardcoded in core
 
 ## Recently Fixed
+
+- **Protected handle fields now render through the director protected-member path**:
+  - Removed the bootstrap blanket degradation for protected handle fields; unsupported target records/enums and other invalid field shapes still degrade through the normal type checks.
+  - Added a renderer `NativeFieldInteropPlan` with structural setter modes for primitive/value fields, non-borrowed handle fields, and borrowed-storage handle fields. Protected `SharedPtr<T>`-style fields now use `ReturnMarshaller<T>` / `ParameterMarshaller<T>` conversion, while protected map/vector/list-style fields return borrowed storage and preserve null-clear setter behavior.
+  - rbfx `Application` protected fields `commandLineParameters_`, `engine_`, and `engineParameters_` are generated instead of emitted as `// excluded:` stubs.
+  - Regression coverage verifies supported protected handles remain retained, ignored target records still degrade, primitive protected setters keep `field_t<T>`, projected handles use marshaller conversion, and borrowed containers use address-return/null-clear semantics.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj`, `dotnet test tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj`, `cmake --build --preset Debug`, and `ctest --preset Debug` all pass.
 
 - **Director callback rendering now supports the rbfx inheritable SDK surface end-to-end**:
   - Managed director callback helpers now qualify callback owner types with `global::...`, preventing inherited callbacks from resolving against the wrong generated namespace in grouped rbfx output.

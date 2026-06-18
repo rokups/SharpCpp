@@ -363,12 +363,6 @@ public static class DegradeUnsupportedSurfacePass
         IReadOnlyDictionary<string, EnumBinding> enumsById,
         out string reason)
     {
-        if (field.AccessModifier == BindingAccessModifier.Protected && field.Type.Kind == BindingTypeKind.Handle)
-        {
-            reason = "protected handle fields are not yet supported in this bootstrap surface";
-            return true;
-        }
-
         if ((field.Parent as RecordBinding)?.IsGeneric != true && field.Type.ContainsGenericParameters)
         {
             reason = "field type is unsupported in this bootstrap surface: open generic parameter usage is not renderer-ready in a non-generic record";

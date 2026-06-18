@@ -57,10 +57,41 @@ public sealed class DegradeUnsupportedSurfacePassTests
     }
 
     [Fact]
-    public void Apply_ignores_protected_handle_fields_before_rendering()
+    public void Apply_keeps_supported_protected_handle_fields()
     {
         var compilation = new BindingCompilation("SharpCpp.Tests", "Urho3D", "Bindings", "Native", ["Object.h"]);
         var context = new RecordBinding("record:Urho3D::Context", "Context", "Context", "Urho3D::Context");
+        context.Members.Add(new FunctionBinding("method:Urho3D::Context::GetValue", "GetValue", "GetValue", BindingType.Int32, "Urho3D::Context::GetValue")
+        {
+            IsStatic = false,
+            OwningRecordCppTypeName = context.CppQualifiedName
+        });
+        var @object = new RecordBinding("record:Urho3D::Object", "Object", "Object", "Urho3D::Object")
+        {
+            IsDirector = true
+        };
+        var contextType = BindingType.CreateHandle("Urho3D::Context*", "Context", context.SymbolId);
+        var field = new FieldBinding("field:Urho3D::Object::context_", "context_", "Context", contextType, "Urho3D::Context*", @object.CppQualifiedName)
+        {
+            AccessModifier = BindingAccessModifier.Protected
+        };
+
+        @object.Members.Add(field);
+        compilation.Members.Add(context);
+        compilation.Members.Add(@object);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.False(@object.IsIgnored(), @object.GetIgnoreReason());
+        Assert.False(field.IsIgnored(), field.GetIgnoreReason());
+    }
+
+    [Fact]
+    public void Apply_ignores_protected_handle_fields_when_target_record_is_ignored()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Urho3D", "Bindings", "Native", ["Object.h"]);
+        var context = new RecordBinding("record:Urho3D::Context", "Context", "Context", "Urho3D::Context");
+        context.SetIgnoreReason("record is unavailable");
         var @object = new RecordBinding("record:Urho3D::Object", "Object", "Object", "Urho3D::Object")
         {
             IsDirector = true
@@ -79,7 +110,7 @@ public sealed class DegradeUnsupportedSurfacePassTests
 
         Assert.False(@object.IsIgnored(), @object.GetIgnoreReason());
         Assert.True(field.IsIgnored());
-        Assert.Contains("protected handle fields", field.GetIgnoreReason(), StringComparison.Ordinal);
+        Assert.Contains("record 'Urho3D::Context' is ignored", field.GetIgnoreReason(), StringComparison.Ordinal);
     }
 
     [Fact]

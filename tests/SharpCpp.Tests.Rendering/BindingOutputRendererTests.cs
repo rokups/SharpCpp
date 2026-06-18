@@ -1215,11 +1215,14 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("__call_Increment", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("__call_Scale", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("__get_Factor", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("void __set_Factor(field_t<int> value)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("this->factor_ = *value;", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("void __set_Factor(arg_t<int> value)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("protected member access requires a director-backed instance", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Director_records_skip_ignored_protected_field_helpers()
+    public void Director_records_skip_explicitly_ignored_protected_field_helpers()
     {
         var compilation = new BindingCompilation(
             "SharpCpp.Sample",
@@ -1249,7 +1252,7 @@ public sealed class BindingOutputRendererTests
         {
             AccessModifier = BindingAccessModifier.Protected
         };
-        contextField.SetIgnoreReason("protected handle fields are not yet supported in this bootstrap surface");
+        contextField.SetIgnoreReason("field explicitly ignored by pipeline");
 
         record.Members.Add(getValue);
         record.Members.Add(contextField);
@@ -1263,6 +1266,101 @@ public sealed class BindingOutputRendererTests
 
         Assert.DoesNotContain("__get_Context", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("__set_Context", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Director_records_render_pointer_handle_protected_field_helpers()
+    {
+        var compilation = CreateProtectedHandleFieldCompilation(
+            BindingType.CreateHandle("payload*", "Payload", "record:payload"),
+            "payload*");
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("protected global::SharpCpp.Sample.Payload Payload", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial global::SharpCpp.Sample.Payload Get_Payload(ProtectedCounter self);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke.Set_Payload(this, value);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("ret_t<payload*> __get_Payload()", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("ReturnMarshaller<payload*> __return_marshaller;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("void __set_Payload(arg_t<payload*> value)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("ParameterMarshaller<payload*> __value_marshaller;", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Director_records_render_projected_handle_protected_field_with_marshaller_conversion()
+    {
+        var compilation = CreateProtectedHandleFieldCompilation(
+            BindingType.CreateHandle("SharedPtr<payload>", "Payload", "record:payload", marshallerTypeName: "Marshaller<SharedPtr<payload>>"),
+            "SharedPtr<payload>");
+
+        var nativeOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("ret_t<SharedPtr<payload>> __get_Payload()", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("ReturnMarshaller<SharedPtr<payload>> __return_marshaller;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return __return_marshaller.ConvertToAbi(this->payload_);", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("return this->payload_;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_protected_counter_payload__set(arg_t<protected_counter*> self, arg_t<SharedPtr<payload>> value)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("void __set_Payload(arg_t<SharedPtr<payload>> value)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("ParameterMarshaller<SharedPtr<payload>> __value_marshaller;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("this->payload_ = __value_marshaller.ConvertToCpp(value);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("detail::SyncMarshaller(__value_marshaller);", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("void __set_Payload(field_t<SharedPtr<payload>> value)", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("this->payload_ = *value;", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Director_records_render_borrowed_container_protected_field_with_address_return_and_null_clear()
+    {
+        var compilation = CreateProtectedHandleFieldCompilation(
+            BindingType.CreateHandle("std::unordered_map<int, int>", "VariantMap", "record:payload", marshallerTypeName: "Marshaller<std::unordered_map<int, int>>"),
+            "std::unordered_map<int, int>");
+
+        var nativeOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("ret_t<std::unordered_map<int, int>> __get_Payload()", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return &this->payload_;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_protected_counter_payload__set(arg_t<protected_counter*> self, field_t<std::unordered_map<int, int>> value)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("void __set_Payload(field_t<std::unordered_map<int, int>> value)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("if (value == nullptr)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("this->payload_.clear();", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("auto* source = static_cast<std::unordered_map<int, int>*>(value);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("this->payload_ = std::move(*source);", nativeOutput, StringComparison.Ordinal);
+    }
+
+    private static BindingCompilation CreateProtectedHandleFieldCompilation(BindingType fieldType, string fieldCppTypeName)
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/Protected.hpp" });
+        var payloadRecord = new RecordBinding("record:payload", "payload", "Payload");
+        var record = new RecordBinding("record:protected_counter", "protected_counter", "ProtectedCounter")
+        {
+            IsDirector = true
+        };
+        var virtualMethod = new FunctionBinding("method:protected_counter:get_value", "get_value", "GetValue", BindingType.Int32, "entry_get")
+        {
+            IsStatic = false,
+            IsVirtual = true,
+            IsConstMethod = true,
+            OwningRecordCppTypeName = "protected_counter"
+        };
+        record.Members.Add(virtualMethod);
+        record.Members.Add(new FieldBinding("field:protected_counter:payload_", "payload_", "Payload", fieldType, fieldCppTypeName, "protected_counter")
+        {
+            AccessModifier = BindingAccessModifier.Protected
+        });
+        compilation.Members.Add(payloadRecord);
+        compilation.Members.Add(record);
+
+        BindingCompilationPolymorphismPass.Apply(compilation);
+        return compilation;
     }
 
     [Fact]
