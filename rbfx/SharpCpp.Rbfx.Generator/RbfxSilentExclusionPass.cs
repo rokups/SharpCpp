@@ -14,7 +14,13 @@ public static class RbfxSilentExclusionPass
         "Container/Functors.h",
         "Container/Allocator.h",
         "Core/Assert.h",
-        "Core/AssertBase.h"
+        "Core/Format.h",
+        "Core/IteratorRange.h",
+        "Core/Macros.h",
+        "Core/Main.h",
+        "Core/NonCopyable.h",
+        "Core/TypeTrait.h",
+        "Core/StringUtils.h",
     };
 
     public static int Apply(BindingCompilation compilation)
