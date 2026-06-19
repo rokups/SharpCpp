@@ -91,6 +91,7 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - [x] Placeholder records now use `GetManagedTypeHead` to strip `::` qualifiers from `ManagedName`
 - [x] Remaining leak: nested generic argument type names (e.g. `Urho3D::BaseVector3<float>` inside `Ea.Vector<...>`) now properly caught via placeholder-record detection and post-instantiation `HasUnresolvedNamespaceColons` check
 - [x] More explicit early diagnostics for unsupported combinations — placeholder record types are now flagged in both degradation and validation passes
+- [x] Const/non-const method overloads that collapse to the same managed callable signature are silently pruned before duplicate-surface degradation
 - [ ] Hardened fail-fast gates before render/native compile (improved: C++ compile errors dropped from 222 to 160 in rbfx SDK; remaining are pre-existing)
 
 ### Cross-Module Composition

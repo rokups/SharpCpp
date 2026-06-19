@@ -24,10 +24,10 @@ This keeps pass definitions zero-overhead and avoids a fixed abstraction boundar
 |---|---|---|
 | **Normalization** | `NormalizeManagedNamespacesPass` | Map C++ namespaces → managed namespaces via configured mappings or PascalCase heuristics |
 | **Decoration** | `MarshallerMetadataPhase2` (from Parsing layer) | Apply marshaller annotations from metadata files onto AST nodes |
-| **Filtering** | `DegradeUnsupportedSurfacePass` | Remove constructs that cannot be expressed in the target managed language surface; uses **fixed-point iteration** (`while (changed)`) since ignoring one node may cascade to dependents |
+| **Filtering** | `SilentlyExcludeExternalDeclarationsPass`, `SilentlyExcludeConstOverloadMethodsPass`, `DegradeUnsupportedSurfacePass` | Silently prune external/implementation-only declarations and const methods whose non-const overloads collapse to the same managed callable signature, then remove constructs that cannot be expressed in the target managed language surface; degradation uses **fixed-point iteration** (`while (changed)`) since ignoring one node may cascade to dependents |
 | **Instantiation Discovery** | `BindingCompilationGenericInstantiationPass` | Walk all function return types, parameter types, and field types to discover concrete generic instantiations referenced by usage |
 | **Inheritance Projection** | `BindingCompilationInheritancePass` | Clone virtual methods from secondary base records into derived records so the managed hierarchy has a flat method list per type |
-| **Analysis** | `BindingCompilationPolymorphismPass` | Mark records as polymorphic (`IsPolymorphic = true`) if they declare virtual methods or inherit from a polymorphic base; uses **fixed-point iteration** for transitive propagation |
+| **Analysis** | `InheritManagedRuntimePolicyPass`, `BindingCompilationPolymorphismPass` | Inherit managed runtime policy from primary bases and mark records as polymorphic (`IsPolymorphic = true`) if they declare virtual methods or inherit from a polymorphic base; polymorphism uses **fixed-point iteration** for transitive propagation |
 | **Validation** | `ValidateBootstrapSurfacePass` | Reject remaining unsupported shapes: virtual base inheritance, generic records without instantiations, non-primitive/enum/handle generic arguments, generics with operators or fields |
 
 ### Key Architectural Decisions
@@ -60,26 +60,39 @@ BindingCompilation
 2. MarshallerMetadataPhase2  (from SharpCpp.Parsing)
     │  Applies marshaller annotations, type mappings, config
     ▼
-3. DegradeUnsupportedSurfacePass
+3. SilentlyExcludeExternalDeclarationsPass
+    │  Silently ignores external placeholders and implementation-only APIs
+    ▼
+4. DegradeUnsupportedSurfacePass
     │  Removes duplicates, namespace-filtered, externally-owned,
     │  unsupported-type, and unsupported-operator declarations
     │  [fixed-point: cascading ignores]
     ▼
-4. BindingCompilationGenericInstantiationPass
+5. BindingCompilationGenericInstantiationPass
     │  Discovers concrete instantiations for generic records/functions
     │  by walking all typed references in the compilation
     ▼
-5. BindingCompilationInheritancePass
+6. BindingCompilationInheritancePass
     │  Projects virtual methods from secondary bases
     │  into derived records (flattened method lists)
     ▼
-6. BindingCompilationPolymorphismPass
+7. InheritManagedRuntimePolicyPass
+    │  Propagates managed runtime policy along retained primary bases
+    ▼
+8. BindingCompilationPolymorphismPass
     │  Marks records as polymorphic transitively
     │  [fixed-point: propagates up inheritance chain]
     ▼
-7. ValidateBootstrapSurfacePass
+9. ValidateBootstrapSurfacePass
     │  Final validation: generic shape constraints,
     │  virtual base inheritance, field/operator restrictions
+    ▼
+10. SilentlyExcludeConstOverloadMethodsPass
+    │  Silently ignores const methods when a non-const overload has
+    │  the same managed callable signature
+    ▼
+11. DegradeUnsupportedSurfacePass
+    │  Re-runs degradation after validation and const-overload pruning
     ▼
 BindingCompilation (renderer-ready)
 ```

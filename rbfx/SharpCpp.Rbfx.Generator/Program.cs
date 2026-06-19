@@ -60,18 +60,18 @@ internal static class Program
     {
         "Urho3D::Object",
         "Urho3D::Application",
+        "Urho3D::PluginApplication",
         "Urho3D::ApplicationState",
         "Urho3D::Serializable",
         "Urho3D::Animatable",
         "Urho3D::Component",
         "Urho3D::LogicComponent",
-        "Urho3D::PluginApplication",
         "Urho3D::Drawable",
-        "Urho3D::MoveAndOrbitComponent",
+        "Urho3D::Drawable2D",
         "Urho3D::Resource",
         "Urho3D::TriggerAnimator",
-        "Urho3D::Drawable2D",
-        "Urho3D::RmlUIComponent"
+        "Urho3D::RmlUIComponent",
+        "Urho3D::ActionCallHandler",
     };
 
     public static int Main(string[] args)

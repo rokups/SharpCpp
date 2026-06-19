@@ -34,6 +34,7 @@ public static class BindingCompilationBootstrapPipeline
         RunTimed("InheritManagedRuntimePolicy", () => InheritManagedRuntimePolicyPass.Apply(compilation));
         RunTimed("Polymorphism", () => BindingCompilationPolymorphismPass.Apply(compilation));
         RunTimed("ValidateBootstrap", () => ValidateBootstrapSurfacePass.Apply(compilation));
+        RunTimed("SilentlyExcludeConstOverloadMethods", () => SilentlyExcludeConstOverloadMethodsPass.Apply(compilation));
         RunTimed("DegradeValidatedSurface", () => DegradeUnsupportedSurfacePass.Apply(compilation));
 
         // Prune aliases whose target records were degraded or excluded by
