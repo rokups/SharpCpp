@@ -123,6 +123,50 @@ public sealed class ClangSharpHeaderParserMarshallerTests
     }
 
     [Fact]
+    public void Parse_defaults_managed_pointer_override_parameters_to_in_value_tokens()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "BytePointerMarshaller");
+        var includeDir = Path.Combine(repoRoot, "include");
+        var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+        var marshallerHeader = Path.Combine(includeDir, "SharpCpp", "Marshaller.hpp");
+
+        var parser = new ClangSharpHeaderParser();
+        var clangArgs = CreateStandardLibraryClangArgs(fixtureDir, includeDir);
+
+        var compilation = parser.Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test.Namespace",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: clangArgs,
+            MarshallerConfigurationFiles: [marshallerHeader],
+            EntryPointPrefix: "Test_"));
+
+        var unsignedBuffer = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "consume_unsigned_buffer"));
+        Assert.Equal("global::System.IntPtr", unsignedBuffer.Parameters[0].Type.ManagedTypeName);
+        Assert.Equal(BindingParameterDirection.In, unsignedBuffer.Parameters[0].Direction);
+        Assert.Equal(BindingParameterAbiKind.Value, unsignedBuffer.Parameters[0].AbiKind);
+
+        var signedBuffer = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "consume_signed_buffer"));
+        Assert.Equal("global::System.IntPtr", signedBuffer.Parameters[0].Type.ManagedTypeName);
+        Assert.Equal(BindingParameterDirection.In, signedBuffer.Parameters[0].Direction);
+        Assert.Equal(BindingParameterAbiKind.Value, signedBuffer.Parameters[0].AbiKind);
+
+        var explicitUnsignedOut = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "write_unsigned_pointer"));
+        Assert.Equal("global::System.IntPtr", explicitUnsignedOut.Parameters[0].Type.ManagedTypeName);
+        Assert.Equal(BindingParameterDirection.Out, explicitUnsignedOut.Parameters[0].Direction);
+        Assert.Equal(BindingParameterAbiKind.Value, explicitUnsignedOut.Parameters[0].AbiKind);
+
+        var explicitSignedOut = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "write_signed_pointer"));
+        Assert.Equal("global::System.IntPtr", explicitSignedOut.Parameters[0].Type.ManagedTypeName);
+        Assert.Equal(BindingParameterDirection.Out, explicitSignedOut.Parameters[0].Direction);
+        Assert.Equal(BindingParameterAbiKind.Value, explicitSignedOut.Parameters[0].AbiKind);
+    }
+
+    [Fact]
     public void Parse_projects_shared_ptr_and_marks_returns_as_owning_handles()
     {
         var repoRoot = FindRepositoryRoot();

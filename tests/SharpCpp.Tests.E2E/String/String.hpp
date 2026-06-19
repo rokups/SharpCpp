@@ -60,7 +60,7 @@ inline bool string_equals(const char* lhs, const char* rhs)
     return *lhs == *rhs;
 }
 
-inline void get_name(const char** value)
+inline void get_name([[sharpcpp::out]] const char** value)
 {
     const char* source = "SharpCpp";
     auto* buf = (char*)std::malloc(std::strlen(source) + 1);

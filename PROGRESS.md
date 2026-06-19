@@ -114,6 +114,12 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **Signed and unsigned byte pointer marshallers now expose pointer-token APIs as `IntPtr`**:
+  - Added explicit `Marshaller<T>` specializations for `signed char*`, `const signed char*`, `unsigned char*`, and `const unsigned char*` that pass through native pointer ABI values and advertise `global::System.IntPtr` managed surfaces.
+  - Parser parameter direction inference now treats full pointer types with managed-type overrides as by-value input tokens by default, while explicit `[[sharpcpp::out]]` / `[[sharpcpp::ref]]` still wins.
+  - Synthetic E2E fixtures now distinguish byte scalar out/ref coverage from byte pointer-token APIs so mutable byte pointers are not accidentally tested as scalar out parameters.
+  - Verification: `cmake --build --preset Debug`, `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj --configuration Debug --filter Parse_defaults_managed_pointer_override_parameters_to_in_value_tokens`, `dotnet test tests/SharpCpp.Tests.E2E/SharpCpp.Tests.E2E.csproj --configuration Debug --filter BuiltinTests`, generated rbfx `rg -n "out global::System\.IntPtr" "out/build/dev/generated/rbfx"`, and `ctest --preset Debug --output-on-failure` with unrelated rbfx generator edits temporarily stashed all pass.
+
 - **Direct `dotnet test` / IDE runs now validate CMake-produced artifacts before compiling tests**:
   - `.CMakeLast.props` now carries the last configured build/output/generated/native/runsettings artifact paths needed by direct MSBuild consumers.
   - `SharpCpp.Build.targets` validates generated C# sources, generation stamps, native libraries, rbfx runsettings, and user-code runtime artifacts for projects that consume CMake-produced outputs.

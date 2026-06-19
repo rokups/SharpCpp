@@ -462,6 +462,42 @@ public sealed class BuiltinTests
     }
 
     [Fact]
+    public void SignedCharPtr_surfaces_are_IntPtr_tokens()
+    {
+        var roundtripValue = new IntPtr(0x1234);
+        Assert.Equal(roundtripValue, E2EBindings.RoundtripSignedCharPtr(roundtripValue));
+
+        var inValue = new IntPtr(0x5678);
+        Assert.Equal(inValue, E2EBindings.EchoInConstSignedCharPtr(inValue));
+
+        var expectedToken = E2EBindings.OpaqueToken();
+        var refValue = IntPtr.Zero;
+        E2EBindings.ReplaceRefSignedCharPtr(ref refValue);
+        Assert.Equal(expectedToken, refValue);
+
+        E2EBindings.WriteOutSignedCharPtr(out var outValue);
+        Assert.Equal(expectedToken, outValue);
+    }
+
+    [Fact]
+    public void UnsignedCharPtr_surfaces_are_IntPtr_tokens()
+    {
+        var roundtripValue = new IntPtr(0x1234);
+        Assert.Equal(roundtripValue, E2EBindings.RoundtripUnsignedCharPtr(roundtripValue));
+
+        var inValue = new IntPtr(0x5678);
+        Assert.Equal(inValue, E2EBindings.EchoInConstUnsignedCharPtr(inValue));
+
+        var expectedToken = E2EBindings.OpaqueToken();
+        var refValue = IntPtr.Zero;
+        E2EBindings.ReplaceRefUnsignedCharPtr(ref refValue);
+        Assert.Equal(expectedToken, refValue);
+
+        E2EBindings.WriteOutUnsignedCharPtr(out var outValue);
+        Assert.Equal(expectedToken, outValue);
+    }
+
+    [Fact]
     public void Simple_handle_return_creates_non_null_wrapper()
     {
         var context = E2EBindings.CreateContext();

@@ -528,6 +528,134 @@ struct [[sharpcpp::managed_type(public_type = "global::System.IntPtr")]] Marshal
     }
 };
 
+template <>
+struct [[sharpcpp::managed_type(public_type = "global::System.IntPtr")]] Marshaller<signed char*>
+{
+    using cpp_type = signed char*;
+    using abi_type = signed char*;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return value;
+    }
+
+    constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        return value;
+    }
+};
+
+template <>
+struct [[sharpcpp::managed_type(public_type = "global::System.IntPtr")]] Marshaller<const signed char*>
+{
+    using cpp_type = const signed char*;
+    using abi_type = const signed char*;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return value;
+    }
+
+    constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        return value;
+    }
+};
+
+template <>
+struct [[sharpcpp::managed_type(public_type = "global::System.IntPtr")]] Marshaller<unsigned char*>
+{
+    using cpp_type = unsigned char*;
+    using abi_type = unsigned char*;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return value;
+    }
+
+    constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        return value;
+    }
+};
+
+template <>
+struct [[sharpcpp::managed_type(public_type = "global::System.IntPtr")]] Marshaller<const unsigned char*>
+{
+    using cpp_type = const unsigned char*;
+    using abi_type = const unsigned char*;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return value;
+    }
+
+    constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        return value;
+    }
+};
+
+template <>
+struct Marshaller<const signed char*&>
+{
+    using cpp_type = const signed char*&;
+    using abi_type = const signed char**;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        storage_ = value;
+        return &storage_;
+    }
+
+    cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        abi_argument_ = value;
+        storage_ = *value;
+        return storage_;
+    }
+
+    void Sync() const noexcept
+    {
+        if (abi_argument_)
+            *abi_argument_ = storage_;
+    }
+
+private:
+    mutable const signed char* storage_{};
+    mutable abi_type abi_argument_{};
+};
+
+template <>
+struct Marshaller<const unsigned char*&>
+{
+    using cpp_type = const unsigned char*&;
+    using abi_type = const unsigned char**;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        storage_ = value;
+        return &storage_;
+    }
+
+    cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        abi_argument_ = value;
+        storage_ = *value;
+        return storage_;
+    }
+
+    void Sync() const noexcept
+    {
+        if (abi_argument_)
+            *abi_argument_ = storage_;
+    }
+
+private:
+    mutable const unsigned char* storage_{};
+    mutable abi_type abi_argument_{};
+};
+
 template <class T>
 struct Marshaller<T&>
 {
@@ -599,6 +727,40 @@ struct Marshaller<const T*>
     {
         return reinterpret_cast<cpp_type>(const_cast<typename Marshaller<T>::abi_type*>(value));
     }
+};
+
+template <class T>
+    requires (!std::is_fundamental_v<T> && !std::is_void_v<T>)
+struct Marshaller<const T*&>
+{
+    using cpp_type = const T*&;
+    using pointer_marshaller_type = Marshaller<const T*>;
+    using abi_pointer_type = typename pointer_marshaller_type::abi_type;
+    using abi_type = abi_pointer_type*;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        abi_storage_ = pointer_marshaller_type{}.ConvertToAbi(value);
+        return &abi_storage_;
+    }
+
+    cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        abi_argument_ = value;
+        storage_ = pointer_marshaller_type{}.ConvertToCpp(*value);
+        return storage_;
+    }
+
+    void Sync() const noexcept
+    {
+        if (abi_argument_)
+            *abi_argument_ = pointer_marshaller_type{}.ConvertToAbi(storage_);
+    }
+
+private:
+    mutable const T* storage_{};
+    mutable abi_pointer_type abi_storage_{};
+    mutable abi_type abi_argument_{};
 };
 
 template <>

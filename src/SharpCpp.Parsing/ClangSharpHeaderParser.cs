@@ -1717,13 +1717,9 @@ public sealed partial class ClangSharpHeaderParser
             var normalizedTypeName = NormalizeTypeName(type.Spelling.ToString());
             if (TryGetManagedTypeOverride(normalizedTypeName, normalizedTypeName, normalizedTypeName, managedTypeOverrides, isReturn: false, out _))
             {
-                var pointeeIsVoidOrRecord = TypeIsRecord(normalizedType.PointeeType.CanonicalType) ||
-                    normalizedType.PointeeType.CanonicalType.kind == CXTypeKind.CXType_Void;
                 return (
                     MapType(type, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
-                    explicitDirection ?? (pointeeIsVoidOrRecord
-                        ? BindingParameterDirection.In
-                        : (type.PointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Out)),
+                    explicitDirection ?? BindingParameterDirection.In,
                     BindingParameterAbiKind.Value);
             }
 
