@@ -8,6 +8,9 @@ namespace SharpCpp.Rendering;
 public static partial class BindingOutputRenderer
 {
     private const string ICloneableFullName = "global::System.ICloneable";
+    private const string BorrowedNativeHandleFullName = "global::SharpCpp.Support.BorrowedNativeHandle";
+    private const string OwnedNativeHandleFullName = "global::SharpCpp.Support.OwnedNativeHandle";
+    private const string NativeHandleOwnershipConstraintFullName = "global::SharpCpp.Support.INativeHandleOwnership";
 
     private static ManagedBindingProjection? GetManagedProjection(BindingCompilation compilation)
     {
@@ -914,6 +917,39 @@ public static partial class BindingOutputRenderer
     }
 
     private static string RenderManagedHandleReturnMarshallerHelpers(BindingCompilation compilation, RecordBinding record, string recordDeclarationName)
+    {
+        if (!CanUseUnifiedHandleMarshaller(record))
+        {
+            return RenderManagedGenericHandleMarshallerHelpers(compilation, record, recordDeclarationName);
+        }
+
+        var qualifiedRecordTypeName = GetQualifiedManagedRecordDeclarationTypeName(compilation, record, recordDeclarationName);
+        var qualifiedOpenRecordTypeName = GetQualifiedManagedOpenRecordTypeName(compilation, record);
+        var marshallerDeclarationName = GetHandleMarshallerDeclarationName(record);
+        var borrowedMarshallerTypeName = GetQualifiedUnifiedHandleMarshallerTypeName(compilation, record, BorrowedNativeHandleFullName);
+        var ownedMarshallerTypeName = GetQualifiedUnifiedHandleMarshallerTypeName(compilation, record, OwnedNativeHandleFullName);
+        var genericConstraints = GetHandleMarshallerGenericConstraints();
+
+        return $$"""
+            [CustomMarshaller(typeof({{qualifiedOpenRecordTypeName}}), MarshalMode.ManagedToUnmanagedOut, typeof({{borrowedMarshallerTypeName}}))]
+            [CustomMarshaller(typeof({{qualifiedOpenRecordTypeName}}), MarshalMode.ManagedToUnmanagedOut, typeof({{ownedMarshallerTypeName}}))]
+            [CustomMarshaller(typeof({{qualifiedOpenRecordTypeName}}), MarshalMode.ManagedToUnmanagedIn, typeof({{borrowedMarshallerTypeName}}))]
+            internal static class {{marshallerDeclarationName}}{{genericConstraints}}
+            {
+                public static nint ConvertToUnmanaged({{qualifiedRecordTypeName}} managed)
+                {
+                    return global::SharpCpp.Support.NativeObject.GetHandle(managed);
+                }
+
+                public static {{qualifiedRecordTypeName}} ConvertToManaged(nint unmanaged)
+                {
+                    return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: TOwnership.OwnsHandle);
+                }
+            }
+            """;
+    }
+
+    private static string RenderManagedGenericHandleMarshallerHelpers(BindingCompilation compilation, RecordBinding record, string recordDeclarationName)
     {
         var qualifiedRecordTypeName = GetQualifiedManagedRecordDeclarationTypeName(compilation, record, recordDeclarationName);
         var qualifiedOpenRecordTypeName = GetQualifiedManagedOpenRecordTypeName(compilation, record);
@@ -3382,7 +3418,12 @@ public static partial class BindingOutputRenderer
     {
         var record = ResolveRecord(compilation, type)
             ?? throw new InvalidOperationException($"Unable to resolve handle return marshaller record for '{type.ManagedTypeName}'.");
-        return GetQualifiedHandleReturnMarshallerTypeName(compilation, record, ownsHandle);
+        return CanUseUnifiedHandleMarshaller(record)
+            ? GetQualifiedUnifiedHandleMarshallerTypeName(
+                compilation,
+                record,
+                ownsHandle ? OwnedNativeHandleFullName : BorrowedNativeHandleFullName)
+            : GetQualifiedHandleReturnMarshallerTypeName(compilation, record, ownsHandle);
     }
 
     private static string BuildManagedHandleReturnResultExpression(BindingCompilation compilation, BindingType type, string resultExpression, bool ownsHandle)
@@ -3390,6 +3431,22 @@ public static partial class BindingOutputRenderer
         return CanUseManagedHandleReturnMarshaller(compilation, type)
             ? resultExpression
             : BuildManagedHandleWrap(compilation, type, resultExpression, ownsHandle);
+    }
+
+    private static string GetHandleMarshallerDeclarationName(RecordBinding record)
+    {
+        return $"__{record.ManagedName}Marshaller<TOwnership>";
+    }
+
+    private static bool CanUseUnifiedHandleMarshaller(RecordBinding record)
+    {
+        return GetManagedVisibleGenericParameters(record).Count == 0;
+    }
+
+    private static string GetHandleMarshallerGenericConstraints()
+    {
+        var ownershipConstraint = $"where TOwnership : {NativeHandleOwnershipConstraintFullName}";
+        return $"\n{ownershipConstraint}";
     }
 
     private static string GetHandleReturnMarshallerDeclarationName(RecordBinding record, bool ownsHandle)
@@ -3408,6 +3465,12 @@ public static partial class BindingOutputRenderer
             ? string.Empty
             : $"<{string.Join(", ", visibleParameters.Select(static parameter => parameter.Name))}>";
         return $"__{record.ManagedName}InMarshaller{genericSuffix}";
+    }
+
+    private static string GetQualifiedUnifiedHandleMarshallerTypeName(BindingCompilation compilation, RecordBinding record, string ownershipTypeName)
+    {
+        var ns = GetManagedNamespace(compilation, record);
+        return $"global::{ns}.__{record.ManagedName}Marshaller<{ownershipTypeName}>";
     }
 
     private static string GetQualifiedHandleReturnMarshallerTypeName(BindingCompilation compilation, RecordBinding record, bool ownsHandle)
@@ -3443,8 +3506,13 @@ public static partial class BindingOutputRenderer
     private static string GetManagedHandleInMarshallerAttribute(BindingCompilation compilation, BindingType type)
     {
         var record = ResolveRecord(compilation, type);
-        return record is null
-            ? string.Empty
+        if (record is null)
+        {
+            return string.Empty;
+        }
+
+        return CanUseUnifiedHandleMarshaller(record)
+            ? $"[MarshalUsing(typeof({GetQualifiedUnifiedHandleMarshallerTypeName(compilation, record, BorrowedNativeHandleFullName)}))] "
             : $"[MarshalUsing(typeof({GetQualifiedHandleInMarshallerTypeName(compilation, record)}))] ";
     }
 

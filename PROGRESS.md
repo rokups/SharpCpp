@@ -53,6 +53,7 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - `NativeObject : SafeHandle` with lifecycle management
 - `DefaultNativeInstanceCache`, `NativeObjectRegistry`
 - `StringBase : NativeObject, IReadOnlyList<char>`
+- `BorrowedNativeHandle` / `OwnedNativeHandle` marker policies for generated handle marshallers
 - `Utf8SpanReturnMarshaller` for null-terminated `const char*` returns
 - `Utf8SpanAbiMarshaller` / `Utf8SpanAbiReturnMarshaller` for explicit UTF-8 ptr+len span ABI
 
@@ -116,6 +117,12 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - All type-specific behaviors configured through C++/C# marshallers, never hardcoded in core
 
 ## Recently Fixed
+
+- **Non-generic handle wrappers now share one generated marshaller implementation**:
+  - Added `INativeHandleOwnership`, `BorrowedNativeHandle`, and `OwnedNativeHandle` support marker policies.
+  - Non-generic generated handle wrappers now emit one `__TypeMarshaller<TOwnership>` class that handles both parameters and returns, with ownership selected by the marker type instead of generating separate borrowed/owned return marshaller classes.
+  - Generic wrappers keep the existing arity-matching `InMarshaller` / `ReturnMarshaller` / `OwnedReturnMarshaller` shape because `LibraryImport` source generation requires generic custom marshaller arity to match the managed generic type arity.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj --configuration Debug`, `cmake --build --preset Debug`, and generated rbfx checks for `ResourceRef` using `__ResourceRefMarshaller<OwnedNativeHandle>` / `<BorrowedNativeHandle>`. Full `ctest --preset Debug --output-on-failure` remains blocked by 10 existing `RbfxSilentExclusionPassTests`; metadata, rendering, synthetic E2E, and rbfx E2E ctest targets pass.
 
 - **rbfx `ResourceRef` by-value returns now generate owned wrapper returns**:
   - Added rbfx `ResourceRef` value/reference/pointer/return marshaller specializations so C++ value returns use owned native handle ABI while existing reference returns remain borrowed.
