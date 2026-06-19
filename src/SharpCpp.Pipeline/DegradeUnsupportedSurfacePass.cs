@@ -551,7 +551,8 @@ public static class DegradeUnsupportedSurfacePass
 
     private static bool IsMarshallerBackedWrapperSurface(RecordBinding record)
     {
-        return !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ||
+        return record.GetMetadata<bool>(MetadataKeys.MarshallerConfiguredRecord) ||
+            !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ||
             record.Members.OfType<FunctionBinding>().Any(static member => member.HasMetadata(MetadataKeys.MarshallerExposedMethod));
     }
 

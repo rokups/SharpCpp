@@ -1991,7 +1991,9 @@ public sealed partial class ClangSharpHeaderParser
             return genericParameterType;
         }
 
-        if (isReturn && TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, qualifiedSpelledTypeName, managedTypeOverrides, isReturn: true, out var returnOverride))
+        if (isReturn &&
+            TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, qualifiedSpelledTypeName, managedTypeOverrides, isReturn: true, out var returnOverride) &&
+            returnOverride!.HasPublicTypeMapping)
         {
             var mapped = CreateConfiguredOrWrapperType(returnOverride!, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName);
             // Alias surface stamping is deferred to the pipeline post-pruning.
@@ -2002,7 +2004,7 @@ public sealed partial class ClangSharpHeaderParser
 
         TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, qualifiedSpelledTypeName, managedTypeOverrides, isReturn: false, out var managedTypeOverride);
 
-        if (managedTypeOverride is not null)
+        if (managedTypeOverride is { HasPublicTypeMapping: true })
         {
             var mapped = CreateConfiguredOrWrapperType(managedTypeOverride, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName);
             return preserveAliasSurface
@@ -2283,15 +2285,16 @@ public sealed partial class ClangSharpHeaderParser
             ? spelledTypeName
             : aliasResolvedTypeName;
         var resolvedTypeName = SelectConcreteTemplateTypeName(aliasResolvedTypeName, canonicalTypeName);
+        var qualifiedSpelledTypeName = GetQualifiedTypeName(sourceType, spelledTypeName);
 
         if (preferReturnOverride &&
-            TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, spelledTypeName, managedTypeOverrides, isReturn: true, out var returnOverride) &&
+            TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, qualifiedSpelledTypeName, managedTypeOverrides, isReturn: true, out var returnOverride) &&
             string.Equals(returnOverride?.ReturnOwnership, "owning", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        return TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, spelledTypeName, managedTypeOverrides, isReturn: false, out var overrideValue) &&
+        return TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, qualifiedSpelledTypeName, managedTypeOverrides, isReturn: false, out var overrideValue) &&
             string.Equals(overrideValue?.ReturnOwnership, "owning", StringComparison.OrdinalIgnoreCase);
     }
 

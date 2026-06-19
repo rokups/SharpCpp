@@ -87,6 +87,35 @@ public sealed class DegradeUnsupportedSurfacePassTests
     }
 
     [Fact]
+    public void Apply_keeps_marshaller_backed_record_value_returns()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Urho3D", "Bindings", "Native", ["Variant.h"]);
+        var resourceRef = new RecordBinding("record:Urho3D::ResourceRef", "ResourceRef", "ResourceRef", "Urho3D::ResourceRef");
+        resourceRef.SetMetadata(MetadataKeys.MarshallerConfiguredRecord, true);
+        resourceRef.Members.Add(new FieldBinding("field:Urho3D::ResourceRef::type_", "type_", "Type", BindingType.UInt32, "unsigned int", resourceRef.CppQualifiedName));
+        var owner = new RecordBinding("record:Urho3D::Material", "Material", "Material", "Urho3D::Material");
+        var getMaterialAttr = new FunctionBinding(
+            "method:Urho3D::Material::GetMaterialAttr",
+            "GetMaterialAttr",
+            "GetMaterialAttr",
+            BindingType.CreateHandle("Urho3D::ResourceRef", resourceRef.ManagedName, resourceRef.SymbolId, cppIsRecordValue: true),
+            cppQualifiedName: "Urho3D::Material::GetMaterialAttr")
+        {
+            IsStatic = false,
+            OwningRecordCppTypeName = owner.CppQualifiedName
+        };
+        owner.Members.Add(getMaterialAttr);
+        owner.Members.Add(new FieldBinding("field:Urho3D::Material::value_", "value_", "Value", BindingType.Int32, "int", owner.CppQualifiedName));
+        compilation.Members.Add(resourceRef);
+        compilation.Members.Add(owner);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.False(owner.IsIgnored(), owner.GetIgnoreReason());
+        Assert.False(getMaterialAttr.IsIgnored(), getMaterialAttr.GetIgnoreReason());
+    }
+
+    [Fact]
     public void Apply_ignores_protected_handle_fields_when_target_record_is_ignored()
     {
         var compilation = new BindingCompilation("SharpCpp.Tests", "Urho3D", "Bindings", "Native", ["Object.h"]);

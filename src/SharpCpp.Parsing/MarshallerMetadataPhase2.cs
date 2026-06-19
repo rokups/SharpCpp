@@ -39,6 +39,10 @@ public static class MarshallerMetadataPhase2
         @"suppress_emission\s*=\s*true",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+    private static readonly Regex OwnedHandleExpression = new(
+        @"owned_handle\s*=\s*true",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     private static readonly Regex ManagedNamespaceExpression = new(
         @"managed_namespace\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -156,6 +160,11 @@ public static class MarshallerMetadataPhase2
             ApplyTemplateParameters(record, config.TemplateParameterNames);
 
             var body = config.AttributeBody;
+
+            if (OwnedHandleExpression.IsMatch(body))
+            {
+                record.SetMetadata(MetadataKeys.MarshallerConfiguredRecord, true);
+            }
 
             // public_type → ManagedTypeFormat / ManagedName
             if (PublicTypeExpression.Match(body) is { Success: true } publicTypeMatch)

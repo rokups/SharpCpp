@@ -10,6 +10,7 @@
 #include <EASTL/string_view.h>
 #include <EASTL/unordered_map.h>
 #include <EASTL/vector.h>
+#include <Urho3D/Core/Variant.h>
 
 namespace SharpCpp
 {
@@ -147,6 +148,31 @@ struct Marshaller<const eastl::unordered_map<TKey, TValue, THash, TPredicate, TA
 
 template <typename TKey, typename TValue, typename THash, typename TPredicate, typename TAllocator, bool CacheHashCode>
 struct ReturnMarshaller<eastl::unordered_map<TKey, TValue, THash, TPredicate, TAllocator, CacheHashCode>> : OwnedHandleReturnMarshallerBase<eastl::unordered_map<TKey, TValue, THash, TPredicate, TAllocator, CacheHashCode>> {};
+
+// ═════════════════════════════════════════════════════════════════════
+// ResourceRef is exposed as an owned handle wrapper even though the C++ type
+// is commonly passed and returned by value.
+// ═════════════════════════════════════════════════════════════════════
+
+template <>
+struct [[sharpcpp::managed_type(owned_handle = true)]]
+Marshaller<Urho3D::ResourceRef> : OwnedHandleMarshallerBase<Urho3D::ResourceRef> {};
+
+template <>
+struct Marshaller<Urho3D::ResourceRef&> : OwnedHandleReferenceMarshallerBase<Urho3D::ResourceRef> {};
+
+template <>
+struct Marshaller<const Urho3D::ResourceRef&> : OwnedHandleConstReferenceMarshallerBase<Urho3D::ResourceRef> {};
+
+template <>
+struct Marshaller<Urho3D::ResourceRef*> : OwnedHandlePointerMarshallerBase<Urho3D::ResourceRef> {};
+
+template <>
+struct Marshaller<const Urho3D::ResourceRef*> : OwnedHandleConstPointerMarshallerBase<Urho3D::ResourceRef> {};
+
+template <>
+struct [[sharpcpp::managed_type(return_ownership = "owning")]]
+ReturnMarshaller<Urho3D::ResourceRef> : OwnedHandleReturnMarshallerBase<Urho3D::ResourceRef> {};
 
 // ═════════════════════════════════════════════════════════════════════
 // Parameter ABI: pointer-to-original-type via Marshaller<const T&> specialization.

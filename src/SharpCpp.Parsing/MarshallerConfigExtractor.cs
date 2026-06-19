@@ -84,6 +84,7 @@ internal static class MarshallerConfigExtractor
         public string? ManagedInstanceCacheFactoryExpression { get; init; }
         public string? ManagedInstanceCacheTypeName { get; init; }
         public bool EmitDefaultNativeReleaseOverride { get; init; } = true;
+        public bool HasPublicTypeMapping { get; init; } = true;
     }
 
     /// <summary>
@@ -273,7 +274,8 @@ internal static class MarshallerConfigExtractor
 
         var body = attrMatch.Body;
         var publicTypeMatch = PublicTypeExpression.Match(body);
-        if (!publicTypeMatch.Success)
+        var returnOwnershipMatch = ReturnOwnershipExpression.Match(body);
+        if (!publicTypeMatch.Success && !returnOwnershipMatch.Success)
         {
             return;
         }
@@ -300,18 +302,20 @@ internal static class MarshallerConfigExtractor
         var managedMarshallerMatch = ManagedMarshallerInAttributeExpression.Match(body);
         var managedNamespaceMatch = ManagedNamespaceInAttributeExpression.Match(body);
         var projectionMatch = ProjectionExpression.Match(body);
-        var returnOwnershipMatch = ReturnOwnershipExpression.Match(body);
         var managedInstanceCacheFactoryMatch = ManagedInstanceCacheFactoryExpression.Match(body);
         var managedInstanceCacheTypeMatch = ManagedInstanceCacheTypeExpression.Match(body);
         var releaseStrategyMatch = ReleaseStrategyExpression.Match(body);
         var hasManagedBaseType = body.Contains("managed_base_type", StringComparison.Ordinal);
         var hasExposedMembers = ExtractExposedMembersFromDecl(decl, declIndex).Count > 0;
         var templateParameterNames = ExtractTemplateParameterNames(decl, cppTypeName);
-        var visibleTemplateParameterIndices = ExtractVisibleTemplateParameterIndices(publicTypeMatch.Groups["value"].Value, templateParameterNames.Count);
+        var publicTypeName = publicTypeMatch.Success ? publicTypeMatch.Groups["value"].Value : cppTypeName;
+        var visibleTemplateParameterIndices = publicTypeMatch.Success
+            ? ExtractVisibleTemplateParameterIndices(publicTypeName, templateParameterNames.Count)
+            : Enumerable.Range(0, templateParameterNames.Count).ToArray();
 
         result[key] = new ManagedTypeOverride(
             cppTypeName,
-            publicTypeMatch.Groups["value"].Value)
+            publicTypeName)
         {
             Undefaultable = undefaultableMatch.Success &&
                 string.Equals(undefaultableMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase),
@@ -328,7 +332,8 @@ internal static class MarshallerConfigExtractor
             ManagedInstanceCacheFactoryExpression = managedInstanceCacheFactoryMatch.Success ? managedInstanceCacheFactoryMatch.Groups["value"].Value : null,
             ManagedInstanceCacheTypeName = managedInstanceCacheTypeMatch.Success ? managedInstanceCacheTypeMatch.Groups["value"].Value : null,
             EmitDefaultNativeReleaseOverride = !releaseStrategyMatch.Success ||
-                !string.Equals(releaseStrategyMatch.Groups["value"].Value, "base", StringComparison.OrdinalIgnoreCase)
+                !string.Equals(releaseStrategyMatch.Groups["value"].Value, "base", StringComparison.OrdinalIgnoreCase),
+            HasPublicTypeMapping = publicTypeMatch.Success
         };
     }
 

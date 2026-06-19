@@ -19,6 +19,7 @@ public static class MetadataKeys
     public const string NonPublicDestructor = "non_public_destructor";
     public const string UnexpressibleDefault = "unexpressible_default";
     public const string MarshallerExposedMethod = "marshaller_exposed_method";
+    public const string MarshallerConfiguredRecord = "marshaller_configured_record";
     public const string UndefaultableParam = "undefaultable_param";
     public const string ManagedBindingProjection = "managed_binding_projection";
 }

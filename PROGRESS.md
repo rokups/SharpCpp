@@ -93,6 +93,7 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - [x] More explicit early diagnostics for unsupported combinations — placeholder record types are now flagged in both degradation and validation passes
 - [x] Const/non-const method overloads that collapse to the same managed callable signature are silently pruned, including const overloads already marked with duplicate-surface degradation after their non-const counterpart received a primary unsupported-surface reason
 - [x] rbfx `FlagSet<T>` bitwise helper operators are silently excluded before blocked-type dependency degradation, avoiding generated unsupported-operator comments
+- [x] rbfx `ResourceRef` by-value returns are supported via owned-handle marshaller metadata instead of record-value degradation
 - [ ] Hardened fail-fast gates before render/native compile (improved: C++ compile errors dropped from 222 to 160 in rbfx SDK; remaining are pre-existing)
 
 ### Cross-Module Composition
@@ -115,6 +116,13 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - All type-specific behaviors configured through C++/C# marshallers, never hardcoded in core
 
 ## Recently Fixed
+
+- **rbfx `ResourceRef` by-value returns now generate owned wrapper returns**:
+  - Added rbfx `ResourceRef` value/reference/pointer/return marshaller specializations so C++ value returns use owned native handle ABI while existing reference returns remain borrowed.
+  - Added explicit `owned_handle = true` marshaller metadata and ownership-only `return_ownership = "owning"` extraction, allowing the parser to mark by-value handle returns as owned without remapping their public type.
+  - `DegradeUnsupportedSurfacePass` now accepts records explicitly marked as marshaller-configured owned handles, avoiding core type-specific special cases.
+  - `rbfx/CMakeLists.txt` now tracks rbfx marshaller headers as generator inputs so these config edits invalidate generated bindings.
+  - Verification: focused model tests for ownership-only extraction and marshaller-backed record-value returns, `cmake --build --preset Debug`, generated rbfx grep checks for missing `ResourceRef` exclusions and owned return marshaller attributes. Full `ctest --preset Debug --output-on-failure` remains blocked in `sharpcpp.tests.model` by existing `RbfxSilentExclusionPassTests` expectations around intentionally unexcluded rbfx blocked headers; metadata, rendering, synthetic E2E, and rbfx E2E ctest targets pass.
 
 - **rbfx `FlagSet<T>` bitwise helper operators are silently excluded**:
   - `RbfxSilentExclusionPass` now applies rbfx-specific silent function rules before generic dependent-type degradation, so `operator&`, `operator^`, `operator|`, and `operator~` helpers returning `Urho3D::FlagSet<T>` do not render unsupported-operator comments.

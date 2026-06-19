@@ -20,13 +20,19 @@ public sealed class MarshallerConfigExtractorTests
             null,
             [new[] { headerPath }, new[] { "-x", "c++", "-std=c++20", $"-I{fixtureDir}" }])!;
 
-        Assert.Single(overrides);
+        Assert.Equal(2, overrides.Count);
         Assert.True(overrides.Contains("int"));
         var overrideInfo = overrides["int"]!;
 
         var overrideType = overrideInfo.GetType();
         Assert.Equal("global::Test.Managed", (string)overrideType.GetProperty("PublicTypeName")!.GetValue(overrideInfo)!);
         Assert.True((bool)overrideType.GetProperty("Undefaultable")!.GetValue(overrideInfo)!);
+
+        Assert.True(overrides.Contains("return:float"));
+        var returnOverride = overrides["return:float"]!;
+        var returnOverrideType = returnOverride.GetType();
+        Assert.Equal("owning", (string)returnOverrideType.GetProperty("ReturnOwnership")!.GetValue(returnOverride)!);
+        Assert.False((bool)returnOverrideType.GetProperty("HasPublicTypeMapping")!.GetValue(returnOverride)!);
     }
 
     [Fact]

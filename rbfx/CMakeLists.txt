@@ -150,7 +150,9 @@ file(GLOB_RECURSE RBFX_GENERATOR_INPUTS CONFIGURE_DEPENDS
   "${CMAKE_SOURCE_DIR}/src/SharpCpp.Rendering/*.cs"
   "${RBFX_GENERATOR_SRC_DIR}/*.cs"
   "${CMAKE_SOURCE_DIR}/include/SharpCpp/*.hpp"
-  "${CMAKE_SOURCE_DIR}/include/SharpCpp/*.h")
+  "${CMAKE_SOURCE_DIR}/include/SharpCpp/*.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/SharpCpp/*.hpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/SharpCpp/*.h")
 
 add_custom_command(
   OUTPUT "${RBFX_GENERATED_STAMP}"
