@@ -118,28 +118,38 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **P/Invoke imports now request aggressive inlining**:
+  - Generated managed binding files now include `System.Runtime.CompilerServices` and emit `[MethodImpl(MethodImplOptions.AggressiveInlining)]` immediately after every generated `[LibraryImport]` declaration, including generic, field, metadata, callbase, director, and default-argument variant imports.
+  - Handwritten rbfx `RefCountedRuntime` imports now carry the same aggressive-inlining attribute.
+  - Regression coverage scans generated managed output and fails if any emitted `LibraryImport` is missing the inline attribute.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj --configuration Debug`, `cmake --build --preset Debug`, source/generated `LibraryImport` scans, and `ctest --preset Debug` all pass.
+
+- **Stale rbfx blocked-header tests now match the current header policy**:
+  - `RbfxSilentExclusionPassTests` now use `Core/Assert.h` for synthetic blocked-header dependency fixtures instead of the intentionally unblocked `Core/Mutex.h`.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj --configuration Debug --filter RbfxSilentExclusionPassTests`, full model tests, `cmake --build --preset Debug`, and `ctest --preset Debug` all pass.
+
 - **Non-generic handle wrappers now share one generated marshaller implementation**:
   - Added `INativeHandleOwnership`, `BorrowedNativeHandle`, and `OwnedNativeHandle` support marker policies.
   - Non-generic generated handle wrappers now emit one `__TypeMarshaller<TOwnership>` class that handles both parameters and returns, with ownership selected by the marker type instead of generating separate borrowed/owned return marshaller classes.
   - Generic wrappers keep the existing arity-matching `InMarshaller` / `ReturnMarshaller` / `OwnedReturnMarshaller` shape because `LibraryImport` source generation requires generic custom marshaller arity to match the managed generic type arity.
-  - Verification: `dotnet test tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj --configuration Debug`, `cmake --build --preset Debug`, and generated rbfx checks for `ResourceRef` using `__ResourceRefMarshaller<OwnedNativeHandle>` / `<BorrowedNativeHandle>`. Full `ctest --preset Debug --output-on-failure` remains blocked by 10 existing `RbfxSilentExclusionPassTests`; metadata, rendering, synthetic E2E, and rbfx E2E ctest targets pass.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj --configuration Debug`, `cmake --build --preset Debug`, and generated rbfx checks for `ResourceRef` using `__ResourceRefMarshaller<OwnedNativeHandle>` / `<BorrowedNativeHandle>` passed; current `ctest --preset Debug` passes.
 
 - **rbfx `ResourceRef` by-value returns now generate owned wrapper returns**:
   - Added rbfx `ResourceRef` value/reference/pointer/return marshaller specializations so C++ value returns use owned native handle ABI while existing reference returns remain borrowed.
   - Added explicit `owned_handle = true` marshaller metadata and ownership-only `return_ownership = "owning"` extraction, allowing the parser to mark by-value handle returns as owned without remapping their public type.
   - `DegradeUnsupportedSurfacePass` now accepts records explicitly marked as marshaller-configured owned handles, avoiding core type-specific special cases.
   - `rbfx/CMakeLists.txt` now tracks rbfx marshaller headers as generator inputs so these config edits invalidate generated bindings.
-  - Verification: focused model tests for ownership-only extraction and marshaller-backed record-value returns, `cmake --build --preset Debug`, generated rbfx grep checks for missing `ResourceRef` exclusions and owned return marshaller attributes. Full `ctest --preset Debug --output-on-failure` remains blocked in `sharpcpp.tests.model` by existing `RbfxSilentExclusionPassTests` expectations around intentionally unexcluded rbfx blocked headers; metadata, rendering, synthetic E2E, and rbfx E2E ctest targets pass.
+  - Verification: focused model tests for ownership-only extraction and marshaller-backed record-value returns, `cmake --build --preset Debug`, and generated rbfx grep checks for missing `ResourceRef` exclusions and owned return marshaller attributes passed; current `ctest --preset Debug` passes.
 
 - **rbfx `FlagSet<T>` bitwise helper operators are silently excluded**:
   - `RbfxSilentExclusionPass` now applies rbfx-specific silent function rules before generic dependent-type degradation, so `operator&`, `operator^`, `operator|`, and `operator~` helpers returning `Urho3D::FlagSet<T>` do not render unsupported-operator comments.
   - Regression coverage models a blocked `Container/FlagSet.h` return type so the real ordering issue is covered.
-  - Verification: `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj --filter Apply_silently_excludes_flagset_only_operators`, `cmake --build --preset Debug`, and generated rbfx grep checks for the reported FlagSet operator comments. Full `ctest --preset Debug --output-on-failure` remains blocked by existing `RbfxSilentExclusionPassTests` expectations around the intentional `Core/Mutex.h` removal.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj --filter Apply_silently_excludes_flagset_only_operators`, `cmake --build --preset Debug`, and generated rbfx grep checks for the reported FlagSet operator comments passed; current `ctest --preset Debug` passes.
 
 - **Const overload duplicate diagnostics are now suppressed consistently**:
   - `SilentlyExcludeConstOverloadMethodsPass` now considers non-const counterpart methods even when those counterparts were already degraded for a primary unsupported-surface reason.
   - Const methods already carrying duplicate managed-callable diagnostics are converted to silent exclusions instead of being emitted as generated `// excluded: managed callable signature ...` comments.
-  - Verification: `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj --filter SilentlyExcludeConstOverloadMethodsPassTests`, `cmake --build --preset Debug`, and generated rbfx grep checks for the reported `GetData|False|False|`/const duplicate patterns. Full `ctest --preset Debug --output-on-failure` remains blocked by existing `RbfxSilentExclusionPassTests` expectations around the intentional `Core/Mutex.h` removal.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj --filter SilentlyExcludeConstOverloadMethodsPassTests`, `cmake --build --preset Debug`, and generated rbfx grep checks for the reported `GetData|False|False|`/const duplicate patterns passed; current `ctest --preset Debug` passes.
 
 - **Signed and unsigned byte pointer marshallers now expose pointer-token APIs as `IntPtr`**:
   - Added explicit `Marshaller<T>` specializations for `signed char*`, `const signed char*`, `volatile signed char*`, `const volatile signed char*`, `unsigned char*`, `const unsigned char*`, `volatile unsigned char*`, and `const volatile unsigned char*` that pass through native pointer ABI values and advertise `global::System.IntPtr` managed surfaces.
@@ -160,7 +170,7 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
   - Verification: `dotnet test tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj --configuration Debug`, `dotnet test tests/SharpCpp.Tests.E2E/SharpCpp.Tests.E2E.csproj --configuration Debug --filter Base_typed_fields_can_store_derived_wrappers`, and full `ctest --preset Debug --output-on-failure` all pass.
 
 - **rbfx ignore-by-header filtering now removes selected implementation headers coherently**:
-  - `RbfxSilentExclusionPass` now silently excludes declarations defined in the configured rbfx implementation headers (`Container/Ptr.h`, `Container/Str.h`, `Container/Hash.h`, `Container/FlagSet.h`, `Container/IndexAllocator.h`, `Container/Functors.h`, `Container/Allocator.h`, `Core/Assert.h`, `Core/AssertBase.h`, `Core/Mutex.h`) while intentionally leaving `Container/RefCounted.h` available.
+  - `RbfxSilentExclusionPass` now silently excludes declarations defined in the configured rbfx implementation headers (`Container/Ptr.h`, `Container/Str.h`, `Container/Hash.h`, `Container/FlagSet.h`, `Container/IndexAllocator.h`, `Container/Functors.h`, `Container/Allocator.h`, `Core/Assert.h`, `Core/AssertBase.h`) while intentionally leaving `Container/RefCounted.h` and `Core/Mutex.h` available.
   - Include matching canonicalizes grouped, `Urho3D/`-prefixed, and absolute SDK paths. Member functions and fields fall back to the nearest ancestor header because parser members do not carry their own include path.
   - APIs that reference header-blocked records/enums are non-silently ignored so generated diagnostics explain dependent removals, while retained records drop unavailable C++ bases and projected inherited members without changing virtual/override flags or promoting runtime bases.
   - Alias pruning is scoped to aliases targeting records/enums defined in blocked headers, preventing unrelated ignored aliases from being removed.

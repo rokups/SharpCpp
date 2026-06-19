@@ -321,7 +321,7 @@ public sealed class RbfxSilentExclusionPassTests
         var compilation = new BindingCompilation("SharpCpp.Rbfx.Bindings", "Urho3D", "Bindings", "Native", ["Urho3D/Urho3DAll.h"]);
         var record = new RecordBinding("record:Urho3D::Mutex", "Mutex", "Mutex", "Urho3D::Mutex")
         {
-            HeaderIncludePath = "Core/Mutex.h"
+            HeaderIncludePath = "Core/Assert.h"
         };
         compilation.Members.Add(record);
         compilation.TypeAliases.Add(new BindingTypeAlias(
@@ -342,7 +342,7 @@ public sealed class RbfxSilentExclusionPassTests
         var compilation = new BindingCompilation("SharpCpp.Rbfx.Bindings", "Urho3D", "Bindings", "Native", ["Urho3D/Urho3DAll.h"]);
         var baseRecord = new RecordBinding("record:Urho3D::Mutex", "Mutex", "Mutex", "Urho3D::Mutex")
         {
-            HeaderIncludePath = "Core/Mutex.h",
+            HeaderIncludePath = "Core/Assert.h",
             ManagedBaseTypeName = "global::SharpCpp.Support.NativeObject"
         };
         var derived = new RecordBinding("record:Urho3D::Object", "Object", "Object", "Urho3D::Object")
@@ -410,7 +410,7 @@ public sealed class RbfxSilentExclusionPassTests
         var compilation = new BindingCompilation("SharpCpp.Rbfx.Bindings", "Urho3D", "Bindings", "Native", ["Urho3D/Urho3DAll.h"]);
         var record = new RecordBinding("record:Urho3D::Mutex", "Mutex", "Mutex", "Urho3D::Mutex")
         {
-            HeaderIncludePath = "Core/Mutex.h"
+            HeaderIncludePath = "Core/Assert.h"
         };
         compilation.Members.Add(record);
 
@@ -428,7 +428,7 @@ public sealed class RbfxSilentExclusionPassTests
         var compilation = new BindingCompilation("SharpCpp.Rbfx.Bindings", "Urho3D", "Bindings", "Native", ["Urho3D/Urho3DAll.h"]);
         var mutex = new RecordBinding("record:Urho3D::Mutex", "Mutex", "Mutex", "Urho3D::Mutex")
         {
-            HeaderIncludePath = "Core/Mutex.h"
+            HeaderIncludePath = "Core/Assert.h"
         };
         var returnMutex = new FunctionBinding(
             "function:Urho3D::GetMutex",
@@ -464,7 +464,7 @@ public sealed class RbfxSilentExclusionPassTests
         var compilation = new BindingCompilation("SharpCpp.Rbfx.Bindings", "Urho3D", "Bindings", "Native", ["Urho3D/Urho3DAll.h"]);
         var mutex = new RecordBinding("record:Urho3D::Mutex", "Mutex", "Mutex", "Urho3D::Mutex")
         {
-            HeaderIncludePath = "Core/Mutex.h"
+            HeaderIncludePath = "Core/Assert.h"
         };
         var returnMutex = new FunctionBinding(
             "function:Urho3D::GetMutexNoId",
@@ -492,7 +492,7 @@ public sealed class RbfxSilentExclusionPassTests
         var compilation = new BindingCompilation("SharpCpp.Rbfx.Bindings", "Urho3D", "Bindings", "Native", ["Urho3D/Urho3DAll.h"]);
         var enumBinding = new EnumBinding("enum:Urho3D::BlockedMode", "BlockedMode", "BlockedMode", cppQualifiedName: "Urho3D::BlockedMode")
         {
-            HeaderIncludePath = "Core/Mutex.h"
+            HeaderIncludePath = "Core/Assert.h"
         };
         var byId = new FunctionBinding(
             "function:Urho3D::UseBlockedModeById",
@@ -532,7 +532,7 @@ public sealed class RbfxSilentExclusionPassTests
         var compilation = new BindingCompilation("SharpCpp.Rbfx.Bindings", "Urho3D", "Bindings", "Native", ["Urho3D/Urho3DAll.h"]);
         var mutex = new RecordBinding("record:Urho3D::Mutex", "Mutex", "Mutex", "Urho3D::Mutex")
         {
-            HeaderIncludePath = "Core/Mutex.h"
+            HeaderIncludePath = "Core/Assert.h"
         };
         var function = new FunctionBinding(
             "function:Urho3D::GetMutexWithExistingReason",
@@ -559,7 +559,7 @@ public sealed class RbfxSilentExclusionPassTests
         var compilation = new BindingCompilation("SharpCpp.Rbfx.Bindings", "Urho3D", "Bindings", "Native", ["Urho3D/Urho3DAll.h"]);
         var mutex = new RecordBinding("record:Urho3D::Mutex", "Mutex", "Mutex", "Urho3D::Mutex")
         {
-            HeaderIncludePath = "Core/Mutex.h"
+            HeaderIncludePath = "Core/Assert.h"
         };
         var owner = new RecordBinding("record:Urho3D::Owner", "Owner", "Owner", "Urho3D::Owner")
         {
@@ -591,7 +591,7 @@ public sealed class RbfxSilentExclusionPassTests
         var compilation = new BindingCompilation("SharpCpp.Rbfx.Bindings", "Urho3D", "Bindings", "Native", ["Urho3D/Urho3DAll.h"]);
         var mutex = new RecordBinding("record:Urho3D::Mutex", "Mutex", "Mutex", "Urho3D::Mutex")
         {
-            HeaderIncludePath = "Core/Mutex.h"
+            HeaderIncludePath = "Core/Assert.h"
         };
         var detail = new RecordBinding("record:Urho3D::detail::Hidden", "Hidden", "Hidden", "Urho3D::detail::Hidden");
         compilation.Members.Add(mutex);
@@ -626,7 +626,7 @@ public sealed class RbfxSilentExclusionPassTests
         var compilation = new BindingCompilation("SharpCpp.Rbfx.Bindings", "Urho3D", "Bindings", "Native", ["Urho3D/Urho3DAll.h"]);
         var mutex = new RecordBinding("record:Urho3D::Mutex", "Mutex", "Mutex", "Urho3D::Mutex")
         {
-            HeaderIncludePath = "Core/Mutex.h"
+            HeaderIncludePath = "Core/Assert.h"
         };
         var alias = new BindingTypeAlias(
             "Urho3D::MutexNoIdAlias",
@@ -648,7 +648,7 @@ public sealed class RbfxSilentExclusionPassTests
         var compilation = new BindingCompilation("SharpCpp.Rbfx.Bindings", "Urho3D", "Bindings", "Native", ["Urho3D/Urho3DAll.h"]);
         var baseRecord = new RecordBinding("record:Urho3D::Mutex", "Mutex", "Mutex", "Urho3D::Mutex")
         {
-            HeaderIncludePath = "Core/Mutex.h"
+            HeaderIncludePath = "Core/Assert.h"
         };
         var derived = new RecordBinding("record:Urho3D::Object", "Object", "Object", "Urho3D::Object")
         {

@@ -827,6 +827,8 @@ public sealed class BindingOutputRendererTests
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
+        Assert.Contains("using System.Runtime.CompilerServices;", managedOutput, StringComparison.Ordinal);
+        AssertAllLibraryImportsAreAggressivelyInlined(managedOutput);
         Assert.Contains("OverloadValue", managedOutput, StringComparison.Ordinal);
         Assert.Contains("OverloadValue2", managedOutput, StringComparison.Ordinal);
         Assert.Contains("OverloadBox", managedOutput, StringComparison.Ordinal);
@@ -1493,6 +1495,7 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("typeof(T) == typeof(float)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("public T GetValue()", managedOutput, StringComparison.Ordinal);
         Assert.Contains("(global::SharpCpp.Sample.BoxOf<T>)(object)__result!;", managedOutput, StringComparison.Ordinal);
+        AssertAllLibraryImportsAreAggressivelyInlined(managedOutput);
         Assert.Contains("entry_get__1", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("entry_get__2", nativeOutput, StringComparison.Ordinal);
     }
@@ -1948,6 +1951,22 @@ public sealed class BindingOutputRendererTests
         }
 
         return $"{pathParts[0]}/SharpCpp.Rbfx.{string.Join('.', pathParts.Skip(1))}";
+    }
+
+    private static void AssertAllLibraryImportsAreAggressivelyInlined(string managedOutput)
+    {
+        var lines = managedOutput.Replace("\r\n", "\n").Split('\n');
+        for (var index = 0; index < lines.Length; index++)
+        {
+            if (!lines[index].Contains("[LibraryImport(", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            Assert.True(
+                index + 1 < lines.Length && lines[index + 1].Trim() == "[MethodImpl(MethodImplOptions.AggressiveInlining)]",
+                $"LibraryImport at generated line {index + 1} is missing [MethodImpl(MethodImplOptions.AggressiveInlining)].");
+        }
     }
 
     [Fact]
