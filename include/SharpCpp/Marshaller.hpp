@@ -563,6 +563,40 @@ struct [[sharpcpp::managed_type(public_type = "global::System.IntPtr")]] Marshal
 };
 
 template <>
+struct [[sharpcpp::managed_type(public_type = "global::System.IntPtr")]] Marshaller<volatile signed char*>
+{
+    using cpp_type = volatile signed char*;
+    using abi_type = volatile signed char*;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return value;
+    }
+
+    constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        return value;
+    }
+};
+
+template <>
+struct [[sharpcpp::managed_type(public_type = "global::System.IntPtr")]] Marshaller<const volatile signed char*>
+{
+    using cpp_type = const volatile signed char*;
+    using abi_type = const volatile signed char*;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return value;
+    }
+
+    constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        return value;
+    }
+};
+
+template <>
 struct [[sharpcpp::managed_type(public_type = "global::System.IntPtr")]] Marshaller<unsigned char*>
 {
     using cpp_type = unsigned char*;
@@ -584,6 +618,40 @@ struct [[sharpcpp::managed_type(public_type = "global::System.IntPtr")]] Marshal
 {
     using cpp_type = const unsigned char*;
     using abi_type = const unsigned char*;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return value;
+    }
+
+    constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        return value;
+    }
+};
+
+template <>
+struct [[sharpcpp::managed_type(public_type = "global::System.IntPtr")]] Marshaller<volatile unsigned char*>
+{
+    using cpp_type = volatile unsigned char*;
+    using abi_type = volatile unsigned char*;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return value;
+    }
+
+    constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        return value;
+    }
+};
+
+template <>
+struct [[sharpcpp::managed_type(public_type = "global::System.IntPtr")]] Marshaller<const volatile unsigned char*>
+{
+    using cpp_type = const volatile unsigned char*;
+    using abi_type = const volatile unsigned char*;
 
     constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
     {

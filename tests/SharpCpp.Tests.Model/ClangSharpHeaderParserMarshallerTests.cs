@@ -150,10 +150,30 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         Assert.Equal(BindingParameterDirection.In, unsignedBuffer.Parameters[0].Direction);
         Assert.Equal(BindingParameterAbiKind.Value, unsignedBuffer.Parameters[0].AbiKind);
 
+        var volatileUnsignedBuffer = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "consume_volatile_unsigned_buffer"));
+        Assert.Equal("global::System.IntPtr", volatileUnsignedBuffer.Parameters[0].Type.ManagedTypeName);
+        Assert.Equal(BindingParameterDirection.In, volatileUnsignedBuffer.Parameters[0].Direction);
+        Assert.Equal(BindingParameterAbiKind.Value, volatileUnsignedBuffer.Parameters[0].AbiKind);
+
+        var constVolatileUnsignedBuffer = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "consume_const_volatile_unsigned_buffer"));
+        Assert.Equal("global::System.IntPtr", constVolatileUnsignedBuffer.Parameters[0].Type.ManagedTypeName);
+        Assert.Equal(BindingParameterDirection.In, constVolatileUnsignedBuffer.Parameters[0].Direction);
+        Assert.Equal(BindingParameterAbiKind.Value, constVolatileUnsignedBuffer.Parameters[0].AbiKind);
+
         var signedBuffer = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "consume_signed_buffer"));
         Assert.Equal("global::System.IntPtr", signedBuffer.Parameters[0].Type.ManagedTypeName);
         Assert.Equal(BindingParameterDirection.In, signedBuffer.Parameters[0].Direction);
         Assert.Equal(BindingParameterAbiKind.Value, signedBuffer.Parameters[0].AbiKind);
+
+        var volatileSignedBuffer = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "consume_volatile_signed_buffer"));
+        Assert.Equal("global::System.IntPtr", volatileSignedBuffer.Parameters[0].Type.ManagedTypeName);
+        Assert.Equal(BindingParameterDirection.In, volatileSignedBuffer.Parameters[0].Direction);
+        Assert.Equal(BindingParameterAbiKind.Value, volatileSignedBuffer.Parameters[0].AbiKind);
+
+        var constVolatileSignedBuffer = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "consume_const_volatile_signed_buffer"));
+        Assert.Equal("global::System.IntPtr", constVolatileSignedBuffer.Parameters[0].Type.ManagedTypeName);
+        Assert.Equal(BindingParameterDirection.In, constVolatileSignedBuffer.Parameters[0].Direction);
+        Assert.Equal(BindingParameterAbiKind.Value, constVolatileSignedBuffer.Parameters[0].AbiKind);
 
         var explicitUnsignedOut = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "write_unsigned_pointer"));
         Assert.Equal("global::System.IntPtr", explicitUnsignedOut.Parameters[0].Type.ManagedTypeName);
