@@ -73,16 +73,16 @@ public static class RbfxSilentExclusionPass
                     count++;
                 }
             }
-            else if (TryGetDependentFunctionIgnoreReason(function, headerBlockedTypes, out reason))
-            {
-                SetIgnoreReasonIfMissing(function, reason);
-            }
             else if (ShouldSilentlyExcludeFunction(function, out reason))
             {
                 if (SetSilentExclusionReasonIfChanged(function, reason))
                 {
                     count++;
                 }
+            }
+            else if (TryGetDependentFunctionIgnoreReason(function, headerBlockedTypes, out reason))
+            {
+                SetIgnoreReasonIfMissing(function, reason);
             }
         }
 

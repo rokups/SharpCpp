@@ -92,6 +92,7 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - [x] Remaining leak: nested generic argument type names (e.g. `Urho3D::BaseVector3<float>` inside `Ea.Vector<...>`) now properly caught via placeholder-record detection and post-instantiation `HasUnresolvedNamespaceColons` check
 - [x] More explicit early diagnostics for unsupported combinations — placeholder record types are now flagged in both degradation and validation passes
 - [x] Const/non-const method overloads that collapse to the same managed callable signature are silently pruned, including const overloads already marked with duplicate-surface degradation after their non-const counterpart received a primary unsupported-surface reason
+- [x] rbfx `FlagSet<T>` bitwise helper operators are silently excluded before blocked-type dependency degradation, avoiding generated unsupported-operator comments
 - [ ] Hardened fail-fast gates before render/native compile (improved: C++ compile errors dropped from 222 to 160 in rbfx SDK; remaining are pre-existing)
 
 ### Cross-Module Composition
@@ -114,6 +115,11 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - All type-specific behaviors configured through C++/C# marshallers, never hardcoded in core
 
 ## Recently Fixed
+
+- **rbfx `FlagSet<T>` bitwise helper operators are silently excluded**:
+  - `RbfxSilentExclusionPass` now applies rbfx-specific silent function rules before generic dependent-type degradation, so `operator&`, `operator^`, `operator|`, and `operator~` helpers returning `Urho3D::FlagSet<T>` do not render unsupported-operator comments.
+  - Regression coverage models a blocked `Container/FlagSet.h` return type so the real ordering issue is covered.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj --filter Apply_silently_excludes_flagset_only_operators`, `cmake --build --preset Debug`, and generated rbfx grep checks for the reported FlagSet operator comments. Full `ctest --preset Debug --output-on-failure` remains blocked by existing `RbfxSilentExclusionPassTests` expectations around the intentional `Core/Mutex.h` removal.
 
 - **Const overload duplicate diagnostics are now suppressed consistently**:
   - `SilentlyExcludeConstOverloadMethodsPass` now considers non-const counterpart methods even when those counterparts were already degraded for a primary unsupported-surface reason.

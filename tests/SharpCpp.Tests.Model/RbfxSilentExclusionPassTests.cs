@@ -154,29 +154,57 @@ public sealed class RbfxSilentExclusionPassTests
     public void Apply_silently_excludes_flagset_only_operators()
     {
         var compilation = new BindingCompilation("SharpCpp.Rbfx.Bindings", "Urho3D", "Bindings", "Native", ["Urho3D/Urho3DAll.h"]);
-        var flagSetType = BindingType.CreateConfigured("CXType_Unexposed", "unsupported");
-        var enumType = BindingType.CreateEnum("PacketType", "PacketType");
+        var flagSetRecord = new RecordBinding("record:Urho3D::FlagSet", "FlagSet", "FlagSet", "Urho3D::FlagSet")
+        {
+            HeaderIncludePath = "Container/FlagSet.h"
+        };
+        var flagSetType = BindingType.CreateHandle("Urho3D::FlagSet<AttributeMode>", "FlagSet", recordId: flagSetRecord.SymbolId);
+        var enumType = BindingType.CreateEnum("AttributeMode", "AttributeMode");
+        var bitwiseAnd = new FunctionBinding("function:operator&", "operator&", "OperatorAnd", flagSetType, cppQualifiedName: "Urho3D::operator&")
+        {
+            OperatorToken = "&"
+        };
+        bitwiseAnd.SetMetadata(MetadataKeys.DeclarationDisplayText, "inline constexpr Urho3D::FlagSet<AttributeMode> operator&(const AttributeMode lhs, const AttributeMode rhs)");
+        bitwiseAnd.Parameters.Add(new ParameterBinding("parameter:operator&:lhs", "lhs", "lhs", enumType, cppTypeName: "const AttributeMode"));
+        bitwiseAnd.Parameters.Add(new ParameterBinding("parameter:operator&:rhs", "rhs", "rhs", enumType, cppTypeName: "const AttributeMode"));
+        var bitwiseXor = new FunctionBinding("function:operator^", "operator^", "OperatorXor", flagSetType, cppQualifiedName: "Urho3D::operator^")
+        {
+            OperatorToken = "^"
+        };
+        bitwiseXor.SetMetadata(MetadataKeys.DeclarationDisplayText, "inline constexpr Urho3D::FlagSet<AttributeMode> operator^(const AttributeMode lhs, const AttributeMode rhs)");
+        bitwiseXor.Parameters.Add(new ParameterBinding("parameter:operator^:lhs", "lhs", "lhs", enumType, cppTypeName: "const AttributeMode"));
+        bitwiseXor.Parameters.Add(new ParameterBinding("parameter:operator^:rhs", "rhs", "rhs", enumType, cppTypeName: "const AttributeMode"));
         var bitwiseOr = new FunctionBinding("function:operator|", "operator|", "OperatorOr", flagSetType, cppQualifiedName: "Urho3D::operator|")
         {
             OperatorToken = "|"
         };
-        bitwiseOr.SetMetadata(MetadataKeys.DeclarationDisplayText, "inline constexpr Urho3D::FlagSet<PacketType> operator|(const PacketType lhs, const PacketType rhs)");
-        bitwiseOr.Parameters.Add(new ParameterBinding("parameter:operator|:lhs", "lhs", "lhs", enumType, cppTypeName: "const PacketType"));
-        bitwiseOr.Parameters.Add(new ParameterBinding("parameter:operator|:rhs", "rhs", "rhs", enumType, cppTypeName: "PacketType"));
+        bitwiseOr.SetMetadata(MetadataKeys.DeclarationDisplayText, "inline constexpr Urho3D::FlagSet<AttributeMode> operator|(const AttributeMode lhs, const AttributeMode rhs)");
+        bitwiseOr.Parameters.Add(new ParameterBinding("parameter:operator|:lhs", "lhs", "lhs", enumType, cppTypeName: "const AttributeMode"));
+        bitwiseOr.Parameters.Add(new ParameterBinding("parameter:operator|:rhs", "rhs", "rhs", enumType, cppTypeName: "const AttributeMode"));
         var complement = new FunctionBinding("function:operator~", "operator~", "OperatorNot", flagSetType, cppQualifiedName: "Urho3D::operator~")
         {
             OperatorToken = "~"
         };
-        complement.SetMetadata(MetadataKeys.DeclarationDisplayText, "inline constexpr Urho3D::FlagSet<PacketType> operator~(const PacketType rhs)");
-        complement.Parameters.Add(new ParameterBinding("parameter:operator~:rhs", "rhs", "rhs", enumType, cppTypeName: "PacketType"));
+        complement.SetMetadata(MetadataKeys.DeclarationDisplayText, "inline constexpr Urho3D::FlagSet<AttributeMode> operator~(const AttributeMode rhs)");
+        complement.Parameters.Add(new ParameterBinding("parameter:operator~:rhs", "rhs", "rhs", enumType, cppTypeName: "const AttributeMode"));
+        compilation.Members.Add(flagSetRecord);
+        compilation.Members.Add(bitwiseAnd);
+        compilation.Members.Add(bitwiseXor);
         compilation.Members.Add(bitwiseOr);
         compilation.Members.Add(complement);
 
         var count = RbfxSilentExclusionPass.Apply(compilation);
 
-        Assert.Equal(2, count);
+        Assert.Equal(5, count);
+        Assert.True(flagSetRecord.IsSilentlyExcluded());
+        Assert.True(bitwiseAnd.IsSilentlyExcluded());
+        Assert.True(bitwiseXor.IsSilentlyExcluded());
         Assert.True(bitwiseOr.IsSilentlyExcluded());
         Assert.True(complement.IsSilentlyExcluded());
+        Assert.Contains("FlagSet operator", bitwiseAnd.GetIgnoreReason(), StringComparison.Ordinal);
+        Assert.Contains("FlagSet operator", bitwiseXor.GetIgnoreReason(), StringComparison.Ordinal);
+        Assert.Contains("FlagSet operator", bitwiseOr.GetIgnoreReason(), StringComparison.Ordinal);
+        Assert.Contains("FlagSet operator", complement.GetIgnoreReason(), StringComparison.Ordinal);
     }
 
     [Fact]
