@@ -81,6 +81,64 @@ public sealed class SilentlyExcludeConstOverloadMethodsPassTests
     }
 
     [Fact]
+    public void Apply_silently_excludes_const_method_when_duplicate_degradation_already_marked_it()
+    {
+        var compilation = new BindingCompilation("TestProject", "Test", "Bindings", "Native", ["Sample.hpp"]);
+        var record = new RecordBinding("record:Test::Sample", "Sample", "Sample", "Test::Sample");
+        var mutable = new FunctionBinding("method:Test::Sample::GetData", "GetData", "GetData", BindingType.Int32, cppQualifiedName: "Test::Sample::GetData")
+        {
+            IsStatic = false,
+            IsConstMethod = false
+        };
+        var immutable = new FunctionBinding("method:Test::Sample::GetData:const", "GetData", "GetData", BindingType.Int32, cppQualifiedName: "Test::Sample::GetData")
+        {
+            IsStatic = false,
+            IsConstMethod = true
+        };
+        record.Members.Add(mutable);
+        record.Members.Add(immutable);
+        compilation.Members.Add(record);
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        SilentlyExcludeConstOverloadMethodsPass.Apply(compilation);
+
+        Assert.False(mutable.IsIgnored());
+        Assert.True(immutable.IsIgnored());
+        Assert.True(immutable.IsSilentlyExcluded());
+        Assert.Contains("duplicates a non-const managed callable signature", immutable.GetIgnoreReason(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Apply_silently_excludes_const_method_when_non_const_duplicate_has_other_degradation_reason()
+    {
+        var compilation = new BindingCompilation("TestProject", "Test", "Bindings", "Native", ["Sample.hpp"]);
+        var record = new RecordBinding("record:Test::Sample", "Sample", "Sample", "Test::Sample");
+        var mutable = new FunctionBinding("method:Test::Sample::GetData", "GetData", "GetData", BindingType.Int32, cppQualifiedName: "Test::Sample::GetData")
+        {
+            IsStatic = false,
+            IsConstMethod = false
+        };
+        var immutable = new FunctionBinding("method:Test::Sample::GetData:const", "GetData", "GetData", BindingType.Int32, cppQualifiedName: "Test::Sample::GetData")
+        {
+            IsStatic = false,
+            IsConstMethod = true
+        };
+        mutable.SetIgnoreReason("return type is unsupported in this bootstrap surface");
+        immutable.SetIgnoreReason("managed callable signature 'GetData|False|False|' is declared multiple times in this bootstrap surface");
+        record.Members.Add(mutable);
+        record.Members.Add(immutable);
+        compilation.Members.Add(record);
+
+        SilentlyExcludeConstOverloadMethodsPass.Apply(compilation);
+
+        Assert.True(mutable.IsIgnored());
+        Assert.False(mutable.IsSilentlyExcluded());
+        Assert.True(immutable.IsIgnored());
+        Assert.True(immutable.IsSilentlyExcluded());
+        Assert.Contains("duplicates a non-const managed callable signature", immutable.GetIgnoreReason(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Apply_keeps_const_method_when_parameters_keep_managed_signature_distinct()
     {
         var compilation = new BindingCompilation("TestProject", "Test", "Bindings", "Native", ["Sample.hpp"]);

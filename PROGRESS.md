@@ -91,7 +91,7 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - [x] Placeholder records now use `GetManagedTypeHead` to strip `::` qualifiers from `ManagedName`
 - [x] Remaining leak: nested generic argument type names (e.g. `Urho3D::BaseVector3<float>` inside `Ea.Vector<...>`) now properly caught via placeholder-record detection and post-instantiation `HasUnresolvedNamespaceColons` check
 - [x] More explicit early diagnostics for unsupported combinations — placeholder record types are now flagged in both degradation and validation passes
-- [x] Const/non-const method overloads that collapse to the same managed callable signature are silently pruned before duplicate-surface degradation
+- [x] Const/non-const method overloads that collapse to the same managed callable signature are silently pruned, including const overloads already marked with duplicate-surface degradation after their non-const counterpart received a primary unsupported-surface reason
 - [ ] Hardened fail-fast gates before render/native compile (improved: C++ compile errors dropped from 222 to 160 in rbfx SDK; remaining are pre-existing)
 
 ### Cross-Module Composition
@@ -114,6 +114,11 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - All type-specific behaviors configured through C++/C# marshallers, never hardcoded in core
 
 ## Recently Fixed
+
+- **Const overload duplicate diagnostics are now suppressed consistently**:
+  - `SilentlyExcludeConstOverloadMethodsPass` now considers non-const counterpart methods even when those counterparts were already degraded for a primary unsupported-surface reason.
+  - Const methods already carrying duplicate managed-callable diagnostics are converted to silent exclusions instead of being emitted as generated `// excluded: managed callable signature ...` comments.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj --filter SilentlyExcludeConstOverloadMethodsPassTests`, `cmake --build --preset Debug`, and generated rbfx grep checks for the reported `GetData|False|False|`/const duplicate patterns. Full `ctest --preset Debug --output-on-failure` remains blocked by existing `RbfxSilentExclusionPassTests` expectations around the intentional `Core/Mutex.h` removal.
 
 - **Signed and unsigned byte pointer marshallers now expose pointer-token APIs as `IntPtr`**:
   - Added explicit `Marshaller<T>` specializations for `signed char*`, `const signed char*`, `volatile signed char*`, `const volatile signed char*`, `unsigned char*`, `const unsigned char*`, `volatile unsigned char*`, and `const volatile unsigned char*` that pass through native pointer ABI values and advertise `global::System.IntPtr` managed surfaces.

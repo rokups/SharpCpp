@@ -11,17 +11,45 @@ public static class SilentlyExcludeConstOverloadMethodsPass
         foreach (var record in compilation.Records)
         {
             foreach (var duplicateGroup in record.Members.OfType<FunctionBinding>()
-                         .Where(static function => !function.IsIgnored())
+                         .Where(IsCandidate)
                          .GroupBy(GetManagedPublicCallableSignatureKey, StringComparer.Ordinal)
                          .Where(static group => group.Any(static function => !function.IsConstMethod) &&
                              group.Any(static function => function.IsConstMethod)))
             {
+                var hasActiveNonConstMethod = duplicateGroup.Any(static function => !function.IsConstMethod && !function.IsIgnored());
                 foreach (var constMethod in duplicateGroup.Where(static function => function.IsConstMethod))
                 {
-                    constMethod.SetSilentExclusionReason($"const overload '{constMethod.CppQualifiedName}' duplicates a non-const managed callable signature");
+                    if (!hasActiveNonConstMethod && !HasManagedCallableDuplicateReason(constMethod))
+                    {
+                        continue;
+                    }
+
+                    constMethod.SetSilentExclusionReason($"const overload '{constMethod.CppQualifiedName}' duplicates a non-const managed callable signature", overwriteExisting: true);
                 }
             }
         }
+    }
+
+    private static bool IsCandidate(FunctionBinding function)
+    {
+        if (!function.IsConstMethod)
+        {
+            return true;
+        }
+
+        if (!function.IsIgnored())
+        {
+            return true;
+        }
+
+        return HasManagedCallableDuplicateReason(function);
+    }
+
+    private static bool HasManagedCallableDuplicateReason(FunctionBinding function)
+    {
+        var reason = function.GetIgnoreReason();
+        return reason?.Contains("managed callable signature", StringComparison.Ordinal) == true &&
+            reason.Contains("declared multiple times", StringComparison.Ordinal);
     }
 
     private static string GetManagedPublicCallableSignatureKey(FunctionBinding function)
