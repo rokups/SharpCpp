@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <functional>
 #include <iterator>
 #include <list>
 #include <map>
@@ -13,6 +14,18 @@
 
 namespace SharpCpp
 {
+struct ManagedCallbackHandleAbi
+{
+    void* state{};
+    void* callback{};
+};
+
+namespace detail
+{
+template <typename TFunction, typename TSignature>
+TFunction CreateManagedCallbackWrapper(ManagedCallbackHandleAbi handle);
+}
+
 template <class TString>
 struct OwnedStringMarshallerBase
 {
@@ -233,6 +246,50 @@ struct OwnedHandleConstPointerMarshallerBase
 template <class TValue>
 struct OwnedHandleReturnMarshallerBase : OwnedHandleMarshallerBase<TValue>
 {
+};
+
+template <class TFunction, class TSignature>
+struct ManagedCallbackMarshallerBase
+{
+    using cpp_type = TFunction;
+    using abi_type = ManagedCallbackHandleAbi;
+
+    template <class T = cpp_type>
+    abi_type ConvertToAbi(const T&) const
+    {
+        static_assert(!std::is_same_v<T, T>,
+            "SharpCpp does not support native-to-managed callback function-object returns in this slice.");
+        return {};
+    }
+
+    cpp_type ConvertToCpp(abi_type value) const
+    {
+        return detail::CreateManagedCallbackWrapper<cpp_type, TSignature>(value);
+    }
+};
+
+template <class TFunction, class TSignature>
+struct ManagedCallbackConstReferenceMarshallerBase
+{
+    using cpp_type = const TFunction&;
+    using abi_type = ManagedCallbackHandleAbi;
+
+    template <class T = cpp_type>
+    abi_type ConvertToAbi(T) const
+    {
+        static_assert(!std::is_same_v<T, T>,
+            "SharpCpp does not support native-to-managed callback function-object returns in this slice.");
+        return {};
+    }
+
+    cpp_type ConvertToCpp(abi_type value) const
+    {
+        storage_ = detail::CreateManagedCallbackWrapper<TFunction, TSignature>(value);
+        return storage_;
+    }
+
+private:
+    mutable TFunction storage_{};
 };
 
 template <class TStringView>
@@ -492,6 +549,30 @@ struct Marshaller<void>
 {
     using cpp_type = void;
     using abi_type = void;
+};
+
+template <class TSignature>
+struct [[sharpcpp::managed_type(callback = true)]] Marshaller<std::function<TSignature>>
+    : ManagedCallbackMarshallerBase<std::function<TSignature>, TSignature>
+{
+};
+
+template <class TSignature>
+struct Marshaller<const std::function<TSignature>>
+    : ManagedCallbackMarshallerBase<std::function<TSignature>, TSignature>
+{
+};
+
+template <class TSignature>
+struct Marshaller<std::function<TSignature>&&>
+    : ManagedCallbackMarshallerBase<std::function<TSignature>, TSignature>
+{
+};
+
+template <class TSignature>
+struct Marshaller<const std::function<TSignature>&>
+    : ManagedCallbackConstReferenceMarshallerBase<std::function<TSignature>, TSignature>
+{
 };
 
 template <>

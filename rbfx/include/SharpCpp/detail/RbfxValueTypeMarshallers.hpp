@@ -4,6 +4,7 @@
 #include "RbfxRefCountedMarshallers.hpp"
 #include "RbfxMathMarshallers.hpp"
 
+#include <EASTL/functional.h>
 #include <EASTL/list.h>
 #include <EASTL/map.h>
 #include <EASTL/string.h>
@@ -54,6 +55,30 @@ struct [[sharpcpp::managed_type(
     public_type = "global::System.ReadOnlySpan<byte>",
     managed_marshaller = "global::SharpCpp.Support.Utf8SpanAbiReturnMarshaller"
 )]] ReturnMarshaller<ea::string_view> : Marshaller<ea::string_view> {};
+
+template <class TSignature>
+struct [[sharpcpp::managed_type(callback = true)]] Marshaller<eastl::function<TSignature>>
+    : ManagedCallbackMarshallerBase<eastl::function<TSignature>, TSignature>
+{
+};
+
+template <class TSignature>
+struct Marshaller<const eastl::function<TSignature>>
+    : ManagedCallbackMarshallerBase<eastl::function<TSignature>, TSignature>
+{
+};
+
+template <class TSignature>
+struct Marshaller<eastl::function<TSignature>&&>
+    : ManagedCallbackMarshallerBase<eastl::function<TSignature>, TSignature>
+{
+};
+
+template <class TSignature>
+struct Marshaller<const eastl::function<TSignature>&>
+    : ManagedCallbackConstReferenceMarshallerBase<eastl::function<TSignature>, TSignature>
+{
+};
 
 template <typename T, typename TAllocator>
 struct [[sharpcpp::managed_type(

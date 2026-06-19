@@ -34,6 +34,7 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - Container wrappers: `vector`, `list`, `map`, `unordered_map`
 - Math primitives as value types: `Vector3`, `Matrix3`, `StringHash`, etc.
 - String support: `const char*`, `std::string_view`, `ea::string_view` / `eastl::string_view` → `ReadOnlySpan<byte>`, `const char**` → `out string`, `std::string` → `StringBase`
+- Managed-to-native callback parameters: `std::function<>`, `ea::function<>`, and `eastl::function<>` → `Action<>` / `Func<>` with generated custom marshallers
 
 ### Inheritance & Polymorphism
 - Single inheritance with managed class hierarchy
@@ -56,6 +57,7 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - `BorrowedNativeHandle` / `OwnedNativeHandle` marker policies for generated handle marshallers
 - `Utf8SpanReturnMarshaller` for null-terminated `const char*` returns
 - `Utf8SpanAbiMarshaller` / `Utf8SpanAbiReturnMarshaller` for explicit UTF-8 ptr+len span ABI
+- Managed callback ABI and native shared-state callback wrapper support for managed-to-native function-object parameters
 
 ### rbfx Consumer Slice
 - `rbfx/SharpCpp.Rbfx.Generator` parses `Urho3DAll.h` against SDK CMake flags
@@ -117,6 +119,16 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - All type-specific behaviors configured through C++/C# marshallers, never hardcoded in core
 
 ## Recently Fixed
+
+- **Managed-to-native callback parameters now work end-to-end**:
+  - Added explicit callback facts to `BindingType`, metadata schema version 5, and parser support for `callback = true` function-object marshallers.
+  - `std::function<>`, `ea::function<>`, and `eastl::function<>` now project to `Action<>` / `Func<>` delegate surfaces for supported in-value parameters.
+  - Generated C# emits per-signature custom marshaller helpers that pin delegates with `GCHandle`, pass `{ state, callback }`, register a shared native release hook, use Cdecl callbacks, and fail fast if managed callbacks throw across unmanaged frames.
+  - Native support wraps managed callback handles in copyable/movable shared-state function objects and releases the managed state through the registered hook when the last wrapper copy dies.
+  - Degradation keeps only in-value callback parameters and deterministically rejects callback returns, callback fields, and out/ref callback parameters before rendering.
+  - Optional callback defaults now use null dispatch instead of nullable-value `.HasValue` / `.Value`, and C++ `nullptr` callback defaults render nullable managed delegate parameters/imports.
+  - Regression coverage includes marshaller extraction, parser mapping/defaults, metadata export/import, degradation guards, renderer helper/default output, and synthetic E2E callback invocation/lifetime tests.
+  - Verification: `cmake --build --preset Debug` and `ctest --preset Debug` both pass.
 
 - **P/Invoke imports now request aggressive inlining**:
   - Generated managed binding files now include `System.Runtime.CompilerServices` and emit `[MethodImpl(MethodImplOptions.AggressiveInlining)]` immediately after every generated `[LibraryImport]` declaration, including generic, field, metadata, callbase, director, and default-argument variant imports.

@@ -204,7 +204,15 @@ public static class BindingMetadataExporter
             type.GenericArguments.Count == 0
                 ? null
                 : type.GenericArguments.Select(argument => CreateTypeReference(compilation, argument, fullyQualifyConcrete)).ToArray(),
-            type.EnumId);
+            type.EnumId,
+            type.ManagedMarshaller,
+            type.IsCallback,
+            type.CallbackReturnType is null
+                ? null
+                : CreateTypeReference(compilation, type.CallbackReturnType, fullyQualifyConcrete),
+            type.CallbackParameterTypes.Count == 0
+                ? null
+                : type.CallbackParameterTypes.Select(argument => CreateTypeReference(compilation, argument, fullyQualifyConcrete)).ToArray());
     }
 
     private static string FormatQualifiedConcreteManagedTypeName(BindingCompilation compilation, BindingType type)

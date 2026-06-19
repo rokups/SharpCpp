@@ -80,7 +80,11 @@ public sealed record BindingMetadataTypeReference(
     string? RecordId,
     string? MarshallerType,
     IReadOnlyList<BindingMetadataTypeReference>? GenericArguments = null,
-    string? EnumId = null);
+    string? EnumId = null,
+    string? ManagedMarshaller = null,
+    bool IsCallback = false,
+    BindingMetadataTypeReference? CallbackReturnType = null,
+    IReadOnlyList<BindingMetadataTypeReference>? CallbackParameterTypes = null);
 
 public sealed record BindingMetadataExportOptions(
     string PackageId,

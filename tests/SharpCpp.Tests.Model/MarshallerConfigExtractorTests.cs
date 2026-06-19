@@ -20,7 +20,7 @@ public sealed class MarshallerConfigExtractorTests
             null,
             [new[] { headerPath }, new[] { "-x", "c++", "-std=c++20", $"-I{fixtureDir}" }])!;
 
-        Assert.Equal(2, overrides.Count);
+        Assert.Equal(3, overrides.Count);
         Assert.True(overrides.Contains("int"));
         var overrideInfo = overrides["int"]!;
 
@@ -33,6 +33,13 @@ public sealed class MarshallerConfigExtractorTests
         var returnOverrideType = returnOverride.GetType();
         Assert.Equal("owning", (string)returnOverrideType.GetProperty("ReturnOwnership")!.GetValue(returnOverride)!);
         Assert.False((bool)returnOverrideType.GetProperty("HasPublicTypeMapping")!.GetValue(returnOverride)!);
+
+        var callbackOverride = overrides.Values.Cast<object>().Single(candidate =>
+            (bool)candidate.GetType().GetProperty("Callback")!.GetValue(candidate)!);
+        var callbackOverrideType = callbackOverride.GetType();
+        Assert.Contains("std::function", (string)callbackOverrideType.GetProperty("CppTypeName")!.GetValue(callbackOverride)!, StringComparison.Ordinal);
+        Assert.True((bool)callbackOverrideType.GetProperty("HasPublicTypeMapping")!.GetValue(callbackOverride)!);
+        Assert.Equal("global::Test.CallbackMarshaller", (string)callbackOverrideType.GetProperty("ManagedMarshaller")!.GetValue(callbackOverride)!);
     }
 
     [Fact]

@@ -203,6 +203,11 @@ public sealed class BindingMetadataImportCatalog
             .Select(argument => CreateAliasTargetType(recordsByName, enumsByName, document, argument))
             .ToArray();
 
+        if (typeReference.IsCallback)
+        {
+            return CreateCallbackTargetType(recordsByName, enumsByName, document, typeReference);
+        }
+
         return typeReference.Kind switch
         {
             MetadataTypeKind.Handle => CreateAliasHandleTargetType(recordsByName, typeReference, genericArguments),
@@ -211,9 +216,48 @@ public sealed class BindingMetadataImportCatalog
                 typeReference.CppType,
                 GetConcreteManagedTypeHead(typeReference),
                 typeReference.MarshallerType,
+                typeReference.ManagedMarshaller,
                 ParsePrimitiveKind(typeReference.Primitive),
                 genericArguments)
         };
+    }
+
+    private static BindingType CreateCallbackTargetType(
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        BindingMetadataDocument document,
+        BindingMetadataTypeReference typeReference)
+    {
+        var returnType = typeReference.CallbackReturnType is null
+            ? BindingType.Void
+            : CreateAliasTargetType(recordsByName, enumsByName, document, typeReference.CallbackReturnType);
+        var parameterTypes = typeReference.CallbackParameterTypes?
+            .Select(argument => CreateAliasTargetType(recordsByName, enumsByName, document, argument))
+            .ToArray() ?? Array.Empty<BindingType>();
+
+        return BindingType.CreateCallback(
+            typeReference.CppType,
+            BuildManagedCallbackTypeFormat(returnType, parameterTypes),
+            typeReference.ManagedMarshaller,
+            returnType,
+            parameterTypes);
+    }
+
+    private static string BuildManagedCallbackTypeFormat(BindingType returnType, IReadOnlyList<BindingType> parameterTypes)
+    {
+        if (returnType.PrimitiveKind == BindingPrimitiveKind.Void)
+        {
+            return parameterTypes.Count == 0
+                ? "global::System.Action"
+                : $"global::System.Action<{BuildGenericPlaceholders(parameterTypes.Count)}>";
+        }
+
+        return $"global::System.Func<{BuildGenericPlaceholders(parameterTypes.Count + 1)}>";
+    }
+
+    private static string BuildGenericPlaceholders(int count)
+    {
+        return string.Join(", ", Enumerable.Range(0, count).Select(static index => $"{{{index}}}"));
     }
 
     private static BindingType CreateAliasHandleTargetType(

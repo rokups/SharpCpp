@@ -172,6 +172,12 @@ public static class DegradeUnsupportedSurfacePass
             return true;
         }
 
+        if (function.ReturnType.IsCallback)
+        {
+            reason = "callback return types are not yet supported in this bootstrap surface";
+            return true;
+        }
+
         if (TryGetUnsupportedTypeReason(function.ReturnType, function.CppReturnTypeName, recordsById, enumsById, disallowNonPointerHandles: true, out reason))
         {
             reason = $"return type is unsupported in this bootstrap surface: {reason}";
@@ -183,6 +189,13 @@ public static class DegradeUnsupportedSurfacePass
             if (!functionAllowsOpenGenericTypes && parameter.Type.ContainsGenericParameters)
             {
                 reason = $"parameter '{parameter.ManagedName}' is unsupported in this bootstrap surface: open generic parameter usage is not renderer-ready in a non-generic callable";
+                return true;
+            }
+
+            if (parameter.Type.IsCallback &&
+                (parameter.Direction is not BindingParameterDirection.In || parameter.AbiKind is not BindingParameterAbiKind.Value))
+            {
+                reason = $"parameter '{parameter.ManagedName}' is unsupported in this bootstrap surface: callback parameters must be passed as in-value parameters";
                 return true;
             }
 
@@ -375,6 +388,12 @@ public static class DegradeUnsupportedSurfacePass
             return true;
         }
 
+        if (field.Type.IsCallback)
+        {
+            reason = "callback fields are not yet supported in this bootstrap surface";
+            return true;
+        }
+
         if (TryGetUnsupportedTypeReason(field.Type, field.CppTypeName, recordsById, enumsById, disallowNonPointerHandles: true, out reason))
         {
             reason = $"field type is unsupported in this bootstrap surface: {reason}";
@@ -393,6 +412,33 @@ public static class DegradeUnsupportedSurfacePass
         bool disallowNonPointerHandles,
         out string reason)
     {
+        if (type.IsCallback)
+        {
+            if (type.CallbackReturnType is null)
+            {
+                reason = $"callback type '{rawCppTypeName}' is missing return-type metadata";
+                return true;
+            }
+
+            if (TryGetUnsupportedTypeReason(type.CallbackReturnType, type.CallbackReturnType.CppTypeName, recordsById, enumsById, disallowNonPointerHandles: true, out var callbackReturnReason))
+            {
+                reason = $"callback return type is unsupported: {callbackReturnReason}";
+                return true;
+            }
+
+            foreach (var parameterType in type.CallbackParameterTypes)
+            {
+                if (TryGetUnsupportedTypeReason(parameterType, parameterType.CppTypeName, recordsById, enumsById, disallowNonPointerHandles: false, out var callbackParameterReason))
+                {
+                    reason = $"callback parameter type '{parameterType.ManagedTypeName}' is unsupported: {callbackParameterReason}";
+                    return true;
+                }
+            }
+
+            reason = string.Empty;
+            return false;
+        }
+
         if (type.Kind == BindingTypeKind.Handle &&
             !string.IsNullOrWhiteSpace(type.RecordId) &&
             recordsById.TryGetValue(type.RecordId, out var record) &&
@@ -650,7 +696,7 @@ public static class DegradeUnsupportedSurfacePass
                         parameter.Direction,
                         parameter.AbiKind,
                         parameter.Type.Kind,
-                        parameter.Type.ManagedTypeName))));
+                        parameter.Type.UnaliasedManagedTypeName))));
     }
 
     /// <summary>

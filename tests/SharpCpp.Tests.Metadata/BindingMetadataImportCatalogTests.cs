@@ -158,4 +158,64 @@ public sealed class BindingMetadataImportCatalogTests
             }
         }
     }
+
+    [Fact]
+    public void Load_preserves_callback_alias_target_metadata()
+    {
+        var document = new BindingMetadataDocument(
+            SchemaVersion: BindingMetadataSchema.CurrentVersion,
+            GeneratorVersion: BindingMetadataSchema.PreviewGeneratorVersion,
+            SupportRuntimeVersion: BindingMetadataSchema.PreviewSupportRuntimeVersion,
+            Source: new BindingMetadataSource("SharpCpp.Rbfx.Bindings", "Urho3D", "SharpCpp.Rbfx.Native"),
+            Imports: Array.Empty<BindingMetadataImport>(),
+            Fingerprint: new BindingMetadataFingerprint("phase2", "clang", "attrs", ["Callbacks.h"]),
+            Types: Array.Empty<BindingMetadataType>(),
+            Functions: Array.Empty<BindingMetadataFunction>(),
+            Aliases:
+            [
+                new BindingMetadataAlias(
+                    CppQualifiedName: "Urho3D::CallbackAlias",
+                    NativeName: "CallbackAlias",
+                    ManagedName: "CallbackAlias",
+                    ManagedNamespace: "Urho3D",
+                    TargetType: new BindingMetadataTypeReference(
+                        Kind: "primitive",
+                        CppType: "std::function<void(int)>",
+                        PublicType: "global::System.Action<int>",
+                        Primitive: "unsupported",
+                        RecordId: null,
+                        MarshallerType: null,
+                        ManagedMarshaller: "global::Urho3D.CallbackMarshaller",
+                        IsCallback: true,
+                        CallbackReturnType: new BindingMetadataTypeReference("primitive", "void", "void", "void", null, null),
+                        CallbackParameterTypes: [new BindingMetadataTypeReference("primitive", "int", "int", "int32", null, null)]))
+            ]);
+
+        var tempFile = Path.Combine(Path.GetTempPath(), $"SharpCpp.Tests.Metadata.{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(tempFile, BindingMetadataSerializer.Serialize(document));
+            var catalog = BindingMetadataImportCatalog.Load([tempFile]);
+
+            var compilation = new BindingCompilation("Consumer", "RbfxUserCode", "Bindings", "Consumer.Native", ["Callbacks.h"]);
+            var recordsByName = new Dictionary<string, RecordBinding>(StringComparer.Ordinal);
+            var enumsByName = new Dictionary<string, EnumBinding>(StringComparer.Ordinal);
+
+            catalog.Seed(compilation, recordsByName, enumsByName);
+
+            var alias = Assert.Single(compilation.TypeAliases);
+            Assert.True(alias.TargetType.IsCallback);
+            Assert.Equal("global::System.Action<int>", alias.TargetType.ManagedTypeName);
+            Assert.Equal("global::Urho3D.CallbackMarshaller", alias.TargetType.ManagedMarshaller);
+            Assert.Equal("void", alias.TargetType.CallbackReturnType!.ManagedTypeName);
+            Assert.Equal("int", Assert.Single(alias.TargetType.CallbackParameterTypes).ManagedTypeName);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
+        }
+    }
 }

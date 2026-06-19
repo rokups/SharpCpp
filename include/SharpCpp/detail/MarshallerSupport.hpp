@@ -1,7 +1,10 @@
 #pragma once
 
 #include <SharpCpp/Marshaller.hpp>
+#include <atomic>
+#include <exception>
 #include <functional>
+#include <memory>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -83,6 +86,139 @@ struct MarshallerTupleForTuple<std::tuple<TCppArgs...>>
 
 template <typename TTuple>
 using marshaller_tuple_t = typename MarshallerTupleForTuple<TTuple>::type;
+
+template <typename TCpp>
+using callback_parameter_abi_t = typename ParameterMarshaller<TCpp>::abi_type;
+
+template <typename TCpp>
+using callback_return_abi_t = typename ReturnMarshaller<TCpp>::abi_type;
+
+using managed_callback_release_pointer_t = void (*)(void*);
+
+inline std::atomic<managed_callback_release_pointer_t> g_managed_callback_release{};
+
+inline void SetManagedCallbackRelease(managed_callback_release_pointer_t release) noexcept
+{
+    g_managed_callback_release.store(release, std::memory_order_release);
+}
+
+inline void ReleaseManagedCallbackState(void* state)
+{
+    if (state == nullptr)
+        return;
+
+    const auto release = g_managed_callback_release.load(std::memory_order_acquire);
+    if (release == nullptr)
+    {
+        std::terminate();
+    }
+
+    release(state);
+}
+
+template <typename TSignature>
+struct ManagedCallbackInvokePointer;
+
+template <typename TResult, typename... TArgs>
+struct ManagedCallbackInvokePointer<TResult(TArgs...)>
+{
+    using type = callback_return_abi_t<TResult> (*)(void*, callback_parameter_abi_t<TArgs>...);
+};
+
+template <typename TResult, typename... TArgs>
+struct ManagedCallbackInvokePointer<TResult(TArgs...) noexcept>
+{
+    using type = callback_return_abi_t<TResult> (*)(void*, callback_parameter_abi_t<TArgs>...);
+};
+
+template <typename TSignature>
+using managed_callback_invoke_pointer_t = typename ManagedCallbackInvokePointer<TSignature>::type;
+
+template <typename TCppArgumentTuple, typename TCallable, typename... TCppArgs, std::size_t... TIndices>
+decltype(auto) InvokeCallbackWithExplicitSignatureImpl(
+    TCallable&& callable,
+    std::index_sequence<TIndices...>,
+    TCppArgs&&... cppArguments)
+{
+    marshaller_tuple_t<TCppArgumentTuple> marshallers;
+    auto invoke = [&]() -> decltype(auto)
+    {
+        return std::invoke(
+            std::forward<TCallable>(callable),
+            std::get<TIndices>(marshallers).ConvertToAbi(cppArguments)...);
+    };
+
+    return InvokeAndSyncMarshallers(invoke, marshallers);
+}
+
+template <typename TCppArgumentTuple, typename TCallable, typename... TCppArgs>
+decltype(auto) InvokeCallbackWithExplicitSignature(TCallable&& callable, TCppArgs&&... cppArguments)
+{
+    return InvokeCallbackWithExplicitSignatureImpl<TCppArgumentTuple>(
+        std::forward<TCallable>(callable),
+        std::make_index_sequence<std::tuple_size_v<TCppArgumentTuple>>{},
+        std::forward<TCppArgs>(cppArguments)...);
+}
+
+template <typename TFunction, typename TSignature>
+struct ManagedCallbackWrapperFactory;
+
+template <typename TFunction, typename TResult, typename... TArgs>
+struct ManagedCallbackWrapperFactory<TFunction, TResult(TArgs...)>
+{
+    using invoke_pointer = managed_callback_invoke_pointer_t<TResult(TArgs...)>;
+    using argument_tuple = std::tuple<TArgs...>;
+
+    static TFunction Create(SharpCpp::ManagedCallbackHandleAbi handle)
+    {
+        if (handle.callback == nullptr)
+        {
+            ReleaseManagedCallbackState(handle.state);
+            return TFunction{};
+        }
+
+        auto lifetime = std::shared_ptr<void>(handle.state, [](void* state)
+        {
+            ReleaseManagedCallbackState(state);
+        });
+        auto callback = reinterpret_cast<invoke_pointer>(handle.callback);
+
+        return TFunction([callback, lifetime = std::move(lifetime)](TArgs... cppArguments) -> TResult
+        {
+            auto invoke = [callback, state = lifetime.get()](callback_parameter_abi_t<TArgs>... abiArguments) -> callback_return_abi_t<TResult>
+            {
+                return callback(state, abiArguments...);
+            };
+
+            if constexpr (std::is_void_v<TResult>)
+            {
+                InvokeCallbackWithExplicitSignature<argument_tuple>(
+                    invoke,
+                    std::forward<TArgs>(cppArguments)...);
+                return;
+            }
+            else
+            {
+                auto result = InvokeCallbackWithExplicitSignature<argument_tuple>(
+                    invoke,
+                    std::forward<TArgs>(cppArguments)...);
+                return ReturnMarshaller<TResult>{}.ConvertToCpp(result);
+            }
+        });
+    }
+};
+
+template <typename TFunction, typename TResult, typename... TArgs>
+struct ManagedCallbackWrapperFactory<TFunction, TResult(TArgs...) noexcept>
+    : ManagedCallbackWrapperFactory<TFunction, TResult(TArgs...)>
+{
+};
+
+template <typename TFunction, typename TSignature>
+TFunction CreateManagedCallbackWrapper(SharpCpp::ManagedCallbackHandleAbi handle)
+{
+    return ManagedCallbackWrapperFactory<TFunction, remove_cvref_t<TSignature>>::Create(handle);
+}
 
 template <typename TResult, typename TCppArgumentTuple, typename TCallable, typename TMarshallerTuple, typename... TAbiArgs, std::size_t... TIndices>
 constexpr decltype(auto) InvokeWithMarshallersImpl(

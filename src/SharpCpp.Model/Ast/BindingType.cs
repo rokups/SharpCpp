@@ -51,6 +51,7 @@ public sealed record MarshallerDescriptor(
 public sealed class BindingType
 {
     private readonly IReadOnlyList<BindingType> _genericArguments;
+    private readonly IReadOnlyList<BindingType> _callbackParameterTypes;
     private string? _managedTypeFormatOverride;
 
     private BindingType(
@@ -60,7 +61,10 @@ public sealed class BindingType
         string? recordId = null,
         string? enumId = null,
         string? genericParameterName = null,
-        IEnumerable<BindingType>? genericArguments = null)
+        IEnumerable<BindingType>? genericArguments = null,
+        bool isCallback = false,
+        BindingType? callbackReturnType = null,
+        IEnumerable<BindingType>? callbackParameterTypes = null)
     {
         Kind = kind;
         PrimitiveKind = primitiveKind;
@@ -69,6 +73,9 @@ public sealed class BindingType
         EnumId = enumId;
         GenericParameterName = genericParameterName;
         _genericArguments = genericArguments?.ToArray() ?? Array.Empty<BindingType>();
+        IsCallback = isCallback;
+        CallbackReturnType = callbackReturnType;
+        _callbackParameterTypes = callbackParameterTypes?.ToArray() ?? Array.Empty<BindingType>();
     }
 
     public static BindingType Void { get; } = Primitive(BindingPrimitiveKind.Void, "void", "void");
@@ -135,6 +142,12 @@ public sealed class BindingType
 
     public IReadOnlyList<BindingType> GenericArguments => _genericArguments;
 
+    public bool IsCallback { get; }
+
+    public BindingType? CallbackReturnType { get; }
+
+    public IReadOnlyList<BindingType> CallbackParameterTypes => _callbackParameterTypes;
+
     public string CppTypeName => Marshaller.CppTypeName;
 
     public string ManagedTypeName => Kind == BindingTypeKind.GenericParameter
@@ -143,7 +156,7 @@ public sealed class BindingType
 
     public string UnaliasedManagedTypeName => Kind == BindingTypeKind.GenericParameter
         ? GenericParameterName ?? Marshaller.PublicTypeName
-        : FormatManagedTypeName(managedTypeFormatOverride: null, unaliasGenericArguments: true);
+        : FormatManagedTypeName(ignoreManagedTypeFormatOverride: true, unaliasGenericArguments: true);
 
     public string? MarshallerTypeName => Marshaller.MarshallerTypeName;
 
@@ -179,7 +192,10 @@ public sealed class BindingType
             RecordId,
             EnumId,
             GenericParameterName,
-            GenericArguments)
+            GenericArguments,
+            IsCallback,
+            CallbackReturnType,
+            CallbackParameterTypes)
         {
             _managedTypeFormatOverride = normalizedOverride
         };
@@ -249,6 +265,32 @@ public sealed class BindingType
             genericArguments: genericArguments);
     }
 
+    public static BindingType CreateCallback(
+        string cppTypeName,
+        string publicTypeFormat,
+        string? managedMarshaller,
+        BindingType callbackReturnType,
+        IReadOnlyList<BindingType> callbackParameterTypes)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(cppTypeName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(publicTypeFormat);
+        ArgumentNullException.ThrowIfNull(callbackReturnType);
+        ArgumentNullException.ThrowIfNull(callbackParameterTypes);
+
+        var genericArguments = callbackReturnType.PrimitiveKind == BindingPrimitiveKind.Void
+            ? callbackParameterTypes.ToArray()
+            : callbackParameterTypes.Concat([callbackReturnType]).ToArray();
+
+        return new BindingType(
+            BindingTypeKind.Primitive,
+            BindingPrimitiveKind.Unsupported,
+            new MarshallerDescriptor(cppTypeName, publicTypeFormat, ManagedMarshaller: managedMarshaller),
+            genericArguments: genericArguments,
+            isCallback: true,
+            callbackReturnType: callbackReturnType,
+            callbackParameterTypes: callbackParameterTypes);
+    }
+
     public override string ToString()
     {
         return ManagedTypeName;
@@ -287,16 +329,24 @@ public sealed class BindingType
             RecordId,
             EnumId,
             GenericParameterName,
-            GenericArguments);
+            GenericArguments,
+            IsCallback,
+            CallbackReturnType,
+            CallbackParameterTypes);
     }
 
-    private string FormatManagedTypeName(string? managedTypeFormatOverride = null, bool unaliasGenericArguments = false)
+    private string FormatManagedTypeName(
+        string? managedTypeFormatOverride = null,
+        bool ignoreManagedTypeFormatOverride = false,
+        bool unaliasGenericArguments = false)
     {
         // When an explicit managed type format override is set (via
         // Marshaller<T> attributes) and contains no format placeholders,
         // use it as-is — C++ template arguments don't apply to the
         // configured managed type.
-        var effectiveFormatOverride = managedTypeFormatOverride ?? _managedTypeFormatOverride;
+        var effectiveFormatOverride = ignoreManagedTypeFormatOverride
+            ? managedTypeFormatOverride
+            : managedTypeFormatOverride ?? _managedTypeFormatOverride;
         if (effectiveFormatOverride is not null &&
             !effectiveFormatOverride.Contains('{', StringComparison.Ordinal))
         {

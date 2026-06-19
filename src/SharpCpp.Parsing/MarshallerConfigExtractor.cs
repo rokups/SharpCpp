@@ -43,6 +43,10 @@ internal static class MarshallerConfigExtractor
         @"projection\s*=\s*(?<value>true|false)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    private static readonly Regex CallbackExpression = new(
+        @"callback\s*=\s*(?<value>true|false)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private static readonly Regex ReturnOwnershipExpression = new(
         @"return_ownership\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -80,6 +84,7 @@ internal static class MarshallerConfigExtractor
         public IReadOnlyList<string> TemplateParameterNames { get; init; } = Array.Empty<string>();
         public IReadOnlyList<int> VisibleTemplateParameterIndices { get; init; } = Array.Empty<int>();
         public bool Projection { get; init; }
+        public bool Callback { get; init; }
         public string? ReturnOwnership { get; init; }
         public string? ManagedInstanceCacheFactoryExpression { get; init; }
         public string? ManagedInstanceCacheTypeName { get; init; }
@@ -275,7 +280,10 @@ internal static class MarshallerConfigExtractor
         var body = attrMatch.Body;
         var publicTypeMatch = PublicTypeExpression.Match(body);
         var returnOwnershipMatch = ReturnOwnershipExpression.Match(body);
-        if (!publicTypeMatch.Success && !returnOwnershipMatch.Success)
+        var callbackMatch = CallbackExpression.Match(body);
+        var isCallback = callbackMatch.Success &&
+            string.Equals(callbackMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase);
+        if (!publicTypeMatch.Success && !returnOwnershipMatch.Success && !isCallback)
         {
             return;
         }
@@ -328,12 +336,13 @@ internal static class MarshallerConfigExtractor
             VisibleTemplateParameterIndices = visibleTemplateParameterIndices,
             Projection = projectionMatch.Success &&
                 string.Equals(projectionMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase),
+            Callback = isCallback,
             ReturnOwnership = returnOwnershipMatch.Success ? returnOwnershipMatch.Groups["value"].Value : null,
             ManagedInstanceCacheFactoryExpression = managedInstanceCacheFactoryMatch.Success ? managedInstanceCacheFactoryMatch.Groups["value"].Value : null,
             ManagedInstanceCacheTypeName = managedInstanceCacheTypeMatch.Success ? managedInstanceCacheTypeMatch.Groups["value"].Value : null,
             EmitDefaultNativeReleaseOverride = !releaseStrategyMatch.Success ||
                 !string.Equals(releaseStrategyMatch.Groups["value"].Value, "base", StringComparison.OrdinalIgnoreCase),
-            HasPublicTypeMapping = publicTypeMatch.Success
+            HasPublicTypeMapping = publicTypeMatch.Success || isCallback
         };
     }
 

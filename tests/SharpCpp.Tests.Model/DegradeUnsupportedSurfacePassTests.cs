@@ -191,4 +191,107 @@ public sealed class DegradeUnsupportedSurfacePassTests
         Assert.True(record.IsIgnored());
         Assert.Contains("pure virtual director callback", record.GetIgnoreReason(), StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Apply_keeps_in_value_callback_parameters()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Callbacks.h"]);
+        var callbackType = CreateVoidCallbackType();
+        var function = new FunctionBinding("function:UseCallback", "UseCallback", "UseCallback", BindingType.Void, "UseCallback");
+        function.Parameters.Add(new ParameterBinding("parameter:callback", "callback", "callback", callbackType));
+        compilation.Members.Add(function);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.False(function.IsIgnored(), function.GetIgnoreReason());
+    }
+
+    [Fact]
+    public void Apply_ignores_callback_return_types()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Callbacks.h"]);
+        var function = new FunctionBinding("function:GetCallback", "GetCallback", "GetCallback", CreateVoidCallbackType(), "GetCallback");
+        compilation.Members.Add(function);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.True(function.IsIgnored());
+        Assert.Contains("callback return types", function.GetIgnoreReason(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Apply_ignores_callback_fields()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Callbacks.h"]);
+        var record = new RecordBinding("record:CallbackOwner", "CallbackOwner", "CallbackOwner", "CallbackOwner");
+        var field = new FieldBinding("field:CallbackOwner::callback", "callback", "Callback", CreateVoidCallbackType(), "std::function<void(int)>", record.CppQualifiedName);
+        record.Members.Add(field);
+        compilation.Members.Add(record);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.True(field.IsIgnored());
+        Assert.Contains("callback fields", field.GetIgnoreReason(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Apply_ignores_out_or_ref_callback_parameters()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Callbacks.h"]);
+        var callbackType = CreateVoidCallbackType();
+        var function = new FunctionBinding("function:ReplaceCallback", "ReplaceCallback", "ReplaceCallback", BindingType.Void, "ReplaceCallback");
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:callback",
+            "callback",
+            "callback",
+            callbackType,
+            BindingParameterDirection.Ref,
+            BindingParameterAbiKind.Reference,
+            "std::function<void(int)>&"));
+        compilation.Members.Add(function);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.True(function.IsIgnored());
+        Assert.Contains("callback parameters must be passed as in-value parameters", function.GetIgnoreReason(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Apply_ignores_member_overloads_that_collapse_through_aliases()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Aliases.h"]);
+        var record = new RecordBinding("record:Emitter", "Emitter", "Emitter", "Test::Emitter");
+        var aliasType = BindingType.CreateConfigured("Test::AliasMap", "global::Test.Map<int, int>")
+            .WithManagedTypeFormatOverride("AliasMap");
+        var targetType = BindingType.CreateConfigured("Test::Map<int, int>", "global::Test.Map<int, int>");
+        var aliasOverload = new FunctionBinding("method:Emitter::SendAlias", "Send", "Send", BindingType.Void, "Test::Emitter::Send")
+        {
+            OwningRecordCppTypeName = record.CppQualifiedName
+        };
+        var targetOverload = new FunctionBinding("method:Emitter::SendTarget", "Send", "Send", BindingType.Void, "Test::Emitter::Send")
+        {
+            OwningRecordCppTypeName = record.CppQualifiedName
+        };
+        aliasOverload.Parameters.Add(new ParameterBinding("parameter:alias", "value", "value", aliasType, cppTypeName: "Test::AliasMap"));
+        targetOverload.Parameters.Add(new ParameterBinding("parameter:target", "value", "value", targetType, cppTypeName: "Test::Map<int, int>"));
+        record.Members.Add(aliasOverload);
+        record.Members.Add(targetOverload);
+        compilation.Members.Add(record);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.False(aliasOverload.IsIgnored(), aliasOverload.GetIgnoreReason());
+        Assert.True(targetOverload.IsIgnored());
+        Assert.Contains("managed callable signature", targetOverload.GetIgnoreReason(), StringComparison.Ordinal);
+    }
+
+    private static BindingType CreateVoidCallbackType()
+    {
+        return BindingType.CreateCallback(
+            "std::function<void(int)>",
+            "global::System.Action<{0}>",
+            managedMarshaller: null,
+            BindingType.Void,
+            [BindingType.Int32]);
+    }
 }

@@ -182,6 +182,185 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Managed_output_emits_callback_marshaller_helper_for_callback_parameters()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Callbacks/Callbacks.hpp" });
+        var callbackType = BindingType.CreateCallback(
+            "std::function<void(int)>",
+            "global::System.Action<{0}>",
+            managedMarshaller: null,
+            BindingType.Void,
+            [BindingType.Int32]);
+        var function = new FunctionBinding(
+            "function:invoke_callback",
+            "invoke_callback",
+            "InvokeCallback",
+            BindingType.Void,
+            "sharpcpp_sample_invoke_callback");
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:invoke_callback:callback",
+            "callback",
+            "callback",
+            callbackType,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "std::function<void(int)>"));
+        compilation.Members.Add(function);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public static void InvokeCallback(global::System.Action<int> callback)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal readonly unsafe struct __SharpCppManagedCallbackHandleAbi", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public __SharpCppManagedCallbackHandleAbi(nint state, nint callback)", managedOutput, StringComparison.Ordinal);
+        Assert.Equal(1, managedOutput.Split("public nint State { get; }", StringSplitOptions.None).Length - 1);
+        Assert.Equal(1, managedOutput.Split("public nint Callback { get; }", StringSplitOptions.None).Length - 1);
+        Assert.Contains("__PInvoke.__SetManagedCallbackRelease(&__ReleaseManagedCallbackState);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static unsafe partial void __SetManagedCallbackRelease(delegate* unmanaged[Cdecl]<nint, void> release);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("[CustomMarshaller(typeof(global::System.Action<int>), MarshalMode.ManagedToUnmanagedIn", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("global::System.Runtime.InteropServices.GCHandle.Alloc(managed)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("private static void __ReleaseManagedCallbackState(nint state)", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("public delegate* unmanaged[Cdecl]<nint, void> Release", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("private static void Release(nint state)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("[MarshalUsing(typeof(global::SharpCpp.Sample.SampleBindings.__CallbackMarshaller_void_int))] global::System.Action<int>? callback", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT void sharpcpp_set_managed_callback_release(void (*release)(void*))", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Optional_callback_defaults_use_null_dispatch_instead_of_nullable_value_dispatch()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Callbacks/Callbacks.hpp" });
+        var callbackType = BindingType.CreateCallback(
+            "std::function<void(int)>",
+            "global::System.Action<{0}>",
+            managedMarshaller: null,
+            BindingType.Void,
+            [BindingType.Int32]);
+        var function = new FunctionBinding(
+            "function:invoke_optional_callback",
+            "invoke_optional_callback",
+            "InvokeOptionalCallback",
+            BindingType.Void,
+            "sharpcpp_sample_invoke_optional_callback");
+        var callback = new ParameterBinding(
+            "parameter:invoke_optional_callback:callback",
+            "callback",
+            "callback",
+            callbackType,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "std::function<void(int)>");
+        callback.SetMetadata(MetadataKeys.UnexpressibleDefault, true);
+        function.Parameters.Add(callback);
+        compilation.Members.Add(function);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public static void InvokeOptionalCallback(global::System.Action<int>? callback)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("if (callback is not null)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke.InvokeOptionalCallback(callback);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("if (callback is null)", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("callback.HasValue", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("callback.Value", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Callback_null_defaults_render_nullable_public_parameters()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Callbacks/Callbacks.hpp" });
+        var callbackType = BindingType.CreateCallback(
+            "std::function<unsigned()>",
+            "global::System.Func<{0}>",
+            managedMarshaller: null,
+            BindingType.UInt32,
+            []);
+        var function = new FunctionBinding(
+            "function:register_timestamp",
+            "register_timestamp",
+            "RegisterTimestamp",
+            BindingType.Void,
+            "sharpcpp_sample_register_timestamp");
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:register_timestamp:get_timestamp",
+            "getTimestamp",
+            "getTimestamp",
+            callbackType,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "std::function<unsigned()>")
+        {
+            ManagedDefaultValueExpression = "null"
+        });
+        compilation.Members.Add(function);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public static void RegisterTimestamp(global::System.Func<uint>? getTimestamp = default)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("[MarshalUsing(typeof(global::SharpCpp.Sample.SampleBindings.__CallbackMarshaller_uint_none))] global::System.Func<uint>? getTimestamp", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("public static void RegisterTimestamp(global::System.Func<uint> getTimestamp = default)", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Grouped_managed_output_emits_callback_marshaller_helpers_once_in_alias_file()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "A/Callbacks.hpp", "B/Callbacks.hpp" });
+        var callbackType = BindingType.CreateCallback(
+            "std::function<void(int)>",
+            "global::System.Action<{0}>",
+            managedMarshaller: null,
+            BindingType.Void,
+            [BindingType.Int32]);
+        var first = new FunctionBinding("function:a", "a_callback", "ACallback", BindingType.Void, "sharpcpp_sample_a_callback")
+        {
+            HeaderIncludePath = "A/Callbacks.hpp"
+        };
+        var second = new FunctionBinding("function:b", "b_callback", "BCallback", BindingType.Void, "sharpcpp_sample_b_callback")
+        {
+            HeaderIncludePath = "B/Callbacks.hpp"
+        };
+        first.Parameters.Add(new ParameterBinding("parameter:a:callback", "callback", "callback", callbackType, cppTypeName: "std::function<void(int)>"));
+        second.Parameters.Add(new ParameterBinding("parameter:b:callback", "callback", "callback", callbackType, cppTypeName: "std::function<void(int)>"));
+        compilation.Members.Add(first);
+        compilation.Members.Add(second);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample", path => path?.Split('/')[0] ?? "Root").Files;
+        var aliasOutput = files.Single(static file => file.RelativePath == "SharpCppSample.Bindings.Aliases.g.cs").Content;
+        var groupOutputs = files.Where(static file => file.RelativePath.EndsWith(".g.cs", StringComparison.Ordinal) &&
+            file.RelativePath != "SharpCppSample.Bindings.Aliases.g.cs");
+        var nativeGroupOutputs = files.Where(static file => file.RelativePath.EndsWith(".g.cpp", StringComparison.Ordinal)).ToArray();
+
+        Assert.Equal(1, aliasOutput.Split("internal readonly unsafe struct __SharpCppManagedCallbackHandleAbi", StringSplitOptions.None).Length - 1);
+        Assert.Equal(1, aliasOutput.Split("private static void __ReleaseManagedCallbackState(nint state)", StringSplitOptions.None).Length - 1);
+        Assert.Equal(1, aliasOutput.Split("internal static unsafe partial void __SetManagedCallbackRelease", StringSplitOptions.None).Length - 1);
+        Assert.Equal(1, aliasOutput.Split("internal static unsafe class __CallbackMarshaller_void_int", StringSplitOptions.None).Length - 1);
+        Assert.All(groupOutputs, file => Assert.DoesNotContain("__SharpCppManagedCallbackHandleAbi", file.Content, StringComparison.Ordinal));
+        Assert.Equal(1, nativeGroupOutputs.Count(static file => file.Content.Contains("sharpcpp_set_managed_callback_release", StringComparison.Ordinal)));
+    }
+
+    [Fact]
     public void Managed_output_preserves_alias_shaped_public_signatures_and_emits_alias_file()
     {
         var compilation = new BindingCompilation(

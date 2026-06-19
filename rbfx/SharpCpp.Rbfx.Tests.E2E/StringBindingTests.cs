@@ -3,7 +3,6 @@ using System.Linq;
 using SharpCpp.Support;
 
 using Urho3D;
-using Urho3D.Network;
 using Urho3D.UI;
 
 using Xunit;
@@ -15,13 +14,12 @@ public sealed class StringBindingTests
     [Fact]
     public void Rbfx_ea_string_surfaces_project_as_Ea_String_wrapper()
     {
-        var bindingsAssembly = typeof(Connection).Assembly;
+        var bindingsAssembly = typeof(UIElement).Assembly;
         var eaStringType = bindingsAssembly.GetType("Ea.String", throwOnError: true)!;
 
         Assert.True(eaStringType.IsSubclassOf(typeof(StringBase)));
 
-        Assert.Equal(eaStringType, typeof(Connection).GetMethod(nameof(Connection.GetAddress), global::System.Type.EmptyTypes)!.ReturnType);
-        Assert.Equal(eaStringType, typeof(Network).GetMethod(nameof(Network.GetPackageCacheDir), global::System.Type.EmptyTypes)!.ReturnType);
+        Assert.Equal(eaStringType, typeof(UIElement).GetMethod(nameof(UIElement.GetName), global::System.Type.EmptyTypes)!.ReturnType);
 
         Assert.Contains(
             typeof(UIElement).GetMethods(),

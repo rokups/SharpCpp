@@ -187,6 +187,57 @@ public sealed class ClangSharpHeaderParserMarshallerTests
     }
 
     [Fact]
+    public void Parse_maps_callback_function_objects_to_managed_delegate_types()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "CallbackMarshaller");
+        var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+        var marshallerHeader = Path.Combine(fixtureDir, "SampleMarshallers.h");
+
+        var parser = new ClangSharpHeaderParser();
+        var clangArgs = new[] { "-x", "c++", "-std=c++20", $"-I{fixtureDir}" };
+
+        var compilation = parser.Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test.Namespace",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: clangArgs,
+            MarshallerConfigurationFiles: [marshallerHeader],
+            EntryPointPrefix: "Test_"));
+
+        var forEach = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "ForEach"));
+        var forEachCallback = forEach.Parameters[0].Type;
+        Assert.True(forEachCallback.IsCallback);
+        Assert.Equal("global::System.Action<int, float>", forEachCallback.ManagedTypeName);
+        Assert.Equal("global::Test.CallbackMarshaller", forEachCallback.ManagedMarshaller);
+        Assert.Equal("void", forEachCallback.CallbackReturnType!.ManagedTypeName);
+        Assert.Equal(new[] { "int", "float" }, forEachCallback.CallbackParameterTypes.Select(static type => type.ManagedTypeName));
+        Assert.Equal(BindingParameterDirection.In, forEach.Parameters[0].Direction);
+        Assert.Equal(BindingParameterAbiKind.Value, forEach.Parameters[0].AbiKind);
+
+        var transform = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "Transform"));
+        var transformCallback = transform.Parameters[0].Type;
+        Assert.True(transformCallback.IsCallback);
+        Assert.Equal("global::System.Func<int, int>", transformCallback.ManagedTypeName);
+        Assert.Equal("int", transformCallback.CallbackReturnType!.ManagedTypeName);
+        Assert.Equal(new[] { "int" }, transformCallback.CallbackParameterTypes.Select(static type => type.ManagedTypeName));
+
+        var setCallback = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "SetCallback"));
+        var parameterlessCallback = setCallback.Parameters[0].Type;
+        Assert.True(parameterlessCallback.IsCallback);
+        Assert.Equal("global::System.Action", parameterlessCallback.ManagedTypeName);
+        Assert.Empty(parameterlessCallback.CallbackParameterTypes);
+
+        var setDefaultCallback = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "SetDefaultCallback"));
+        var defaultedCallbackParameter = setDefaultCallback.Parameters[0];
+        Assert.True(defaultedCallbackParameter.Type.IsCallback);
+        Assert.Equal("null", defaultedCallbackParameter.ManagedDefaultValueExpression);
+    }
+
+    [Fact]
     public void Parse_projects_shared_ptr_and_marks_returns_as_owning_handles()
     {
         var repoRoot = FindRepositoryRoot();

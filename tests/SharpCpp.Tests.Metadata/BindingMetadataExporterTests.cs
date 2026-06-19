@@ -59,7 +59,7 @@ public sealed class BindingMetadataExporterTests
         var json = BindingMetadataSerializer.Serialize(original);
         var roundTripped = BindingMetadataSerializer.Deserialize(json);
 
-        Assert.Contains("\"schema_version\": 4", json, StringComparison.Ordinal);
+        Assert.Contains("\"schema_version\": 5", json, StringComparison.Ordinal);
         Assert.EndsWith(Environment.NewLine, json, StringComparison.Ordinal);
         Assert.Equal(original.SchemaVersion, roundTripped.SchemaVersion);
         Assert.Equal(original.GeneratorVersion, roundTripped.GeneratorVersion);
@@ -80,6 +80,38 @@ public sealed class BindingMetadataExporterTests
             roundTripped.Types.Select(static type => type.Members?.Count ?? 0));
         Assert.Equal(original.Functions, roundTripped.Functions);
         Assert.Equal(original.Aliases, roundTripped.Aliases);
+    }
+
+    [Fact]
+    public void Export_round_trips_callback_type_metadata()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "callbacks.hpp" });
+        var callbackType = BindingType.CreateCallback(
+            "std::function<int(float)>",
+            "global::System.Func<{0}, {1}>",
+            "global::SharpCpp.Sample.CallbackMarshaller",
+            BindingType.Int32,
+            [BindingType.Single]);
+        var function = new FunctionBinding("function:UseCallback", "UseCallback", "UseCallback", BindingType.Void, "entry_use_callback");
+        function.Parameters.Add(new ParameterBinding("parameter:callback", "callback", "callback", callbackType));
+        compilation.Members.Add(function);
+
+        var original = BindingMetadataExporter.Export(compilation);
+        var json = BindingMetadataSerializer.Serialize(original);
+        var roundTripped = BindingMetadataSerializer.Deserialize(json);
+        var parameterType = Assert.Single(roundTripped.Functions).Parameters.Single().Type;
+
+        Assert.True(parameterType.IsCallback);
+        Assert.Equal("std::function<int(float)>", parameterType.CppType);
+        Assert.Equal("global::System.Func<float, int>", parameterType.PublicType);
+        Assert.Equal("global::SharpCpp.Sample.CallbackMarshaller", parameterType.ManagedMarshaller);
+        Assert.Equal("int", parameterType.CallbackReturnType!.CppType);
+        Assert.Equal("float", Assert.Single(parameterType.CallbackParameterTypes!).CppType);
     }
 
     [Fact]
