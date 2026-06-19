@@ -44,6 +44,20 @@ public static class DegradeUnsupportedSurfacePass
                 }
             }
 
+            foreach (var duplicateDelegateGroup in EnumerateCallbackDelegateParameters(compilation)
+                         .GroupBy(GetCallbackDelegatePolicyTypeName, StringComparer.Ordinal)
+                         .Where(static group => group.Select(parameter => GetCallbackSignatureKey(parameter.Type)).Distinct(StringComparer.Ordinal).Count() > 1))
+            {
+                foreach (var parameter in duplicateDelegateGroup)
+                {
+                    if (parameter.Parent is FunctionBinding function && !function.IsIgnored())
+                    {
+                        function.SetIgnoreReason($"callback delegate type '{duplicateDelegateGroup.Key}' is requested with incompatible callback signatures");
+                        changed = true;
+                    }
+                }
+            }
+
             foreach (var record in compilation.Records)
             {
                 var duplicateGroups = record.Members.OfType<FunctionBinding>()
@@ -196,6 +210,18 @@ public static class DegradeUnsupportedSurfacePass
                 (parameter.Direction is not BindingParameterDirection.In || parameter.AbiKind is not BindingParameterAbiKind.Value))
             {
                 reason = $"parameter '{parameter.ManagedName}' is unsupported in this bootstrap surface: callback parameters must be passed as in-value parameters";
+                return true;
+            }
+
+            if (parameter.UseCallbackDelegate && !parameter.Type.IsCallback)
+            {
+                reason = $"parameter '{parameter.ManagedName}' is unsupported in this bootstrap surface: [[sharpcpp::delegate]] can only be used on callback parameters";
+                return true;
+            }
+
+            if (parameter.UseCallbackDelegate && !IsValidCallbackDelegatePolicy(parameter, out var delegatePolicyReason))
+            {
+                reason = $"parameter '{parameter.ManagedName}' is unsupported in this bootstrap surface: {delegatePolicyReason}";
                 return true;
             }
 
@@ -420,6 +446,12 @@ public static class DegradeUnsupportedSurfacePass
                 return true;
             }
 
+            if (type.ManagedMarshaller is null && !IsGeneratedCallbackValueSupported(type.CallbackReturnType, recordsById))
+            {
+                reason = $"generated callback marshaller cannot convert callback return type '{type.CallbackReturnType.ManagedTypeName}'";
+                return true;
+            }
+
             if (TryGetUnsupportedTypeReason(type.CallbackReturnType, type.CallbackReturnType.CppTypeName, recordsById, enumsById, disallowNonPointerHandles: true, out var callbackReturnReason))
             {
                 reason = $"callback return type is unsupported: {callbackReturnReason}";
@@ -428,6 +460,12 @@ public static class DegradeUnsupportedSurfacePass
 
             foreach (var parameterType in type.CallbackParameterTypes)
             {
+                if (type.ManagedMarshaller is null && !IsGeneratedCallbackValueSupported(parameterType, recordsById))
+                {
+                    reason = $"generated callback marshaller cannot convert callback parameter type '{parameterType.ManagedTypeName}'";
+                    return true;
+                }
+
                 if (TryGetUnsupportedTypeReason(parameterType, parameterType.CppTypeName, recordsById, enumsById, disallowNonPointerHandles: false, out var callbackParameterReason))
                 {
                     reason = $"callback parameter type '{parameterType.ManagedTypeName}' is unsupported: {callbackParameterReason}";
@@ -530,6 +568,136 @@ public static class DegradeUnsupportedSurfacePass
 
         reason = string.Empty;
         return false;
+    }
+
+    private static IEnumerable<ParameterBinding> EnumerateCallbackDelegateParameters(BindingCompilation compilation)
+    {
+        return compilation.Functions
+            .Where(static function => !function.IsIgnored() && function.Parent?.IsIgnored() != true)
+            .SelectMany(static function => function.Parameters)
+            .Where(static parameter => parameter.UseCallbackDelegate && parameter.Type.IsCallback);
+    }
+
+    private static string GetCallbackDelegatePolicyTypeName(ParameterBinding parameter)
+    {
+        if (!string.IsNullOrWhiteSpace(parameter.CallbackDelegateTypeName))
+        {
+            return IsExternalCallbackDelegateTypeName(parameter.CallbackDelegateTypeName!)
+                ? NormalizeExternalCallbackDelegateTypeName(parameter.CallbackDelegateTypeName!)
+                : parameter.CallbackDelegateTypeName!;
+        }
+
+        return GetGeneratedCallbackDelegateName(parameter);
+    }
+
+    private static string GetGeneratedCallbackDelegateName(ParameterBinding parameter)
+    {
+        var function = parameter.Parent as FunctionBinding;
+        var ownerName = function?.FindOwningRecord()?.ManagedName ?? "Global";
+        var functionName = function?.ImportMethodName ?? function?.ManagedName ?? "Callback";
+        return $"{SanitizeManagedToken(ownerName)}_{SanitizeManagedToken(functionName)}_{SanitizeManagedToken(parameter.ManagedName)}Callback";
+    }
+
+    private static string GetCallbackSignatureKey(BindingType type)
+    {
+        var returnType = type.CallbackReturnType?.UnaliasedManagedTypeName ?? "void";
+        return string.Join("|", returnType, string.Join(";", type.CallbackParameterTypes.Select(static parameter => parameter.UnaliasedManagedTypeName)));
+    }
+
+    private static bool IsValidCallbackDelegatePolicy(ParameterBinding parameter, out string reason)
+    {
+        if (string.IsNullOrWhiteSpace(parameter.CallbackDelegateTypeName))
+        {
+            reason = string.Empty;
+            return true;
+        }
+
+        if (IsExternalCallbackDelegateTypeName(parameter.CallbackDelegateTypeName!))
+        {
+            if (IsValidExternalCallbackDelegateTypeName(parameter.CallbackDelegateTypeName!))
+            {
+                reason = string.Empty;
+                return true;
+            }
+
+            reason = $"external callback delegate type name '{parameter.CallbackDelegateTypeName}' is not a valid managed type name";
+            return false;
+        }
+
+        if (IsValidCSharpIdentifier(parameter.CallbackDelegateTypeName!))
+        {
+            reason = string.Empty;
+            return true;
+        }
+
+        reason = $"generated callback delegate name '{parameter.CallbackDelegateTypeName}' is not a valid C# identifier";
+        return false;
+    }
+
+    private static bool IsGeneratedCallbackValueSupported(BindingType type, IReadOnlyDictionary<string, RecordBinding> recordsById)
+    {
+        if (type.PrimitiveKind == BindingPrimitiveKind.Void)
+        {
+            return true;
+        }
+
+        return type.Kind switch
+        {
+            BindingTypeKind.Primitive => type.PrimitiveKind != BindingPrimitiveKind.Unsupported ||
+                string.Equals(type.UnaliasedManagedTypeName, BindingType.IntPtr.ManagedTypeName, StringComparison.Ordinal),
+            BindingTypeKind.Handle => !recordsById.TryGetValue(type.RecordId ?? string.Empty, out var record) || record.IsHandleType,
+            BindingTypeKind.Enum => true,
+            _ => false
+        };
+    }
+
+    private static bool IsExternalCallbackDelegateTypeName(string value)
+    {
+        return value.StartsWith("global::", StringComparison.Ordinal) ||
+            value.Contains('.', StringComparison.Ordinal);
+    }
+
+    private static string NormalizeExternalCallbackDelegateTypeName(string value)
+    {
+        return value.StartsWith("global::", StringComparison.Ordinal)
+            ? value
+            : $"global::{value}";
+    }
+
+    private static bool IsValidExternalCallbackDelegateTypeName(string value)
+    {
+        var normalized = value.StartsWith("global::", StringComparison.Ordinal)
+            ? value[8..]
+            : value;
+        var segments = normalized.Split('.', StringSplitOptions.TrimEntries);
+        return segments.Length > 0 && segments.All(IsValidCSharpIdentifier);
+    }
+
+    private static bool IsValidCSharpIdentifier(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        if (value[0] != '_' && !char.IsLetter(value[0]))
+        {
+            return false;
+        }
+
+        return value.Skip(1).All(static ch => ch == '_' || char.IsLetterOrDigit(ch));
+    }
+
+    private static string SanitizeManagedToken(string value)
+    {
+        var builder = new System.Text.StringBuilder(value.Length);
+        foreach (var character in value)
+        {
+            builder.Append(char.IsLetterOrDigit(character) ? character : '_');
+        }
+
+        var token = builder.ToString().Trim('_');
+        return token.Length == 0 ? "Callback" : token;
     }
 
     private static bool IsSupportedGenericHandleType(BindingType type, IReadOnlyDictionary<string, RecordBinding> recordsById)

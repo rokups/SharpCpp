@@ -70,7 +70,13 @@ public sealed record BindingMetadataAlias(
     string? ManagedNamespace,
     BindingMetadataTypeReference TargetType);
 
-public sealed record BindingMetadataParameter(string Name, string Direction, BindingMetadataTypeReference Type, string? DefaultValueExpression = null);
+public sealed record BindingMetadataParameter(
+    string Name,
+    string Direction,
+    BindingMetadataTypeReference Type,
+    string? DefaultValueExpression = null,
+    bool UseCallbackDelegate = false,
+    string? CallbackDelegateTypeName = null);
 
 public sealed record BindingMetadataTypeReference(
     string Kind,

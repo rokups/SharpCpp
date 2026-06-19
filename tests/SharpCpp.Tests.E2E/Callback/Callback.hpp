@@ -69,3 +69,8 @@ inline int invoke_string_reference_callback(std::function<int(const std::string&
     static const std::string value = "SharpCpp";
     return callback(value);
 }
+
+inline void invoke_named_delegate_callback([[sharpcpp::delegate("ValueCallback")]] std::function<void(int)> callback, int value)
+{
+    callback(value);
+}

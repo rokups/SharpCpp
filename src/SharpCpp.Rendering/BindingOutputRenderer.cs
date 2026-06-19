@@ -12,6 +12,10 @@ public static partial class BindingOutputRenderer
     private const string OwnedNativeHandleFullName = "global::SharpCpp.Support.OwnedNativeHandle";
     private const string NativeHandleOwnershipConstraintFullName = "global::SharpCpp.Support.INativeHandleOwnership";
 
+    private sealed record ManagedCallbackUsage(BindingType CallbackType, string ManagedTypeName, string MarshallerDeclarationName);
+
+    private sealed record ManagedCallbackDelegateDeclaration(string DeclarationName, BindingType CallbackType);
+
     private static ManagedBindingProjection? GetManagedProjection(BindingCompilation compilation)
     {
         return compilation.GetMetadata<ManagedBindingProjection>(MetadataKeys.ManagedBindingProjection);
@@ -43,8 +47,8 @@ public static partial class BindingOutputRenderer
         {
             var files = new[]
             {
-                new GeneratedBindingFile($"{fileStem}.Bindings.g.cs", RenderManagedBindings(compilation)),
-                new GeneratedBindingFile($"{fileStem}.Bindings.Aliases.g.cs", RenderAliasBindings(compilation)),
+                new GeneratedBindingFile($"{fileStem}.Bindings.g.cs", RenderManagedBindings(compilation, includeCallbackHelpers: false)),
+                new GeneratedBindingFile($"{fileStem}.Bindings.Aliases.g.cs", RenderAliasBindings(compilation, includeSharedCallbackHelpers: true)),
                 new GeneratedBindingFile($"{fileStem}.Bindings.g.cpp", RenderNativeBindings(compilation))
             };
             return new GeneratedBindingSet(files);
@@ -62,7 +66,7 @@ public static partial class BindingOutputRenderer
 
         if (groups.Count == 0)
         {
-            allFiles.Add(new GeneratedBindingFile($"{fileStem}.Bindings.g.cs", RenderManagedBindings(compilation)));
+            allFiles.Add(new GeneratedBindingFile($"{fileStem}.Bindings.g.cs", RenderManagedBindings(compilation, includeCallbackHelpers: false)));
             allFiles.Add(new GeneratedBindingFile($"{fileStem}.Bindings.g.cpp", RenderNativeBindings(compilation)));
         }
         else
@@ -84,7 +88,7 @@ public static partial class BindingOutputRenderer
         }
 
         allFiles.Add(new GeneratedBindingFile($"{fileStem}.Bindings.Aliases.g.cs",
-            RenderAliasBindings(compilation, deriveGroupStem is not null, includeSharedCallbackHelpers: deriveGroupStem is not null)));
+            RenderAliasBindings(compilation, deriveGroupStem is not null, includeSharedCallbackHelpers: true)));
         return new GeneratedBindingSet(allFiles);
     }
 
@@ -261,13 +265,13 @@ public static partial class BindingOutputRenderer
             writer.Write(RenderNativeObjectRegistryInitializer(compilation, polymorphicConcreteRecords));
         }
 
-        var callbackTypes = includeCallbackHelpers
-            ? CollectManagedCallbackTypes(records, functions).ToArray()
-            : Array.Empty<BindingType>();
-        if (callbackTypes.Length > 0)
+        var callbackParameters = includeCallbackHelpers
+            ? CollectCallbackParameters(records, functions).ToArray()
+            : Array.Empty<ParameterBinding>();
+        if (callbackParameters.Length > 0)
         {
             writer.WriteLine();
-            writer.Write(RenderManagedCallbackMarshallerHelpers(compilation, callbackTypes));
+            writer.Write(RenderManagedCallbackSupport(compilation, callbackParameters));
         }
 
         if (freeFunctionDeclarations.Count > 0 || genericImportDeclarations.Count > 0)
@@ -934,96 +938,143 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static IEnumerable<BindingType> CollectManagedCallbackTypes(
+    private static IEnumerable<ParameterBinding> CollectCallbackParameters(
         IEnumerable<RecordBinding> records,
         IEnumerable<FunctionBinding> functions)
     {
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var callbackType in functions
-                     .Where(static function => !function.IsIgnored())
-                     .SelectMany(static function => function.Parameters.SelectMany(parameter => EnumerateCallbackTypes(parameter.Type)))
-                     .Concat(records.SelectMany(static record => record.Members
-                         .OfType<FunctionBinding>()
-                         .Where(static function => !function.IsIgnored())
-                         .SelectMany(static function => function.Parameters.SelectMany(parameter => EnumerateCallbackTypes(parameter.Type))))))
-        {
-            if (seen.Add(GetManagedCallbackMarshallerDeclarationName(callbackType)))
-            {
-                yield return callbackType;
-            }
-        }
+        return functions
+            .Where(static function => !function.IsIgnored())
+            .SelectMany(static function => function.Parameters.Where(static parameter => parameter.Type.IsCallback))
+            .Concat(records.SelectMany(static record => record.Members
+                .OfType<FunctionBinding>()
+                .Where(static function => !function.IsIgnored())
+                .SelectMany(static function => function.Parameters.Where(static parameter => parameter.Type.IsCallback))));
     }
 
-    private static IEnumerable<BindingType> EnumerateCallbackTypes(BindingType type)
-    {
-        if (type.IsCallback)
-        {
-            yield return type;
-        }
-
-        foreach (var argument in type.GenericArguments)
-        {
-            foreach (var callbackType in EnumerateCallbackTypes(argument))
-            {
-                yield return callbackType;
-            }
-        }
-    }
-
-    private static string RenderManagedCallbackMarshallerHelpers(BindingCompilation compilation, IReadOnlyList<BindingType> callbackTypes)
+    private static string RenderManagedCallbackSupport(BindingCompilation compilation, IReadOnlyList<ParameterBinding> callbackParameters)
     {
         var writer = new CodeWriter();
-        writer.Write(
-            $$"""
-            [StructLayout(LayoutKind.Sequential)]
-            internal readonly unsafe struct __SharpCppManagedCallbackHandleAbi
-            {
-                public __SharpCppManagedCallbackHandleAbi(nint state, nint callback)
-                {
-                    State = state;
-                    Callback = callback;
-                }
+        var delegateDeclarations = CollectManagedCallbackDelegateDeclarations(callbackParameters).ToArray();
+        var usages = CollectManagedCallbackUsages(compilation, callbackParameters).ToArray();
 
-                public nint State { get; }
-
-                public nint Callback { get; }
-            }
-
-            private static unsafe void __RegisterManagedCallbackRelease()
-            {
-                __PInvoke.__SetManagedCallbackRelease(&__ReleaseManagedCallbackState);
-            }
-
-            [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-            private static void __ReleaseManagedCallbackState(nint state)
-            {
-                if (state != 0)
-                {
-                    global::System.Runtime.InteropServices.GCHandle.FromIntPtr(state).Free();
-                }
-            }
-
-            internal static partial class __PInvoke
-            {
-                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetManagedCallbackReleaseRegistrationEntryPointName()}}", StringMarshalling = StringMarshalling.Utf8)]
-                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                internal static unsafe partial void __SetManagedCallbackRelease(delegate* unmanaged[Cdecl]<nint, void> release);
-            }
-            """);
-
-        foreach (var callbackType in callbackTypes.OrderBy(GetManagedCallbackMarshallerDeclarationName, StringComparer.Ordinal))
+        foreach (var declaration in delegateDeclarations.OrderBy(static declaration => declaration.DeclarationName, StringComparer.Ordinal))
         {
-            writer.WriteLine();
-            writer.Write(RenderManagedCallbackMarshallerHelper(compilation, callbackType));
+            writer.Write(RenderManagedCallbackDelegateDeclaration(compilation, declaration));
+        }
+
+        if (usages.Length > 0)
+        {
+            if (delegateDeclarations.Length > 0)
+            {
+                writer.WriteLine();
+            }
+
+            writer.Write(
+                $$"""
+                [StructLayout(LayoutKind.Sequential)]
+                internal readonly unsafe struct __SharpCppManagedCallbackHandleAbi
+                {
+                    public __SharpCppManagedCallbackHandleAbi(nint state, nint callback)
+                    {
+                        State = state;
+                        Callback = callback;
+                    }
+
+                    public nint State { get; }
+
+                    public nint Callback { get; }
+                }
+
+                private static unsafe void __RegisterManagedCallbackRelease()
+                {
+                    __PInvoke.__SetManagedCallbackRelease(&__ReleaseManagedCallbackState);
+                }
+
+                [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+                private static void __ReleaseManagedCallbackState(nint state)
+                {
+                    if (state != 0)
+                    {
+                        global::System.Runtime.InteropServices.GCHandle.FromIntPtr(state).Free();
+                    }
+                }
+
+                internal static partial class __PInvoke
+                {
+                    [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetManagedCallbackReleaseRegistrationEntryPointName()}}", StringMarshalling = StringMarshalling.Utf8)]
+                    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                    internal static unsafe partial void __SetManagedCallbackRelease(delegate* unmanaged[Cdecl]<nint, void> release);
+                }
+                """);
+
+            foreach (var usage in usages.OrderBy(static usage => usage.MarshallerDeclarationName, StringComparer.Ordinal))
+            {
+                writer.WriteLine();
+                writer.Write(RenderManagedCallbackMarshallerHelper(compilation, usage));
+            }
         }
 
         return writer.ToString();
     }
 
-    private static string RenderManagedCallbackMarshallerHelper(BindingCompilation compilation, BindingType callbackType)
+    private static IEnumerable<ManagedCallbackDelegateDeclaration> CollectManagedCallbackDelegateDeclarations(IReadOnlyList<ParameterBinding> callbackParameters)
     {
-        var declarationName = GetManagedCallbackMarshallerDeclarationName(callbackType);
-        var callbackManagedType = GetManagedImportTypeName(callbackType, compilation);
+        var seen = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var parameter in callbackParameters.Where(static parameter => parameter.UseCallbackDelegate))
+        {
+            var declarationName = GetGeneratedCallbackDelegateDeclarationName(parameter);
+            if (declarationName is null)
+            {
+                continue;
+            }
+
+            var signatureKey = GetCallbackSignatureKey(parameter.Type);
+            if (seen.TryGetValue(declarationName, out var existingSignatureKey))
+            {
+                if (!string.Equals(existingSignatureKey, signatureKey, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException($"Callback delegate '{declarationName}' is requested with incompatible callback signatures.");
+                }
+
+                continue;
+            }
+
+            seen.Add(declarationName, signatureKey);
+            yield return new ManagedCallbackDelegateDeclaration(declarationName, parameter.Type);
+        }
+    }
+
+    private static IEnumerable<ManagedCallbackUsage> CollectManagedCallbackUsages(BindingCompilation compilation, IReadOnlyList<ParameterBinding> callbackParameters)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var parameter in callbackParameters.Where(static parameter => parameter.Type.ManagedMarshaller is null))
+        {
+            var usage = GetManagedCallbackUsage(compilation, parameter);
+            if (seen.Add($"{usage.ManagedTypeName}|{GetCallbackSignatureKey(usage.CallbackType)}"))
+            {
+                yield return usage;
+            }
+        }
+    }
+
+    private static string RenderManagedCallbackDelegateDeclaration(BindingCompilation compilation, ManagedCallbackDelegateDeclaration declaration)
+    {
+        var callbackReturnType = declaration.CallbackType.CallbackReturnType ?? BindingType.Void;
+        var returnType = callbackReturnType.PrimitiveKind == BindingPrimitiveKind.Void
+            ? "void"
+            : GetManagedCallbackDelegateValueTypeName(compilation, callbackReturnType);
+        var parameters = declaration.CallbackType.CallbackParameterTypes
+            .Select((type, index) => $"{GetManagedCallbackDelegateValueTypeName(compilation, type)} arg{index}");
+        return $$"""
+            public delegate {{returnType}} {{declaration.DeclarationName}}({{string.Join(", ", parameters)}});
+            """;
+    }
+
+    private static string RenderManagedCallbackMarshallerHelper(BindingCompilation compilation, ManagedCallbackUsage usage)
+    {
+        var callbackType = usage.CallbackType;
+        var declarationName = usage.MarshallerDeclarationName;
+        var callbackManagedType = usage.ManagedTypeName;
         var callbackReturnType = callbackType.CallbackReturnType ?? BindingType.Void;
         var callbackReturnAbiType = callbackReturnType.PrimitiveKind == BindingPrimitiveKind.Void
             ? "void"
@@ -1106,9 +1157,97 @@ public static partial class BindingOutputRenderer
             : valueExpression;
     }
 
-    private static string GetManagedCallbackMarshallerTypeName(BindingCompilation compilation, BindingType type)
+    private static string GetManagedCallbackMarshallerTypeName(BindingCompilation compilation, ParameterBinding parameter)
     {
-        return $"global::{compilation.ManagedNamespace}.{compilation.ManagedClassName}.{GetManagedCallbackMarshallerDeclarationName(type)}";
+        return $"global::{compilation.ManagedNamespace}.{compilation.ManagedClassName}.{GetManagedCallbackUsage(compilation, parameter).MarshallerDeclarationName}";
+    }
+
+    private static ManagedCallbackUsage GetManagedCallbackUsage(BindingCompilation compilation, ParameterBinding parameter)
+    {
+        var managedTypeName = GetManagedCallbackParameterTypeName(compilation, parameter);
+        var defaultTypeName = GetManagedImportTypeName(parameter.Type, compilation);
+        var declarationName = string.Equals(managedTypeName, defaultTypeName, StringComparison.Ordinal)
+            ? GetManagedCallbackMarshallerDeclarationName(parameter.Type)
+            : $"{GetManagedCallbackMarshallerDeclarationName(parameter.Type)}_{SanitizeManagedToken(managedTypeName)}";
+        return new ManagedCallbackUsage(parameter.Type, managedTypeName, declarationName);
+    }
+
+    private static string GetManagedCallbackParameterTypeName(BindingCompilation compilation, ParameterBinding parameter)
+    {
+        if (!parameter.Type.IsCallback)
+        {
+            return GetManagedPublicReturnTypeName(parameter.Type, compilation);
+        }
+
+        if (!parameter.UseCallbackDelegate)
+        {
+            return GetManagedImportTypeName(parameter.Type, compilation);
+        }
+
+        if (!string.IsNullOrWhiteSpace(parameter.CallbackDelegateTypeName))
+        {
+            return IsExternalCallbackDelegateTypeName(parameter.CallbackDelegateTypeName!)
+                ? NormalizeExternalCallbackDelegateTypeName(parameter.CallbackDelegateTypeName!)
+                : GetQualifiedGeneratedCallbackDelegateTypeName(compilation, parameter.CallbackDelegateTypeName!);
+        }
+
+        return GetQualifiedGeneratedCallbackDelegateTypeName(compilation, GetGeneratedCallbackDelegateName(parameter));
+    }
+
+    private static string? GetGeneratedCallbackDelegateDeclarationName(ParameterBinding parameter)
+    {
+        if (!parameter.UseCallbackDelegate)
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(parameter.CallbackDelegateTypeName) && IsExternalCallbackDelegateTypeName(parameter.CallbackDelegateTypeName!))
+        {
+            return null;
+        }
+
+        return string.IsNullOrWhiteSpace(parameter.CallbackDelegateTypeName)
+            ? GetGeneratedCallbackDelegateName(parameter)
+            : parameter.CallbackDelegateTypeName!;
+    }
+
+    private static string GetGeneratedCallbackDelegateName(ParameterBinding parameter)
+    {
+        var function = parameter.Parent as FunctionBinding;
+        var ownerName = function?.FindOwningRecord()?.ManagedName ?? "Global";
+        var functionName = function?.ImportMethodName ?? function?.ManagedName ?? "Callback";
+        return $"{SanitizeManagedToken(ownerName)}_{SanitizeManagedToken(functionName)}_{SanitizeManagedToken(parameter.ManagedName)}Callback";
+    }
+
+    private static string GetQualifiedGeneratedCallbackDelegateTypeName(BindingCompilation compilation, string declarationName)
+    {
+        return $"global::{compilation.ManagedNamespace}.{compilation.ManagedClassName}.{declarationName}";
+    }
+
+    private static bool IsExternalCallbackDelegateTypeName(string value)
+    {
+        return value.StartsWith("global::", StringComparison.Ordinal) ||
+            value.Contains('.', StringComparison.Ordinal);
+    }
+
+    private static string NormalizeExternalCallbackDelegateTypeName(string value)
+    {
+        return value.StartsWith("global::", StringComparison.Ordinal)
+            ? value
+            : $"global::{value}";
+    }
+
+    private static string GetManagedCallbackDelegateValueTypeName(BindingCompilation compilation, BindingType type)
+    {
+        return type.Kind == BindingTypeKind.Handle
+            ? GetManagedWrapperTypeName(type, compilation)
+            : GetManagedImportTypeName(type, compilation);
+    }
+
+    private static string GetCallbackSignatureKey(BindingType type)
+    {
+        var returnType = type.CallbackReturnType?.UnaliasedManagedTypeName ?? "void";
+        return string.Join("|", returnType, string.Join(";", type.CallbackParameterTypes.Select(static parameter => parameter.UnaliasedManagedTypeName)));
     }
 
     private static string GetManagedCallbackMarshallerDeclarationName(BindingType type)
@@ -1202,14 +1341,14 @@ public static partial class BindingOutputRenderer
     {
         var aliases = compilation?.TypeAliases.ToArray() ?? Array.Empty<BindingTypeAlias>();
         var needsRegistry = compilation is not null && includeRegistry;
-        var callbackTypes = compilation is not null && includeSharedCallbackHelpers
-            ? CollectManagedCallbackTypes(
+        var callbackParameters = compilation is not null && includeSharedCallbackHelpers
+            ? CollectCallbackParameters(
                 compilation.Records.Where(static record => !record.GetMetadata<bool>(MetadataKeys.SuppressEmission) && !record.IsSilentlyExcluded()),
                 compilation.Functions.Where(static function => !function.IsSilentlyExcluded() &&
                     (function.Parent is not RecordBinding parentRecord || !parentRecord.IsSilentlyExcluded())))
                 .ToArray()
-            : Array.Empty<BindingType>();
-        if (compilation is null || (aliases.Length == 0 && !needsRegistry && callbackTypes.Length == 0))
+            : Array.Empty<ParameterBinding>();
+        if (compilation is null || (aliases.Length == 0 && !needsRegistry && callbackParameters.Length == 0))
         {
             return "// <auto-generated />\n// No alias glue is required for this bootstrap pipeline.\n";
         }
@@ -1219,7 +1358,7 @@ public static partial class BindingOutputRenderer
                 .Where(static record => record.IsPolymorphic && !record.IsEffectivelyAbstract && !record.HasMetadata(MetadataKeys.IgnoreReason))
                 .ToArray()
             : Array.Empty<RecordBinding>();
-        if (aliases.Length == 0 && needsRegistry && polymorphicConcreteRecords.Length == 0 && callbackTypes.Length == 0)
+        if (aliases.Length == 0 && needsRegistry && polymorphicConcreteRecords.Length == 0 && callbackParameters.Length == 0)
         {
             return "// <auto-generated />\n// No registry contents to generate.\n";
         }
@@ -1244,7 +1383,7 @@ public static partial class BindingOutputRenderer
             }
         }
 
-        if (callbackTypes.Length > 0)
+        if (callbackParameters.Length > 0)
         {
             writer.Write(
                 """
@@ -1255,7 +1394,7 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
-        if ((!needsRegistry || polymorphicConcreteRecords.Length == 0) && callbackTypes.Length == 0)
+        if ((!needsRegistry || polymorphicConcreteRecords.Length == 0) && callbackParameters.Length == 0)
         {
             return writer.ToString();
         }
@@ -1272,10 +1411,10 @@ public static partial class BindingOutputRenderer
             writer.Write(RenderNativeObjectRegistryInitializer(compilation, polymorphicConcreteRecords));
         }
 
-        if (callbackTypes.Length > 0)
+        if (callbackParameters.Length > 0)
         {
             writer.WriteLine();
-            writer.Write(RenderManagedCallbackMarshallerHelpers(compilation, callbackTypes));
+            writer.Write(RenderManagedCallbackSupport(compilation, callbackParameters));
         }
 
         writer.Write(
@@ -1357,7 +1496,7 @@ public static partial class BindingOutputRenderer
             : head.Contains('.', StringComparison.Ordinal)
                 ? $"global::{head}"
                 : $"global::{GetManagedNamespace(compilation, record)}.{head}";
-        if (type.GenericArguments.Count == 0)
+        if (type.GenericArguments.Count == 0 || (!record.IsGeneric && managedName.Contains('{', StringComparison.Ordinal) != true))
         {
             return qualifiedHead;
         }
@@ -3784,7 +3923,7 @@ public static partial class BindingOutputRenderer
             BindingParameterDirection.Out => "out ",
             _ => string.Empty
         };
-        var attribute = GetManagedParameterAttribute(parameter.Type, compilation);
+        var attribute = GetManagedParameterAttribute(parameter, compilation);
         var typeName = parameter.Type.Kind == BindingTypeKind.Handle
             ? $"{GetManagedWrapperTypeName(parameter.Type, compilation)}?"
             : GetManagedWrapperTypeName(parameter.Type, compilation);
@@ -3812,7 +3951,7 @@ public static partial class BindingOutputRenderer
                 BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => "in ",
                 _ => string.Empty
             };
-            var attribute = GetManagedParameterAttribute(type, compilation);
+            var attribute = GetManagedParameterAttribute(parameter, type, compilation);
             var marshallerAttribute = compilation is null ? string.Empty : GetManagedHandleInMarshallerAttribute(compilation, type);
             var typeName = $"{GetManagedWrapperTypeName(type, compilation)}?";
             return $"{marshallerAttribute}{attribute}{modifier}{typeName} {parameter.ManagedName}";
@@ -3825,9 +3964,9 @@ public static partial class BindingOutputRenderer
             BindingParameterDirection.Out => "out ",
             _ => string.Empty
         };
-        var attributeFallback = GetManagedParameterAttribute(type, compilation);
+        var attributeFallback = GetManagedParameterAttribute(parameter, type, compilation);
         var typeNameFallback = type.IsCallback && parameter.Direction == BindingParameterDirection.In && parameter.AbiKind == BindingParameterAbiKind.Value
-            ? $"{GetManagedImportTypeName(type, compilation)}?"
+            ? $"{GetManagedCallbackParameterTypeName(compilation!, parameter)}?"
             : GetManagedImportTypeName(type, compilation);
         return $"{attributeFallback}{modifierFallback}{typeNameFallback} {parameter.ManagedName}";
     }
@@ -3970,7 +4109,7 @@ public static partial class BindingOutputRenderer
 
     private static string GetManagedOmittedDefaultTypeName(ParameterBinding parameter, BindingCompilation? compilation = null)
     {
-        var baseTypeName = GetManagedPublicReturnTypeName(parameter.Type, compilation);
+        var baseTypeName = GetManagedPublicParameterTypeName(parameter, compilation);
         if (IsManagedReferenceDefaultParameter(parameter))
         {
             return $"{baseTypeName}?";
@@ -3979,6 +4118,13 @@ public static partial class BindingOutputRenderer
         return parameter.HasMetadata(MetadataKeys.UnexpressibleDefault)
             ? $"{baseTypeName}?"
             : baseTypeName;
+    }
+
+    private static string GetManagedPublicParameterTypeName(ParameterBinding parameter, BindingCompilation? compilation = null)
+    {
+        return parameter.Type.IsCallback && compilation is not null
+            ? GetManagedCallbackParameterTypeName(compilation, parameter)
+            : GetManagedPublicReturnTypeName(parameter.Type, compilation);
     }
 
     private static string RenderManagedPublicParameterRequired(ParameterBinding parameter, BindingCompilation? compilation = null)
@@ -4008,8 +4154,8 @@ public static partial class BindingOutputRenderer
             IsManagedReferenceDefaultParameter(parameter);
 
         var typeName = (!forceRequired && parameter.HasMetadata(MetadataKeys.UnexpressibleDefault)) || isNullableManagedReferenceDefault
-            ? $"{GetManagedPublicReturnTypeName(parameter.Type, compilation)}?"
-            : GetManagedPublicReturnTypeName(parameter.Type, compilation);
+            ? $"{GetManagedPublicParameterTypeName(parameter, compilation)}?"
+            : GetManagedPublicParameterTypeName(parameter, compilation);
 
         var signature = $"{modifier}{typeName} {parameter.ManagedName}";
 
@@ -4423,7 +4569,8 @@ public static partial class BindingOutputRenderer
             builder.Append(char.IsLetterOrDigit(character) ? character : '_');
         }
 
-        return builder.ToString().Trim('_');
+        var token = builder.ToString().Trim('_');
+        return token.Length == 0 ? "Callback" : token;
     }
 
     private static void ValidateVirtualCallbackSupport(FunctionBinding method)
@@ -4563,16 +4710,31 @@ public static partial class BindingOutputRenderer
             : record.ManagedInstanceCacheTypeName!;
     }
 
-    private static string GetManagedParameterAttribute(BindingType type, BindingCompilation? compilation = null)
+    private static string GetManagedParameterAttribute(ParameterBinding parameter, BindingCompilation? compilation = null)
     {
-        if (type.IsCallback && compilation is not null)
+        return GetManagedParameterAttribute(parameter, parameter.Type, compilation);
+    }
+
+    private static string GetManagedParameterAttribute(ParameterBinding parameter, BindingType type, BindingCompilation? compilation = null)
+    {
+        if (type.IsCallback && compilation is not null && type.ManagedMarshaller is null)
         {
-            return $"[MarshalUsing(typeof({GetManagedCallbackMarshallerTypeName(compilation, type)}))] ";
+            return $"[MarshalUsing(typeof({GetManagedCallbackMarshallerTypeName(compilation, parameter)}))] ";
         }
 
+        return GetManagedParameterAttribute(type, compilation);
+    }
+
+    private static string GetManagedParameterAttribute(BindingType type, BindingCompilation? compilation = null)
+    {
         if (type.ManagedMarshaller is not null)
         {
             return $"[MarshalUsing(typeof({type.ManagedMarshaller}))] ";
+        }
+
+        if (type.IsCallback && compilation is not null)
+        {
+            return $"[MarshalUsing(typeof(global::{compilation.ManagedNamespace}.{compilation.ManagedClassName}.{GetManagedCallbackMarshallerDeclarationName(type)}))] ";
         }
 
         return type.PrimitiveKind == BindingPrimitiveKind.Boolean

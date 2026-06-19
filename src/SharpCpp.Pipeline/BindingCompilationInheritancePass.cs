@@ -116,7 +116,9 @@ public static class BindingCompilationInheritancePass
                 parameter.AbiKind,
                 parameter.CppTypeName)
             {
-                ManagedDefaultValueExpression = parameter.ManagedDefaultValueExpression
+                ManagedDefaultValueExpression = parameter.ManagedDefaultValueExpression,
+                UseCallbackDelegate = parameter.UseCallbackDelegate,
+                CallbackDelegateTypeName = parameter.CallbackDelegateTypeName
             });
         }
 

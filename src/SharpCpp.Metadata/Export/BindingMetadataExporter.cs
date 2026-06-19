@@ -132,7 +132,9 @@ public static class BindingMetadataExporter
                 parameter.ManagedName,
                 parameter.Direction.ToString().ToLowerInvariant(),
                 CreateTypeReference(compilation, parameter.Type, fullyQualifyConcrete: true),
-                parameter.ManagedDefaultValueExpression))
+                parameter.ManagedDefaultValueExpression,
+                parameter.UseCallbackDelegate,
+                parameter.CallbackDelegateTypeName))
             .ToArray();
 
         return new BindingMetadataFunction(
@@ -161,7 +163,9 @@ public static class BindingMetadataExporter
                         parameter.ManagedName,
                         parameter.Direction.ToString().ToLowerInvariant(),
                         CreateTypeReference(compilation, parameter.Type, fullyQualifyConcrete: true),
-                        parameter.ManagedDefaultValueExpression))
+                        parameter.ManagedDefaultValueExpression,
+                        parameter.UseCallbackDelegate,
+                        parameter.CallbackDelegateTypeName))
                     .ToArray(),
                 IsReadOnly: false,
                 function.IsStatic,

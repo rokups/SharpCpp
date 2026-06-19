@@ -59,7 +59,7 @@ public sealed class BindingMetadataExporterTests
         var json = BindingMetadataSerializer.Serialize(original);
         var roundTripped = BindingMetadataSerializer.Deserialize(json);
 
-        Assert.Contains("\"schema_version\": 5", json, StringComparison.Ordinal);
+        Assert.Contains("\"schema_version\": 6", json, StringComparison.Ordinal);
         Assert.EndsWith(Environment.NewLine, json, StringComparison.Ordinal);
         Assert.Equal(original.SchemaVersion, roundTripped.SchemaVersion);
         Assert.Equal(original.GeneratorVersion, roundTripped.GeneratorVersion);
@@ -112,6 +112,38 @@ public sealed class BindingMetadataExporterTests
         Assert.Equal("global::SharpCpp.Sample.CallbackMarshaller", parameterType.ManagedMarshaller);
         Assert.Equal("int", parameterType.CallbackReturnType!.CppType);
         Assert.Equal("float", Assert.Single(parameterType.CallbackParameterTypes!).CppType);
+    }
+
+    [Fact]
+    public void Export_round_trips_callback_delegate_parameter_policy()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "callbacks.hpp" });
+        var callbackType = BindingType.CreateCallback(
+            "std::function<void(int)>",
+            "global::System.Action<{0}>",
+            managedMarshaller: null,
+            BindingType.Void,
+            [BindingType.Int32]);
+        var function = new FunctionBinding("function:UseCallback", "UseCallback", "UseCallback", BindingType.Void, "entry_use_callback");
+        function.Parameters.Add(new ParameterBinding("parameter:callback", "callback", "callback", callbackType)
+        {
+            UseCallbackDelegate = true,
+            CallbackDelegateTypeName = "ProgressCallback"
+        });
+        compilation.Members.Add(function);
+
+        var original = BindingMetadataExporter.Export(compilation);
+        var json = BindingMetadataSerializer.Serialize(original);
+        var roundTripped = BindingMetadataSerializer.Deserialize(json);
+        var parameter = Assert.Single(roundTripped.Functions).Parameters.Single();
+
+        Assert.True(parameter.UseCallbackDelegate);
+        Assert.Equal("ProgressCallback", parameter.CallbackDelegateTypeName);
     }
 
     [Fact]

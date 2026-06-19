@@ -977,6 +977,7 @@ public sealed partial class ClangSharpHeaderParser
                 abiKind,
                 ResolveQualifiedTypeName(parameter.Type.Handle, recordsByName));
             ApplyManagedDefaultValue(param, parameter, parameterType, managedTypeOverrides);
+            ApplyCallbackDelegateAttribute(methodDecl.Handle, parameter.Handle, param, ref ignoreReason);
             function.Parameters.Add(param);
         }
 
@@ -1067,6 +1068,7 @@ public sealed partial class ClangSharpHeaderParser
                 abiKind,
                 ResolveQualifiedTypeName(parameter.Type.Handle, recordsByName));
             ApplyManagedDefaultValue(templateParam, parameter, parameterType, managedTypeOverrides);
+            ApplyCallbackDelegateAttribute(templatedFunction.Handle, parameter.Handle, templateParam, ref ignoreReason);
             function.Parameters.Add(templateParam);
         }
 
@@ -1135,6 +1137,7 @@ public sealed partial class ClangSharpHeaderParser
                 abiKind,
                 ResolveQualifiedTypeName(parameter.Type.Handle, recordsByName));
             ApplyManagedDefaultValue(staticParam, parameter, parameterType, managedTypeOverrides);
+            ApplyCallbackDelegateAttribute(methodDecl.Handle, parameter.Handle, staticParam, ref ignoreReason);
             function.Parameters.Add(staticParam);
         }
 
@@ -1197,6 +1200,7 @@ public sealed partial class ClangSharpHeaderParser
                 abiKind,
                 ResolveQualifiedTypeName(parameter.Type.Handle, recordsByName));
             ApplyManagedDefaultValue(ctorParam, parameter, parameterType, managedTypeOverrides);
+            ApplyCallbackDelegateAttribute(ctorDecl.Handle, parameter.Handle, ctorParam, ref ignoreReason);
             function.Parameters.Add(ctorParam);
         }
 
@@ -1296,6 +1300,7 @@ public sealed partial class ClangSharpHeaderParser
                 abiKind,
                 ResolveQualifiedTypeName(parameter.Type.Handle, recordsByName));
             ApplyManagedDefaultValue(freeParam, parameter, parameterType, managedTypeOverrides);
+            ApplyCallbackDelegateAttribute(functionDecl.Handle, parameter.Handle, freeParam, ref ignoreReason);
             function.Parameters.Add(freeParam);
         }
 
@@ -1370,6 +1375,7 @@ public sealed partial class ClangSharpHeaderParser
                 abiKind,
                 ResolveQualifiedTypeName(parameter.Type.Handle, recordsByName));
             ApplyManagedDefaultValue(freeTemplateParam, parameter, parameterType, managedTypeOverrides);
+            ApplyCallbackDelegateAttribute(templatedFunction.Handle, parameter.Handle, freeTemplateParam, ref ignoreReason);
             function.Parameters.Add(freeTemplateParam);
         }
 
@@ -2898,6 +2904,115 @@ public sealed partial class ClangSharpHeaderParser
         return true;
     }
 
+    private static void ApplyCallbackDelegateAttribute(
+        CXCursor functionCursor,
+        CXCursor parameterCursor,
+        ParameterBinding parameter,
+        ref string? ignoreReason)
+    {
+        var match = FindSharpCppAttribute(GetSourceText(parameterCursor.TranslationUnit, parameterCursor.Extent), "delegate");
+        if (match is null && TryGetParameterDeclarationSourceText(functionCursor, parameterCursor, out var parameterSourceText))
+        {
+            match = FindSharpCppAttribute(parameterSourceText, "delegate");
+        }
+
+        if (match is null)
+        {
+            return;
+        }
+
+        if (!parameter.Type.IsCallback)
+        {
+            ignoreReason ??= $"parameter '{parameter.ManagedName}' is marked [[sharpcpp::delegate]] but is not a callback parameter";
+            return;
+        }
+
+        parameter.UseCallbackDelegate = true;
+        if (!TryParseCallbackDelegateTypeName(match.Body, out var delegateTypeName, out var error))
+        {
+            ignoreReason ??= $"parameter '{parameter.ManagedName}' has invalid [[sharpcpp::delegate]] attribute: {error}";
+            return;
+        }
+
+        parameter.CallbackDelegateTypeName = delegateTypeName;
+    }
+
+    private static bool TryParseCallbackDelegateTypeName(string body, out string? delegateTypeName, out string error)
+    {
+        var trimmed = body.Trim();
+        if (trimmed.Length == 0)
+        {
+            delegateTypeName = null;
+            error = string.Empty;
+            return true;
+        }
+
+        if (trimmed.Length < 2 || trimmed[0] != '"' || trimmed[^1] != '"')
+        {
+            delegateTypeName = null;
+            error = "optional delegate type name must be a quoted string";
+            return false;
+        }
+
+        var unquoted = trimmed[1..^1].Trim();
+        if (unquoted.Length == 0)
+        {
+            delegateTypeName = null;
+            error = "delegate type name cannot be empty";
+            return false;
+        }
+
+        if (IsExternalManagedTypeName(unquoted))
+        {
+            if (!IsValidExternalManagedTypeName(unquoted))
+            {
+                delegateTypeName = null;
+                error = $"external delegate type name '{unquoted}' is not a valid managed type name";
+                return false;
+            }
+        }
+        else if (!IsValidCSharpIdentifier(unquoted))
+        {
+            delegateTypeName = null;
+            error = $"generated delegate type name '{unquoted}' is not a valid C# identifier";
+            return false;
+        }
+
+        delegateTypeName = unquoted;
+        error = string.Empty;
+        return true;
+    }
+
+    private static bool IsExternalManagedTypeName(string value)
+    {
+        return value.StartsWith("global::", StringComparison.Ordinal) ||
+            value.Contains('.', StringComparison.Ordinal);
+    }
+
+    private static bool IsValidExternalManagedTypeName(string value)
+    {
+        var normalized = value.StartsWith("global::", StringComparison.Ordinal)
+            ? value[8..]
+            : value;
+        var segments = normalized.Split('.', StringSplitOptions.TrimEntries);
+        return segments.Length > 0 && segments.All(IsValidCSharpIdentifier);
+    }
+
+    private static bool IsValidCSharpIdentifier(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || CSharpKeywords.Contains(value))
+        {
+            return false;
+        }
+
+        if (value[0] != '_' && !char.IsLetter(value[0]))
+        {
+            return false;
+        }
+
+        return value.Skip(1).All(static ch => ch == '_' || char.IsLetterOrDigit(ch));
+    }
+
     private static bool TryGetParameterDeclarationSourceText(CXCursor functionCursor, CXCursor parameterCursor, out string sourceText)
     {
         var functionSourceText = GetSourceText(functionCursor.TranslationUnit, functionCursor.Extent);
@@ -3830,17 +3945,23 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         var resolvedTargetTypeName = SelectConcreteTemplateTypeName(targetTypeName, ResolveAliasTypeName(targetTypeName));
-        var targetRecordName = NormalizeNamedTypeName(StripGenericArguments(resolvedTargetTypeName));
-        if (recordsByName.TryGetValue(targetRecordName, out var record))
-        {
-            type = record.HandleType;
-            return true;
-        }
-
         var qualifiedTargetTypeName = GetQualifiedTypeTokenName(targetTypeName, resolvedTargetTypeName, recordsByName);
         if (TryGetManagedTypeOverride(targetTypeName, resolvedTargetTypeName, qualifiedTargetTypeName, managedTypeOverrides, isReturn: false, out var managedTypeOverride))
         {
             type = CreateConfiguredOrWrapperType(managedTypeOverride!, recordsByName, enumsByName, managedTypeOverrides, genericParameters, qualifiedTargetTypeName);
+            return true;
+        }
+
+        if (TryCreateSpecializedRecordHandleType(normalized, resolvedTargetTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters, out var specializedHandleType))
+        {
+            type = specializedHandleType;
+            return true;
+        }
+
+        var targetRecordName = NormalizeNamedTypeName(StripGenericArguments(resolvedTargetTypeName));
+        if (recordsByName.TryGetValue(targetRecordName, out var record))
+        {
+            type = record.HandleType;
             return true;
         }
 
@@ -3972,6 +4093,12 @@ public sealed partial class ClangSharpHeaderParser
         {
             type = null!;
             return false;
+        }
+
+        if (!record.IsGeneric && record.ManagedTypeFormat?.Contains('{', StringComparison.Ordinal) != true)
+        {
+            type = record.HandleType;
+            return true;
         }
 
         var genericArguments = TryParseGenericArguments(referredTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters);

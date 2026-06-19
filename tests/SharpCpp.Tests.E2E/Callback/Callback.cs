@@ -73,4 +73,15 @@ public sealed class CallbackTests
 
         Assert.Equal(42, result);
     }
+
+    [Fact]
+    public void Delegate_attribute_projects_callback_parameter_to_named_delegate()
+    {
+        var observed = 0;
+        E2EBindings.ValueCallback callback = value => observed = value;
+
+        E2EBindings.InvokeNamedDelegateCallback(callback, 42);
+
+        Assert.Equal(42, observed);
+    }
 }

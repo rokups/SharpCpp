@@ -235,6 +235,33 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         var defaultedCallbackParameter = setDefaultCallback.Parameters[0];
         Assert.True(defaultedCallbackParameter.Type.IsCallback);
         Assert.Equal("null", defaultedCallbackParameter.ManagedDefaultValueExpression);
+
+        var vectorCallback = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "UseVectorCallback"));
+        var vectorCallbackArgument = Assert.Single(vectorCallback.Parameters[0].Type.CallbackParameterTypes);
+        Assert.Equal("global::Test.Vector2", vectorCallbackArgument.ManagedTypeName);
+        Assert.Equal("global::Test.Vector2", vectorCallbackArgument.MarshallerTypeName);
+
+        var generatedDelegate = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "UseGeneratedDelegate"));
+        Assert.True(generatedDelegate.Parameters[0].UseCallbackDelegate);
+        Assert.Null(generatedDelegate.Parameters[0].CallbackDelegateTypeName);
+        Assert.False(generatedDelegate.IsIgnored(), generatedDelegate.GetIgnoreReason());
+
+        var namedDelegate = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "UseNamedDelegate"));
+        Assert.True(namedDelegate.Parameters[0].UseCallbackDelegate);
+        Assert.Equal("ProgressCallback", namedDelegate.Parameters[0].CallbackDelegateTypeName);
+        Assert.False(namedDelegate.IsIgnored(), namedDelegate.GetIgnoreReason());
+
+        var invalidDelegate = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "UseInvalidDelegate"));
+        Assert.True(invalidDelegate.IsIgnored());
+        Assert.Contains("invalid [[sharpcpp::delegate]]", invalidDelegate.GetIgnoreReason(), StringComparison.Ordinal);
+
+        var invalidExternalDelegate = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "UseInvalidExternalDelegate"));
+        Assert.True(invalidExternalDelegate.IsIgnored());
+        Assert.Contains("external delegate type name 'global::' is not a valid managed type name", invalidExternalDelegate.GetIgnoreReason(), StringComparison.Ordinal);
+
+        var nonCallbackDelegate = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "UseDelegateOnNonCallback"));
+        Assert.True(nonCallbackDelegate.IsIgnored());
+        Assert.Contains("not a callback parameter", nonCallbackDelegate.GetIgnoreReason(), StringComparison.Ordinal);
     }
 
     [Fact]

@@ -285,6 +285,140 @@ public sealed class DegradeUnsupportedSurfacePassTests
         Assert.Contains("managed callable signature", targetOverload.GetIgnoreReason(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Apply_ignores_duplicate_delegate_names_with_different_callback_signatures()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Callbacks.h"]);
+        var first = new FunctionBinding("function:first", "First", "First", BindingType.Void, "First");
+        first.Parameters.Add(new ParameterBinding("parameter:first:callback", "callback", "callback", CreateVoidCallbackType())
+        {
+            UseCallbackDelegate = true,
+            CallbackDelegateTypeName = "SharedCallback"
+        });
+        var second = new FunctionBinding("function:second", "Second", "Second", BindingType.Void, "Second");
+        second.Parameters.Add(new ParameterBinding(
+            "parameter:second:callback",
+            "callback",
+            "callback",
+            BindingType.CreateCallback(
+                "std::function<void(float)>",
+                "global::System.Action<{0}>",
+                managedMarshaller: null,
+                BindingType.Void,
+                [BindingType.Single]))
+        {
+            UseCallbackDelegate = true,
+            CallbackDelegateTypeName = "SharedCallback"
+        });
+        compilation.Members.Add(first);
+        compilation.Members.Add(second);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.True(first.IsIgnored());
+        Assert.True(second.IsIgnored());
+        Assert.Contains("incompatible callback signatures", first.GetIgnoreReason(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Apply_keeps_unnamed_delegate_overloads_with_different_callback_signatures()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Callbacks.h"]);
+        var first = new FunctionBinding("function:first", "Invoke", "Invoke", BindingType.Void, "Invoke")
+        {
+            ImportMethodName = "Invoke"
+        };
+        first.Parameters.Add(new ParameterBinding("parameter:first:callback", "callback", "callback", CreateVoidCallbackType())
+        {
+            UseCallbackDelegate = true
+        });
+        var second = new FunctionBinding("function:second", "Invoke", "Invoke", BindingType.Void, "Invoke")
+        {
+            ImportMethodName = "Invoke_2"
+        };
+        second.Parameters.Add(new ParameterBinding(
+            "parameter:second:callback",
+            "callback",
+            "callback",
+            BindingType.CreateCallback(
+                "std::function<void(float)>",
+                "global::System.Action<{0}>",
+                managedMarshaller: null,
+                BindingType.Void,
+                [BindingType.Single]))
+        {
+            UseCallbackDelegate = true
+        });
+        compilation.Members.Add(first);
+        compilation.Members.Add(second);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.False(first.IsIgnored(), first.GetIgnoreReason());
+        Assert.False(second.IsIgnored(), second.GetIgnoreReason());
+    }
+
+    [Fact]
+    public void Apply_ignores_invalid_external_callback_delegate_type_name()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Callbacks.h"]);
+        var function = new FunctionBinding("function:callback", "UseCallback", "UseCallback", BindingType.Void, "UseCallback");
+        function.Parameters.Add(new ParameterBinding("parameter:callback", "callback", "callback", CreateVoidCallbackType())
+        {
+            UseCallbackDelegate = true,
+            CallbackDelegateTypeName = "global::"
+        });
+        compilation.Members.Add(function);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.True(function.IsIgnored());
+        Assert.Contains("external callback delegate type name 'global::' is not a valid managed type name", function.GetIgnoreReason(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Apply_ignores_generated_callback_helpers_with_configured_callback_argument_types()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Callbacks.h"]);
+        var configuredType = BindingType.CreateConfigured("std::string_view", "global::System.ReadOnlySpan<byte>", "global::SharpCpp.Support.Utf8SpanAbiMarshaller");
+        var callbackType = BindingType.CreateCallback(
+            "std::function<void(std::string_view)>",
+            "global::System.Action<{0}>",
+            managedMarshaller: null,
+            BindingType.Void,
+            [configuredType]);
+        var function = new FunctionBinding("function:UseCallback", "UseCallback", "UseCallback", BindingType.Void, "UseCallback");
+        function.Parameters.Add(new ParameterBinding("parameter:callback", "callback", "callback", callbackType));
+        compilation.Members.Add(function);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.True(function.IsIgnored());
+        Assert.Contains("generated callback marshaller cannot convert callback parameter type", function.GetIgnoreReason(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Apply_ignores_generated_callback_helpers_with_value_record_callback_argument_types()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Callbacks.h"]);
+        var valueRecord = new RecordBinding("record:Vector2", "Vector2", "global::Test.Vector2", "Test::Vector2", isHandleType: false);
+        var callbackType = BindingType.CreateCallback(
+            "std::function<void(Vector2)>",
+            "global::System.Action<{0}>",
+            managedMarshaller: null,
+            BindingType.Void,
+            [BindingType.CreateHandle("Test::Vector2", valueRecord.ManagedName, valueRecord.SymbolId)]);
+        var function = new FunctionBinding("function:UseCallback", "UseCallback", "UseCallback", BindingType.Void, "UseCallback");
+        function.Parameters.Add(new ParameterBinding("parameter:callback", "callback", "callback", callbackType));
+        compilation.Members.Add(valueRecord);
+        compilation.Members.Add(function);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.True(function.IsIgnored());
+        Assert.Contains("generated callback marshaller cannot convert callback parameter type", function.GetIgnoreReason(), StringComparison.Ordinal);
+    }
+
     private static BindingType CreateVoidCallbackType()
     {
         return BindingType.CreateCallback(

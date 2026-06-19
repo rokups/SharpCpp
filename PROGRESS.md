@@ -120,6 +120,16 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **Callback parameters can opt into named managed delegate types**:
+  - Added parameter-level `[[sharpcpp::delegate]]` support for callback parameters while preserving the default `Action<>` / `Func<>` projection.
+  - Simple delegate names now generate nested delegates in the bindings class; fully qualified or dotted names reference external delegate types.
+  - Metadata schema version 6 preserves callback delegate policy on parameters, and generated callback helpers are keyed by the effective managed callback type.
+  - Explicit callback `managed_marshaller` configuration still takes precedence over generated callback helpers.
+  - Projected secondary-base methods preserve callback delegate policy, and generated unnamed delegate names use deduplicated import method names to avoid overload collisions.
+  - Parser callback signature token mapping now applies managed-type overrides before specialized record handles, so configured value aliases such as `IntVector2` keep their marshaller facts inside callback signatures.
+  - Unsupported generated-helper callback argument/return shapes degrade before rendering invalid managed code.
+  - Verification: focused parser/degradation/rendering tests, `cmake --build --preset Debug`, and `ctest --preset Debug --output-on-failure` all pass.
+
 - **Managed-to-native callback parameters now work end-to-end**:
   - Added explicit callback facts to `BindingType`, metadata schema version 5, and parser support for `callback = true` function-object marshallers.
   - `std::function<>`, `ea::function<>`, and `eastl::function<>` now project to `Action<>` / `Func<>` delegate surfaces for supported in-value parameters.

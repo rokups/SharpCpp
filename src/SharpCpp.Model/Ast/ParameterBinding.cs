@@ -47,4 +47,8 @@ public sealed class ParameterBinding : BindingNamedNode
     public string CppTypeName { get; set; }
 
     public string? ManagedDefaultValueExpression { get; set; }
+
+    public bool UseCallbackDelegate { get; set; }
+
+    public string? CallbackDelegateTypeName { get; set; }
 }
