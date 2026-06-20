@@ -192,7 +192,7 @@ public static class DegradeUnsupportedSurfacePass
             return true;
         }
 
-        if (TryGetUnsupportedTypeReason(function.ReturnType, function.CppReturnTypeName, recordsById, enumsById, disallowNonPointerHandles: true, out reason))
+        if (TryGetUnsupportedTypeReason(function.ReturnType, function.CppReturnTypeName, recordsById, enumsById, disallowNonPointerHandles: false, out reason))
         {
             reason = $"return type is unsupported in this bootstrap surface: {reason}";
             return true;
@@ -296,7 +296,8 @@ public static class DegradeUnsupportedSurfacePass
             }
         }
 
-        if (function.ReturnType.Kind == BindingTypeKind.Handle && function.ReturnsOwnedHandle)
+        if (function.ReturnType.Kind == BindingTypeKind.Handle &&
+            (function.ReturnsOwnedHandle || function.ReturnType.Marshaller.CppIsRecordValue))
         {
             reason = "owned-handle returns are not yet supported";
             return true;

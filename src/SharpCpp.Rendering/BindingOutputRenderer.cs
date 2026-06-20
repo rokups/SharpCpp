@@ -522,14 +522,20 @@ public static partial class BindingOutputRenderer
 
     private static string RenderNativeMethodInvocation(FunctionBinding method, string abiArguments, string memberSignature)
     {
+        var argumentsSuffix = abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty;
+
         if (string.IsNullOrWhiteSpace(method.NativeDispatchRecordCppTypeName))
         {
             return method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
                 ? $$"""
-                    MarshallerInvoker::invoke<FT>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}, self{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                    MarshallerInvoker::invoke<FT>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}, self{{argumentsSuffix}});
                     """
+                : RequiresOwnedRecordValueReturn(method)
+                    ? $$"""
+                        return MarshallerInvoker::invoke_owned<FT>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}, self{{argumentsSuffix}});
+                        """
                 : $$"""
-                    return MarshallerInvoker::invoke<FT>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}, self{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                    return MarshallerInvoker::invoke<FT>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}, self{{argumentsSuffix}});
                     """;
         }
 
@@ -544,9 +550,29 @@ public static partial class BindingOutputRenderer
 
                 using DispatchFT = {{memberSignature.Replace(method.OwningRecordCppTypeName + "::*", method.NativeDispatchRecordCppTypeName + "::*", StringComparison.Ordinal)}};
                 {{(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
-                    ? $"MarshallerInvoker::invoke_instance(static_cast<DispatchFT>(&{method.NativeDispatchRecordCppTypeName}::{method.NativeName}), dispatch{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
-                    : $"return MarshallerInvoker::invoke_instance(static_cast<DispatchFT>(&{method.NativeDispatchRecordCppTypeName}::{method.NativeName}), dispatch{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
+                    ? $"MarshallerInvoker::invoke_instance(static_cast<DispatchFT>(&{method.NativeDispatchRecordCppTypeName}::{method.NativeName}), dispatch{argumentsSuffix});"
+                    : RequiresOwnedRecordValueReturn(method)
+                        ? $"return MarshallerInvoker::invoke_owned_instance(static_cast<DispatchFT>(&{method.NativeDispatchRecordCppTypeName}::{method.NativeName}), dispatch{argumentsSuffix});"
+                        : $"return MarshallerInvoker::invoke_instance(static_cast<DispatchFT>(&{method.NativeDispatchRecordCppTypeName}::{method.NativeName}), dispatch{argumentsSuffix});")}}
                 """;
+    }
+
+    private static bool RequiresOwnedRecordValueReturn(FunctionBinding function)
+    {
+        return function.ReturnType.Kind == BindingTypeKind.Handle &&
+            function.ReturnType.Marshaller.CppIsRecordValue;
+    }
+
+    private static bool ReturnsOwnedHandle(FunctionBinding function)
+    {
+        return function.ReturnsOwnedHandle || RequiresOwnedRecordValueReturn(function);
+    }
+
+    private static string GetNativeEntrypointReturnType(FunctionBinding function)
+    {
+        return RequiresOwnedRecordValueReturn(function)
+            ? $"arg_t<{function.CppReturnTypeName}*>"
+            : $"ret_t<{function.CppReturnTypeName}>";
     }
 
     private static string GetNativeDirectorClassName(RecordBinding record)
@@ -580,7 +606,7 @@ public static partial class BindingOutputRenderer
         var helperName = GetNativeProtectedMethodHelperName(method);
 
         writer.Write($$"""
-            {{(method.IsStatic ? "static " : string.Empty)}}ret_t<{{method.CppReturnTypeName}}> {{helperName}}({{parameterList}})
+            {{(method.IsStatic ? "static " : string.Empty)}}{{GetNativeEntrypointReturnType(method)}} {{helperName}}({{parameterList}})
             {
             """);
 
@@ -604,13 +630,22 @@ public static partial class BindingOutputRenderer
         }
         else
         {
-            writer.WriteLine($"ReturnMarshaller<{method.CppReturnTypeName}> __return_marshaller;");
-            writer.WriteLine($"decltype(auto) __result = {invocation};");
+            if (RequiresOwnedRecordValueReturn(method))
+            {
+                writer.WriteLine($"auto __result = {invocation};");
+            }
+            else
+            {
+                writer.WriteLine($"ReturnMarshaller<{method.CppReturnTypeName}> __return_marshaller;");
+                writer.WriteLine($"decltype(auto) __result = {invocation};");
+            }
             foreach (var parameterIndex in Enumerable.Range(0, method.Parameters.Count))
             {
                 writer.WriteLine($"detail::SyncMarshaller(__arg{parameterIndex}_marshaller);");
             }
-            writer.WriteLine("return __return_marshaller.ConvertToAbi(__result);");
+            writer.WriteLine(RequiresOwnedRecordValueReturn(method)
+                ? "return new std::remove_cv_t<std::remove_reference_t<decltype(__result)>>(std::move(__result));"
+                : "return __return_marshaller.ConvertToAbi(__result);");
         }
 
         writer.Write(
@@ -883,7 +918,7 @@ public static partial class BindingOutputRenderer
             }
 
             writer.Write($$"""
-                return {{BuildManagedHandleReturnResultExpression(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
+                return {{BuildManagedHandleReturnResultExpression(compilation, function.ReturnType, "__result", ReturnsOwnedHandle(function))}};
                 """);
         }
         else if (function.ReturnType.MarshallerTypeName is not null)
@@ -923,7 +958,7 @@ public static partial class BindingOutputRenderer
             ", ",
             function.Parameters.Select(parameter => RenderManagedImportParameter(parameter, compilation)));
         var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
-        var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, ReturnsOwnedHandle(function));
         var importMethodName = GetManagedImportMethodName(function);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static partial {returnTypeName} {importMethodName}({parameterList});"
@@ -2269,7 +2304,7 @@ public static partial class BindingOutputRenderer
                 }
 
             writer.Write($$"""
-                return {{BuildManagedHandleReturnResultExpression(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
+                return {{BuildManagedHandleReturnResultExpression(compilation, function.ReturnType, "__result", ReturnsOwnedHandle(function))}};
                 """);
         }
             else if (function.ReturnType.MarshallerTypeName is not null)
@@ -2934,7 +2969,7 @@ public static partial class BindingOutputRenderer
                 }
 
                 writer.Write($$"""
-                    return {{BuildManagedHandleReturnResultExpression(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
+                    return {{BuildManagedHandleReturnResultExpression(compilation, function.ReturnType, "__result", ReturnsOwnedHandle(function))}};
                     """);
             }
             else if (function.ReturnType.MarshallerTypeName is not null)
@@ -2973,7 +3008,7 @@ public static partial class BindingOutputRenderer
             ", ",
             function.Parameters.Select(parameter => RenderManagedImportParameter(parameter, compilation)));
         var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
-        var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, ReturnsOwnedHandle(function));
         var importMethodName = GetManagedImportMethodName(function);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static partial {returnTypeName} {importMethodName}({parameterList});"
@@ -3152,7 +3187,7 @@ public static partial class BindingOutputRenderer
             ? $"{recordManagedName} self"
             : string.Join(", ", new[] { $"{recordManagedName} self" }.Concat(function.Parameters.Select(p => RenderManagedImportParameter(p, compilation))));
         var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
-        var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, ReturnsOwnedHandle(function));
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static partial {returnTypeName} {function.ManagedName}({parameterList});"
             : $"{returnAttribute}\ninternal static partial {returnTypeName} {function.ManagedName}({parameterList});";
@@ -3176,7 +3211,7 @@ public static partial class BindingOutputRenderer
             ", ",
             new[] { $"{recordManagedName} self" }.Concat(function.Parameters.Select(parameterRenderer)));
         var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
-        var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, ReturnsOwnedHandle(function));
         var importMethodName = GetManagedImportMethodName(function);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static partial {returnTypeName} {importMethodName}({parameterList});"
@@ -3198,7 +3233,7 @@ public static partial class BindingOutputRenderer
             ", ",
             new[] { $"{recordManagedName} self" }.Concat(function.Parameters.Select(parameter => RenderManagedImportParameter(parameter, compilation))));
         var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
-        var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, ReturnsOwnedHandle(function));
         var importMethodName = GetManagedCallbaseImportMethodName(function);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static partial {returnTypeName} {importMethodName}({parameterList});"
@@ -3487,10 +3522,12 @@ public static partial class BindingOutputRenderer
                 else
                 {
                     writer.Write($$"""
-                        SHARPCPP_EXPORT ret_t<{{method.CppReturnTypeName}}> {{GetNativeCallbaseEntrypointName(record, method)}}({{parameterList}})
+                        SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(method)}} {{GetNativeCallbaseEntrypointName(record, method)}}({{parameterList}})
                         {
                         using FT = {{method.CppReturnTypeName}}({{record.CppQualifiedName}}*{{(parameterCppList.Length > 0 ? $", {parameterCppList}" : string.Empty)}});
-                        return MarshallerInvoker::invoke_as<FT>(&{{directorName}}::{{helperName}}, self{{(callbaseArguments.Length > 0 ? $", {callbaseArguments}" : string.Empty)}});
+                        {{(RequiresOwnedRecordValueReturn(method)
+                            ? $"return MarshallerInvoker::invoke_owned_as<FT>(&{directorName}::{helperName}, self{(callbaseArguments.Length > 0 ? $", {callbaseArguments}" : string.Empty)});"
+                            : $"return MarshallerInvoker::invoke_as<FT>(&{directorName}::{helperName}, self{(callbaseArguments.Length > 0 ? $", {callbaseArguments}" : string.Empty)});")}}
                         }
                         """);
                 }
@@ -3587,7 +3624,7 @@ public static partial class BindingOutputRenderer
 
             writer.WriteLine();
             writer.Write($$"""
-                SHARPCPP_EXPORT ret_t<{{function.CppReturnTypeName}}> {{function.EntryPointName}}({{parameterList}})
+                SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(function)}} {{function.EntryPointName}}({{parameterList}})
                 {
                 using FT = {{signature}};
                 """);
@@ -3601,7 +3638,9 @@ public static partial class BindingOutputRenderer
             else
             {
                 writer.Write($$"""
-                    return MarshallerInvoker::invoke_as<FT>(static_cast<std::add_pointer_t<FT>>(&{{function.CppQualifiedName}}){{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                    {{(RequiresOwnedRecordValueReturn(function)
+                        ? $"return MarshallerInvoker::invoke_owned_as<FT>(static_cast<std::add_pointer_t<FT>>(&{function.CppQualifiedName}){(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
+                        : $"return MarshallerInvoker::invoke_as<FT>(static_cast<std::add_pointer_t<FT>>(&{function.CppQualifiedName}){(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
                     """);
             }
 
@@ -3626,7 +3665,7 @@ public static partial class BindingOutputRenderer
             if (method.TryGetMetadata(MetadataKeys.MarshallerExposedMethod, out string? marshallerCppType))
             {
                 writer.Write($$"""
-                    SHARPCPP_EXPORT ret_t<{{method.CppReturnTypeName}}> {{method.EntryPointName}}({{parameterList}})
+                    SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(method)}} {{method.EntryPointName}}({{parameterList}})
                     {
                     {{RenderNativeMarshallerExposedInvocation(method, marshallerCppType!, abiArguments)}}
                     }
@@ -3635,7 +3674,7 @@ public static partial class BindingOutputRenderer
             else
             {
             writer.Write($$"""
-                SHARPCPP_EXPORT ret_t<{{method.CppReturnTypeName}}> {{method.EntryPointName}}({{parameterList}})
+                SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(method)}} {{method.EntryPointName}}({{parameterList}})
                 {
                 using FT = {{memberSignature}};
                 """);
@@ -3665,7 +3704,7 @@ public static partial class BindingOutputRenderer
 
             writer.WriteLine();
             writer.Write($$"""
-                SHARPCPP_EXPORT ret_t<{{method.CppReturnTypeName}}> {{method.EntryPointName}}({{parameterList}})
+                SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(method)}} {{method.EntryPointName}}({{parameterList}})
                 {
                 using FT = {{signature}};
                 """);
@@ -3679,7 +3718,9 @@ public static partial class BindingOutputRenderer
             else
             {
                 writer.Write($$"""
-                    return MarshallerInvoker::invoke_as<FT>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                    {{(RequiresOwnedRecordValueReturn(method)
+                        ? $"return MarshallerInvoker::invoke_owned_as<FT>(&{method.OwningRecordCppTypeName}::{method.NativeName}{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
+                        : $"return MarshallerInvoker::invoke_as<FT>(&{method.OwningRecordCppTypeName}::{method.NativeName}{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
                     """);
             }
 
@@ -4797,7 +4838,7 @@ public static partial class BindingOutputRenderer
             ValidateVirtualCallbackSupport(parameter);
         }
 
-        if (method.ReturnType.Kind == BindingTypeKind.Handle && method.ReturnsOwnedHandle)
+        if (method.ReturnType.Kind == BindingTypeKind.Handle && ReturnsOwnedHandle(method))
         {
             throw new NotSupportedException($"Director callback '{method.ManagedName}' does not support owned-handle returns yet.");
         }
@@ -5255,7 +5296,7 @@ public static partial class BindingOutputRenderer
             var variantParams = GetUnexpressibleVariantParams(function, keepCount);
             var parameterList = string.Join(", ", variantParams.Select(parameter => RenderManagedImportParameter(parameter, compilation)));
             var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
-            var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
+            var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, ReturnsOwnedHandle(function));
             var importName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
             var entrypointName = GetUnexpressibleVariantEntrypointName(function.EntryPointName, keepCount);
             var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
@@ -5280,7 +5321,7 @@ public static partial class BindingOutputRenderer
             var variantParams = GetUnexpressibleVariantParams(function, keepCount);
             var parameterList = string.Join(", ", variantParams.Select(parameter => RenderManagedImportParameter(parameter, compilation)));
             var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
-            var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
+            var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, ReturnsOwnedHandle(function));
             var variantImportName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
             var variantEntrypointName = GetUnexpressibleVariantEntrypointName(function.EntryPointName, keepCount);
             var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
@@ -5313,7 +5354,7 @@ public static partial class BindingOutputRenderer
             var variantParams = GetUnexpressibleVariantParams(function, keepCount);
             var parameterList = string.Join(", ", new[] { $"{recordManagedName} self" }.Concat(variantParams.Select(parameter => RenderManagedImportParameter(parameter, compilation))));
             var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
-            var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, function.ReturnsOwnedHandle);
+            var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, ReturnsOwnedHandle(function));
             var variantImportName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
             var variantEntrypointName = GetUnexpressibleVariantEntrypointName(entryPointName, keepCount);
             var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
@@ -5388,14 +5429,16 @@ public static partial class BindingOutputRenderer
             : $"fn{(abiArgs.Length > 0 ? $", {abiArgs}" : string.Empty)}";
 
         writer.Write($$"""
-            SHARPCPP_EXPORT ret_t<{{function.CppReturnTypeName}}> {{entrypointName}}({{parameterList}})
+            SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(function)}} {{entrypointName}}({{parameterList}})
             {
                 using FT = {{signature}};
                 auto fn = []({{cppParamDecls}}) -> decltype(auto)
                 {
                     {{invocation}}
                 };
-                return MarshallerInvoker::invoke_as<FT>({{invokeAsArgs}});
+                {{(RequiresOwnedRecordValueReturn(function)
+                    ? $"return MarshallerInvoker::invoke_owned_as<FT>({invokeAsArgs});"
+                    : $"return MarshallerInvoker::invoke_as<FT>({invokeAsArgs});")}}
             }
 
             """);
@@ -5687,7 +5730,7 @@ public static partial class BindingOutputRenderer
             else
             {
                 writer.Write($$"""
-                    return {{BuildManagedHandleWrapIfNeeded(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
+                    return {{BuildManagedHandleWrapIfNeeded(compilation, function.ReturnType, "__result", ReturnsOwnedHandle(function))}};
                     }
                     """);
             }
@@ -5831,7 +5874,7 @@ public static partial class BindingOutputRenderer
                 else
                 {
                     writer.Write($$"""
-                        return {{BuildManagedHandleWrapIfNeeded(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
+                        return {{BuildManagedHandleWrapIfNeeded(compilation, function.ReturnType, "__result", ReturnsOwnedHandle(function))}};
                         }
                         """);
                 }
@@ -5916,7 +5959,7 @@ public static partial class BindingOutputRenderer
             }
 
             writer.Write($$"""
-                return {{BuildManagedHandleWrapIfNeeded(compilation, function.ReturnType, "__result", function.ReturnsOwnedHandle)}};
+                return {{BuildManagedHandleWrapIfNeeded(compilation, function.ReturnType, "__result", ReturnsOwnedHandle(function))}};
                 """);
         }
 
@@ -6018,7 +6061,7 @@ public static partial class BindingOutputRenderer
                 writer.Write(statement);
 
             writer.Write($$"""
-                return {{BuildManagedHandleReturnResultExpression(compilation, function.ReturnType, resultVar, function.ReturnsOwnedHandle)}};
+                return {{BuildManagedHandleReturnResultExpression(compilation, function.ReturnType, resultVar, ReturnsOwnedHandle(function))}};
                 """);
         }
         else

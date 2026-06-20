@@ -1295,6 +1295,42 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Output_treats_wrapped_record_value_returns_as_owned_handles()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/Variant.hpp" });
+        var variant = new RecordBinding("record:variant", "Variant", "Variant", "Sample::Variant");
+        var spline = new RecordBinding("record:spline", "Spline", "Spline", "Sample::Spline");
+        var getPoint = new FunctionBinding(
+            "method:spline:get_point",
+            "GetPoint",
+            "GetPoint",
+            BindingType.CreateHandle("Sample::Variant", "Variant", variant.SymbolId, cppIsRecordValue: true),
+            cppQualifiedName: "Sample::Spline::GetPoint")
+        {
+            IsStatic = false,
+            OwningRecordCppTypeName = spline.CppQualifiedName,
+            CppReturnTypeName = "Sample::Variant"
+        };
+        spline.Members.Add(getPoint);
+        compilation.Members.Add(variant);
+        compilation.Members.Add(spline);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("[return: MarshalUsing(typeof(global::SharpCpp.Sample.__VariantMarshaller<global::SharpCpp.Support.OwnedNativeHandle>))]", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial global::SharpCpp.Sample.Variant GetPoint(Spline self);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT arg_t<Sample::Variant*>", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return MarshallerInvoker::invoke_owned<FT>(&Sample::Spline::GetPoint, self);", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Managed_output_honors_custom_cache_policy_and_base_release_strategy()
     {
         var compilation = new BindingCompilation(

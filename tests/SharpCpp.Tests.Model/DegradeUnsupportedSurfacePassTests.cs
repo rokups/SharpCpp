@@ -86,33 +86,38 @@ public sealed class DegradeUnsupportedSurfacePassTests
         Assert.False(field.IsIgnored(), field.GetIgnoreReason());
     }
 
-    [Fact]
-    public void Apply_keeps_marshaller_backed_record_value_returns()
+    [Theory]
+    [InlineData("Urho3D::ResourceRef", "ResourceRef", "Material", "GetMaterialAttr")]
+    [InlineData("Urho3D::Variant", "Variant", "Spline", "GetPoint")]
+    public void Apply_keeps_wrapped_record_value_returns(
+        string valueCppTypeName,
+        string valueManagedName,
+        string ownerName,
+        string methodName)
     {
         var compilation = new BindingCompilation("SharpCpp.Tests", "Urho3D", "Bindings", "Native", ["Variant.h"]);
-        var resourceRef = new RecordBinding("record:Urho3D::ResourceRef", "ResourceRef", "ResourceRef", "Urho3D::ResourceRef");
-        resourceRef.SetMetadata(MetadataKeys.MarshallerConfiguredRecord, true);
-        resourceRef.Members.Add(new FieldBinding("field:Urho3D::ResourceRef::type_", "type_", "Type", BindingType.UInt32, "unsigned int", resourceRef.CppQualifiedName));
-        var owner = new RecordBinding("record:Urho3D::Material", "Material", "Material", "Urho3D::Material");
-        var getMaterialAttr = new FunctionBinding(
-            "method:Urho3D::Material::GetMaterialAttr",
-            "GetMaterialAttr",
-            "GetMaterialAttr",
-            BindingType.CreateHandle("Urho3D::ResourceRef", resourceRef.ManagedName, resourceRef.SymbolId, cppIsRecordValue: true),
-            cppQualifiedName: "Urho3D::Material::GetMaterialAttr")
+        var valueRecord = new RecordBinding($"record:{valueCppTypeName}", valueManagedName, valueManagedName, valueCppTypeName);
+        valueRecord.Members.Add(new FieldBinding($"field:{valueCppTypeName}::type_", "type_", "Type", BindingType.UInt32, "unsigned int", valueRecord.CppQualifiedName));
+        var owner = new RecordBinding($"record:Urho3D::{ownerName}", ownerName, ownerName, $"Urho3D::{ownerName}");
+        var method = new FunctionBinding(
+            $"method:Urho3D::{ownerName}::{methodName}",
+            methodName,
+            methodName,
+            BindingType.CreateHandle(valueCppTypeName, valueRecord.ManagedName, valueRecord.SymbolId, cppIsRecordValue: true),
+            cppQualifiedName: $"Urho3D::{ownerName}::{methodName}")
         {
             IsStatic = false,
             OwningRecordCppTypeName = owner.CppQualifiedName
         };
-        owner.Members.Add(getMaterialAttr);
-        owner.Members.Add(new FieldBinding("field:Urho3D::Material::value_", "value_", "Value", BindingType.Int32, "int", owner.CppQualifiedName));
-        compilation.Members.Add(resourceRef);
+        owner.Members.Add(method);
+        owner.Members.Add(new FieldBinding($"field:Urho3D::{ownerName}::value_", "value_", "Value", BindingType.Int32, "int", owner.CppQualifiedName));
+        compilation.Members.Add(valueRecord);
         compilation.Members.Add(owner);
 
         DegradeUnsupportedSurfacePass.Apply(compilation);
 
         Assert.False(owner.IsIgnored(), owner.GetIgnoreReason());
-        Assert.False(getMaterialAttr.IsIgnored(), getMaterialAttr.GetIgnoreReason());
+        Assert.False(method.IsIgnored(), method.GetIgnoreReason());
     }
 
     [Fact]

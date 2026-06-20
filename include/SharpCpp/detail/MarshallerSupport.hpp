@@ -247,6 +247,33 @@ constexpr decltype(auto) InvokeWithMarshallersImpl(
     }
 }
 
+template <typename TResult, typename TCppArgumentTuple, typename TCallable, typename TMarshallerTuple, typename... TAbiArgs, std::size_t... TIndices>
+auto InvokeWithMarshallersOwnedImpl(
+    TCallable&& callable,
+    TMarshallerTuple& marshallers,
+    std::index_sequence<TIndices...>,
+    TAbiArgs&&... abiArguments) -> std::remove_cv_t<std::remove_reference_t<TResult>>*
+{
+    using owned_type = std::remove_cv_t<std::remove_reference_t<TResult>>;
+    auto invoke_fn = [&]() -> decltype(auto)
+    {
+        return std::invoke(
+            std::forward<TCallable>(callable),
+            std::get<TIndices>(marshallers).ConvertToCpp(std::forward<TAbiArgs>(abiArguments))...);
+    };
+
+    if constexpr (std::is_lvalue_reference_v<TResult>)
+    {
+        auto* result = std::addressof(InvokeAndSyncMarshallers(invoke_fn, marshallers));
+        return new owned_type(*result);
+    }
+    else
+    {
+        auto result = InvokeAndSyncMarshallers(invoke_fn, marshallers);
+        return new owned_type(std::move(result));
+    }
+}
+
 template <typename TResult, typename TCppArgumentTuple, typename TMethod, typename TObject, typename TMarshallerTuple, typename... TAbiArgs, std::size_t... TIndices>
 constexpr decltype(auto) InvokeMemberWithMarshallersImpl(
     TMethod method,
@@ -289,6 +316,35 @@ constexpr decltype(auto) InvokeMemberWithMarshallersImpl(
             SyncMarshallers(marshallers);
             return ret_marshaller.ConvertToAbi(result);
         }
+    }
+}
+
+template <typename TResult, typename TCppArgumentTuple, typename TMethod, typename TObject, typename TMarshallerTuple, typename... TAbiArgs, std::size_t... TIndices>
+auto InvokeMemberWithMarshallersOwnedImpl(
+    TMethod method,
+    TObject&& instance,
+    TMarshallerTuple& marshallers,
+    std::index_sequence<TIndices...>,
+    TAbiArgs&&... abiArguments) -> std::remove_cv_t<std::remove_reference_t<TResult>>*
+{
+    using owned_type = std::remove_cv_t<std::remove_reference_t<TResult>>;
+    std::decay_t<TMethod> m = method;
+
+    if constexpr (std::is_lvalue_reference_v<TResult>)
+    {
+        auto* result = std::addressof(
+            (std::forward<TObject>(instance).*m)(
+                std::get<TIndices>(marshallers).ConvertToCpp(std::forward<TAbiArgs>(abiArguments))...));
+        SyncMarshallers(marshallers);
+        return new owned_type(*result);
+    }
+    else
+    {
+        auto result =
+            (std::forward<TObject>(instance).*m)(
+                std::get<TIndices>(marshallers).ConvertToCpp(std::forward<TAbiArgs>(abiArguments))...);
+        SyncMarshallers(marshallers);
+        return new owned_type(std::move(result));
     }
 }
 
@@ -373,6 +429,54 @@ struct MarshallerInvoker
             std::forward<TAbiArgs>(abiArguments)...);
     }
 
+    template <typename FT, typename... TAbiArgs>
+    static auto invoke_owned_as(typename std::add_pointer_t<FT> callable, TAbiArgs&&... abiArguments)
+    {
+        using traits = detail::FunctionTraits<FT>;
+        using result_type = typename traits::return_type;
+        using arg_tuple = typename traits::argument_tuple;
+
+        detail::marshaller_tuple_t<arg_tuple> marshallers;
+        return detail::InvokeWithMarshallersOwnedImpl<result_type, arg_tuple>(
+            callable,
+            marshallers,
+            std::make_index_sequence<std::tuple_size_v<arg_tuple>>{},
+            std::forward<TAbiArgs>(abiArguments)...);
+    }
+
+    template <typename FT, typename TCallable, typename... TAbiArgs>
+    static auto invoke_owned_as(TCallable&& callable, TAbiArgs&&... abiArguments)
+    {
+        if constexpr (std::is_member_function_pointer_v<std::remove_reference_t<TCallable>>)
+        {
+            using traits = detail::MemberFunctionTraits<std::remove_reference_t<TCallable>>;
+            using result_type = typename traits::return_type;
+            using class_type = typename traits::class_type;
+            using arg_tuple = typename traits::argument_tuple;
+
+            detail::marshaller_tuple_t<arg_tuple> marshallers;
+            return detail::InvokeMemberWithMarshallersOwnedImpl<result_type, arg_tuple>(
+                std::forward<TCallable>(callable),
+                *static_cast<class_type*>(nullptr),
+                marshallers,
+                std::make_index_sequence<std::tuple_size_v<arg_tuple>>{},
+                std::forward<TAbiArgs>(abiArguments)...);
+        }
+        else
+        {
+            using traits = detail::FunctionTraits<FT>;
+            using result_type = typename traits::return_type;
+            using arg_tuple = typename traits::argument_tuple;
+
+            detail::marshaller_tuple_t<arg_tuple> marshallers;
+            return detail::InvokeWithMarshallersOwnedImpl<result_type, arg_tuple>(
+                std::forward<TCallable>(callable),
+                marshallers,
+                std::make_index_sequence<std::tuple_size_v<arg_tuple>>{},
+                std::forward<TAbiArgs>(abiArguments)...);
+        }
+    }
+
     template <typename FT, typename TCallable, typename... TAbiArgs>
     static decltype(auto) invoke_as(TCallable&& callable, TAbiArgs&&... abiArguments)
     {
@@ -435,6 +539,26 @@ struct MarshallerInvoker
             std::forward<TAbiArgs>(abiArguments)...);
     }
 
+    template <typename FT, typename TSelfAbi, typename... TAbiArgs>
+    static auto invoke_owned(FT method, TSelfAbi self, TAbiArgs&&... abiArguments)
+    {
+        using traits = detail::MemberFunctionTraits<FT>;
+        using result_type = typename traits::return_type;
+        using class_type = typename traits::class_type;
+        using arg_tuple = typename traits::argument_tuple;
+
+        Marshaller<class_type*> self_marshaller;
+        auto* instance = static_cast<class_type*>(self_marshaller.ConvertToCpp(self));
+        detail::marshaller_tuple_t<arg_tuple> marshallers;
+
+        return detail::InvokeMemberWithMarshallersOwnedImpl<result_type, arg_tuple>(
+            method,
+            *instance,
+            marshallers,
+            std::make_index_sequence<std::tuple_size_v<arg_tuple>>{},
+            std::forward<TAbiArgs>(abiArguments)...);
+    }
+
     template <typename FT, typename TSelf, typename... TAbiArgs>
     static decltype(auto) invoke_instance(FT method, TSelf* instance, TAbiArgs&&... abiArguments)
     {
@@ -445,6 +569,23 @@ struct MarshallerInvoker
         detail::marshaller_tuple_t<arg_tuple> marshallers;
 
         return detail::InvokeMemberWithMarshallersImpl<result_type, arg_tuple>(
+            method,
+            *instance,
+            marshallers,
+            std::make_index_sequence<std::tuple_size_v<arg_tuple>>{},
+            std::forward<TAbiArgs>(abiArguments)...);
+    }
+
+    template <typename FT, typename TSelf, typename... TAbiArgs>
+    static auto invoke_owned_instance(FT method, TSelf* instance, TAbiArgs&&... abiArguments)
+    {
+        using traits = detail::MemberFunctionTraits<FT>;
+        using result_type = typename traits::return_type;
+        using arg_tuple = typename traits::argument_tuple;
+
+        detail::marshaller_tuple_t<arg_tuple> marshallers;
+
+        return detail::InvokeMemberWithMarshallersOwnedImpl<result_type, arg_tuple>(
             method,
             *instance,
             marshallers,

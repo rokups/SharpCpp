@@ -30,6 +30,7 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 ### Type System
 - Primitives, handles/records, enums, references, pointers
 - `Marshaller<T>` / `ReturnMarshaller<T>` for custom type interop
+- Wrapped record value returns (`T` returned as an owned generated wrapper handle) without per-type marshaller configuration
 - Managed type overrides (`managed_type`, `managed_base_type`, `managed_base_type_constraints`)
 - Container wrappers: `vector`, `list`, `map`, `unordered_map`
 - Native-backed fixed-size array wrappers: `std::array<T, N>` / `eastl::array<T, N>` → `Std.Array<T>` / `Ea.Array<T>` with runtime length validation
@@ -122,6 +123,13 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - All type-specific behaviors configured through C++/C# marshallers, never hardcoded in core
 
 ## Recently Fixed
+
+- **Wrapped record value returns now work without per-type marshaller configuration**:
+  - Degradation no longer treats by-value returns of owned parsed records as unsupported just because the type lacks a custom `Marshaller<T>` specialization.
+  - Native rendering now emits pointer-shaped entrypoints for these returns and uses generic `MarshallerInvoker::invoke_owned*` helpers to allocate an owned native copy for the generated managed wrapper.
+  - Director callbacks still reject owned-handle returns during degradation, preserving the existing unsupported director-return boundary.
+  - rbfx `Spline.GetPoint(float)` now generates as `Variant` instead of an excluded comment.
+  - Verification: focused model/rendering tests, `cmake --build --preset Debug`, and `ctest --preset Debug` all pass.
 
 - **rbfx `ea::shared_array<T>` / `eastl::shared_array<T>` wrappers now work end-to-end**:
   - Added dynamic-array model, parser, pipeline, and metadata facts driven by `dynamic_array = true` marshaller configuration.
