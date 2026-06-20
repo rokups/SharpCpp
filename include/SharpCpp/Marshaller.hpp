@@ -28,6 +28,9 @@ struct NativeArrayAbi
     std::size_t length{};
 };
 
+template <class T, std::size_t N>
+struct NativeArray {};
+
 namespace detail
 {
 template <typename TFunction, typename TSignature>
@@ -653,6 +656,37 @@ struct FixedArrayReturnMarshallerBase
     }
 };
 
+template <class TElement, std::size_t N>
+struct NativeFixedArrayMarshallerBase
+{
+    using cpp_type = TElement[N];
+    using abi_type = NativeArrayAbi;
+
+    cpp_type& ConvertToCpp(abi_type value) const
+    {
+        Validate(value);
+        return *reinterpret_cast<TElement (*)[N]>(value.handle);
+    }
+
+    abi_type ConvertToAbi(cpp_type& value) const noexcept
+    {
+        return { value, N };
+    }
+
+    abi_type ConvertToAbi(const cpp_type& value) const noexcept
+    {
+        return { const_cast<TElement*>(value), N };
+    }
+
+    static void Validate(abi_type value)
+    {
+        if (value.handle == nullptr || value.length != N)
+        {
+            throw std::runtime_error("SharpCpp fixed array length mismatch.");
+        }
+    }
+};
+
 template <class T>
 struct Marshaller
 {
@@ -1205,6 +1239,16 @@ struct [[sharpcpp::managed_type(
 Marshaller<std::array<T, N>> : FixedArrayValueMarshallerBase<std::array<T, N>, N> {};
 
 template <typename T, std::size_t N>
+struct [[sharpcpp::managed_type(
+    public_type = "SharpCpp.NativeArray<{0}>",
+    managed_base_type = "global::SharpCpp.Support.ArrayBase<{0}>",
+    managed_namespace = "SharpCpp",
+    fixed_array = true,
+    native_array = true
+)]]
+Marshaller<NativeArray<T, N>> {};
+
+template <typename T, std::size_t N>
 struct Marshaller<std::array<T, N>&> : FixedArrayReferenceMarshallerBase<std::array<T, N>, N> {};
 
 template <typename T, std::size_t N>
@@ -1215,6 +1259,9 @@ struct Marshaller<std::array<T, N>*> : FixedArrayPointerMarshallerBase<std::arra
 
 template <typename T, std::size_t N>
 struct Marshaller<const std::array<T, N>*> : FixedArrayConstPointerMarshallerBase<std::array<T, N>, N> {};
+
+template <typename T, std::size_t N>
+struct Marshaller<T[N]> : NativeFixedArrayMarshallerBase<T, N> {};
 
 template <typename T, typename TAllocator>
 struct [[sharpcpp::managed_type(
@@ -1304,6 +1351,9 @@ struct ReturnMarshaller<std::vector<T, TAllocator>> : OwnedHandleReturnMarshalle
 
 template <typename T, std::size_t N>
 struct ReturnMarshaller<std::array<T, N>> : FixedArrayReturnMarshallerBase<std::array<T, N>, N> {};
+
+template <typename T, std::size_t N>
+struct ReturnMarshaller<T[N]> : NativeFixedArrayMarshallerBase<T, N> {};
 
 template <typename T, typename TAllocator>
 struct ReturnMarshaller<std::list<T, TAllocator>> : OwnedHandleReturnMarshallerBase<std::list<T, TAllocator>> {};

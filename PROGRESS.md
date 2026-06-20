@@ -33,7 +33,7 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - Wrapped record value returns (`T` returned as an owned generated wrapper handle) without per-type marshaller configuration
 - Managed type overrides (`managed_type`, `managed_base_type`, `managed_base_type_constraints`)
 - Container wrappers: `vector`, `list`, `map`, `unordered_map`
-- Native-backed fixed-size array wrappers: `std::array<T, N>` / `eastl::array<T, N>` → `Std.Array<T>` / `Ea.Array<T>` with runtime length validation
+- Native-backed fixed-size array wrappers: `std::array<T, N>` / `eastl::array<T, N>` → `Std.Array<T>` / `Ea.Array<T>` and native C array fields `T[N]` → `SharpCpp.NativeArray<T>` with runtime length validation
 - Native-backed shared dynamic array wrappers: `ea::shared_array<T>` / `eastl::shared_array<T>` → `Ea.SharedArray<T>` with unsafe indexed access
 - Math primitives as value types: `Vector3`, `Matrix3`, `StringHash`, etc.
 - String support: `const char*`, `std::string_view`, `ea::string_view` / `eastl::string_view` → `ReadOnlySpan<byte>`, `const char**` → `out string`, `std::string` → `StringBase`
@@ -109,6 +109,7 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ### Type System Growth
 - [ ] Additional container families (set, deque, etc.)
+- [ ] Native C array fields with handle-backed elements need per-element conversion semantics before they can be safely exposed
 - [ ] Return-string lifetime: evaluate `ReadOnlySpan<char>` for `const char*` returns
 - [ ] Custom C# marshaller for `IntPtr`→`string` P/Invoke (replacing renderer-side `PtrToStringUTF8`)
 

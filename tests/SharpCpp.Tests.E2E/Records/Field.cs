@@ -1,3 +1,6 @@
+using System.Linq;
+using System.Reflection;
+
 using SharpCpp.Tests.E2E.Generated;
 
 using Xunit;
@@ -18,19 +21,40 @@ public sealed class FieldTests
         Assert.Equal(FieldMode.Active, box.Mode);
         Assert.False(box.Payload.OwnsHandle);
         Assert.Equal(10, box.Payload.Value);
+        Assert.Equal(new[] { 0, 0, 0 }, box.Samples.ToArray());
         Assert.Equal(99, box.FixedValue);
 
         box.Count = 7;
         box.Enabled = false;
         box.Mode = FieldMode.Suspended;
         box.Payload = replacement;
+        using var samples = new global::SharpCpp.NativeArray<int>(new[] { 3, 5, 7 });
+        box.Samples = samples;
 
         Assert.Equal(7, box.Count);
         Assert.False(box.Enabled);
         Assert.Equal(FieldMode.Suspended, box.Mode);
         Assert.False(box.Payload.OwnsHandle);
         Assert.Equal(30, box.Payload.Value);
+        Assert.Equal(new[] { 3, 5, 7 }, box.Samples.ToArray());
         Assert.Equal(99, box.FixedValue);
+    }
+
+    [Fact]
+    public void Native_fixed_array_fields_validate_setter_lengths()
+    {
+        var payload = E2EBindings.CreateFieldPayload(10);
+        var box = E2EBindings.CreateFieldBox(2, true, FieldMode.Active, payload, 99);
+        using var wrongLength = (global::SharpCpp.NativeArray<int>)Activator.CreateInstance(
+            typeof(global::SharpCpp.NativeArray<int>),
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            args: [IntPtr.Zero, 2, false],
+            culture: null)!;
+
+        var exception = Assert.Throws<ArgumentException>(() => box.Samples = wrongLength);
+
+        Assert.Contains("Expected array length 3", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]

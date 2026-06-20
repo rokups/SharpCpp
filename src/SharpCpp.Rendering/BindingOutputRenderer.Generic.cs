@@ -391,6 +391,11 @@ public static partial class BindingOutputRenderer
 
             protected override bool ReleaseNativeHandle(nint handle)
             {
+                if (!OwnsHandle)
+                {
+                    return true;
+                }
+
             {{RenderGenericArrayDeleteDispatch(compilation, record, instantiations)}}
                 return true;
             }
@@ -489,6 +494,11 @@ public static partial class BindingOutputRenderer
 
             protected override bool ReleaseNativeHandle(nint handle)
             {
+                if (!OwnsHandle)
+                {
+                    return true;
+                }
+
             {{RenderGenericDynamicArrayDeleteDispatch(compilation, record, instantiations)}}
                 return true;
             }
@@ -511,6 +521,7 @@ public static partial class BindingOutputRenderer
         foreach (var instantiation in GetFixedArrayInstantiations(compilation, record))
         {
             var token = GetFixedArrayInstantiationToken(instantiation);
+            var importToken = GetFixedArrayImportMethodToken(record, instantiation);
             var elementType = instantiation.TypeArguments[0];
             var managedElementType = FormatGlobalTypeName(elementType, compilation);
             var getReturnType = elementType.Kind == BindingTypeKind.Handle ? "nint" : managedElementType;
@@ -518,22 +529,22 @@ public static partial class BindingOutputRenderer
             yield return $$"""
                 [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArrayCreateEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                internal static partial global::SharpCpp.Support.NativeArrayAbi __Array_Create_{{token}}();
+                internal static partial global::SharpCpp.Support.NativeArrayAbi __Array_Create_{{importToken}}();
                 """;
             yield return $$"""
                 [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArrayDeleteEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                internal static partial void __Array_Delete_{{token}}(global::SharpCpp.Support.NativeArrayAbi self);
+                internal static partial void __Array_Delete_{{importToken}}(global::SharpCpp.Support.NativeArrayAbi self);
                 """;
             yield return $$"""
                 [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArrayGetEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                internal static partial {{getReturnType}} __Array_Get_{{token}}(global::SharpCpp.Support.NativeArrayAbi self, nuint index);
+                internal static partial {{getReturnType}} __Array_Get_{{importToken}}(global::SharpCpp.Support.NativeArrayAbi self, nuint index);
                 """;
             yield return $$"""
                 [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArraySetEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                internal static partial void __Array_Set_{{token}}(global::SharpCpp.Support.NativeArrayAbi self, nuint index, {{setParameterType}} value);
+                internal static partial void __Array_Set_{{importToken}}(global::SharpCpp.Support.NativeArrayAbi self, nuint index, {{setParameterType}} value);
                 """;
         }
     }
@@ -965,6 +976,11 @@ public static partial class BindingOutputRenderer
         return $"{SanitizeManagedToken(instantiation.TypeArguments[0].ManagedTypeName)}_{length}";
     }
 
+    private static string GetFixedArrayImportMethodToken(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    {
+        return $"{SanitizeManagedToken(record.ManagedName)}_{GetFixedArrayInstantiationToken(instantiation)}";
+    }
+
     private static string GetDynamicArrayInstantiationToken(RecordGenericInstantiationBinding instantiation)
     {
         return SanitizeManagedToken(instantiation.TypeArguments[0].ManagedTypeName);
@@ -1020,7 +1036,7 @@ public static partial class BindingOutputRenderer
             writer.Write($$"""
                 if (typeof(T) == typeof({{elementType}}) && length == {{length}})
                 {
-                    return {{GetGenericImportAccessor(compilation)}}.__Array_Create_{{GetFixedArrayInstantiationToken(instantiation)}}().Handle;
+                    return {{GetGenericImportAccessor(compilation)}}.__Array_Create_{{GetFixedArrayImportMethodToken(record, instantiation)}}().Handle;
                 }
                 """);
         }
@@ -1038,7 +1054,7 @@ public static partial class BindingOutputRenderer
             writer.Write($$"""
                 if (typeof(T) == typeof({{elementType}}) && Length == {{length}})
                 {
-                    {{GetGenericImportAccessor(compilation)}}.__Array_Delete_{{GetFixedArrayInstantiationToken(instantiation)}}(new global::SharpCpp.Support.NativeArrayAbi(handle, (nuint)Length));
+                    {{GetGenericImportAccessor(compilation)}}.__Array_Delete_{{GetFixedArrayImportMethodToken(record, instantiation)}}(new global::SharpCpp.Support.NativeArrayAbi(handle, (nuint)Length));
                     return true;
                 }
                 """);
@@ -1055,7 +1071,7 @@ public static partial class BindingOutputRenderer
             _ = TryGetFixedArrayLength(instantiation, out var length);
             var element = instantiation.TypeArguments[0];
             var elementType = FormatGlobalTypeName(element, compilation);
-            var resultExpression = $"{GetGenericImportAccessor(compilation)}.__Array_Get_{GetFixedArrayInstantiationToken(instantiation)}(ToNativeArrayAbi(), index)";
+            var resultExpression = $"{GetGenericImportAccessor(compilation)}.__Array_Get_{GetFixedArrayImportMethodToken(record, instantiation)}(ToNativeArrayAbi(), index)";
             if (element.Kind == BindingTypeKind.Handle)
             {
                 resultExpression = $"{elementType}.CreateManagedWrapper({resultExpression}, ownsHandle: false)";
@@ -1087,7 +1103,7 @@ public static partial class BindingOutputRenderer
             writer.Write($$"""
                 if (typeof(T) == typeof({{elementType}}) && Length == {{length}})
                 {
-                    {{GetGenericImportAccessor(compilation)}}.__Array_Set_{{GetFixedArrayInstantiationToken(instantiation)}}(ToNativeArrayAbi(), index, {{valueExpression}});{{keepAlive}}
+                    {{GetGenericImportAccessor(compilation)}}.__Array_Set_{{GetFixedArrayImportMethodToken(record, instantiation)}}(ToNativeArrayAbi(), index, {{valueExpression}});{{keepAlive}}
                     return;
                 }
                 """);
@@ -1934,8 +1950,51 @@ public static partial class BindingOutputRenderer
         foreach (var instantiation in GetFixedArrayInstantiations(compilation, record))
         {
             _ = TryGetFixedArrayLength(instantiation, out var length);
-            var concreteArrayType = record.FormatCppTypeName(instantiation.TypeArguments);
             var elementCppType = instantiation.TypeArguments[0].CppTypeName;
+            if (record.GetMetadata<bool>(MetadataKeys.NativeArrayRecord))
+            {
+                writer.Write($$"""
+                    SHARPCPP_EXPORT NativeArrayAbi {{GetFixedArrayCreateEntryPointName(record, instantiation)}}()
+                    {
+                        auto* value = new {{elementCppType}}[{{length}}]{};
+                        return { value, {{length}} };
+                    }
+
+                    SHARPCPP_EXPORT ret_t<void> {{GetFixedArrayDeleteEntryPointName(record, instantiation)}}(NativeArrayAbi self)
+                    {
+                        if (self.handle != nullptr)
+                        {
+                            delete[] static_cast<{{elementCppType}}*>(self.handle);
+                        }
+                    }
+
+                    SHARPCPP_EXPORT ret_t<{{elementCppType}}> {{GetFixedArrayGetEntryPointName(record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index)
+                    {
+                        if (self.handle == nullptr || self.length != {{length}} || index >= {{length}})
+                        {
+                            throw std::runtime_error("SharpCpp fixed array access out of range.");
+                        }
+
+                        ReturnMarshaller<{{elementCppType}}> marshaller;
+                        return marshaller.ConvertToAbi(static_cast<{{elementCppType}}*>(self.handle)[index]);
+                    }
+
+                    SHARPCPP_EXPORT ret_t<void> {{GetFixedArraySetEntryPointName(record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index, arg_t<{{elementCppType}}> value)
+                    {
+                        if (self.handle == nullptr || self.length != {{length}} || index >= {{length}})
+                        {
+                            throw std::runtime_error("SharpCpp fixed array access out of range.");
+                        }
+
+                        ParameterMarshaller<{{elementCppType}}> marshaller;
+                        static_cast<{{elementCppType}}*>(self.handle)[index] = marshaller.ConvertToCpp(value);
+                    }
+
+                    """);
+                continue;
+            }
+
+            var concreteArrayType = record.FormatCppTypeName(instantiation.TypeArguments);
             writer.Write($$"""
                 SHARPCPP_EXPORT NativeArrayAbi {{GetFixedArrayCreateEntryPointName(record, instantiation)}}()
                 {

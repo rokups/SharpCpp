@@ -60,6 +60,10 @@ internal static class MarshallerConfigExtractor
         @"fixed_array\s*=\s*(?<value>true|false)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    private static readonly Regex NativeArrayExpression = new(
+        @"native_array\s*=\s*(?<value>true|false)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private static readonly Regex DynamicArrayExpression = new(
         @"dynamic_array\s*=\s*(?<value>true|false)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -103,6 +107,7 @@ internal static class MarshallerConfigExtractor
         public bool Projection { get; init; }
         public bool Callback { get; init; }
         public bool FixedArray { get; init; }
+        public bool NativeArray { get; init; }
         public bool DynamicArray { get; init; }
         public string? ReturnOwnership { get; init; }
         public string? ManagedInstanceCacheFactoryExpression { get; init; }
@@ -321,6 +326,7 @@ internal static class MarshallerConfigExtractor
         var managedNamespaceMatch = ManagedNamespaceInAttributeExpression.Match(body);
         var projectionMatch = ProjectionExpression.Match(body);
         var fixedArrayMatch = FixedArrayExpression.Match(body);
+        var nativeArrayMatch = NativeArrayExpression.Match(body);
         var dynamicArrayMatch = DynamicArrayExpression.Match(body);
         var managedInstanceCacheFactoryMatch = ManagedInstanceCacheFactoryExpression.Match(body);
         var managedInstanceCacheTypeMatch = ManagedInstanceCacheTypeExpression.Match(body);
@@ -351,6 +357,8 @@ internal static class MarshallerConfigExtractor
             Callback = isCallback,
             FixedArray = fixedArrayMatch.Success &&
                 string.Equals(fixedArrayMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase),
+            NativeArray = nativeArrayMatch.Success &&
+                string.Equals(nativeArrayMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase),
             DynamicArray = dynamicArrayMatch.Success &&
                 string.Equals(dynamicArrayMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase),
             ReturnOwnership = returnOwnershipMatch.Success ? returnOwnershipMatch.Groups["value"].Value : null,

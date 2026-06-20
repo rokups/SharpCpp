@@ -5,6 +5,7 @@
 #include <exception>
 #include <functional>
 #include <memory>
+#include <cstddef>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -645,7 +646,19 @@ struct MarshallerInvoker
     {
         Marshaller<TClass*> self_marshaller;
         ParameterMarshaller<TValue> marshaller;
-        std::invoke(field, self_marshaller.ConvertToCpp(self)) = marshaller.ConvertToCpp(value);
+        if constexpr (std::is_array_v<TValue>)
+        {
+            auto& target = std::invoke(field, self_marshaller.ConvertToCpp(self));
+            auto& source = marshaller.ConvertToCpp(value);
+            for (std::size_t index = 0; index < std::extent_v<TValue>; ++index)
+            {
+                target[index] = source[index];
+            }
+        }
+        else
+        {
+            std::invoke(field, self_marshaller.ConvertToCpp(self)) = marshaller.ConvertToCpp(value);
+        }
     }
 
     template <typename TValue, typename TClass>

@@ -5,6 +5,7 @@ public static class MetadataKeys
     public const string CanonicalCppIdentity = "canonical_cpp_identity";
     public const string ManagedTypeIdentity = "managed_type_identity";
     public const string FixedArrayRecord = "fixed_array_record";
+    public const string NativeArrayRecord = "native_array_record";
     public const string DynamicArrayRecord = "dynamic_array_record";
     public const string Marshaller = "marshaller";
     public const string AccessorProperty = "accessor_property";

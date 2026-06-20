@@ -1225,7 +1225,7 @@ public sealed partial class ClangSharpHeaderParser
         IReadOnlyDictionary<string, BindingType> genericParameters)
     {
         var nativeName = fieldDecl.Name ?? fieldDecl.Spelling.ToString();
-        var initialIgnoreReason = IsArrayType(fieldDecl.Type.Handle.CanonicalType)
+        var initialIgnoreReason = IsIncompleteArrayType(fieldDecl.Type.Handle.CanonicalType)
             ? "fixed-size array fields are not yet supported in this bootstrap surface"
             : null;
         var (fieldType, ignoreReason) = TryMapType(fieldDecl.Type.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
@@ -1253,9 +1253,9 @@ public sealed partial class ClangSharpHeaderParser
         return field;
     }
 
-    private static bool IsArrayType(CXType type)
+    private static bool IsIncompleteArrayType(CXType type)
     {
-        return type.kind is CXTypeKind.CXType_ConstantArray or CXTypeKind.CXType_IncompleteArray;
+        return type.kind is CXTypeKind.CXType_IncompleteArray;
     }
 
     private static FunctionBinding CreateFunction(
@@ -2000,6 +2000,16 @@ public sealed partial class ClangSharpHeaderParser
         // the AST cursor gives the template name, not the typedef.
         var qualifiedSpelledTypeName = GetQualifiedTypeName(type, spelledTypeName);
 
+        if (normalizedType.kind == CXTypeKind.CXType_ConstantArray)
+        {
+            return CreateNativeFixedArrayType(
+                normalizedType,
+                recordsByName,
+                enumsByName,
+                managedTypeOverrides,
+                genericParameters);
+        }
+
         if (TryMapGenericParameterType(spelledTypeName, genericParameters, out var genericParameterType))
         {
             return genericParameterType;
@@ -2265,6 +2275,10 @@ public sealed partial class ClangSharpHeaderParser
             {
                 record.SetMetadata(MetadataKeys.FixedArrayRecord, true);
             }
+            if (managedTypeOverride.NativeArray)
+            {
+                record.SetMetadata(MetadataKeys.NativeArrayRecord, true);
+            }
             if (isConfiguredDynamicArray)
             {
                 record.SetMetadata(MetadataKeys.DynamicArrayRecord, true);
@@ -2285,6 +2299,10 @@ public sealed partial class ClangSharpHeaderParser
             if (isConfiguredFixedArray)
             {
                 record.SetMetadata(MetadataKeys.FixedArrayRecord, true);
+            }
+            if (managedTypeOverride.NativeArray)
+            {
+                record.SetMetadata(MetadataKeys.NativeArrayRecord, true);
             }
             if (isConfiguredDynamicArray)
             {
@@ -2312,6 +2330,52 @@ public sealed partial class ClangSharpHeaderParser
             ApplyFixedArrayMetadata(handleType, isConfiguredFixedArray || isFixedArrayRecord, rawGenericArguments),
             isConfiguredDynamicArray || isDynamicArrayRecord,
             rawGenericArguments);
+    }
+
+    private static BindingType CreateNativeFixedArrayType(
+        CXType arrayType,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        IReadOnlyDictionary<string, BindingType> genericParameters)
+    {
+        var length = arrayType.ArraySize;
+        if (length < 0 || length > int.MaxValue)
+        {
+            throw new NotSupportedException($"Fixed-size array length '{length}' is not supported.");
+        }
+
+        var nativeArrayOverride = managedTypeOverrides.Values
+            .Where(static managedTypeOverride => managedTypeOverride.FixedArray && managedTypeOverride.NativeArray)
+            .OrderBy(static managedTypeOverride => managedTypeOverride.CppTypeName, StringComparer.Ordinal)
+            .FirstOrDefault();
+        if (nativeArrayOverride is null)
+        {
+            throw new NotSupportedException("fixed-size array fields require a native_array fixed-array marshaller configuration.");
+        }
+
+        var elementType = MapType(arrayType.ArrayElementType, recordsByName, enumsByName, managedTypeOverrides, genericParameters, preserveAliasSurface: false);
+        if (elementType.CppTypeName.EndsWith("*", StringComparison.Ordinal))
+        {
+            throw new NotSupportedException("fixed-size array fields with handle-backed elements are not yet supported in this bootstrap surface.");
+        }
+
+        var concreteArrayTypeName = FormatConfiguredNativeArrayTypeName(nativeArrayOverride.CppTypeName, elementType.CppTypeName, length);
+        return CreateConfiguredOrWrapperType(
+                nativeArrayOverride,
+                recordsByName,
+                enumsByName,
+                managedTypeOverrides,
+                genericParameters,
+                concreteArrayTypeName)
+            .WithFixedArray(elementType, checked((int)length));
+    }
+
+    private static string FormatConfiguredNativeArrayTypeName(string configuredTypeName, string elementCppTypeName, long length)
+    {
+        return TryGetTopLevelTemplateArguments(configuredTypeName, out var head, out _)
+            ? $"{head}<{elementCppTypeName}, {length}>"
+            : $"{configuredTypeName}<{elementCppTypeName}, {length}>";
     }
 
     private static BindingType ApplyFixedArrayMetadata(
