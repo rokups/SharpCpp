@@ -8,3 +8,4 @@ out/
 compile_commands.json
 TestResults/
 .slim/deepwork/
+/.env

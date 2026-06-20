@@ -159,6 +159,8 @@ Overlap independent work aggressively. If Phase 3 model changes don't depend on 
 
 - Be direct.
 - Surface blockers early.
+- Before asking the user for input, send a notification with `./make.sh notify "Input needed: <short reason>"`; do this immediately before the question so the notification corresponds to a real waiting point.
+- Before wrapping up the task, send a notification with `./make.sh notify "Task done: <short description>"`; do this immediately before finishing the task.
 - Record decisions and unfinished work in `PROGRESS.md` before stopping.
 
 ## 10. Repository Map
