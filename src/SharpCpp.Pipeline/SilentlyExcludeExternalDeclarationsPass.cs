@@ -51,7 +51,8 @@ public static class SilentlyExcludeExternalDeclarationsPass
     private static bool ShouldSilentlyExcludeFunction(FunctionBinding function, out string reason)
     {
         if (string.Equals(function.NativeName, "begin", StringComparison.Ordinal) ||
-            string.Equals(function.NativeName, "end", StringComparison.Ordinal))
+            string.Equals(function.NativeName, "end", StringComparison.Ordinal) ||
+            string.Equals(function.NativeName, "size", StringComparison.Ordinal))
         {
             reason = $"callable '{function.CppQualifiedName}' is an iterator endpoint not projected into the managed surface";
             return true;

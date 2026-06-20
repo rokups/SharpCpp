@@ -1261,6 +1261,11 @@ public static partial class BindingOutputRenderer
 
     private static string RenderManagedHandleReturnMarshallerHelpers(BindingCompilation compilation, RecordBinding record, string recordDeclarationName)
     {
+        if (IsGenericArrayRecord(record))
+        {
+            return RenderManagedGenericArrayMarshallerHelpers(compilation, record, recordDeclarationName);
+        }
+
         if (!CanUseUnifiedHandleMarshaller(record))
         {
             return RenderManagedGenericHandleMarshallerHelpers(compilation, record, recordDeclarationName);
@@ -1287,6 +1292,98 @@ public static partial class BindingOutputRenderer
                 public static {{qualifiedRecordTypeName}} ConvertToManaged(nint unmanaged)
                 {
                     return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: TOwnership.OwnsHandle);
+                }
+            }
+            """;
+    }
+
+    private static string RenderManagedGenericArrayMarshallerHelpers(BindingCompilation compilation, RecordBinding record, string recordDeclarationName)
+    {
+        return IsGenericDynamicArrayRecord(record)
+            ? RenderManagedGenericDynamicArrayMarshallerHelpers(compilation, record, recordDeclarationName)
+            : RenderManagedGenericFixedArrayMarshallerHelpers(compilation, record, recordDeclarationName);
+    }
+
+    private static string RenderManagedGenericFixedArrayMarshallerHelpers(BindingCompilation compilation, RecordBinding record, string recordDeclarationName)
+    {
+        var qualifiedRecordTypeName = GetQualifiedManagedRecordDeclarationTypeName(compilation, record, recordDeclarationName);
+        var qualifiedOpenRecordTypeName = GetQualifiedManagedOpenRecordTypeName(compilation, record);
+        var inMarshallerDeclarationName = GetHandleInMarshallerDeclarationName(record);
+        var inMarshallerTypeName = GetQualifiedHandleInMarshallerTypeName(compilation, record);
+        var borrowedMarshallerDeclarationName = GetHandleReturnMarshallerDeclarationName(record, ownsHandle: false);
+        var borrowedMarshallerTypeName = GetQualifiedHandleReturnMarshallerTypeName(compilation, record, ownsHandle: false);
+        var ownedMarshallerDeclarationName = GetHandleReturnMarshallerDeclarationName(record, ownsHandle: true);
+        var ownedMarshallerTypeName = GetQualifiedHandleReturnMarshallerTypeName(compilation, record, ownsHandle: true);
+        var genericConstraints = GetGenericRecordConstraints(record);
+
+        return $$"""
+            [CustomMarshaller(typeof({{qualifiedOpenRecordTypeName}}), MarshalMode.ManagedToUnmanagedIn, typeof({{inMarshallerTypeName}}))]
+            internal static class {{inMarshallerDeclarationName}}{{genericConstraints}}
+            {
+                public static global::SharpCpp.Support.NativeArrayAbi ConvertToUnmanaged({{qualifiedRecordTypeName}} managed)
+                {
+                    global::System.ArgumentNullException.ThrowIfNull(managed);
+                    return managed.ToNativeArrayAbi();
+                }
+            }
+
+            [CustomMarshaller(typeof({{qualifiedOpenRecordTypeName}}), MarshalMode.ManagedToUnmanagedOut, typeof({{borrowedMarshallerTypeName}}))]
+            internal static class {{borrowedMarshallerDeclarationName}}{{genericConstraints}}
+            {
+                public static {{qualifiedRecordTypeName}} ConvertToManaged(global::SharpCpp.Support.NativeArrayAbi unmanaged)
+                {
+                    return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: false);
+                }
+            }
+
+            [CustomMarshaller(typeof({{qualifiedOpenRecordTypeName}}), MarshalMode.ManagedToUnmanagedOut, typeof({{ownedMarshallerTypeName}}))]
+            internal static class {{ownedMarshallerDeclarationName}}{{genericConstraints}}
+            {
+                public static {{qualifiedRecordTypeName}} ConvertToManaged(global::SharpCpp.Support.NativeArrayAbi unmanaged)
+                {
+                    return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: true);
+                }
+            }
+            """;
+    }
+
+    private static string RenderManagedGenericDynamicArrayMarshallerHelpers(BindingCompilation compilation, RecordBinding record, string recordDeclarationName)
+    {
+        var qualifiedRecordTypeName = GetQualifiedManagedRecordDeclarationTypeName(compilation, record, recordDeclarationName);
+        var qualifiedOpenRecordTypeName = GetQualifiedManagedOpenRecordTypeName(compilation, record);
+        var inMarshallerDeclarationName = GetHandleInMarshallerDeclarationName(record);
+        var inMarshallerTypeName = GetQualifiedHandleInMarshallerTypeName(compilation, record);
+        var borrowedMarshallerDeclarationName = GetHandleReturnMarshallerDeclarationName(record, ownsHandle: false);
+        var borrowedMarshallerTypeName = GetQualifiedHandleReturnMarshallerTypeName(compilation, record, ownsHandle: false);
+        var ownedMarshallerDeclarationName = GetHandleReturnMarshallerDeclarationName(record, ownsHandle: true);
+        var ownedMarshallerTypeName = GetQualifiedHandleReturnMarshallerTypeName(compilation, record, ownsHandle: true);
+        var genericConstraints = GetGenericRecordConstraints(record);
+
+        return $$"""
+            [CustomMarshaller(typeof({{qualifiedOpenRecordTypeName}}), MarshalMode.ManagedToUnmanagedIn, typeof({{inMarshallerTypeName}}))]
+            internal static class {{inMarshallerDeclarationName}}{{genericConstraints}}
+            {
+                public static nint ConvertToUnmanaged({{qualifiedRecordTypeName}} managed)
+                {
+                    return global::SharpCpp.Support.NativeObject.GetHandle(managed);
+                }
+            }
+
+            [CustomMarshaller(typeof({{qualifiedOpenRecordTypeName}}), MarshalMode.ManagedToUnmanagedOut, typeof({{borrowedMarshallerTypeName}}))]
+            internal static class {{borrowedMarshallerDeclarationName}}{{genericConstraints}}
+            {
+                public static {{qualifiedRecordTypeName}} ConvertToManaged(nint unmanaged)
+                {
+                    return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: false);
+                }
+            }
+
+            [CustomMarshaller(typeof({{qualifiedOpenRecordTypeName}}), MarshalMode.ManagedToUnmanagedOut, typeof({{ownedMarshallerTypeName}}))]
+            internal static class {{ownedMarshallerDeclarationName}}{{genericConstraints}}
+            {
+                public static {{qualifiedRecordTypeName}} ConvertToManaged(nint unmanaged)
+                {
+                    return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: true);
                 }
             }
             """;
@@ -1501,10 +1598,57 @@ public static partial class BindingOutputRenderer
             return qualifiedHead;
         }
 
-        var renderedArguments = string.Join(", ", type.GenericArguments.Select(argument => publicSurface
+        var renderedArguments = type.GenericArguments.Select(argument => publicSurface
             ? GetManagedPublicReturnTypeName(argument, compilation)
-            : FormatGlobalTypeName(argument, compilation)));
-        return $"{qualifiedHead}<{renderedArguments}>";
+            : FormatGlobalTypeName(argument, compilation)).ToArray();
+        if (managedName.Contains('{', StringComparison.Ordinal))
+        {
+            var formattedName = FormatManagedTypeNameWithPlaceholders(managedName, renderedArguments);
+            var formattedHead = GetManagedTypeHead(formattedName);
+            var qualifiedFormattedHead = formattedHead.StartsWith("global::", StringComparison.Ordinal)
+                ? formattedHead
+                : formattedHead.Contains('.', StringComparison.Ordinal)
+                    ? $"global::{formattedHead}"
+                    : $"global::{GetManagedNamespace(compilation, record)}.{formattedHead}";
+            return qualifiedFormattedHead + formattedName[formattedHead.Length..];
+        }
+
+        return $"{qualifiedHead}<{string.Join(", ", renderedArguments)}>";
+    }
+
+    private static string FormatManagedTypeNameWithPlaceholders(string managedTypeFormat, IReadOnlyList<string> renderedArguments)
+    {
+        var argumentNames = renderedArguments.Cast<object>().ToArray();
+        return AllPlaceholdersInRange(managedTypeFormat, argumentNames.Length)
+            ? string.Format(System.Globalization.CultureInfo.InvariantCulture, managedTypeFormat, argumentNames)
+            : $"{GetManagedTypeHead(managedTypeFormat)}<{string.Join(", ", renderedArguments)}>";
+    }
+
+    private static bool AllPlaceholdersInRange(string format, int argumentCount)
+    {
+        for (var index = 0; index < format.Length; index++)
+        {
+            if (format[index] != '{')
+            {
+                continue;
+            }
+
+            var closeIndex = format.IndexOf('}', index + 1);
+            if (closeIndex <= index + 1)
+            {
+                continue;
+            }
+
+            if (int.TryParse(format[(index + 1)..closeIndex], out var placeholderIndex) &&
+                placeholderIndex >= argumentCount)
+            {
+                return false;
+            }
+
+            index = closeIndex;
+        }
+
+        return true;
     }
 
     private static string GetManagedRecordTypeName(BindingCompilation compilation, RecordBinding record)
@@ -3175,17 +3319,29 @@ public static partial class BindingOutputRenderer
                 BindingParameterDirection.In,
                 BindingParameterAbiKind.Pointer,
                 field.CppTypeName);
-            var setterArgument = CanUseManagedHandleParameterImport(setterParameter, field.Type)
+            var setterArgument = field.Type.IsFixedArray
+                ? "value"
+                : CanUseManagedHandleParameterImport(setterParameter, field.Type)
                 ? "value"
                 : RequiresHandleWrapping(field.Type)
                 ? "global::SharpCpp.Support.NativeObject.GetHandle(value)"
                 : "value";
-            var setterKeepAlive = RequiresHandleWrapping(field.Type)
+            var setterPrecondition = field.Type.IsFixedArray
+                ? $$"""
+                    global::System.ArgumentNullException.ThrowIfNull(value);
+                    if (value.Length != {{field.Type.FixedArrayLength ?? 0}})
+                    {
+                        throw new global::System.ArgumentException("Expected array length {{field.Type.FixedArrayLength ?? 0}}.", nameof(value));
+                    }
+            """
+                : string.Empty;
+            var setterKeepAlive = field.Type.IsFixedArray || RequiresHandleWrapping(field.Type)
                 ? "\n            global::System.GC.KeepAlive(value);"
                 : string.Empty;
             writer.Write($$"""
                 set
                 {
+                {{setterPrecondition}}
                 __PInvoke.Set_{{field.ManagedName}}(this, {{setterArgument}});{{setterKeepAlive}}
                 }
                 """);
@@ -3349,6 +3505,12 @@ public static partial class BindingOutputRenderer
 
         foreach (var record in records.Where(static record => record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static record => record.ManagedName, StringComparer.Ordinal))
         {
+            if (IsGenericArrayRecord(record))
+            {
+                writer.Write(RenderNativeGenericArrayRecord(compilation, record));
+                continue;
+            }
+
             foreach (var instantiation in record.SupportedGenericInstantiations)
             {
                 foreach (var constructor in record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.Parameters.Count))
@@ -3792,6 +3954,11 @@ public static partial class BindingOutputRenderer
 
     private static string GetManagedImportReturnTypeName(BindingCompilation compilation, BindingType type)
     {
+        if (type.IsFixedArray)
+        {
+            return GetManagedWrapperTypeName(type, compilation);
+        }
+
         return CanUseManagedHandleReturnMarshaller(compilation, type)
             ? GetManagedWrapperTypeName(type, compilation)
             : GetManagedImportTypeName(type, compilation);
@@ -3799,6 +3966,11 @@ public static partial class BindingOutputRenderer
 
     private static string GetManagedImportReturnAttribute(BindingCompilation compilation, BindingType type, bool ownsHandle)
     {
+        if (type.IsFixedArray)
+        {
+            return $"[return: MarshalUsing(typeof({GetManagedFixedArrayReturnMarshallerTypeName(compilation, type, ownsHandle)}))]";
+        }
+
         if (CanUseManagedHandleReturnMarshaller(compilation, type))
         {
             return $"[return: MarshalUsing(typeof({GetManagedHandleReturnMarshallerTypeName(compilation, type, ownsHandle)}))]";
@@ -3809,7 +3981,7 @@ public static partial class BindingOutputRenderer
 
     private static bool CanUseManagedHandleReturnMarshaller(BindingCompilation compilation, BindingType type)
     {
-        return type.Kind == BindingTypeKind.Handle && ResolveRecord(compilation, type) is not null;
+        return !type.IsFixedArray && type.Kind == BindingTypeKind.Handle && ResolveRecord(compilation, type) is not null;
     }
 
     private static string GetManagedHandleReturnMarshallerTypeName(BindingCompilation compilation, BindingType type, bool ownsHandle)
@@ -3826,6 +3998,11 @@ public static partial class BindingOutputRenderer
 
     private static string BuildManagedHandleReturnResultExpression(BindingCompilation compilation, BindingType type, string resultExpression, bool ownsHandle)
     {
+        if (type.IsFixedArray)
+        {
+            return resultExpression;
+        }
+
         return CanUseManagedHandleReturnMarshaller(compilation, type)
             ? resultExpression
             : BuildManagedHandleWrap(compilation, type, resultExpression, ownsHandle);
@@ -3887,6 +4064,20 @@ public static partial class BindingOutputRenderer
         return $"global::{ns}.__{record.ManagedName}InMarshaller{openGenericSuffix}";
     }
 
+    private static string GetManagedFixedArrayReturnMarshallerTypeName(BindingCompilation compilation, BindingType type, bool ownsHandle)
+    {
+        var record = ResolveRecord(compilation, type)
+            ?? throw new InvalidOperationException($"Unable to resolve fixed-array return marshaller record for '{type.ManagedTypeName}'.");
+        return GetQualifiedHandleReturnMarshallerTypeName(compilation, record, ownsHandle);
+    }
+
+    private static string GetManagedFixedArrayInMarshallerAttribute(BindingCompilation compilation, BindingType type)
+    {
+        var record = ResolveRecord(compilation, type)
+            ?? throw new InvalidOperationException($"Unable to resolve fixed-array parameter marshaller record for '{type.ManagedTypeName}'.");
+        return $"[MarshalUsing(typeof({GetQualifiedHandleInMarshallerTypeName(compilation, record)}))] ";
+    }
+
     private static string GetQualifiedManagedRecordDeclarationTypeName(BindingCompilation compilation, RecordBinding record, string recordDeclarationName)
     {
         var ns = GetManagedNamespace(compilation, record);
@@ -3944,6 +4135,12 @@ public static partial class BindingOutputRenderer
 
     private static string RenderManagedImportParameter(ParameterBinding parameter, BindingType type, BindingCompilation? compilation = null)
     {
+        if (type.IsFixedArray)
+        {
+            var attribute = compilation is null ? string.Empty : GetManagedFixedArrayInMarshallerAttribute(compilation, type);
+            return $"{attribute}{GetManagedWrapperTypeName(type, compilation)} {parameter.ManagedName}";
+        }
+
         if (CanUseManagedHandleParameterImport(parameter, type))
         {
             var modifier = parameter.Direction switch
@@ -4272,6 +4469,11 @@ public static partial class BindingOutputRenderer
 
     private static string RenderManagedInvocationArgument(ParameterBinding parameter)
     {
+        if (parameter.Type.IsFixedArray)
+        {
+            return parameter.ManagedName;
+        }
+
         var requiresWrapping = RequiresHandleWrapping(parameter.Type);
 
         if (requiresWrapping && CanUseManagedHandleParameterImport(parameter, parameter.Type))
@@ -4321,6 +4523,21 @@ public static partial class BindingOutputRenderer
 
         foreach (var parameter in parameters)
         {
+            if (parameter.Type.IsFixedArray)
+            {
+                var expectedLength = parameter.Type.FixedArrayLength ?? 0;
+                preCallStatements.Add($$"""
+                    global::System.ArgumentNullException.ThrowIfNull({{parameter.ManagedName}});
+                    if ({{parameter.ManagedName}}.Length != {{expectedLength}})
+                    {
+                        throw new global::System.ArgumentException("Expected array length {{expectedLength}}.", nameof({{parameter.ManagedName}}));
+                    }
+                    """);
+                arguments.Add(RenderManagedInvocationArgument(parameter));
+                postCallStatements.Add($"global::System.GC.KeepAlive({parameter.ManagedName});");
+                continue;
+            }
+
             var requiresWrapping = RequiresHandleWrapping(parameter.Type);
 
             if (requiresWrapping && parameter.Direction is BindingParameterDirection.Ref or BindingParameterDirection.Out)

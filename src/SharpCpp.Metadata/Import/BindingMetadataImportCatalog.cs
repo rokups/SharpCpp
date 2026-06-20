@@ -101,13 +101,23 @@ public sealed class BindingMetadataImportCatalog
             ManagedNamespace = importedType.ManagedNamespace ?? document.Source.ManagedNamespace,
             ManagedBaseTypeName = managedBaseTypeName,
             ManagedTypeFormat = importedType.Projection.GenericArguments is { Count: > 0 }
-                ? BuildQualifiedManagedTypeFormat(managedTypeName, importedType.Projection.GenericArguments.Count)
+                ? BuildQualifiedManagedTypeFormat(managedTypeName, importedType.IsFixedArray || importedType.IsDynamicArray ? 1 : importedType.Projection.GenericArguments.Count)
                 : null,
             ManagedBaseTypeConstraints = importedType.ManagedBaseTypeConstraints,
             ManagedInstanceCacheFactoryExpression = importedType.ManagedInstanceCacheFactoryExpression,
             ManagedInstanceCacheTypeName = importedType.ManagedInstanceCacheTypeName,
             EmitDefaultNativeReleaseOverride = importedType.EmitDefaultNativeReleaseOverride
         };
+
+        if (importedType.IsFixedArray)
+        {
+            record.SetMetadata(MetadataKeys.FixedArrayRecord, true);
+        }
+
+        if (importedType.IsDynamicArray)
+        {
+            record.SetMetadata(MetadataKeys.DynamicArrayRecord, true);
+        }
 
         if (importedType.Projection.GenericArguments is { Count: > 0 })
         {
@@ -208,7 +218,7 @@ public sealed class BindingMetadataImportCatalog
             return CreateCallbackTargetType(recordsByName, enumsByName, document, typeReference);
         }
 
-        return typeReference.Kind switch
+        var result = typeReference.Kind switch
         {
             MetadataTypeKind.Handle => CreateAliasHandleTargetType(recordsByName, typeReference, genericArguments),
             MetadataTypeKind.Enum => CreateAliasEnumTargetType(enumsByName, document, typeReference, genericArguments),
@@ -220,6 +230,21 @@ public sealed class BindingMetadataImportCatalog
                 ParsePrimitiveKind(typeReference.Primitive),
                 genericArguments)
         };
+
+        if (typeReference.FixedArrayElementType is not null && typeReference.FixedArrayLength is not null)
+        {
+            result = result.WithFixedArray(
+                CreateAliasTargetType(recordsByName, enumsByName, document, typeReference.FixedArrayElementType),
+                typeReference.FixedArrayLength.Value);
+        }
+
+        if (typeReference.DynamicArrayElementType is not null)
+        {
+            result = result.WithDynamicArray(
+                CreateAliasTargetType(recordsByName, enumsByName, document, typeReference.DynamicArrayElementType));
+        }
+
+        return result;
     }
 
     private static BindingType CreateCallbackTargetType(

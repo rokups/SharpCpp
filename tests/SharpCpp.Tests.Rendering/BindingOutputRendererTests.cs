@@ -2424,4 +2424,56 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("SHARPCPP_EXPORT ret_t<std::size_t> sharpcpp_e2e_std_basic_string_size(arg_t<std::basic_string*> self)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_std_basic_string_push_back(arg_t<std::basic_string*> self", nativeOutput, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Generic_dynamic_array_records_use_pointer_abi_helpers()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Array/SharedArray.hpp" });
+        var sharedArrayRecord = new RecordBinding("record:ea::shared_array", "shared_array", "SharedArray", "ea::shared_array")
+        {
+            ManagedNamespace = "Ea",
+            ManagedTypeFormat = "SharedArray<{0}>",
+            ManagedBaseTypeName = "global::SharpCpp.Support.SharedArrayBase<{0}>"
+        };
+        sharedArrayRecord.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        sharedArrayRecord.SetMetadata(MetadataKeys.DynamicArrayRecord, true);
+        compilation.Members.Add(sharedArrayRecord);
+
+        var sharedIntArrayType = BindingType.CreateHandle(
+            "ea::shared_array<int>*",
+            "SharedArray",
+            sharedArrayRecord.SymbolId,
+            genericArguments: [BindingType.Int32])
+            .WithDynamicArray(BindingType.Int32);
+        var factory = new FunctionBinding(
+            "function:make_shared_array",
+            "make_shared_array",
+            "MakeSharedArray",
+            sharedIntArrayType,
+            "sharpcpp_sample_make_shared_array",
+            "ea::shared_array<int>",
+            "make_shared_array")
+        {
+            ReturnsOwnedHandle = true
+        };
+        compilation.Members.Add(factory);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public partial class SharedArray<T> : global::SharpCpp.Support.SharedArrayBase<T>", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial nint __Array_Create_int(nuint length);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public static nint ConvertToUnmanaged(global::Ea.SharedArray<T> managed)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public static global::Ea.SharedArray<T> ConvertToManaged(nint unmanaged)", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("NativeArrayAbi", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT ret_t<ea::shared_array<int>*> sharpcpp_e2e_shared_array_dynamic_array_create_int(arg_t<std::size_t> length)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return new ea::shared_array<int>(new int[length]{});", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("(*self)[index]", nativeOutput, StringComparison.Ordinal);
+    }
 }

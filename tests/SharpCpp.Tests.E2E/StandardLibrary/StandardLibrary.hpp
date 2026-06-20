@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <list>
 #include <map>
 #include <numeric>
@@ -18,6 +19,16 @@ inline std::vector<int> e2e_make_std_numbers()
 }
 
 inline int e2e_sum_std_numbers(const std::vector<int>& values)
+{
+    return std::accumulate(values.begin(), values.end(), 0);
+}
+
+inline std::array<int, 4> e2e_make_std_array_numbers()
+{
+    return { 1, 3, 5, 7 };
+}
+
+inline int e2e_sum_std_array_numbers(const std::array<int, 4>& values)
 {
     return std::accumulate(values.begin(), values.end(), 0);
 }

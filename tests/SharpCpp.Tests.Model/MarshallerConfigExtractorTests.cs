@@ -20,7 +20,7 @@ public sealed class MarshallerConfigExtractorTests
             null,
             [new[] { headerPath }, new[] { "-x", "c++", "-std=c++20", $"-I{fixtureDir}" }])!;
 
-        Assert.Equal(3, overrides.Count);
+        Assert.Equal(4, overrides.Count);
         Assert.True(overrides.Contains("int"));
         var overrideInfo = overrides["int"]!;
 
@@ -40,6 +40,11 @@ public sealed class MarshallerConfigExtractorTests
         Assert.Contains("std::function", (string)callbackOverrideType.GetProperty("CppTypeName")!.GetValue(callbackOverride)!, StringComparison.Ordinal);
         Assert.True((bool)callbackOverrideType.GetProperty("HasPublicTypeMapping")!.GetValue(callbackOverride)!);
         Assert.Equal("global::Test.CallbackMarshaller", (string)callbackOverrideType.GetProperty("ManagedMarshaller")!.GetValue(callbackOverride)!);
+
+        var dynamicArrayOverride = overrides.Values.Cast<object>().Single(candidate =>
+            (bool)candidate.GetType().GetProperty("DynamicArray")!.GetValue(candidate)!);
+        var dynamicArrayOverrideType = dynamicArrayOverride.GetType();
+        Assert.Equal("Ea.SharedArray<{0}>", (string)dynamicArrayOverrideType.GetProperty("PublicTypeName")!.GetValue(dynamicArrayOverride)!);
     }
 
     [Fact]
@@ -97,6 +102,30 @@ public sealed class MarshallerConfigExtractorTests
             .Cast<string>()
             .ToArray();
         Assert.Equal(new[] { "TKey", "TValue", "THash", "TPredicate", "TAllocator", "CacheHashCode" }, templateParameterNames);
+    }
+
+    [Fact]
+    public void ExtractManagedTypeOverrides_reads_non_type_template_parameter_for_std_array()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var includeDir = Path.Combine(repoRoot, "include");
+        var coreMarshallerHeader = Path.Combine(includeDir, "SharpCpp", "Marshaller.hpp");
+
+        var extractorType = Type.GetType("SharpCpp.Parsing.MarshallerConfigExtractor, SharpCpp.Parsing", throwOnError: true)!;
+        var method = extractorType.GetMethod("ExtractManagedTypeOverrides", BindingFlags.Public | BindingFlags.Static)!;
+
+        var overrides = (System.Collections.IDictionary)method.Invoke(
+            null,
+            [new[] { coreMarshallerHeader }, CreateStandardLibraryClangArgs(repoRoot, includeDir)])!;
+
+        var arrayOverride = overrides.Values.Cast<object>().Single(candidate =>
+            ((string)candidate.GetType().GetProperty("CppTypeName")!.GetValue(candidate)!).StartsWith("std::array<", StringComparison.Ordinal));
+        var templateParameterNames = ((System.Collections.IEnumerable)arrayOverride.GetType().GetProperty("TemplateParameterNames")!.GetValue(arrayOverride)!)
+            .Cast<string>()
+            .ToArray();
+
+        Assert.Equal(new[] { "T", "N" }, templateParameterNames);
+        Assert.True((bool)arrayOverride.GetType().GetProperty("FixedArray")!.GetValue(arrayOverride)!);
     }
 
     [Fact]

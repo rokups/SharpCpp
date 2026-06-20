@@ -519,7 +519,7 @@ public static class DegradeUnsupportedSurfacePass
             }
         }
 
-        foreach (var argument in type.GenericArguments)
+        foreach (var argument in GetGenericArgumentsForValidation(type))
         {
             if (TryGetUnsupportedTypeReason(argument, argument.CppTypeName, recordsById, enumsById, disallowNonPointerHandles: false, out var nestedReason))
             {
@@ -649,6 +649,13 @@ public static class DegradeUnsupportedSurfacePass
             BindingTypeKind.Enum => true,
             _ => false
         };
+    }
+
+    private static IEnumerable<BindingType> GetGenericArgumentsForValidation(BindingType type)
+    {
+        return type.IsFixedArray && type.GenericArguments.Count >= 2
+            ? type.GenericArguments.Take(1)
+            : type.GenericArguments;
     }
 
     private static bool IsGeneratedCallbackConfiguredValueSupported(BindingType type)

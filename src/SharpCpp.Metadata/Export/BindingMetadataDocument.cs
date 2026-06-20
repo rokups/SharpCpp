@@ -33,6 +33,8 @@ public sealed record BindingMetadataType(
     string? ManagedInstanceCacheFactoryExpression = null,
     string? ManagedInstanceCacheTypeName = null,
     bool EmitDefaultNativeReleaseOverride = true,
+    bool IsFixedArray = false,
+    bool IsDynamicArray = false,
     bool IsFlags = false,
     IReadOnlyList<BindingMetadataEnumValue>? Values = null,
     IReadOnlyList<BindingMetadataRecordMember>? Members = null);
@@ -90,7 +92,10 @@ public sealed record BindingMetadataTypeReference(
     string? ManagedMarshaller = null,
     bool IsCallback = false,
     BindingMetadataTypeReference? CallbackReturnType = null,
-    IReadOnlyList<BindingMetadataTypeReference>? CallbackParameterTypes = null);
+    IReadOnlyList<BindingMetadataTypeReference>? CallbackParameterTypes = null,
+    BindingMetadataTypeReference? FixedArrayElementType = null,
+    int? FixedArrayLength = null,
+    BindingMetadataTypeReference? DynamicArrayElementType = null);
 
 public sealed record BindingMetadataExportOptions(
     string PackageId,

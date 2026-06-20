@@ -4,9 +4,11 @@
 #include "RbfxRefCountedMarshallers.hpp"
 #include "RbfxMathMarshallers.hpp"
 
+#include <EASTL/array.h>
 #include <EASTL/functional.h>
 #include <EASTL/list.h>
 #include <EASTL/map.h>
+#include <EASTL/shared_array.h>
 #include <EASTL/string.h>
 #include <EASTL/string_view.h>
 #include <EASTL/unordered_map.h>
@@ -15,6 +17,101 @@
 
 namespace SharpCpp
 {
+
+template <class TArray>
+struct SharedArrayMarshallerBase
+{
+    using cpp_type = TArray;
+    using abi_type = TArray*;
+
+    abi_type ConvertToAbi(const cpp_type& value) const
+    {
+        return new TArray(value);
+    }
+
+    cpp_type ConvertToCpp(abi_type value) const
+    {
+        return value == nullptr ? cpp_type{} : *value;
+    }
+};
+
+template <class TArray>
+struct SharedArrayReferenceMarshallerBase
+{
+    using cpp_type = TArray&;
+    using abi_type = TArray*;
+
+    abi_type ConvertToAbi(cpp_type value) const
+    {
+        return new TArray(value);
+    }
+
+    cpp_type ConvertToCpp(abi_type value) const
+    {
+        if (value == nullptr)
+        {
+            throw std::runtime_error("SharpCpp shared array reference cannot be null.");
+        }
+
+        return *value;
+    }
+};
+
+template <class TArray>
+struct SharedArrayConstReferenceMarshallerBase
+{
+    using cpp_type = const TArray&;
+    using abi_type = TArray*;
+
+    abi_type ConvertToAbi(cpp_type value) const
+    {
+        return new TArray(value);
+    }
+
+    cpp_type ConvertToCpp(abi_type value) const
+    {
+        if (value == nullptr)
+        {
+            throw std::runtime_error("SharpCpp shared array reference cannot be null.");
+        }
+
+        return *value;
+    }
+};
+
+template <class TArray>
+struct SharedArrayPointerMarshallerBase
+{
+    using cpp_type = TArray*;
+    using abi_type = TArray*;
+
+    abi_type ConvertToAbi(cpp_type value) const
+    {
+        return value;
+    }
+
+    cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        return value;
+    }
+};
+
+template <class TArray>
+struct SharedArrayConstPointerMarshallerBase
+{
+    using cpp_type = const TArray*;
+    using abi_type = TArray*;
+
+    abi_type ConvertToAbi(cpp_type value) const
+    {
+        return const_cast<TArray*>(value);
+    }
+
+    cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        return value;
+    }
+};
 
 template <>
 struct [[sharpcpp::managed_type(
@@ -102,6 +199,55 @@ struct Marshaller<const eastl::vector<T, TAllocator>*> : OwnedHandleConstPointer
 
 template <typename T, typename TAllocator>
 struct ReturnMarshaller<eastl::vector<T, TAllocator>> : OwnedHandleReturnMarshallerBase<eastl::vector<T, TAllocator>> {};
+
+template <typename T, eastl_size_t N>
+struct [[sharpcpp::managed_type(
+    public_type = "Ea.Array<{0}>",
+    managed_base_type = "global::SharpCpp.Support.ArrayBase<{0}>",
+    managed_namespace = "Ea",
+    fixed_array = true
+)]]
+Marshaller<eastl::array<T, N>> : FixedArrayValueMarshallerBase<eastl::array<T, N>, N> {};
+
+template <typename T, eastl_size_t N>
+struct Marshaller<eastl::array<T, N>&> : FixedArrayReferenceMarshallerBase<eastl::array<T, N>, N> {};
+
+template <typename T, eastl_size_t N>
+struct Marshaller<const eastl::array<T, N>&> : FixedArrayConstReferenceMarshallerBase<eastl::array<T, N>, N> {};
+
+template <typename T, eastl_size_t N>
+struct Marshaller<eastl::array<T, N>*> : FixedArrayPointerMarshallerBase<eastl::array<T, N>, N> {};
+
+template <typename T, eastl_size_t N>
+struct Marshaller<const eastl::array<T, N>*> : FixedArrayConstPointerMarshallerBase<eastl::array<T, N>, N> {};
+
+template <typename T, eastl_size_t N>
+struct ReturnMarshaller<eastl::array<T, N>> : FixedArrayReturnMarshallerBase<eastl::array<T, N>, N> {};
+
+template <typename T, typename TAllocator, typename TDeleter>
+struct [[sharpcpp::managed_type(
+    public_type = "Ea.SharedArray<{0}>",
+    managed_base_type = "global::SharpCpp.Support.SharedArrayBase<{0}>",
+    managed_namespace = "Ea",
+    dynamic_array = true,
+    return_ownership = "owning"
+)]]
+Marshaller<eastl::shared_array<T, TAllocator, TDeleter>> : SharedArrayMarshallerBase<eastl::shared_array<T, TAllocator, TDeleter>> {};
+
+template <typename T, typename TAllocator, typename TDeleter>
+struct Marshaller<eastl::shared_array<T, TAllocator, TDeleter>&> : SharedArrayReferenceMarshallerBase<eastl::shared_array<T, TAllocator, TDeleter>> {};
+
+template <typename T, typename TAllocator, typename TDeleter>
+struct Marshaller<const eastl::shared_array<T, TAllocator, TDeleter>&> : SharedArrayConstReferenceMarshallerBase<eastl::shared_array<T, TAllocator, TDeleter>> {};
+
+template <typename T, typename TAllocator, typename TDeleter>
+struct Marshaller<eastl::shared_array<T, TAllocator, TDeleter>*> : SharedArrayPointerMarshallerBase<eastl::shared_array<T, TAllocator, TDeleter>> {};
+
+template <typename T, typename TAllocator, typename TDeleter>
+struct Marshaller<const eastl::shared_array<T, TAllocator, TDeleter>*> : SharedArrayConstPointerMarshallerBase<eastl::shared_array<T, TAllocator, TDeleter>> {};
+
+template <typename T, typename TAllocator, typename TDeleter>
+struct ReturnMarshaller<eastl::shared_array<T, TAllocator, TDeleter>> : SharedArrayMarshallerBase<eastl::shared_array<T, TAllocator, TDeleter>> {};
 
 template <typename T, typename TAllocator>
 struct [[sharpcpp::managed_type(

@@ -105,6 +105,11 @@ public static partial class BindingOutputRenderer
 
     private static string RenderGenericRecord(BindingCompilation compilation, RecordBinding record)
     {
+        if (IsGenericArrayRecord(record))
+        {
+            return RenderGenericArrayRecord(compilation, record);
+        }
+
         ValidateGenericRecordSlice(record);
 
         var writer = new CodeWriter();
@@ -201,6 +206,16 @@ public static partial class BindingOutputRenderer
 
     private static IEnumerable<string> CollectGenericImportDeclarations(BindingCompilation compilation, RecordBinding record)
     {
+        if (IsGenericArrayRecord(record))
+        {
+            foreach (var declaration in CollectGenericArrayImportDeclarations(compilation, record))
+            {
+                yield return declaration;
+            }
+
+            yield break;
+        }
+
         var constructors = record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.Parameters.Count).ToArray();
         var instanceMethods = record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && !function.IsStatic && function.OperatorToken is null && !function.IsConversionOperator && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
         var concreteInstanceMethods = instanceMethods.Where(static function => !function.IsGeneric).ToArray();
@@ -261,6 +276,297 @@ public static partial class BindingOutputRenderer
         foreach (var instantiation in instantiations)
         {
             yield return RenderGenericDeleteImportDeclaration(compilation, record, instantiation);
+        }
+    }
+
+    private static bool IsGenericArrayRecord(RecordBinding record)
+    {
+        return IsGenericFixedArrayRecord(record) || IsGenericDynamicArrayRecord(record);
+    }
+
+    private static bool IsGenericFixedArrayRecord(RecordBinding record)
+    {
+        return record.GetMetadata<bool>(MetadataKeys.FixedArrayRecord) ||
+            record.ManagedBaseTypeName?.Contains("SharpCpp.Support.ArrayBase<", StringComparison.Ordinal) == true;
+    }
+
+    private static bool IsGenericDynamicArrayRecord(RecordBinding record)
+    {
+        return record.GetMetadata<bool>(MetadataKeys.DynamicArrayRecord) ||
+            record.ManagedBaseTypeName?.Contains("SharpCpp.Support.SharedArrayBase<", StringComparison.Ordinal) == true;
+    }
+
+    private static string RenderGenericArrayRecord(BindingCompilation compilation, RecordBinding record)
+    {
+        return IsGenericDynamicArrayRecord(record)
+            ? RenderGenericDynamicArrayRecord(compilation, record)
+            : RenderGenericFixedArrayRecord(compilation, record);
+    }
+
+    private static string RenderGenericFixedArrayRecord(BindingCompilation compilation, RecordBinding record)
+    {
+        var instantiations = GetFixedArrayInstantiations(compilation, record).ToArray();
+        var writer = new CodeWriter();
+        var baseTypeName = GetGenericManagedBaseTypeName(compilation, record);
+        writer.Write($$"""
+            public partial class {{GetGenericRecordDeclarationName(record)}} : {{baseTypeName}}
+            {
+            internal {{record.ManagedName}}(nint handle, int length, bool ownsHandle = false)
+                : base(handle, length, ownsHandle)
+            {
+                if (!IsInvalid)
+                {
+                    s_instanceCache.Register(this);
+                }
+            }
+
+            internal static readonly global::SharpCpp.Support.DefaultNativeInstanceCache s_instanceCache = new();
+
+            protected override global::SharpCpp.Support.INativeInstanceCache? InstanceCache => s_instanceCache;
+
+            public nint Handle => DangerousGetHandle();
+            public bool OwnsHandle => OwnsNativeHandle;
+            public bool IsNull => IsClosed || IsInvalid;
+
+            public {{record.ManagedName}}(int length)
+                : this(CreateNative(length), length, ownsHandle: true)
+            {
+            }
+
+            public {{record.ManagedName}}(global::System.ReadOnlySpan<T> values)
+                : this(values.Length)
+            {
+                Assign(values);
+            }
+
+            public {{record.ManagedName}}(global::System.Collections.Generic.IEnumerable<T> values)
+                : this(Materialize(values))
+            {
+            }
+
+            private static T[] Materialize(global::System.Collections.Generic.IEnumerable<T> values)
+            {
+                global::System.ArgumentNullException.ThrowIfNull(values);
+                return global::System.Linq.Enumerable.ToArray(values);
+            }
+
+            private {{record.ManagedName}}(T[] values)
+                : this(values.AsSpan())
+            {
+            }
+
+            internal static {{GetGenericRecordDeclarationName(record)}} CreateManagedWrapper(global::SharpCpp.Support.NativeArrayAbi abi, bool ownsHandle)
+            {
+                if (abi.Handle == 0)
+                    return new {{GetGenericRecordDeclarationName(record)}}(0, checked((int)abi.Length), ownsHandle);
+
+                if (s_instanceCache.TryGetExisting(abi.Handle, ownsHandle, out var existing) && existing is {{GetGenericRecordDeclarationName(record)}} cached)
+                    return cached;
+
+                return new {{GetGenericRecordDeclarationName(record)}}(abi.Handle, checked((int)abi.Length), ownsHandle);
+            }
+
+            internal static {{GetGenericRecordDeclarationName(record)}} CreateManagedWrapper(nint handle, bool ownsHandle)
+            {
+                return CreateManagedWrapper(new global::SharpCpp.Support.NativeArrayAbi(handle, 0), ownsHandle);
+            }
+
+            protected override T GetAtCore(nuint index)
+            {
+            {{RenderGenericArrayGetDispatch(compilation, record, instantiations)}}
+                throw new global::System.NotSupportedException($"Unsupported {{record.ManagedName}} instantiation: {typeof(T).FullName}[{Length}].");
+            }
+
+            protected override void SetAtCore(nuint index, T value)
+            {
+            {{RenderGenericArraySetDispatch(compilation, record, instantiations)}}
+                throw new global::System.NotSupportedException($"Unsupported {{record.ManagedName}} instantiation: {typeof(T).FullName}[{Length}].");
+            }
+
+            private static nint CreateNative(int length)
+            {
+            {{RenderGenericArrayCreateDispatch(compilation, record, instantiations)}}
+                throw new global::System.NotSupportedException($"Unsupported {{record.ManagedName}} instantiation: {typeof(T).FullName}[{length}].");
+            }
+
+            protected override bool ReleaseNativeHandle(nint handle)
+            {
+            {{RenderGenericArrayDeleteDispatch(compilation, record, instantiations)}}
+                return true;
+            }
+            }
+
+            {{RenderManagedHandleReturnMarshallerHelpers(compilation, record, GetGenericRecordDeclarationName(record))}}
+            """);
+        return writer.ToString();
+    }
+
+    private static string RenderGenericDynamicArrayRecord(BindingCompilation compilation, RecordBinding record)
+    {
+        var instantiations = GetDynamicArrayInstantiations(compilation, record).ToArray();
+        var writer = new CodeWriter();
+        var baseTypeName = GetGenericManagedBaseTypeName(compilation, record);
+        writer.Write($$"""
+            public partial class {{GetGenericRecordDeclarationName(record)}} : {{baseTypeName}}
+            {
+            internal {{record.ManagedName}}(nint handle, int? length, bool ownsHandle = false)
+                : base(handle, length, ownsHandle)
+            {
+                if (!IsInvalid)
+                {
+                    s_instanceCache.Register(this);
+                }
+            }
+
+            internal static readonly global::SharpCpp.Support.DefaultNativeInstanceCache s_instanceCache = new();
+
+            protected override global::SharpCpp.Support.INativeInstanceCache? InstanceCache => s_instanceCache;
+
+            public nint Handle => DangerousGetHandle();
+            public bool OwnsHandle => OwnsNativeHandle;
+            public bool IsNull => IsClosed || IsInvalid;
+
+            public {{record.ManagedName}}(int length)
+                : this(CreateNative(length), length, ownsHandle: true)
+            {
+            }
+
+            public {{record.ManagedName}}(global::System.ReadOnlySpan<T> values)
+                : this(values.Length)
+            {
+                Assign(values);
+            }
+
+            public {{record.ManagedName}}(global::System.Collections.Generic.IEnumerable<T> values)
+                : this(Materialize(values))
+            {
+            }
+
+            private static T[] Materialize(global::System.Collections.Generic.IEnumerable<T> values)
+            {
+                global::System.ArgumentNullException.ThrowIfNull(values);
+                return global::System.Linq.Enumerable.ToArray(values);
+            }
+
+            private {{record.ManagedName}}(T[] values)
+                : this(values.AsSpan())
+            {
+            }
+
+            internal static {{GetGenericRecordDeclarationName(record)}} CreateManagedWrapper(nint handle, bool ownsHandle)
+            {
+                return CreateManagedWrapper(handle, length: null, ownsHandle: ownsHandle);
+            }
+
+            internal static {{GetGenericRecordDeclarationName(record)}} CreateManagedWrapper(nint handle, int? length, bool ownsHandle)
+            {
+                if (handle == 0)
+                    return new {{GetGenericRecordDeclarationName(record)}}(0, length, ownsHandle);
+
+                if (s_instanceCache.TryGetExisting(handle, ownsHandle, out var existing) && existing is {{GetGenericRecordDeclarationName(record)}} cached)
+                    return cached;
+
+                return new {{GetGenericRecordDeclarationName(record)}}(handle, length, ownsHandle);
+            }
+
+            protected override T GetAtCore(nuint index)
+            {
+            {{RenderGenericDynamicArrayGetDispatch(compilation, record, instantiations)}}
+                throw new global::System.NotSupportedException($"Unsupported {{record.ManagedName}} instantiation: {typeof(T).FullName}.");
+            }
+
+            protected override void SetAtCore(nuint index, T value)
+            {
+            {{RenderGenericDynamicArraySetDispatch(compilation, record, instantiations)}}
+                throw new global::System.NotSupportedException($"Unsupported {{record.ManagedName}} instantiation: {typeof(T).FullName}.");
+            }
+
+            private static nint CreateNative(int length)
+            {
+            {{RenderGenericDynamicArrayCreateDispatch(compilation, record, instantiations)}}
+                throw new global::System.NotSupportedException($"Unsupported {{record.ManagedName}} instantiation: {typeof(T).FullName}.");
+            }
+
+            protected override bool ReleaseNativeHandle(nint handle)
+            {
+            {{RenderGenericDynamicArrayDeleteDispatch(compilation, record, instantiations)}}
+                return true;
+            }
+            }
+
+            {{RenderManagedHandleReturnMarshallerHelpers(compilation, record, GetGenericRecordDeclarationName(record))}}
+            """);
+        return writer.ToString();
+    }
+
+    private static IEnumerable<string> CollectGenericArrayImportDeclarations(BindingCompilation compilation, RecordBinding record)
+    {
+        return IsGenericDynamicArrayRecord(record)
+            ? CollectGenericDynamicArrayImportDeclarations(compilation, record)
+            : CollectGenericFixedArrayImportDeclarations(compilation, record);
+    }
+
+    private static IEnumerable<string> CollectGenericFixedArrayImportDeclarations(BindingCompilation compilation, RecordBinding record)
+    {
+        foreach (var instantiation in GetFixedArrayInstantiations(compilation, record))
+        {
+            var token = GetFixedArrayInstantiationToken(instantiation);
+            var elementType = instantiation.TypeArguments[0];
+            var managedElementType = FormatGlobalTypeName(elementType, compilation);
+            var getReturnType = elementType.Kind == BindingTypeKind.Handle ? "nint" : managedElementType;
+            var setParameterType = elementType.Kind == BindingTypeKind.Handle ? "nint" : managedElementType;
+            yield return $$"""
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArrayCreateEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                internal static partial global::SharpCpp.Support.NativeArrayAbi __Array_Create_{{token}}();
+                """;
+            yield return $$"""
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArrayDeleteEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                internal static partial void __Array_Delete_{{token}}(global::SharpCpp.Support.NativeArrayAbi self);
+                """;
+            yield return $$"""
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArrayGetEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                internal static partial {{getReturnType}} __Array_Get_{{token}}(global::SharpCpp.Support.NativeArrayAbi self, nuint index);
+                """;
+            yield return $$"""
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArraySetEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                internal static partial void __Array_Set_{{token}}(global::SharpCpp.Support.NativeArrayAbi self, nuint index, {{setParameterType}} value);
+                """;
+        }
+    }
+
+    private static IEnumerable<string> CollectGenericDynamicArrayImportDeclarations(BindingCompilation compilation, RecordBinding record)
+    {
+        foreach (var instantiation in GetDynamicArrayInstantiations(compilation, record))
+        {
+            var token = GetDynamicArrayInstantiationToken(instantiation);
+            var elementType = instantiation.TypeArguments[0];
+            var managedElementType = FormatGlobalTypeName(elementType, compilation);
+            var getReturnType = elementType.Kind == BindingTypeKind.Handle ? "nint" : managedElementType;
+            var setParameterType = elementType.Kind == BindingTypeKind.Handle ? "nint" : managedElementType;
+            yield return $$"""
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetDynamicArrayCreateEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                internal static partial nint __Array_Create_{{token}}(nuint length);
+                """;
+            yield return $$"""
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetDynamicArrayDeleteEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                internal static partial void __Array_Delete_{{token}}(nint self);
+                """;
+            yield return $$"""
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetDynamicArrayGetEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                internal static partial {{getReturnType}} __Array_Get_{{token}}(nint self, nuint index);
+                """;
+            yield return $$"""
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetDynamicArraySetEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                internal static partial void __Array_Set_{{token}}(nint self, nuint index, {{setParameterType}} value);
+                """;
         }
     }
 
@@ -329,6 +635,547 @@ public static partial class BindingOutputRenderer
 
         var typeArguments = record.GenericParameters.Select(static parameter => parameter.Name).Cast<object>().ToArray();
         return string.Format(System.Globalization.CultureInfo.InvariantCulture, record.ManagedBaseTypeConstraints, typeArguments);
+    }
+
+    private static IEnumerable<RecordGenericInstantiationBinding> GetFixedArrayInstantiations(BindingCompilation compilation, RecordBinding record)
+    {
+        var instantiations = record.SupportedGenericInstantiations
+            .Where(instantiation => IsSupportedFixedArrayInstantiation(compilation, instantiation))
+            .Concat(CollectFixedArrayInstantiations(compilation, record))
+            .Where(instantiation => IsSupportedFixedArrayInstantiation(compilation, instantiation))
+            .GroupBy(static instantiation => $"{instantiation.TypeArguments[0].CppTypeName}|{instantiation.TypeArguments[1].CppTypeName}", StringComparer.Ordinal)
+            .Select(static group => group.First())
+            .OrderBy(static instantiation => instantiation.TypeArguments[0].CppTypeName, StringComparer.Ordinal)
+            .ThenBy(static instantiation => int.Parse(instantiation.TypeArguments[1].CppTypeName, System.Globalization.CultureInfo.InvariantCulture));
+
+        return instantiations;
+    }
+
+    private static IEnumerable<RecordGenericInstantiationBinding> GetDynamicArrayInstantiations(BindingCompilation compilation, RecordBinding record)
+    {
+        var instantiations = record.SupportedGenericInstantiations
+            .Where(instantiation => IsSupportedDynamicArrayInstantiation(compilation, instantiation))
+            .Concat(CollectDynamicArrayInstantiations(compilation, record))
+            .Where(instantiation => IsSupportedDynamicArrayInstantiation(compilation, instantiation))
+            .GroupBy(static instantiation => instantiation.TypeArguments[0].CppTypeName, StringComparer.Ordinal)
+            .Select(static group => group.First())
+            .OrderBy(static instantiation => instantiation.TypeArguments[0].CppTypeName, StringComparer.Ordinal);
+
+        return instantiations;
+    }
+
+    private static bool IsSupportedFixedArrayInstantiation(BindingCompilation compilation, RecordGenericInstantiationBinding instantiation)
+    {
+        return instantiation.TypeArguments.Count >= 2 &&
+            TryGetFixedArrayLength(instantiation, out _) &&
+            IsSupportedFixedArrayElementType(compilation, instantiation.TypeArguments[0]);
+    }
+
+    private static bool IsSupportedDynamicArrayInstantiation(BindingCompilation compilation, RecordGenericInstantiationBinding instantiation)
+    {
+        return instantiation.TypeArguments.Count >= 1 &&
+            IsSupportedFixedArrayElementType(compilation, instantiation.TypeArguments[0]);
+    }
+
+    private static bool IsSupportedFixedArrayElementType(BindingCompilation compilation, BindingType type)
+    {
+        if (type.ContainsGenericParameters)
+        {
+            return false;
+        }
+
+        if (HasUnresolvedManagedNamespaceColons(type))
+        {
+            return false;
+        }
+
+        return type.Kind switch
+        {
+            BindingTypeKind.Primitive => true,
+            BindingTypeKind.Enum => IsSupportedFixedArrayEnumElementType(compilation, type),
+            BindingTypeKind.Handle => IsSupportedFixedArrayHandleElementType(compilation, type),
+            _ => false
+        };
+    }
+
+    private static bool IsSupportedFixedArrayEnumElementType(BindingCompilation compilation, BindingType type)
+    {
+        var enumBinding = compilation.FindEnumBySymbolId(type.EnumId);
+        return enumBinding is not null && !enumBinding.IsIgnored();
+    }
+
+    private static bool IsSupportedFixedArrayHandleElementType(BindingCompilation compilation, BindingType type)
+    {
+        var record = compilation.FindRecordBySymbolId(type.RecordId);
+        if (record?.IsIgnored() == true)
+        {
+            return false;
+        }
+
+        if (record?.GenericParameters.Count > 0 && type.GenericArguments.Count == 0)
+        {
+            return false;
+        }
+
+        return type.GenericArguments.All(argument => IsSupportedFixedArrayElementType(compilation, argument));
+    }
+
+    private static bool HasUnresolvedManagedNamespaceColons(BindingType type)
+    {
+        if (type.Kind == BindingTypeKind.GenericParameter)
+        {
+            return false;
+        }
+
+        var publicName = type.Marshaller.PublicTypeName;
+        if (publicName.Contains("::", StringComparison.Ordinal) &&
+            !publicName.StartsWith("global::", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return type.GenericArguments.Any(HasUnresolvedManagedNamespaceColons);
+    }
+
+    private static IEnumerable<RecordGenericInstantiationBinding> CollectFixedArrayInstantiations(BindingCompilation compilation, RecordBinding record)
+    {
+        foreach (var function in compilation.Functions)
+        {
+            foreach (var instantiation in CollectFixedArrayInstantiations(record, function.ReturnType))
+            {
+                yield return instantiation;
+            }
+
+            foreach (var parameter in function.Parameters)
+            {
+                foreach (var instantiation in CollectFixedArrayInstantiations(record, parameter.Type))
+                {
+                    yield return instantiation;
+                }
+            }
+        }
+
+        foreach (var field in compilation.Descendants<FieldBinding>())
+        {
+            foreach (var instantiation in CollectFixedArrayInstantiations(record, field.Type))
+            {
+                yield return instantiation;
+            }
+        }
+
+        foreach (var alias in compilation.TypeAliases)
+        {
+            foreach (var instantiation in CollectFixedArrayInstantiations(record, alias.TargetType))
+            {
+                yield return instantiation;
+            }
+        }
+    }
+
+    private static IEnumerable<RecordGenericInstantiationBinding> CollectDynamicArrayInstantiations(BindingCompilation compilation, RecordBinding record)
+    {
+        foreach (var function in compilation.Functions)
+        {
+            foreach (var instantiation in CollectDynamicArrayInstantiations(record, function.ReturnType))
+            {
+                yield return instantiation;
+            }
+
+            foreach (var parameter in function.Parameters)
+            {
+                foreach (var instantiation in CollectDynamicArrayInstantiations(record, parameter.Type))
+                {
+                    yield return instantiation;
+                }
+            }
+        }
+
+        foreach (var field in compilation.Descendants<FieldBinding>())
+        {
+            foreach (var instantiation in CollectDynamicArrayInstantiations(record, field.Type))
+            {
+                yield return instantiation;
+            }
+        }
+
+        foreach (var alias in compilation.TypeAliases)
+        {
+            foreach (var instantiation in CollectDynamicArrayInstantiations(record, alias.TargetType))
+            {
+                yield return instantiation;
+            }
+        }
+    }
+
+    private static IEnumerable<RecordGenericInstantiationBinding> CollectFixedArrayInstantiations(RecordBinding record, BindingType type)
+    {
+        foreach (var argument in type.GenericArguments)
+        {
+            foreach (var instantiation in CollectFixedArrayInstantiations(record, argument))
+            {
+                yield return instantiation;
+            }
+        }
+
+        if (type.IsCallback)
+        {
+            if (type.CallbackReturnType is not null)
+            {
+                foreach (var instantiation in CollectFixedArrayInstantiations(record, type.CallbackReturnType))
+                {
+                    yield return instantiation;
+                }
+            }
+
+            foreach (var parameterType in type.CallbackParameterTypes)
+            {
+                foreach (var instantiation in CollectFixedArrayInstantiations(record, parameterType))
+                {
+                    yield return instantiation;
+                }
+            }
+        }
+
+        if (type.Kind != BindingTypeKind.Handle ||
+            !string.Equals(type.RecordId, record.SymbolId, StringComparison.Ordinal) ||
+            type.GenericArguments.Count == 0 ||
+            !TryGetSecondTopLevelTemplateArgument(type.CppTypeName, out var lengthText) ||
+            !int.TryParse(lengthText, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var length) ||
+            length < 0)
+        {
+            yield break;
+        }
+
+        var arguments = type.GenericArguments.Count >= 2
+            ? type.GenericArguments
+            : type.GenericArguments.Concat([BindingType.CreateConfigured(lengthText, lengthText)]).ToArray();
+        yield return new RecordGenericInstantiationBinding(arguments);
+    }
+
+    private static IEnumerable<RecordGenericInstantiationBinding> CollectDynamicArrayInstantiations(RecordBinding record, BindingType type)
+    {
+        foreach (var argument in type.GenericArguments)
+        {
+            foreach (var instantiation in CollectDynamicArrayInstantiations(record, argument))
+            {
+                yield return instantiation;
+            }
+        }
+
+        if (type.IsCallback)
+        {
+            if (type.CallbackReturnType is not null)
+            {
+                foreach (var instantiation in CollectDynamicArrayInstantiations(record, type.CallbackReturnType))
+                {
+                    yield return instantiation;
+                }
+            }
+
+            foreach (var parameterType in type.CallbackParameterTypes)
+            {
+                foreach (var instantiation in CollectDynamicArrayInstantiations(record, parameterType))
+                {
+                    yield return instantiation;
+                }
+            }
+        }
+
+        if (type.Kind != BindingTypeKind.Handle ||
+            !string.Equals(type.RecordId, record.SymbolId, StringComparison.Ordinal) ||
+            type.GenericArguments.Count == 0)
+        {
+            yield break;
+        }
+
+        var elementType = type.DynamicArrayElementType ?? type.GenericArguments[0];
+        yield return new RecordGenericInstantiationBinding([elementType]);
+    }
+
+    private static bool TryGetSecondTopLevelTemplateArgument(string cppTypeName, out string argument)
+    {
+        argument = string.Empty;
+        var genericStart = cppTypeName.IndexOf('<');
+        var genericEnd = cppTypeName.LastIndexOf('>');
+        if (genericStart < 0 || genericEnd <= genericStart)
+        {
+            return false;
+        }
+
+        var arguments = SplitTopLevelArguments(cppTypeName[(genericStart + 1)..genericEnd]);
+        if (arguments.Count < 2)
+        {
+            return false;
+        }
+
+        argument = arguments[1];
+        return true;
+    }
+
+    private static IReadOnlyList<string> SplitTopLevelArguments(string text)
+    {
+        var result = new List<string>();
+        var segmentStart = 0;
+        var angleDepth = 0;
+        var parenDepth = 0;
+
+        for (var index = 0; index < text.Length; index++)
+        {
+            switch (text[index])
+            {
+                case '<':
+                    angleDepth++;
+                    break;
+                case '>':
+                    angleDepth--;
+                    break;
+                case '(':
+                    parenDepth++;
+                    break;
+                case ')':
+                    parenDepth--;
+                    break;
+                case ',' when angleDepth == 0 && parenDepth == 0:
+                    result.Add(text[segmentStart..index].Trim());
+                    segmentStart = index + 1;
+                    break;
+            }
+        }
+
+        result.Add(text[segmentStart..].Trim());
+        return result;
+    }
+
+    private static bool TryGetFixedArrayLength(RecordGenericInstantiationBinding instantiation, out int length)
+    {
+        if (instantiation.TypeArguments.Count >= 2 &&
+            int.TryParse(instantiation.TypeArguments[1].CppTypeName, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out length) &&
+            length >= 0)
+        {
+            return true;
+        }
+
+        length = 0;
+        return false;
+    }
+
+    private static string GetFixedArrayInstantiationToken(RecordGenericInstantiationBinding instantiation)
+    {
+        _ = TryGetFixedArrayLength(instantiation, out var length);
+        return $"{SanitizeManagedToken(instantiation.TypeArguments[0].ManagedTypeName)}_{length}";
+    }
+
+    private static string GetDynamicArrayInstantiationToken(RecordGenericInstantiationBinding instantiation)
+    {
+        return SanitizeManagedToken(instantiation.TypeArguments[0].ManagedTypeName);
+    }
+
+    private static string GetFixedArrayCreateEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    {
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_array_create_{GetFixedArrayInstantiationToken(instantiation)}";
+    }
+
+    private static string GetFixedArrayDeleteEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    {
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_array_delete_{GetFixedArrayInstantiationToken(instantiation)}";
+    }
+
+    private static string GetFixedArrayGetEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    {
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_array_get_{GetFixedArrayInstantiationToken(instantiation)}";
+    }
+
+    private static string GetFixedArraySetEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    {
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_array_set_{GetFixedArrayInstantiationToken(instantiation)}";
+    }
+
+    private static string GetDynamicArrayCreateEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    {
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_dynamic_array_create_{GetDynamicArrayInstantiationToken(instantiation)}";
+    }
+
+    private static string GetDynamicArrayDeleteEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    {
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_dynamic_array_delete_{GetDynamicArrayInstantiationToken(instantiation)}";
+    }
+
+    private static string GetDynamicArrayGetEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    {
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_dynamic_array_get_{GetDynamicArrayInstantiationToken(instantiation)}";
+    }
+
+    private static string GetDynamicArraySetEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    {
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_dynamic_array_set_{GetDynamicArrayInstantiationToken(instantiation)}";
+    }
+
+    private static string RenderGenericArrayCreateDispatch(BindingCompilation compilation, RecordBinding record, IReadOnlyList<RecordGenericInstantiationBinding> instantiations)
+    {
+        var writer = new CodeWriter();
+        foreach (var instantiation in instantiations)
+        {
+            _ = TryGetFixedArrayLength(instantiation, out var length);
+            var elementType = FormatGlobalTypeName(instantiation.TypeArguments[0], compilation);
+            writer.Write($$"""
+                if (typeof(T) == typeof({{elementType}}) && length == {{length}})
+                {
+                    return {{GetGenericImportAccessor(compilation)}}.__Array_Create_{{GetFixedArrayInstantiationToken(instantiation)}}().Handle;
+                }
+                """);
+        }
+
+        return writer.ToString();
+    }
+
+    private static string RenderGenericArrayDeleteDispatch(BindingCompilation compilation, RecordBinding record, IReadOnlyList<RecordGenericInstantiationBinding> instantiations)
+    {
+        var writer = new CodeWriter();
+        foreach (var instantiation in instantiations)
+        {
+            _ = TryGetFixedArrayLength(instantiation, out var length);
+            var elementType = FormatGlobalTypeName(instantiation.TypeArguments[0], compilation);
+            writer.Write($$"""
+                if (typeof(T) == typeof({{elementType}}) && Length == {{length}})
+                {
+                    {{GetGenericImportAccessor(compilation)}}.__Array_Delete_{{GetFixedArrayInstantiationToken(instantiation)}}(new global::SharpCpp.Support.NativeArrayAbi(handle, (nuint)Length));
+                    return true;
+                }
+                """);
+        }
+
+        return writer.ToString();
+    }
+
+    private static string RenderGenericArrayGetDispatch(BindingCompilation compilation, RecordBinding record, IReadOnlyList<RecordGenericInstantiationBinding> instantiations)
+    {
+        var writer = new CodeWriter();
+        foreach (var instantiation in instantiations)
+        {
+            _ = TryGetFixedArrayLength(instantiation, out var length);
+            var element = instantiation.TypeArguments[0];
+            var elementType = FormatGlobalTypeName(element, compilation);
+            var resultExpression = $"{GetGenericImportAccessor(compilation)}.__Array_Get_{GetFixedArrayInstantiationToken(instantiation)}(ToNativeArrayAbi(), index)";
+            if (element.Kind == BindingTypeKind.Handle)
+            {
+                resultExpression = $"{elementType}.CreateManagedWrapper({resultExpression}, ownsHandle: false)";
+            }
+
+            writer.Write($$"""
+                if (typeof(T) == typeof({{elementType}}) && Length == {{length}})
+                {
+                    return (T)(object){{resultExpression}};
+                }
+                """);
+        }
+
+        return writer.ToString();
+    }
+
+    private static string RenderGenericArraySetDispatch(BindingCompilation compilation, RecordBinding record, IReadOnlyList<RecordGenericInstantiationBinding> instantiations)
+    {
+        var writer = new CodeWriter();
+        foreach (var instantiation in instantiations)
+        {
+            _ = TryGetFixedArrayLength(instantiation, out var length);
+            var element = instantiation.TypeArguments[0];
+            var elementType = FormatGlobalTypeName(element, compilation);
+            var valueExpression = element.Kind == BindingTypeKind.Handle
+                ? "global::SharpCpp.Support.NativeObject.GetHandle(value)"
+                : $"({elementType})(object)value!";
+            var keepAlive = element.Kind == BindingTypeKind.Handle ? "\n            global::System.GC.KeepAlive(value);" : string.Empty;
+            writer.Write($$"""
+                if (typeof(T) == typeof({{elementType}}) && Length == {{length}})
+                {
+                    {{GetGenericImportAccessor(compilation)}}.__Array_Set_{{GetFixedArrayInstantiationToken(instantiation)}}(ToNativeArrayAbi(), index, {{valueExpression}});{{keepAlive}}
+                    return;
+                }
+                """);
+        }
+
+        return writer.ToString();
+    }
+
+    private static string RenderGenericDynamicArrayCreateDispatch(BindingCompilation compilation, RecordBinding record, IReadOnlyList<RecordGenericInstantiationBinding> instantiations)
+    {
+        var writer = new CodeWriter();
+        foreach (var instantiation in instantiations)
+        {
+            var elementType = FormatGlobalTypeName(instantiation.TypeArguments[0], compilation);
+            writer.Write($$"""
+                if (typeof(T) == typeof({{elementType}}))
+                {
+                    return {{GetGenericImportAccessor(compilation)}}.__Array_Create_{{GetDynamicArrayInstantiationToken(instantiation)}}(checked((nuint)length));
+                }
+                """);
+        }
+
+        return writer.ToString();
+    }
+
+    private static string RenderGenericDynamicArrayDeleteDispatch(BindingCompilation compilation, RecordBinding record, IReadOnlyList<RecordGenericInstantiationBinding> instantiations)
+    {
+        var writer = new CodeWriter();
+        foreach (var instantiation in instantiations)
+        {
+            var elementType = FormatGlobalTypeName(instantiation.TypeArguments[0], compilation);
+            writer.Write($$"""
+                if (typeof(T) == typeof({{elementType}}))
+                {
+                    {{GetGenericImportAccessor(compilation)}}.__Array_Delete_{{GetDynamicArrayInstantiationToken(instantiation)}}(handle);
+                    return true;
+                }
+                """);
+        }
+
+        return writer.ToString();
+    }
+
+    private static string RenderGenericDynamicArrayGetDispatch(BindingCompilation compilation, RecordBinding record, IReadOnlyList<RecordGenericInstantiationBinding> instantiations)
+    {
+        var writer = new CodeWriter();
+        foreach (var instantiation in instantiations)
+        {
+            var element = instantiation.TypeArguments[0];
+            var elementType = FormatGlobalTypeName(element, compilation);
+            var resultExpression = $"{GetGenericImportAccessor(compilation)}.__Array_Get_{GetDynamicArrayInstantiationToken(instantiation)}(DangerousGetHandle(), index)";
+            if (element.Kind == BindingTypeKind.Handle)
+            {
+                resultExpression = $"{elementType}.CreateManagedWrapper({resultExpression}, ownsHandle: false)";
+            }
+
+            writer.Write($$"""
+                if (typeof(T) == typeof({{elementType}}))
+                {
+                    return (T)(object){{resultExpression}};
+                }
+                """);
+        }
+
+        return writer.ToString();
+    }
+
+    private static string RenderGenericDynamicArraySetDispatch(BindingCompilation compilation, RecordBinding record, IReadOnlyList<RecordGenericInstantiationBinding> instantiations)
+    {
+        var writer = new CodeWriter();
+        foreach (var instantiation in instantiations)
+        {
+            var element = instantiation.TypeArguments[0];
+            var elementType = FormatGlobalTypeName(element, compilation);
+            var valueExpression = element.Kind == BindingTypeKind.Handle
+                ? "global::SharpCpp.Support.NativeObject.GetHandle(value)"
+                : $"({elementType})(object)value!";
+            var keepAlive = element.Kind == BindingTypeKind.Handle ? "\n            global::System.GC.KeepAlive(value);" : string.Empty;
+            writer.Write($$"""
+                if (typeof(T) == typeof({{elementType}}))
+                {
+                    {{GetGenericImportAccessor(compilation)}}.__Array_Set_{{GetDynamicArrayInstantiationToken(instantiation)}}(DangerousGetHandle(), index, {{valueExpression}});{{keepAlive}}
+                    return;
+                }
+                """);
+        }
+
+        return writer.ToString();
     }
 
     private static string GetGenericImportAccessor(BindingCompilation compilation)
@@ -1072,6 +1919,110 @@ public static partial class BindingOutputRenderer
             return MarshallerInvoker::construct<{{concreteRecordType}}{{(constructorArgTypes.Length > 0 ? $", {constructorArgTypes}" : string.Empty)}}>({{abiArguments}});
             }
             """;
+    }
+
+    private static string RenderNativeGenericArrayRecord(BindingCompilation compilation, RecordBinding record)
+    {
+        return IsGenericDynamicArrayRecord(record)
+            ? RenderNativeGenericDynamicArrayRecord(compilation, record)
+            : RenderNativeGenericFixedArrayRecord(compilation, record);
+    }
+
+    private static string RenderNativeGenericFixedArrayRecord(BindingCompilation compilation, RecordBinding record)
+    {
+        var writer = new CodeWriter();
+        foreach (var instantiation in GetFixedArrayInstantiations(compilation, record))
+        {
+            _ = TryGetFixedArrayLength(instantiation, out var length);
+            var concreteArrayType = record.FormatCppTypeName(instantiation.TypeArguments);
+            var elementCppType = instantiation.TypeArguments[0].CppTypeName;
+            writer.Write($$"""
+                SHARPCPP_EXPORT NativeArrayAbi {{GetFixedArrayCreateEntryPointName(record, instantiation)}}()
+                {
+                    auto* value = new {{concreteArrayType}}{};
+                    return { value, {{length}} };
+                }
+
+                SHARPCPP_EXPORT ret_t<void> {{GetFixedArrayDeleteEntryPointName(record, instantiation)}}(NativeArrayAbi self)
+                {
+                    if (self.handle != nullptr)
+                    {
+                        delete static_cast<{{concreteArrayType}}*>(self.handle);
+                    }
+                }
+
+                SHARPCPP_EXPORT ret_t<{{elementCppType}}> {{GetFixedArrayGetEntryPointName(record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index)
+                {
+                    if (self.handle == nullptr || self.length != {{length}} || index >= {{length}})
+                    {
+                        throw std::runtime_error("SharpCpp fixed array access out of range.");
+                    }
+
+                    ReturnMarshaller<{{elementCppType}}> marshaller;
+                    return marshaller.ConvertToAbi((*static_cast<{{concreteArrayType}}*>(self.handle))[index]);
+                }
+
+                SHARPCPP_EXPORT ret_t<void> {{GetFixedArraySetEntryPointName(record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index, arg_t<{{elementCppType}}> value)
+                {
+                    if (self.handle == nullptr || self.length != {{length}} || index >= {{length}})
+                    {
+                        throw std::runtime_error("SharpCpp fixed array access out of range.");
+                    }
+
+                    ParameterMarshaller<{{elementCppType}}> marshaller;
+                    (*static_cast<{{concreteArrayType}}*>(self.handle))[index] = marshaller.ConvertToCpp(value);
+                }
+
+                """);
+        }
+
+        return writer.ToString();
+    }
+
+    private static string RenderNativeGenericDynamicArrayRecord(BindingCompilation compilation, RecordBinding record)
+    {
+        var writer = new CodeWriter();
+        foreach (var instantiation in GetDynamicArrayInstantiations(compilation, record))
+        {
+            var concreteArrayType = record.FormatCppTypeName(instantiation.TypeArguments);
+            var elementCppType = instantiation.TypeArguments[0].CppTypeName;
+            writer.Write($$"""
+                SHARPCPP_EXPORT ret_t<{{concreteArrayType}}*> {{GetDynamicArrayCreateEntryPointName(record, instantiation)}}(arg_t<std::size_t> length)
+                {
+                    return new {{concreteArrayType}}(new {{elementCppType}}[length]{});
+                }
+
+                SHARPCPP_EXPORT ret_t<void> {{GetDynamicArrayDeleteEntryPointName(record, instantiation)}}(arg_t<{{concreteArrayType}}*> self)
+                {
+                    delete self;
+                }
+
+                SHARPCPP_EXPORT ret_t<{{elementCppType}}> {{GetDynamicArrayGetEntryPointName(record, instantiation)}}(arg_t<{{concreteArrayType}}*> self, arg_t<std::size_t> index)
+                {
+                    if (self == nullptr)
+                    {
+                        throw std::runtime_error("SharpCpp dynamic array access on null array.");
+                    }
+
+                    ReturnMarshaller<{{elementCppType}}> marshaller;
+                    return marshaller.ConvertToAbi((*self)[index]);
+                }
+
+                SHARPCPP_EXPORT ret_t<void> {{GetDynamicArraySetEntryPointName(record, instantiation)}}(arg_t<{{concreteArrayType}}*> self, arg_t<std::size_t> index, arg_t<{{elementCppType}}> value)
+                {
+                    if (self == nullptr)
+                    {
+                        throw std::runtime_error("SharpCpp dynamic array access on null array.");
+                    }
+
+                    ParameterMarshaller<{{elementCppType}}> marshaller;
+                    (*self)[index] = marshaller.ConvertToCpp(value);
+                }
+
+                """);
+        }
+
+        return writer.ToString();
     }
 
     private static string RenderNativeGenericClone(RecordBinding record, RecordGenericInstantiationBinding instantiation)

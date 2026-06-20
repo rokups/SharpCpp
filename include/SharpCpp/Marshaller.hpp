@@ -1,10 +1,12 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <functional>
 #include <iterator>
 #include <list>
 #include <map>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -18,6 +20,12 @@ struct ManagedCallbackHandleAbi
 {
     void* state{};
     void* callback{};
+};
+
+struct NativeArrayAbi
+{
+    void* handle{};
+    std::size_t length{};
 };
 
 namespace detail
@@ -490,6 +498,158 @@ struct MapCollectionMarshallerBase : OwnedHandleMarshallerBase<TMap>
     static TValue GetValueAtCore(const cpp_type& self, unsigned long long index)
     {
         return std::next(self.begin(), static_cast<typename cpp_type::difference_type>(index))->second;
+    }
+};
+
+template <class TArray, std::size_t N>
+struct FixedArrayReferenceMarshallerBase
+{
+    using cpp_type = TArray&;
+    using abi_type = NativeArrayAbi;
+
+    cpp_type ConvertToCpp(abi_type value) const
+    {
+        Validate(value);
+        return *static_cast<TArray*>(value.handle);
+    }
+
+    abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return { &value, N };
+    }
+
+    static void Validate(abi_type value)
+    {
+        if (value.handle == nullptr || value.length != N)
+        {
+            throw std::runtime_error("SharpCpp fixed array length mismatch.");
+        }
+    }
+};
+
+template <class TArray, std::size_t N>
+struct FixedArrayConstReferenceMarshallerBase
+{
+    using cpp_type = const TArray&;
+    using abi_type = NativeArrayAbi;
+
+    cpp_type ConvertToCpp(abi_type value) const
+    {
+        Validate(value);
+        return *static_cast<const TArray*>(value.handle);
+    }
+
+    abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return { const_cast<TArray*>(&value), N };
+    }
+
+    static void Validate(abi_type value)
+    {
+        if (value.handle == nullptr || value.length != N)
+        {
+            throw std::runtime_error("SharpCpp fixed array length mismatch.");
+        }
+    }
+};
+
+template <class TArray, std::size_t N>
+struct FixedArrayValueMarshallerBase
+{
+    using cpp_type = TArray;
+    using abi_type = NativeArrayAbi;
+
+    cpp_type ConvertToCpp(abi_type value) const
+    {
+        FixedArrayConstReferenceMarshallerBase<TArray, N>::Validate(value);
+        return *static_cast<const TArray*>(value.handle);
+    }
+
+    abi_type ConvertToAbi(cpp_type& value) const noexcept
+    {
+        return { &value, N };
+    }
+
+    abi_type ConvertToAbi(const cpp_type& value) const noexcept
+    {
+        return { const_cast<TArray*>(&value), N };
+    }
+};
+
+template <class TArray, std::size_t N>
+struct FixedArrayPointerMarshallerBase
+{
+    using cpp_type = TArray*;
+    using abi_type = NativeArrayAbi;
+
+    cpp_type ConvertToCpp(abi_type value) const
+    {
+        if (value.handle == nullptr)
+        {
+            return nullptr;
+        }
+
+        if (value.length != N)
+        {
+            throw std::runtime_error("SharpCpp fixed array length mismatch.");
+        }
+
+        return static_cast<TArray*>(value.handle);
+    }
+
+    abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return { value, value == nullptr ? 0 : N };
+    }
+};
+
+template <class TArray, std::size_t N>
+struct FixedArrayConstPointerMarshallerBase
+{
+    using cpp_type = const TArray*;
+    using abi_type = NativeArrayAbi;
+
+    cpp_type ConvertToCpp(abi_type value) const
+    {
+        if (value.handle == nullptr)
+        {
+            return nullptr;
+        }
+
+        if (value.length != N)
+        {
+            throw std::runtime_error("SharpCpp fixed array length mismatch.");
+        }
+
+        return static_cast<const TArray*>(value.handle);
+    }
+
+    abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return { const_cast<TArray*>(value), value == nullptr ? 0 : N };
+    }
+};
+
+template <class TArray, std::size_t N>
+struct FixedArrayReturnMarshallerBase
+{
+    using cpp_type = TArray;
+    using abi_type = NativeArrayAbi;
+
+    abi_type ConvertToAbi(const cpp_type& value) const
+    {
+        return { new TArray(value), N };
+    }
+
+    abi_type ConvertToAbi(cpp_type&& value) const
+    {
+        return { new TArray(std::move(value)), N };
+    }
+
+    cpp_type ConvertToCpp(abi_type value) const
+    {
+        FixedArrayConstReferenceMarshallerBase<TArray, N>::Validate(value);
+        return *static_cast<const TArray*>(value.handle);
     }
 };
 
@@ -1035,6 +1195,27 @@ struct Marshaller<std::vector<T, TAllocator>*> : OwnedHandlePointerMarshallerBas
 template <typename T, typename TAllocator>
 struct Marshaller<const std::vector<T, TAllocator>*> : OwnedHandleConstPointerMarshallerBase<std::vector<T, TAllocator>> {};
 
+template <typename T, std::size_t N>
+struct [[sharpcpp::managed_type(
+    public_type = "Std.Array<{0}>",
+    managed_base_type = "global::SharpCpp.Support.ArrayBase<{0}>",
+    managed_namespace = "Std",
+    fixed_array = true
+)]]
+Marshaller<std::array<T, N>> : FixedArrayValueMarshallerBase<std::array<T, N>, N> {};
+
+template <typename T, std::size_t N>
+struct Marshaller<std::array<T, N>&> : FixedArrayReferenceMarshallerBase<std::array<T, N>, N> {};
+
+template <typename T, std::size_t N>
+struct Marshaller<const std::array<T, N>&> : FixedArrayConstReferenceMarshallerBase<std::array<T, N>, N> {};
+
+template <typename T, std::size_t N>
+struct Marshaller<std::array<T, N>*> : FixedArrayPointerMarshallerBase<std::array<T, N>, N> {};
+
+template <typename T, std::size_t N>
+struct Marshaller<const std::array<T, N>*> : FixedArrayConstPointerMarshallerBase<std::array<T, N>, N> {};
+
 template <typename T, typename TAllocator>
 struct [[sharpcpp::managed_type(
     public_type = "Std.List<{0}>",
@@ -1120,6 +1301,9 @@ struct [[sharpcpp::managed_type(
 
 template <typename T, typename TAllocator>
 struct ReturnMarshaller<std::vector<T, TAllocator>> : OwnedHandleReturnMarshallerBase<std::vector<T, TAllocator>> {};
+
+template <typename T, std::size_t N>
+struct ReturnMarshaller<std::array<T, N>> : FixedArrayReturnMarshallerBase<std::array<T, N>, N> {};
 
 template <typename T, typename TAllocator>
 struct ReturnMarshaller<std::list<T, TAllocator>> : OwnedHandleReturnMarshallerBase<std::list<T, TAllocator>> {};

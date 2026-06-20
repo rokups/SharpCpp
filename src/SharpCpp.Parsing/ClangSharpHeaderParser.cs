@@ -2092,6 +2092,16 @@ public sealed partial class ClangSharpHeaderParser
                 var recordHandleType = genericArguments.Count == 0
                     ? record.HandleType
                     : BindingType.CreateHandle(spelledTypeName, record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments);
+                var isFixedArray = IsFixedArrayRecordOrConfigured(record, concretePointeeTypeName, managedTypeOverrides);
+                var isDynamicArray = IsDynamicArrayRecordOrConfigured(record, concretePointeeTypeName, managedTypeOverrides);
+                recordHandleType = ApplyFixedArrayMetadata(
+                    recordHandleType,
+                    isFixedArray,
+                    genericArguments);
+                recordHandleType = ApplyDynamicArrayMetadata(
+                    recordHandleType,
+                    isDynamicArray,
+                    genericArguments);
                 return TryApplyManagedAliasSurface(type, recordHandleType, preserveAliasSurface);
             }
         }
@@ -2126,6 +2136,16 @@ public sealed partial class ClangSharpHeaderParser
             var recordValueType = genericArguments.Count == 0
                 ? record.HandleType.WithCppIsRecordValue(true)
                 : BindingType.CreateHandle($"{spelledTypeName}*", record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments, cppIsRecordValue: true);
+            var isFixedArray = IsFixedArrayRecordOrConfigured(record, concreteRecordTypeName, managedTypeOverrides);
+            var isDynamicArray = IsDynamicArrayRecordOrConfigured(record, concreteRecordTypeName, managedTypeOverrides);
+            recordValueType = ApplyFixedArrayMetadata(
+                recordValueType,
+                isFixedArray,
+                genericArguments);
+            recordValueType = ApplyDynamicArrayMetadata(
+                recordValueType,
+                isDynamicArray,
+                genericArguments);
             return TryApplyManagedAliasSurface(type, recordValueType, preserveAliasSurface);
         }
 
@@ -2189,9 +2209,13 @@ public sealed partial class ClangSharpHeaderParser
         var rawGenericArguments = ShouldInstantiateConfiguredGenericType(managedTypeOverride)
             ? ParseConcreteTemplateArgumentsOrOpaque(effectiveCppTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters)
             : Array.Empty<BindingType>();
-        var configuredGenericArguments = ProjectVisibleTemplateArguments(
-            rawGenericArguments,
-            GetVisibleTemplateParameterIndices(managedTypeOverride, rawGenericArguments.Count));
+        var isConfiguredFixedArray = managedTypeOverride.FixedArray || IsFixedArrayConfiguredType(effectiveCppTypeName, managedTypeOverrides);
+        var isConfiguredDynamicArray = managedTypeOverride.DynamicArray || IsDynamicArrayConfiguredType(effectiveCppTypeName, managedTypeOverrides);
+        var configuredGenericArguments = isConfiguredFixedArray
+            ? rawGenericArguments
+            : ProjectVisibleTemplateArguments(
+                rawGenericArguments,
+                GetVisibleTemplateParameterIndices(managedTypeOverride, rawGenericArguments.Count));
         if (ShouldInstantiateConfiguredGenericType(managedTypeOverride) &&
             rawGenericArguments.Count == 0 &&
             managedTypeOverride.PublicTypeName.Contains('{', StringComparison.Ordinal))
@@ -2212,12 +2236,16 @@ public sealed partial class ClangSharpHeaderParser
 
         if (!managedTypeOverride.HasManagedBaseType && !managedTypeOverride.HasExposedMembers)
         {
-            return BindingType.CreateConfigured(
+            var configuredType = BindingType.CreateConfigured(
                 effectiveCppTypeName,
                 managedTypeOverride.PublicTypeName,
                 managedTypeOverride.MarshallerTypeName,
                 managedTypeOverride.ManagedMarshaller,
                 genericArguments: configuredGenericArguments);
+            return ApplyDynamicArrayMetadata(
+                ApplyFixedArrayMetadata(configuredType, isConfiguredFixedArray, rawGenericArguments),
+                isConfiguredDynamicArray,
+                rawGenericArguments);
         }
 
         var recordName = StripGenericArguments(NormalizeTypeName(managedTypeOverride.CppTypeName));
@@ -2233,6 +2261,14 @@ public sealed partial class ClangSharpHeaderParser
                 ManagedNamespace = managedTypeOverride.ManagedNamespace
             };
             ApplySyntheticGenericParameters(record, managedTypeOverride.TemplateParameterNames);
+            if (isConfiguredFixedArray)
+            {
+                record.SetMetadata(MetadataKeys.FixedArrayRecord, true);
+            }
+            if (isConfiguredDynamicArray)
+            {
+                record.SetMetadata(MetadataKeys.DynamicArrayRecord, true);
+            }
             record.SetMetadata(MetadataKeys.PlaceholderRecord, true);
             IndexRecordKeys(recordsByName, record);
         }
@@ -2246,14 +2282,73 @@ public sealed partial class ClangSharpHeaderParser
             }
 
             ApplySyntheticGenericParameters(record, managedTypeOverride.TemplateParameterNames);
+            if (isConfiguredFixedArray)
+            {
+                record.SetMetadata(MetadataKeys.FixedArrayRecord, true);
+            }
+            if (isConfiguredDynamicArray)
+            {
+                record.SetMetadata(MetadataKeys.DynamicArrayRecord, true);
+            }
+        }
+
+        var isFixedArrayRecord = record.GetMetadata<bool>(MetadataKeys.FixedArrayRecord);
+        var isDynamicArrayRecord = record.GetMetadata<bool>(MetadataKeys.DynamicArrayRecord);
+        if (isFixedArrayRecord && rawGenericArguments.Count > 0)
+        {
+            configuredGenericArguments = rawGenericArguments;
         }
 
         if (configuredGenericArguments.Count == 0 && (!record.IsGeneric || managedTypeOverride.TemplateParameterNames.Count != 0))
         {
-            return record.HandleType;
+            return ApplyDynamicArrayMetadata(
+                ApplyFixedArrayMetadata(record.HandleType, isConfiguredFixedArray || isFixedArrayRecord, rawGenericArguments),
+                isConfiguredDynamicArray || isDynamicArrayRecord,
+                rawGenericArguments);
         }
 
-        return BindingType.CreateHandle($"{effectiveCppTypeName}*", record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, configuredGenericArguments);
+        var handleType = BindingType.CreateHandle($"{effectiveCppTypeName}*", record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, configuredGenericArguments);
+        return ApplyDynamicArrayMetadata(
+            ApplyFixedArrayMetadata(handleType, isConfiguredFixedArray || isFixedArrayRecord, rawGenericArguments),
+            isConfiguredDynamicArray || isDynamicArrayRecord,
+            rawGenericArguments);
+    }
+
+    private static BindingType ApplyFixedArrayMetadata(
+        BindingType type,
+        ManagedTypeOverride managedTypeOverride,
+        IReadOnlyList<BindingType> rawGenericArguments,
+        bool isFixedArrayRecord = false)
+    {
+        return ApplyFixedArrayMetadata(type, managedTypeOverride.FixedArray || isFixedArrayRecord, rawGenericArguments);
+    }
+
+    private static BindingType ApplyFixedArrayMetadata(
+        BindingType type,
+        bool isFixedArray,
+        IReadOnlyList<BindingType> rawGenericArguments)
+    {
+        if (!isFixedArray || rawGenericArguments.Count < 2)
+        {
+            return type;
+        }
+
+        if (!int.TryParse(rawGenericArguments[1].CppTypeName, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var length) || length < 0)
+        {
+            return type;
+        }
+
+        return type.WithFixedArray(rawGenericArguments[0], length);
+    }
+
+    private static BindingType ApplyDynamicArrayMetadata(
+        BindingType type,
+        bool isDynamicArray,
+        IReadOnlyList<BindingType> rawGenericArguments)
+    {
+        return isDynamicArray && rawGenericArguments.Count > 0
+            ? type.WithDynamicArray(rawGenericArguments[0])
+            : type;
     }
 
     private static BindingType CreateCallbackType(
@@ -2457,6 +2552,11 @@ public sealed partial class ClangSharpHeaderParser
         IReadOnlyDictionary<string, BindingType> genericParameters)
     {
         var rawGenericArguments = ParseConcreteTemplateArgumentsOrOpaque(cppTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        if (IsFixedArrayRecordOrConfigured(record, cppTypeName, managedTypeOverrides))
+        {
+            return rawGenericArguments;
+        }
+
         var visibleIndices = GetVisibleRecordTemplateParameterIndices(record, rawGenericArguments.Count);
         if (visibleIndices.Count == 0)
         {
@@ -2466,6 +2566,100 @@ public sealed partial class ClangSharpHeaderParser
         return ProjectVisibleTemplateArguments(
             rawGenericArguments,
             visibleIndices);
+    }
+
+    private static bool IsFixedArrayRecordOrConfigured(
+        RecordBinding record,
+        string cppTypeName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
+    {
+        if (record.GetMetadata<bool>(MetadataKeys.FixedArrayRecord))
+        {
+            return true;
+        }
+
+        var normalizedTypeName = NormalizeTypeName(cppTypeName);
+        var resolvedTypeName = ResolveAliasTypeName(normalizedTypeName);
+        var qualifiedTypeName = TryGetQualifiedAliasOriginName(normalizedTypeName, out var aliasOriginName)
+            ? aliasOriginName
+            : normalizedTypeName;
+        if (TryGetManagedTypeOverride(
+                normalizedTypeName,
+                resolvedTypeName,
+                qualifiedTypeName,
+                managedTypeOverrides,
+                isReturn: false,
+                out var managedTypeOverride) &&
+            managedTypeOverride?.FixedArray == true)
+        {
+            return true;
+        }
+
+        return IsFixedArrayConfiguredType(normalizedTypeName, managedTypeOverrides);
+    }
+
+    private static bool IsDynamicArrayRecordOrConfigured(
+        RecordBinding record,
+        string cppTypeName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
+    {
+        if (record.GetMetadata<bool>(MetadataKeys.DynamicArrayRecord))
+        {
+            return true;
+        }
+
+        var normalizedTypeName = NormalizeTypeName(cppTypeName);
+        var resolvedTypeName = ResolveAliasTypeName(normalizedTypeName);
+        var qualifiedTypeName = TryGetQualifiedAliasOriginName(normalizedTypeName, out var aliasOriginName)
+            ? aliasOriginName
+            : normalizedTypeName;
+        if (TryGetManagedTypeOverride(
+                normalizedTypeName,
+                resolvedTypeName,
+                qualifiedTypeName,
+                managedTypeOverrides,
+                isReturn: false,
+                out var managedTypeOverride) &&
+            managedTypeOverride?.DynamicArray == true)
+        {
+            return true;
+        }
+
+        return IsDynamicArrayConfiguredType(normalizedTypeName, managedTypeOverrides);
+    }
+
+    private static bool IsFixedArrayConfiguredType(
+        string cppTypeName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
+    {
+        var normalizedTypeName = NormalizeTypeName(cppTypeName);
+        if (!TryGetTopLevelTemplateArguments(normalizedTypeName, out var concreteHead, out _))
+        {
+            return false;
+        }
+
+        return managedTypeOverrides.Any(entry =>
+            !entry.Key.StartsWith("return:", StringComparison.Ordinal) &&
+            entry.Value.FixedArray &&
+            TryGetTopLevelTemplateArguments(entry.Value.CppTypeName, out var configuredHead, out _) &&
+            TemplateHeadsEquivalent(concreteHead, configuredHead));
+    }
+
+    private static bool IsDynamicArrayConfiguredType(
+        string cppTypeName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
+    {
+        var normalizedTypeName = NormalizeTypeName(cppTypeName);
+        if (!TryGetTopLevelTemplateArguments(normalizedTypeName, out var concreteHead, out _))
+        {
+            return false;
+        }
+
+        return managedTypeOverrides.Any(entry =>
+            !entry.Key.StartsWith("return:", StringComparison.Ordinal) &&
+            entry.Value.DynamicArray &&
+            TryGetTopLevelTemplateArguments(entry.Value.CppTypeName, out var configuredHead, out _) &&
+            TemplateHeadsEquivalent(concreteHead, configuredHead));
     }
 
     private static bool ShouldInstantiateConfiguredGenericType(ManagedTypeOverride managedTypeOverride)
@@ -4280,6 +4474,10 @@ public sealed partial class ClangSharpHeaderParser
 
         var genericArguments = ParseVisibleRecordTemplateArguments(record, referredTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
         type = BindingType.CreateHandle(handleCppTypeName, record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments);
+        type = ApplyFixedArrayMetadata(
+            type,
+            IsFixedArrayRecordOrConfigured(record, referredTypeName, managedTypeOverrides),
+            genericArguments);
         return true;
     }
 

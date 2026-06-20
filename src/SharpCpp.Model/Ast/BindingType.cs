@@ -64,7 +64,10 @@ public sealed class BindingType
         IEnumerable<BindingType>? genericArguments = null,
         bool isCallback = false,
         BindingType? callbackReturnType = null,
-        IEnumerable<BindingType>? callbackParameterTypes = null)
+        IEnumerable<BindingType>? callbackParameterTypes = null,
+        BindingType? fixedArrayElementType = null,
+        int? fixedArrayLength = null,
+        BindingType? dynamicArrayElementType = null)
     {
         Kind = kind;
         PrimitiveKind = primitiveKind;
@@ -76,6 +79,9 @@ public sealed class BindingType
         IsCallback = isCallback;
         CallbackReturnType = callbackReturnType;
         _callbackParameterTypes = callbackParameterTypes?.ToArray() ?? Array.Empty<BindingType>();
+        FixedArrayElementType = fixedArrayElementType;
+        FixedArrayLength = fixedArrayLength;
+        DynamicArrayElementType = dynamicArrayElementType;
     }
 
     public static BindingType Void { get; } = Primitive(BindingPrimitiveKind.Void, "void", "void");
@@ -148,6 +154,16 @@ public sealed class BindingType
 
     public IReadOnlyList<BindingType> CallbackParameterTypes => _callbackParameterTypes;
 
+    public BindingType? FixedArrayElementType { get; }
+
+    public int? FixedArrayLength { get; }
+
+    public bool IsFixedArray => FixedArrayElementType is not null && FixedArrayLength is not null;
+
+    public BindingType? DynamicArrayElementType { get; }
+
+    public bool IsDynamicArray => DynamicArrayElementType is not null;
+
     public string CppTypeName => Marshaller.CppTypeName;
 
     public string ManagedTypeName => Kind == BindingTypeKind.GenericParameter
@@ -195,7 +211,10 @@ public sealed class BindingType
             GenericArguments,
             IsCallback,
             CallbackReturnType,
-            CallbackParameterTypes)
+            CallbackParameterTypes,
+            FixedArrayElementType,
+            FixedArrayLength,
+            DynamicArrayElementType)
         {
             _managedTypeFormatOverride = normalizedOverride
         };
@@ -222,7 +241,10 @@ public sealed class BindingType
             arguments,
             IsCallback,
             CallbackReturnType,
-            CallbackParameterTypes)
+            CallbackParameterTypes,
+            FixedArrayElementType,
+            FixedArrayLength,
+            DynamicArrayElementType)
         {
             _managedTypeFormatOverride = _managedTypeFormatOverride
         };
@@ -247,6 +269,62 @@ public sealed class BindingType
             callbackReturnType,
             callbackParameterTypes)
             .WithManagedTypeFormatOverride(_managedTypeFormatOverride);
+        return copy;
+    }
+
+    public BindingType WithFixedArray(BindingType elementType, int length)
+    {
+        ArgumentNullException.ThrowIfNull(elementType);
+        if (FixedArrayElementType == elementType && FixedArrayLength == length)
+        {
+            return this;
+        }
+
+        var copy = new BindingType(
+            Kind,
+            PrimitiveKind,
+            Marshaller,
+            RecordId,
+            EnumId,
+            GenericParameterName,
+            GenericArguments,
+            IsCallback,
+            CallbackReturnType,
+            CallbackParameterTypes,
+            elementType,
+            length,
+            DynamicArrayElementType)
+        {
+            _managedTypeFormatOverride = _managedTypeFormatOverride
+        };
+        return copy;
+    }
+
+    public BindingType WithDynamicArray(BindingType elementType)
+    {
+        ArgumentNullException.ThrowIfNull(elementType);
+        if (DynamicArrayElementType == elementType)
+        {
+            return this;
+        }
+
+        var copy = new BindingType(
+            Kind,
+            PrimitiveKind,
+            Marshaller,
+            RecordId,
+            EnumId,
+            GenericParameterName,
+            GenericArguments,
+            IsCallback,
+            CallbackReturnType,
+            CallbackParameterTypes,
+            FixedArrayElementType,
+            FixedArrayLength,
+            elementType)
+        {
+            _managedTypeFormatOverride = _managedTypeFormatOverride
+        };
         return copy;
     }
 
@@ -380,7 +458,10 @@ public sealed class BindingType
             GenericArguments,
             IsCallback,
             CallbackReturnType,
-            CallbackParameterTypes);
+            CallbackParameterTypes,
+            FixedArrayElementType,
+            FixedArrayLength,
+            DynamicArrayElementType);
     }
 
     private string FormatManagedTypeName(

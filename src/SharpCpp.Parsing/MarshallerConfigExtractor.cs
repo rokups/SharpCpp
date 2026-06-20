@@ -56,6 +56,14 @@ internal static class MarshallerConfigExtractor
         @"callback\s*=\s*(?<value>true|false)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    private static readonly Regex FixedArrayExpression = new(
+        @"fixed_array\s*=\s*(?<value>true|false)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex DynamicArrayExpression = new(
+        @"dynamic_array\s*=\s*(?<value>true|false)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private static readonly Regex ReturnOwnershipExpression = new(
         @"return_ownership\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -94,6 +102,8 @@ internal static class MarshallerConfigExtractor
         public IReadOnlyList<int> VisibleTemplateParameterIndices { get; init; } = Array.Empty<int>();
         public bool Projection { get; init; }
         public bool Callback { get; init; }
+        public bool FixedArray { get; init; }
+        public bool DynamicArray { get; init; }
         public string? ReturnOwnership { get; init; }
         public string? ManagedInstanceCacheFactoryExpression { get; init; }
         public string? ManagedInstanceCacheTypeName { get; init; }
@@ -310,6 +320,8 @@ internal static class MarshallerConfigExtractor
         var managedMarshallerMatch = ManagedMarshallerInAttributeExpression.Match(body);
         var managedNamespaceMatch = ManagedNamespaceInAttributeExpression.Match(body);
         var projectionMatch = ProjectionExpression.Match(body);
+        var fixedArrayMatch = FixedArrayExpression.Match(body);
+        var dynamicArrayMatch = DynamicArrayExpression.Match(body);
         var managedInstanceCacheFactoryMatch = ManagedInstanceCacheFactoryExpression.Match(body);
         var managedInstanceCacheTypeMatch = ManagedInstanceCacheTypeExpression.Match(body);
         var releaseStrategyMatch = ReleaseStrategyExpression.Match(body);
@@ -337,6 +349,10 @@ internal static class MarshallerConfigExtractor
             Projection = projectionMatch.Success &&
                 string.Equals(projectionMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase),
             Callback = isCallback,
+            FixedArray = fixedArrayMatch.Success &&
+                string.Equals(fixedArrayMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase),
+            DynamicArray = dynamicArrayMatch.Success &&
+                string.Equals(dynamicArrayMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase),
             ReturnOwnership = returnOwnershipMatch.Success ? returnOwnershipMatch.Groups["value"].Value : null,
             ManagedInstanceCacheFactoryExpression = managedInstanceCacheFactoryMatch.Success ? managedInstanceCacheFactoryMatch.Groups["value"].Value : null,
             ManagedInstanceCacheTypeName = managedInstanceCacheTypeMatch.Success ? managedInstanceCacheTypeMatch.Groups["value"].Value : null,
@@ -712,6 +728,14 @@ internal static class MarshallerConfigExtractor
                 if (parameter is TemplateTypeParmDecl typeParameter)
                 {
                     var name = typeParameter.Name ?? typeParameter.Spelling.ToString();
+                    if (!string.IsNullOrWhiteSpace(name))
+                    {
+                        parameters.Add(name);
+                    }
+                }
+                else if (parameter is NonTypeTemplateParmDecl nonTypeParameter)
+                {
+                    var name = nonTypeParameter.Name ?? nonTypeParameter.Spelling.ToString();
                     if (!string.IsNullOrWhiteSpace(name))
                     {
                         parameters.Add(name);

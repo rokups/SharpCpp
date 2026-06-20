@@ -32,6 +32,8 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - `Marshaller<T>` / `ReturnMarshaller<T>` for custom type interop
 - Managed type overrides (`managed_type`, `managed_base_type`, `managed_base_type_constraints`)
 - Container wrappers: `vector`, `list`, `map`, `unordered_map`
+- Native-backed fixed-size array wrappers: `std::array<T, N>` / `eastl::array<T, N>` → `Std.Array<T>` / `Ea.Array<T>` with runtime length validation
+- Native-backed shared dynamic array wrappers: `ea::shared_array<T>` / `eastl::shared_array<T>` → `Ea.SharedArray<T>` with unsafe indexed access
 - Math primitives as value types: `Vector3`, `Matrix3`, `StringHash`, etc.
 - String support: `const char*`, `std::string_view`, `ea::string_view` / `eastl::string_view` → `ReadOnlySpan<byte>`, `const char**` → `out string`, `std::string` → `StringBase`
 - Managed-to-native callback parameters: `std::function<>`, `ea::function<>`, and `eastl::function<>` → `Action<>` / `Func<>` with generated custom marshallers
@@ -58,6 +60,7 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - `Utf8SpanReturnMarshaller` for null-terminated `const char*` returns
 - `Utf8SpanAbiMarshaller` / `Utf8SpanAbiReturnMarshaller` for explicit UTF-8 ptr+len span ABI
 - Managed callback ABI and native shared-state callback wrapper support for managed-to-native function-object parameters
+- Native-backed `ArrayBase<T>` / `SharedArrayBase<T>` wrappers for fixed arrays and shared dynamic arrays
 
 ### rbfx Consumer Slice
 - `rbfx/SharpCpp.Rbfx.Generator` parses `Urho3DAll.h` against SDK CMake flags
@@ -119,6 +122,23 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - All type-specific behaviors configured through C++/C# marshallers, never hardcoded in core
 
 ## Recently Fixed
+
+- **rbfx `ea::shared_array<T>` / `eastl::shared_array<T>` wrappers now work end-to-end**:
+  - Added dynamic-array model, parser, pipeline, and metadata facts driven by `dynamic_array = true` marshaller configuration.
+  - Added managed `SharedArrayBase<T>` runtime support with optional known length, unsafe indexed get/set, span assignment, and explicit-length `ToArray` materialization.
+  - Added rbfx EASTL shared-array marshaller specializations using `ea::shared_array<T>*` ABI, owned wrapper copies for value/reference returns, and borrowed pointer passthrough for pointer returns.
+  - Renderer now emits `Ea.SharedArray<T>` wrappers with `nint` custom marshalling plus generated native create/delete/get/set helpers for supported concrete element types.
+  - Previously excluded rbfx APIs such as `Sound.GetData()` and `BufferedSoundStream.AddData(...)` now generate as `Ea.SharedArray<T>` surfaces.
+  - Verification: focused model/metadata/rendering tests, `cmake --build --preset Debug`, and `ctest --preset Debug` all pass.
+
+- **Native-backed `std::array` / `eastl::array` wrappers now work end-to-end**:
+  - Added fixed-array model and metadata facts, schema version 7 import/export, and marshaller config extraction for hidden non-type length parameters.
+  - Added managed `NativeArrayAbi` / `ArrayBase<T>` runtime support plus native `std::array<T, N>` and rbfx `eastl::array<T, N>` marshaller support.
+  - Renderer now emits `Std.Array<T>` / `Ea.Array<T>` wrappers with span/array/enumerable initialization, runtime length validation, zero-copy call ABI, and generated native create/delete/get/set helpers for supported concrete instantiations.
+  - Fixed-array public imports use C# custom marshallers for `NativeArrayAbi` conversion instead of manual generated `ToNativeArrayAbi()` / `CreateManagedWrapper(...)` call-site marshalling.
+  - Fixed helper entrypoint sanitization and filtered helper generation to retained renderer-ready primitive/enum/handle element types, avoiding invalid open-template or ignored/external rbfx helper branches.
+  - Degradation now skips hidden fixed-array length arguments during public generic-argument validation.
+  - Verification: `cmake --build --preset Debug`, focused `StandardLibraryTests`, metadata tests, and `ctest --preset Debug` all pass.
 
 - **Alias-backed rbfx `VariantMap` / `hash_map` surfaces now generate coherent `Ea.UnorderedMap` wrappers**:
   - Marshaller extraction now preserves source template parameter names for configured generic records, keeping native-only EASTL hash/predicate/allocator/cache parameters distinct from the two public managed map arguments.

@@ -99,6 +99,8 @@ public static class BindingMetadataExporter
             ManagedInstanceCacheFactoryExpression: record.ManagedInstanceCacheFactoryExpression,
             ManagedInstanceCacheTypeName: record.ManagedInstanceCacheTypeName,
             EmitDefaultNativeReleaseOverride: record.EmitDefaultNativeReleaseOverride,
+            IsFixedArray: record.GetMetadata<bool>(MetadataKeys.FixedArrayRecord),
+            IsDynamicArray: record.GetMetadata<bool>(MetadataKeys.DynamicArrayRecord),
             Members: record.Members
                 .Where(static member => !member.IsIgnored())
                 .Select(member => CreateRecordMember(compilation, member))
@@ -216,7 +218,14 @@ public static class BindingMetadataExporter
                 : CreateTypeReference(compilation, type.CallbackReturnType, fullyQualifyConcrete),
             type.CallbackParameterTypes.Count == 0
                 ? null
-                : type.CallbackParameterTypes.Select(argument => CreateTypeReference(compilation, argument, fullyQualifyConcrete)).ToArray());
+                : type.CallbackParameterTypes.Select(argument => CreateTypeReference(compilation, argument, fullyQualifyConcrete)).ToArray(),
+            type.FixedArrayElementType is null
+                ? null
+                : CreateTypeReference(compilation, type.FixedArrayElementType, fullyQualifyConcrete),
+            type.FixedArrayLength,
+            type.DynamicArrayElementType is null
+                ? null
+                : CreateTypeReference(compilation, type.DynamicArrayElementType, fullyQualifyConcrete));
     }
 
     private static string FormatQualifiedConcreteManagedTypeName(BindingCompilation compilation, BindingType type)
@@ -252,7 +261,44 @@ public static class BindingMetadataExporter
             return qualifiedHead;
         }
 
-        return $"{qualifiedHead}<{string.Join(", ", type.GenericArguments.Select(argument => FormatQualifiedConcreteManagedTypeName(compilation, argument)))}>";
+        var visibleArguments = SelectManagedVisibleGenericArguments(managedName, type.GenericArguments);
+        return $"{qualifiedHead}<{string.Join(", ", visibleArguments.Select(argument => FormatQualifiedConcreteManagedTypeName(compilation, argument)))}>";
+    }
+
+    private static IReadOnlyList<BindingType> SelectManagedVisibleGenericArguments(string managedTypeFormat, IReadOnlyList<BindingType> genericArguments)
+    {
+        if (genericArguments.Count == 0 || !managedTypeFormat.Contains('{', StringComparison.Ordinal))
+        {
+            return genericArguments;
+        }
+
+        var indices = new SortedSet<int>();
+        for (var index = 0; index < managedTypeFormat.Length; index++)
+        {
+            if (managedTypeFormat[index] != '{')
+            {
+                continue;
+            }
+
+            var closeIndex = managedTypeFormat.IndexOf('}', index + 1);
+            if (closeIndex <= index + 1)
+            {
+                continue;
+            }
+
+            if (int.TryParse(managedTypeFormat[(index + 1)..closeIndex], out var argumentIndex) &&
+                argumentIndex >= 0 &&
+                argumentIndex < genericArguments.Count)
+            {
+                indices.Add(argumentIndex);
+            }
+
+            index = closeIndex;
+        }
+
+        return indices.Count == 0
+            ? genericArguments
+            : indices.Select(index => genericArguments[index]).ToArray();
     }
 
     private static string FormatQualifiedEnumTypeName(BindingCompilation compilation, BindingType type)

@@ -59,7 +59,7 @@ public sealed class BindingMetadataExporterTests
         var json = BindingMetadataSerializer.Serialize(original);
         var roundTripped = BindingMetadataSerializer.Deserialize(json);
 
-        Assert.Contains("\"schema_version\": 6", json, StringComparison.Ordinal);
+        Assert.Contains("\"schema_version\": 8", json, StringComparison.Ordinal);
         Assert.EndsWith(Environment.NewLine, json, StringComparison.Ordinal);
         Assert.Equal(original.SchemaVersion, roundTripped.SchemaVersion);
         Assert.Equal(original.GeneratorVersion, roundTripped.GeneratorVersion);
@@ -80,6 +80,42 @@ public sealed class BindingMetadataExporterTests
             roundTripped.Types.Select(static type => type.Members?.Count ?? 0));
         Assert.Equal(original.Functions, roundTripped.Functions);
         Assert.Equal(original.Aliases, roundTripped.Aliases);
+    }
+
+    [Fact]
+    public void Export_round_trips_dynamic_array_metadata()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "arrays.hpp" });
+        var record = new RecordBinding("record:shared_array", "shared_array", "SharedArray", "ea::shared_array")
+        {
+            ManagedTypeFormat = "Ea.SharedArray<{0}>",
+            ManagedNamespace = "Ea",
+            ManagedBaseTypeName = "global::SharpCpp.Support.SharedArrayBase<{0}>"
+        };
+        record.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        record.SetMetadata(MetadataKeys.DynamicArrayRecord, true);
+        compilation.Members.Add(record);
+
+        var arrayType = BindingType.CreateHandle(
+            "ea::shared_array<int>*",
+            "SharedArray",
+            record.SymbolId,
+            genericArguments: [BindingType.Int32])
+            .WithDynamicArray(BindingType.Int32);
+        var function = new FunctionBinding("function:GetArray", "GetArray", "GetArray", arrayType, "entry_get_array");
+        compilation.Members.Add(function);
+
+        var original = BindingMetadataExporter.Export(compilation);
+        var json = BindingMetadataSerializer.Serialize(original);
+        var roundTripped = BindingMetadataSerializer.Deserialize(json);
+
+        Assert.True(Assert.Single(roundTripped.Types).IsDynamicArray);
+        Assert.Equal("int", Assert.Single(roundTripped.Functions).ReturnType.DynamicArrayElementType!.PublicType);
     }
 
     [Fact]

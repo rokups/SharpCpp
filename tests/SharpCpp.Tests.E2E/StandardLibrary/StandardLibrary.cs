@@ -41,6 +41,29 @@ public sealed class StandardLibraryTests
     }
 
     [Fact]
+    public void Std_array_can_be_initialized_from_managed_arrays_and_passed_without_call_copy()
+    {
+        using var numbers = new global::Std.Array<int>(new[] { 2, 4, 6, 8 });
+
+        Assert.Equal(4, numbers.Length);
+        Assert.Equal(2, numbers[0]);
+        Assert.Equal(20, E2EBindings.E2eSumStdArrayNumbers(numbers));
+
+        numbers[1] = 10;
+
+        Assert.Equal(26, E2EBindings.E2eSumStdArrayNumbers(numbers));
+    }
+
+    [Fact]
+    public void Std_array_return_wraps_native_array_object()
+    {
+        using var numbers = E2EBindings.E2eMakeStdArrayNumbers();
+
+        Assert.Equal(4, numbers.Length);
+        Assert.Equal(new[] { 1, 3, 5, 7 }, numbers.ToArray());
+    }
+
+    [Fact]
     public void Const_reference_container_methods_preserve_wrapper_return_types()
     {
         Assert.Equal(typeof(global::Std.Vector<int>), typeof(StdLibraryOwner).GetMethod("GetNumbersRef")!.ReturnType);
