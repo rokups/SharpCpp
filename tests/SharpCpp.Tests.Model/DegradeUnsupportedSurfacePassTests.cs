@@ -377,7 +377,27 @@ public sealed class DegradeUnsupportedSurfacePassTests
     }
 
     [Fact]
-    public void Apply_ignores_generated_callback_helpers_with_configured_callback_argument_types()
+    public void Apply_keeps_generated_callback_helpers_with_configured_value_callback_argument_when_public_type_matches_marshaller_type()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Callbacks.h"]);
+        var configuredType = BindingType.CreateConfigured("Test::Vector2", "global::Test.Vector2", "global::Test.Vector2");
+        var callbackType = BindingType.CreateCallback(
+            "std::function<void(Vector2)>",
+            "global::System.Action<{0}>",
+            managedMarshaller: null,
+            BindingType.Void,
+            [configuredType]);
+        var function = new FunctionBinding("function:UseCallback", "UseCallback", "UseCallback", BindingType.Void, "UseCallback");
+        function.Parameters.Add(new ParameterBinding("parameter:callback", "callback", "callback", callbackType));
+        compilation.Members.Add(function);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.False(function.IsIgnored(), function.GetIgnoreReason());
+    }
+
+    [Fact]
+    public void Apply_ignores_generated_callback_helpers_with_conversion_required_configured_callback_argument_types()
     {
         var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Callbacks.h"]);
         var configuredType = BindingType.CreateConfigured("std::string_view", "global::System.ReadOnlySpan<byte>", "global::SharpCpp.Support.Utf8SpanAbiMarshaller");

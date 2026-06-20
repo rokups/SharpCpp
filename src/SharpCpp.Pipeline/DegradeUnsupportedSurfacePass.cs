@@ -644,11 +644,17 @@ public static class DegradeUnsupportedSurfacePass
         return type.Kind switch
         {
             BindingTypeKind.Primitive => type.PrimitiveKind != BindingPrimitiveKind.Unsupported ||
-                string.Equals(type.UnaliasedManagedTypeName, BindingType.IntPtr.ManagedTypeName, StringComparison.Ordinal),
+                IsGeneratedCallbackConfiguredValueSupported(type),
             BindingTypeKind.Handle => !recordsById.TryGetValue(type.RecordId ?? string.Empty, out var record) || record.IsHandleType,
             BindingTypeKind.Enum => true,
             _ => false
         };
+    }
+
+    private static bool IsGeneratedCallbackConfiguredValueSupported(BindingType type)
+    {
+        return !string.IsNullOrWhiteSpace(type.MarshallerTypeName) &&
+            string.Equals(type.MarshallerTypeName, type.UnaliasedManagedTypeName, StringComparison.Ordinal);
     }
 
     private static bool IsExternalCallbackDelegateTypeName(string value)

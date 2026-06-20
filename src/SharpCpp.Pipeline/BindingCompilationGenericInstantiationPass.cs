@@ -46,7 +46,7 @@ public static class BindingCompilationGenericInstantiationPass
 
         foreach (var function in compilation.Functions)
         {
-            if (function.IsIgnored())
+            if (function.IsIgnored() || function.IsGeneric || (function.Parent as RecordBinding)?.IsGeneric == true)
             {
                 continue;
             }
@@ -67,16 +67,40 @@ public static class BindingCompilationGenericInstantiationPass
 
             CollectRecordInstantiations(compilation, field.Type);
         }
+
+        foreach (var alias in compilation.TypeAliases)
+        {
+            CollectRecordInstantiations(compilation, alias.TargetType);
+        }
     }
 
     private static void CollectRecordInstantiations(BindingCompilation compilation, BindingType type)
     {
+        if (type.IsCallback)
+        {
+            if (type.CallbackReturnType is not null)
+            {
+                CollectRecordInstantiations(compilation, type.CallbackReturnType);
+            }
+
+            foreach (var parameterType in type.CallbackParameterTypes)
+            {
+                CollectRecordInstantiations(compilation, parameterType);
+            }
+
+            return;
+        }
+
         foreach (var genericArgument in type.GenericArguments)
         {
             CollectRecordInstantiations(compilation, genericArgument);
         }
 
-        if (type.Kind != BindingTypeKind.Handle || string.IsNullOrWhiteSpace(type.RecordId) || type.GenericArguments.Count == 0 || type.ContainsGenericParameters)
+        if (type.Kind != BindingTypeKind.Handle ||
+            string.IsNullOrWhiteSpace(type.RecordId) ||
+            type.GenericArguments.Count == 0 ||
+            type.ContainsGenericParameters ||
+            ContainsOpenNativeTemplateParameter(type))
         {
             return;
         }
@@ -89,7 +113,8 @@ public static class BindingCompilationGenericInstantiationPass
 
         var visibleGenericParameterCount = GetVisibleGenericParameterCount(record);
         if (type.GenericArguments.Count != record.GenericParameters.Count &&
-            type.GenericArguments.Count != visibleGenericParameterCount)
+            type.GenericArguments.Count != visibleGenericParameterCount &&
+            type.GenericArguments.Count >= record.GenericParameters.Count)
         {
             return;
         }
@@ -105,6 +130,23 @@ public static class BindingCompilationGenericInstantiationPass
         }
 
         record.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding(type.GenericArguments));
+    }
+
+    private static bool ContainsOpenNativeTemplateParameter(BindingType type)
+    {
+        if (type.CppTypeName.Contains("type-parameter-", StringComparison.Ordinal) ||
+            type.ManagedTypeName.Contains("type-parameter-", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (type.IsCallback)
+        {
+            return (type.CallbackReturnType is not null && ContainsOpenNativeTemplateParameter(type.CallbackReturnType)) ||
+                type.CallbackParameterTypes.Any(ContainsOpenNativeTemplateParameter);
+        }
+
+        return type.GenericArguments.Any(ContainsOpenNativeTemplateParameter);
     }
 
     private static bool InstantiationsEqual(IReadOnlyList<BindingType> left, IReadOnlyList<BindingType> right)
@@ -131,6 +173,7 @@ public static class BindingCompilationGenericInstantiationPass
         var usedIndices = new HashSet<int>();
         CollectManagedFormatPlaceholderIndices(record.ManagedTypeFormat, usedIndices);
         CollectManagedFormatPlaceholderIndices(record.ManagedBaseTypeName, usedIndices);
+        CollectManagedFormatPlaceholderIndices(record.ManagedBaseTypeConstraints, usedIndices);
 
         return usedIndices.Count == 0
             ? record.GenericParameters.Count

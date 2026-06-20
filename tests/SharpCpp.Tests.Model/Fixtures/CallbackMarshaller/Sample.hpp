@@ -10,6 +10,30 @@ struct Vector2
     int y;
 };
 
+struct Object
+{
+    int GetId() const;
+};
+
+struct StringHash
+{
+    unsigned Value() const;
+};
+
+struct Variant
+{
+    int GetType() const;
+};
+
+using VariantMap = ea::hash_map<StringHash, Variant, int, int, int>;
+
+struct CallbackOwner
+{
+    using HandlerFunction = ea::function<void(Object* receiver, StringHash eventType, VariantMap& eventData)>;
+
+    CallbackOwner(Object* receiver, HandlerFunction handler);
+};
+
 void ForEach(std::function<void(int, float)> callback);
 int Transform(std::function<int(int)> callback);
 void SetCallback(std::function<void()> callback);

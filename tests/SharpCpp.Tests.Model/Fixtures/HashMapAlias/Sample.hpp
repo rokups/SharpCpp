@@ -6,11 +6,14 @@ template <typename T>
 class basic_string {};
 
 using string = basic_string<char>;
+}
 
-template <typename TKey, typename TValue, typename THash, typename TPredicate, typename TAllocator, bool CacheHashCode>
+namespace eastl
+{
+template <typename TKey, typename TValue, typename THash = int, typename TPredicate = int, typename TAllocator = int, bool CacheHashCode = true>
 class hash_map {};
 
-template <typename TKey, typename TValue, typename THash, typename TPredicate, typename TAllocator, bool CacheHashCode>
+template <typename TKey, typename TValue, typename THash = int, typename TPredicate = int, typename TAllocator = int, bool CacheHashCode = true>
 using unordered_map = hash_map<TKey, TValue, THash, TPredicate, TAllocator, CacheHashCode>;
 }
 
@@ -25,8 +28,8 @@ public:
     Variant();
 };
 
-using VariantMap = ea::unordered_map<StringHash, Variant, int, int, int, true>;
-using StringVariantMap = ea::unordered_map<ea::string, Variant, int, int, int, true>;
+using VariantMap = ea::unordered_map<StringHash, Variant>;
+using StringVariantMap = ea::unordered_map<ea::string, Variant>;
 
 class EventHub
 {

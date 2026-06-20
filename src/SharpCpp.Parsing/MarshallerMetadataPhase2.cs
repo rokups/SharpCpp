@@ -151,7 +151,7 @@ public static class MarshallerMetadataPhase2
             // headers whose definition is not in the owned include tree),
             // promote the placeholder to a "real" record so the renderer
             // emits its wrapper class instead of degrading it.
-            if (record.HasMetadata(MetadataKeys.PlaceholderRecord))
+            if (record.GetMetadata<bool>(MetadataKeys.PlaceholderRecord))
             {
                 record.SetMetadata(MetadataKeys.PlaceholderRecord, false);
                 record.SetMetadata(MetadataKeys.ForwardDeclaration, false);
@@ -174,10 +174,12 @@ public static class MarshallerMetadataPhase2
                 // C# struct replaces the auto-generated wrapper), the
                 // public_type from the Marshaller takes precedence over any
                 // rename attribute — the two represent different types.
+                var hasExplicitRename = record.GetMetadata<bool>(MetadataKeys.ExplicitManagedRename);
                 var overrideRename = SuppressEmissionExpression.IsMatch(body) &&
                     !string.Equals(record.ManagedTypeFormat, publicType, StringComparison.Ordinal);
 
                 if (!overrideRename &&
+                    hasExplicitRename &&
                     record.ManagedTypeFormat is not null &&
                     !string.Equals(record.ManagedTypeFormat, publicType, StringComparison.Ordinal))
                 {
@@ -329,14 +331,21 @@ public static class MarshallerMetadataPhase2
 
     private static void SyncPlaceholderRecords(BindingCompilation compilation, IReadOnlyDictionary<string, RecordBinding> recordsByNativeName)
     {
-        foreach (var placeholder in compilation.Records.Where(r => r.HasMetadata(MetadataKeys.PlaceholderRecord)).ToArray())
+        foreach (var placeholder in compilation.Records.Where(r => r.GetMetadata<bool>(MetadataKeys.PlaceholderRecord)).ToArray())
         {
             var realRecord = recordsByNativeName.Values.FirstOrDefault(r =>
-                !r.HasMetadata(MetadataKeys.PlaceholderRecord) &&
+                !r.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) &&
                 (string.Equals(r.CppQualifiedName, placeholder.CppQualifiedName, StringComparison.Ordinal) ||
                  string.Equals(StripGenericArguments(r.CppQualifiedName), StripGenericArguments(placeholder.CppQualifiedName), StringComparison.Ordinal)));
             if (realRecord is null)
             {
+                continue;
+            }
+
+            if (ShouldKeepDistinctManagedSurface(placeholder, realRecord))
+            {
+                placeholder.SetMetadata(MetadataKeys.PlaceholderRecord, false);
+                placeholder.SetMetadata(MetadataKeys.ForwardDeclaration, false);
                 continue;
             }
 
@@ -366,6 +375,31 @@ public static class MarshallerMetadataPhase2
 
             placeholder.SetMetadata(MetadataKeys.SuppressEmission, true);
         }
+    }
+
+    private static bool ShouldKeepDistinctManagedSurface(RecordBinding placeholder, RecordBinding realRecord)
+    {
+        if (!IsConfiguredManagedSurface(placeholder))
+        {
+            return false;
+        }
+
+        var placeholderNamespace = placeholder.ManagedNamespace ?? string.Empty;
+        var realNamespace = realRecord.ManagedNamespace ?? string.Empty;
+        var placeholderType = placeholder.ManagedTypeFormat ?? placeholder.ManagedName;
+        var realType = realRecord.ManagedTypeFormat ?? realRecord.ManagedName;
+        return !string.Equals(placeholderNamespace, realNamespace, StringComparison.Ordinal) ||
+            !string.Equals(placeholderType, realType, StringComparison.Ordinal);
+    }
+
+    private static bool IsConfiguredManagedSurface(RecordBinding record)
+    {
+        return !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ||
+            !string.IsNullOrWhiteSpace(record.ManagedBaseTypeConstraints) ||
+            !string.IsNullOrWhiteSpace(record.ManagedTypeFormat) ||
+            !string.IsNullOrWhiteSpace(record.ManagedNamespace) ||
+            !string.IsNullOrWhiteSpace(record.HandleMarshallerTypeName) ||
+            record.Members.OfType<FunctionBinding>().Any(static member => member.HasMetadata(MetadataKeys.MarshallerExposedMethod));
     }
 
     private static void DeduplicateRecords(BindingCompilation compilation, IDictionary<string, RecordBinding> recordsByNativeName)
@@ -466,6 +500,11 @@ public static class MarshallerMetadataPhase2
 
         foreach (var metadata in source.Metadata)
         {
+            if (string.Equals(metadata.Key, MetadataKeys.SuppressEmission, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
             if (!target.HasMetadata(metadata.Key))
             {
                 target.SetMetadata(metadata.Key, metadata.Value);
@@ -606,10 +645,10 @@ public static class MarshallerMetadataPhase2
     {
         // Build alias lookup for stamping generic argument names during
         // suppressed-emission type conversion.
-        var aliasByTarget = new Dictionary<BindingTypeKey, string>();
+        var aliasByTarget = new Dictionary<BindingAliasTargetKey, string>();
         foreach (var alias in compilation.TypeAliases)
         {
-            var targetKey = BindingTypeKey.From(alias.TargetType);
+            var targetKey = BindingAliasTargetKey.From(alias.TargetType);
             if (!aliasByTarget.ContainsKey(targetKey))
             {
                 aliasByTarget[targetKey] = alias.ManagedName;
@@ -678,36 +717,42 @@ public static class MarshallerMetadataPhase2
         }
 
         // Build a lookup from target ManagedTypeName → alias ManagedName.
-        var aliasByTarget = new Dictionary<BindingTypeKey, string>();
+        var aliasByTarget = new Dictionary<BindingAliasTargetKey, string>();
+        var aliasByCppType = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var alias in compilation.TypeAliases)
         {
-            var targetKey = BindingTypeKey.From(alias.TargetType);
+            var targetKey = BindingAliasTargetKey.From(alias.TargetType);
             if (!aliasByTarget.ContainsKey(targetKey))
             {
                 aliasByTarget[targetKey] = alias.ManagedName;
             }
+
+            if (!aliasByCppType.ContainsKey(alias.TargetType.CppTypeName))
+            {
+                aliasByCppType[alias.TargetType.CppTypeName] = alias.ManagedName;
+            }
         }
 
-        if (aliasByTarget.Count == 0)
+        if (aliasByTarget.Count == 0 && aliasByCppType.Count == 0)
         {
             return;
         }
 
         foreach (var function in compilation.Functions)
         {
-            function.ReturnType = StampAlias(function.ReturnType, aliasByTarget);
+            function.ReturnType = StampAlias(function.ReturnType, aliasByTarget, aliasByCppType);
             for (var i = 0; i < function.Parameters.Count; i++)
             {
-                function.Parameters[i].Type = StampAlias(function.Parameters[i].Type, aliasByTarget);
+                function.Parameters[i].Type = StampAlias(function.Parameters[i].Type, aliasByTarget, aliasByCppType);
             }
         }
 
         foreach (var method in compilation.Records.SelectMany(static record => record.Members.OfType<FunctionBinding>()))
         {
-            method.ReturnType = StampAlias(method.ReturnType, aliasByTarget);
+            method.ReturnType = StampAlias(method.ReturnType, aliasByTarget, aliasByCppType);
             for (var i = 0; i < method.Parameters.Count; i++)
             {
-                method.Parameters[i].Type = StampAlias(method.Parameters[i].Type, aliasByTarget);
+                method.Parameters[i].Type = StampAlias(method.Parameters[i].Type, aliasByTarget, aliasByCppType);
             }
         }
 
@@ -718,32 +763,59 @@ public static class MarshallerMetadataPhase2
             {
                 for (var i = 0; i < instantiation.TypeArguments.Count; i++)
                 {
-                    instantiation.UpdateTypeArgument(i, StampAlias(instantiation.TypeArguments[i], aliasByTarget));
+                    instantiation.UpdateTypeArgument(i, StampAlias(instantiation.TypeArguments[i], aliasByTarget, aliasByCppType));
                 }
             }
         }
     }
 
-    private static BindingType StampAlias(BindingType type, IReadOnlyDictionary<BindingTypeKey, string> aliasByTarget)
+    private static BindingType StampAlias(BindingType type, IReadOnlyDictionary<BindingAliasTargetKey, string> aliasByTarget)
+    {
+        return StampAlias(type, aliasByTarget, new Dictionary<string, string>(StringComparer.Ordinal));
+    }
+
+    private static BindingType StampAlias(
+        BindingType type,
+        IReadOnlyDictionary<BindingAliasTargetKey, string> aliasByTarget,
+        IReadOnlyDictionary<string, string> aliasByCppType)
     {
         if (type.Kind == BindingTypeKind.Primitive && type.PrimitiveKind != BindingPrimitiveKind.Unsupported)
         {
             return type;
         }
 
-        var targetKey = BindingTypeKey.From(type.WithManagedTypeFormatOverride(null));
-        if (aliasByTarget.TryGetValue(targetKey, out var aliasName) &&
+        if (type.IsCallback)
+        {
+            var callbackReturnType = type.CallbackReturnType is null
+                ? null
+                : StampAlias(type.CallbackReturnType, aliasByTarget, aliasByCppType);
+            var callbackParameterTypes = type.CallbackParameterTypes
+                .Select(parameterType => StampAlias(parameterType, aliasByTarget, aliasByCppType))
+                .ToArray();
+            if (callbackReturnType is not null &&
+                (!ReferenceEquals(callbackReturnType, type.CallbackReturnType) ||
+                 !callbackParameterTypes.SequenceEqual(type.CallbackParameterTypes)))
+            {
+                type = type.WithCallbackSignature(callbackReturnType, callbackParameterTypes);
+            }
+        }
+        else if (type.GenericArguments.Count > 0)
+        {
+            var genericArguments = type.GenericArguments
+                .Select(argument => StampAlias(argument, aliasByTarget, aliasByCppType))
+                .ToArray();
+            if (!genericArguments.SequenceEqual(type.GenericArguments))
+            {
+                type = type.WithGenericArguments(genericArguments);
+            }
+        }
+
+        var targetKey = BindingAliasTargetKey.From(type.WithManagedTypeFormatOverride(null));
+        if ((aliasByTarget.TryGetValue(targetKey, out var aliasName) ||
+                aliasByCppType.TryGetValue(type.CppTypeName, out aliasName)) &&
             !string.Equals(aliasName, type.ManagedTypeName, StringComparison.Ordinal))
         {
             type = type.WithManagedTypeFormatOverride(aliasName);
-        }
-
-        // Recurse into generic arguments. For configured value types and
-        // handles this mutates the nested BindingType instances directly,
-        // but built-in primitive singletons are intentionally left alone.
-        foreach (var genericArg in type.GenericArguments)
-        {
-            StampAlias(genericArg, aliasByTarget);
         }
 
         return type;
@@ -785,26 +857,38 @@ public static class MarshallerMetadataPhase2
         }
 
         var record = FindRecordByType(type, recordsByNativeName);
+        if (record is not null && type.GenericArguments.Count > 0 && !ContainsGenericParameter(type))
+        {
+            return true;
+        }
+
         return record is not null &&
-            (!record.HasMetadata(MetadataKeys.PlaceholderRecord) ||
+            (!record.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) ||
                 !string.IsNullOrWhiteSpace(record.ManagedTypeFormat) ||
                 !string.IsNullOrWhiteSpace(record.ManagedNamespace) ||
                 !string.IsNullOrWhiteSpace(record.HandleMarshallerTypeName));
     }
 
-    private static BindingType ApplyManagedTypeFormat(BindingType type, IReadOnlyDictionary<string, RecordBinding> recordsByNativeName, IReadOnlyDictionary<BindingTypeKey, string> aliasByTarget)
+    private static BindingType ApplyManagedTypeFormat(BindingType type, IReadOnlyDictionary<string, RecordBinding> recordsByNativeName, IReadOnlyDictionary<BindingAliasTargetKey, string> aliasByTarget)
     {
         if (type.Kind != BindingTypeKind.Handle || string.IsNullOrWhiteSpace(type.RecordId))
         {
             return type;
         }
 
-        // Recurse into generic arguments (in-place mutation via override,
-        // since GenericArguments is IReadOnlyList and can't be reassigned).
+        var formattedGenericArguments = new List<BindingType>(type.GenericArguments.Count);
+        var genericArgumentsChanged = false;
         foreach (var genericArg in type.GenericArguments)
         {
             StampAlias(genericArg, aliasByTarget);
-            var _ = ApplyManagedTypeFormat(genericArg, recordsByNativeName, aliasByTarget);
+            var formattedGenericArg = ApplyManagedTypeFormat(genericArg, recordsByNativeName, aliasByTarget);
+            formattedGenericArguments.Add(formattedGenericArg);
+            genericArgumentsChanged |= !ReferenceEquals(formattedGenericArg, genericArg);
+        }
+
+        if (genericArgumentsChanged)
+        {
+            type = WithGenericArguments(type, formattedGenericArguments);
         }
 
         var record = FindRecordByType(type, recordsByNativeName);
@@ -813,6 +897,8 @@ public static class MarshallerMetadataPhase2
         {
             return type;
         }
+
+        type = RebindRecordId(type, record);
 
         // When the backing record is suppressed (hand-written C# struct
         // replaces the auto-generated wrapper), convert the Handle type to
@@ -853,8 +939,232 @@ public static class MarshallerMetadataPhase2
                 record.HandleMarshallerTypeName);
         }
 
+        type = ProjectManagedGenericArguments(type, record, recordsByNativeName);
         type.SetManagedTypeFormatOverride(GetManagedTypeFormatOverride(record));
         return type;
+    }
+
+    private static BindingType RebindRecordId(BindingType type, RecordBinding record)
+    {
+        if (string.Equals(type.RecordId, record.SymbolId, StringComparison.Ordinal))
+        {
+            return type;
+        }
+
+        var rebound = BindingType.CreateHandle(
+            type.CppTypeName,
+            type.Marshaller.PublicTypeName,
+            record.SymbolId,
+            type.MarshallerTypeName,
+            type.GenericArguments,
+            type.Marshaller.CppIsRecordValue);
+        rebound.SetManagedTypeFormatOverride(type.ManagedTypeFormatOverride);
+        return rebound;
+    }
+
+    private static BindingType ProjectManagedGenericArguments(
+        BindingType type,
+        RecordBinding record,
+        IReadOnlyDictionary<string, RecordBinding> recordsByNativeName)
+    {
+        var visibleIndices = GetVisibleManagedGenericArgumentIndices(record);
+        if (visibleIndices.Count == 0)
+        {
+            return type;
+        }
+
+        if (visibleIndices.Count == type.GenericArguments.Count && IsIdentityProjection(visibleIndices))
+        {
+            return type;
+        }
+
+        var sourceArguments = type.GenericArguments;
+        if (visibleIndices.Any(index => index >= sourceArguments.Count) &&
+            TryRecoverGenericArgumentsFromCppType(type.CppTypeName, recordsByNativeName, out var recoveredArguments) &&
+            recoveredArguments.Count > sourceArguments.Count)
+        {
+            var mergedArguments = recoveredArguments.ToArray();
+            for (var index = 0; index < type.GenericArguments.Count && index < mergedArguments.Length; index++)
+            {
+                mergedArguments[index] = type.GenericArguments[index];
+            }
+
+            sourceArguments = mergedArguments;
+        }
+
+        if (visibleIndices.Any(index => index >= sourceArguments.Count))
+        {
+            return type;
+        }
+
+        var projectedArguments = visibleIndices
+            .Select(index => sourceArguments[index])
+            .ToArray();
+        return WithGenericArguments(type, projectedArguments);
+    }
+
+    private static bool IsIdentityProjection(IReadOnlyList<int> indices)
+    {
+        for (var index = 0; index < indices.Count; index++)
+        {
+            if (indices[index] != index)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool TryRecoverGenericArgumentsFromCppType(
+        string cppTypeName,
+        IReadOnlyDictionary<string, RecordBinding> recordsByNativeName,
+        out IReadOnlyList<BindingType> arguments)
+    {
+        if (!TryGetTopLevelTemplateArguments(cppTypeName.TrimEnd('*', '&').Trim(), out var argumentNames))
+        {
+            arguments = Array.Empty<BindingType>();
+            return false;
+        }
+
+        arguments = argumentNames
+            .Select(argument => MapRecoveredTemplateArgument(argument, recordsByNativeName))
+            .ToArray();
+        return true;
+    }
+
+    private static BindingType MapRecoveredTemplateArgument(string argument, IReadOnlyDictionary<string, RecordBinding> recordsByNativeName)
+    {
+        var normalized = StripCvAndIndirection(MarshallerConfigExtractor.NormalizeTypeName(argument));
+        if (MapManagedPrimitiveType(normalized) is { } primitive)
+        {
+            return primitive;
+        }
+
+        var record = recordsByNativeName.Values.FirstOrDefault(candidate =>
+            string.Equals(candidate.CppQualifiedName, StripGenericArguments(normalized), StringComparison.Ordinal) ||
+            string.Equals(candidate.NativeName, StripGenericArguments(normalized), StringComparison.Ordinal) ||
+            normalized.EndsWith("::" + candidate.NativeName, StringComparison.Ordinal));
+        if (record is not null)
+        {
+            var handleCppTypeName = normalized.EndsWith("*", StringComparison.Ordinal) ? normalized : normalized + "*";
+            return BindingType.CreateHandle(handleCppTypeName, record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName);
+        }
+
+        return BindingType.CreateConfigured(normalized, normalized);
+    }
+
+    private static bool TryGetTopLevelTemplateArguments(string typeName, out IReadOnlyList<string> arguments)
+    {
+        var genericStart = typeName.IndexOf('<');
+        var genericEnd = typeName.LastIndexOf('>');
+        if (genericStart < 0 || genericEnd <= genericStart)
+        {
+            arguments = Array.Empty<string>();
+            return false;
+        }
+
+        arguments = SplitTopLevelArguments(typeName[(genericStart + 1)..genericEnd]);
+        return true;
+    }
+
+    private static IReadOnlyList<string> SplitTopLevelArguments(string value)
+    {
+        var result = new List<string>();
+        var depth = 0;
+        var segmentStart = 0;
+        for (var index = 0; index < value.Length; index++)
+        {
+            switch (value[index])
+            {
+                case '<':
+                case '(':
+                case '[':
+                    depth++;
+                    break;
+                case '>':
+                case ')':
+                case ']':
+                    depth = Math.Max(0, depth - 1);
+                    break;
+                case ',' when depth == 0:
+                    result.Add(MarshallerConfigExtractor.NormalizeTypeName(value[segmentStart..index]));
+                    segmentStart = index + 1;
+                    break;
+            }
+        }
+
+        result.Add(MarshallerConfigExtractor.NormalizeTypeName(value[segmentStart..]));
+        return result;
+    }
+
+    private static string StripCvAndIndirection(string typeName)
+    {
+        var result = typeName;
+        while (result.StartsWith("const ", StringComparison.Ordinal) || result.StartsWith("volatile ", StringComparison.Ordinal))
+        {
+            result = result.StartsWith("const ", StringComparison.Ordinal)
+                ? result[6..].TrimStart()
+                : result[9..].TrimStart();
+        }
+
+        return result.TrimEnd('&').Trim();
+    }
+
+    private static IReadOnlyList<int> GetVisibleManagedGenericArgumentIndices(RecordBinding record)
+    {
+        var indices = new SortedSet<int>();
+        CollectManagedFormatPlaceholderIndices(record.ManagedTypeFormat, indices);
+        CollectManagedFormatPlaceholderIndices(record.ManagedBaseTypeName, indices);
+        return indices.ToArray();
+    }
+
+    private static void CollectManagedFormatPlaceholderIndices(string? format, ISet<int> target)
+    {
+        if (string.IsNullOrWhiteSpace(format))
+        {
+            return;
+        }
+
+        for (var index = 0; index < format.Length; index++)
+        {
+            if (format[index] != '{')
+            {
+                continue;
+            }
+
+            var closeIndex = format.IndexOf('}', index + 1);
+            if (closeIndex <= index + 1)
+            {
+                continue;
+            }
+
+            if (int.TryParse(format[(index + 1)..closeIndex], out var placeholderIndex) &&
+                placeholderIndex >= 0)
+            {
+                target.Add(placeholderIndex);
+            }
+
+            index = closeIndex;
+        }
+    }
+
+    private static BindingType WithGenericArguments(BindingType type, IReadOnlyList<BindingType> genericArguments)
+    {
+        if (type.Kind != BindingTypeKind.Handle)
+        {
+            return type;
+        }
+
+        var clone = BindingType.CreateHandle(
+            type.CppTypeName,
+            type.Marshaller.PublicTypeName,
+            type.RecordId,
+            type.MarshallerTypeName,
+            genericArguments,
+            type.Marshaller.CppIsRecordValue);
+        clone.SetManagedTypeFormatOverride(type.ManagedTypeFormatOverride);
+        return clone;
     }
 
     private static string GetManagedTypeFormatOverride(RecordBinding record)

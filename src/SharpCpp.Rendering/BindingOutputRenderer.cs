@@ -1181,7 +1181,7 @@ public static partial class BindingOutputRenderer
 
         if (!parameter.UseCallbackDelegate)
         {
-            return GetManagedImportTypeName(parameter.Type, compilation);
+            return GetManagedPublicReturnTypeName(parameter.Type, compilation);
         }
 
         if (!string.IsNullOrWhiteSpace(parameter.CallbackDelegateTypeName))
@@ -3668,12 +3668,12 @@ public static partial class BindingOutputRenderer
     private static bool TryGetPublicAliasName(BindingType type, BindingCompilation compilation, out string aliasName)
     {
         var unaliasedType = type.WithManagedTypeFormatOverride(null);
-        var targetKey = BindingTypeKey.From(unaliasedType);
+        var targetKey = BindingAliasTargetKey.From(unaliasedType);
         if (!string.IsNullOrWhiteSpace(type.ManagedTypeFormatOverride))
         {
             var explicitAlias = compilation.TypeAliases.FirstOrDefault(alias =>
                 string.Equals(alias.ManagedName, type.ManagedTypeFormatOverride, StringComparison.Ordinal) &&
-                BindingTypeKey.From(alias.TargetType) == targetKey);
+                BindingAliasTargetKey.From(alias.TargetType) == targetKey);
             if (explicitAlias is not null)
             {
                 aliasName = explicitAlias.ManagedName;
@@ -3682,7 +3682,7 @@ public static partial class BindingOutputRenderer
         }
 
         var matches = compilation.TypeAliases
-            .Where(alias => BindingTypeKey.From(alias.TargetType) == targetKey)
+            .Where(alias => BindingAliasTargetKey.From(alias.TargetType) == targetKey)
             .Select(static alias => alias.ManagedName)
             .Distinct(StringComparer.Ordinal)
             .ToArray();

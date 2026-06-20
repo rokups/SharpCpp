@@ -120,6 +120,19 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **Alias-backed rbfx `VariantMap` / `hash_map` surfaces now generate coherent `Ea.UnorderedMap` wrappers**:
+  - Marshaller extraction now preserves source template parameter names for configured generic records, keeping native-only EASTL hash/predicate/allocator/cache parameters distinct from the two public managed map arguments.
+  - Alias-backed callback and generic-instantiation discovery now traverses callback signatures, preserves public alias names such as `VariantMap`, and avoids collecting open native template placeholders as concrete instantiations.
+  - Resolved handle record IDs are rebased to the canonical parsed record identity before rendering, preventing alias/generic lookup splits between qualified and unqualified record IDs.
+  - Generic validation now filters public instantiations with fatal ignored-record arguments or ref-struct managed arguments, while ignoring hidden native-only template parameters and preserving nonfatal ignored handle arguments.
+  - Verification: focused alias/generic parser tests, full model/metadata/rendering tests, `cmake --build --preset Debug`, generated rbfx checks for `Ea.UnorderedMap`/`VariantMap`, and `ctest --preset Debug --output-on-failure` all pass.
+
+- **rbfx event handler map callback surfaces now keep only visible generic arguments**:
+  - Record handle specialization now parses concrete template arguments with opaque fallback and projects native-only template arguments out via configured managed placeholder formats.
+  - Alias-backed `hash_map` / `unordered_map` surfaces now preserve two-argument managed map targets even when the canonical C++ type carries extra hash/predicate/allocator/cache parameters.
+  - Generated callback helpers now accept configured value callback arguments only when the public managed type is already the generated ABI type, while conversion-required configured types still degrade before rendering.
+  - Verification so far: focused parser/degradation model tests pass.
+
 - **Callback parameters can opt into named managed delegate types**:
   - Added parameter-level `[[sharpcpp::delegate]]` support for callback parameters while preserving the default `Action<>` / `Func<>` projection.
   - Simple delegate names now generate nested delegates in the bindings class; fully qualified or dotted names reference external delegate types.

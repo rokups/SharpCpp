@@ -241,6 +241,16 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         Assert.Equal("global::Test.Vector2", vectorCallbackArgument.ManagedTypeName);
         Assert.Equal("global::Test.Vector2", vectorCallbackArgument.MarshallerTypeName);
 
+        var callbackOwner = Assert.Single(compilation.Records.Where(static record => record.NativeName == "CallbackOwner"));
+        var callbackOwnerConstructor = Assert.Single(callbackOwner.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor));
+        Assert.False(callbackOwnerConstructor.IsIgnored(), callbackOwnerConstructor.GetIgnoreReason());
+        var handlerParameter = Assert.Single(callbackOwnerConstructor.Parameters.Where(static parameter => parameter.NativeName == "handler"));
+        Assert.True(handlerParameter.Type.IsCallback);
+        Assert.False(handlerParameter.Type.ContainsGenericParameters);
+        Assert.Equal("global::System.Action<Object, StringHash, Map<StringHash, Variant>>", handlerParameter.Type.ManagedTypeName);
+        Assert.Equal(new[] { "Object", "StringHash", "Map<StringHash, Variant>" }, handlerParameter.Type.CallbackParameterTypes.Select(static type => type.ManagedTypeName));
+        Assert.DoesNotContain(handlerParameter.Type.CallbackParameterTypes, static type => type.ContainsGenericParameters);
+
         var generatedDelegate = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "UseGeneratedDelegate"));
         Assert.True(generatedDelegate.Parameters[0].UseCallbackDelegate);
         Assert.Null(generatedDelegate.Parameters[0].CallbackDelegateTypeName);
@@ -262,6 +272,47 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         var nonCallbackDelegate = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "UseDelegateOnNonCallback"));
         Assert.True(nonCallbackDelegate.IsIgnored());
         Assert.Contains("not a callback parameter", nonCallbackDelegate.GetIgnoreReason(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Bootstrap_pipeline_preserves_alias_backed_map_callback_parameters()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "CallbackMarshaller");
+        var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+        var marshallerHeader = Path.Combine(fixtureDir, "SampleMarshallers.h");
+
+        var parser = new ClangSharpHeaderParser();
+        var clangArgs = new[] { "-x", "c++", "-std=c++20", $"-I{fixtureDir}" };
+        var marshallerFiles = new[] { marshallerHeader };
+
+        var compilation = parser.Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test.Namespace",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: clangArgs,
+            MarshallerConfigurationFiles: marshallerFiles,
+            EntryPointPrefix: "Test_"));
+
+        BindingCompilationBootstrapPipeline.Apply(compilation, marshallerFiles, clangArgs);
+
+        var callbackOwner = Assert.Single(compilation.Records.Where(static record => record.NativeName == "CallbackOwner"));
+        var constructor = Assert.Single(callbackOwner.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor));
+        Assert.False(constructor.IsIgnored(), constructor.GetIgnoreReason());
+
+        var handler = Assert.Single(constructor.Parameters.Where(static parameter => parameter.NativeName == "handler"));
+        Assert.True(handler.Type.IsCallback);
+        Assert.Equal("global::System.Action<Object, StringHash, VariantMap>", handler.Type.ManagedTypeName);
+        Assert.Equal(new[] { "Object", "StringHash", "VariantMap" }, handler.Type.CallbackParameterTypes.Select(static type => type.ManagedTypeName));
+
+        var mapRecord = Assert.Single(compilation.Records.Where(static record => record.ManagedName == "Map"));
+        Assert.False(mapRecord.IsIgnored(), mapRecord.GetIgnoreReason());
+        Assert.Contains(mapRecord.SupportedGenericInstantiations, instantiation =>
+            instantiation.TypeArguments.Select(static type => type.ManagedTypeName)
+                .SequenceEqual(new[] { "StringHash", "Variant" }, StringComparer.Ordinal));
     }
 
     [Fact]
@@ -338,7 +389,6 @@ public sealed class ClangSharpHeaderParserMarshallerTests
             EntryPointPrefix: "Test_"));
 
         BindingCompilationBootstrapPipeline.Apply(compilation, marshallerFiles, clangArgs);
-
         var eventHub = Assert.Single(compilation.Records.Where(static record => record.NativeName == "EventHub"));
         var method = Assert.Single(eventHub.Members.OfType<FunctionBinding>().Where(static function => function.NativeName == "UnsubscribeFromAllEventsExcept"));
 
@@ -383,10 +433,17 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         Assert.NotEmpty(compilation.TypeAliases);
         var variantMapAlias = Assert.Single(compilation.TypeAliases.Where(static alias => alias.NativeName == "VariantMap"));
         var stringVariantMapAlias = Assert.Single(compilation.TypeAliases.Where(static alias => alias.NativeName == "StringVariantMap"));
+        var unorderedMapRecord = Assert.Single(compilation.Records.Where(static record => record.ManagedName == "UnorderedMap"));
+        Assert.Equal("Ea", unorderedMapRecord.ManagedNamespace);
+        Assert.Equal("Ea.UnorderedMap<{0}, {1}>", unorderedMapRecord.ManagedTypeFormat);
+        Assert.False(unorderedMapRecord.GetMetadata<bool>(MetadataKeys.SuppressEmission));
         Assert.Equal("VariantMap", variantMapAlias.ManagedName);
         Assert.Equal("StringVariantMap", stringVariantMapAlias.ManagedName);
+        Assert.Equal(unorderedMapRecord.SymbolId, variantMapAlias.TargetType.RecordId);
         Assert.Equal("Ea.UnorderedMap<global::Urho3D.Math.StringHash, Variant>", variantMapAlias.TargetType.ManagedTypeName);
         Assert.Equal("Ea.UnorderedMap<Ea.String, Variant>", stringVariantMapAlias.TargetType.ManagedTypeName);
+        Assert.Equal(2, variantMapAlias.TargetType.GenericArguments.Count);
+        Assert.Equal(2, stringVariantMapAlias.TargetType.GenericArguments.Count);
 
         Assert.True(
             string.Equals("VariantMap", getEventDataMap.ReturnType.ManagedTypeName, StringComparison.Ordinal),
@@ -396,6 +453,204 @@ public sealed class ClangSharpHeaderParserMarshallerTests
             $"Expected StringVariantMap but got {DescribeType(getStringEventDataMap.ReturnType)}; alias target {DescribeType(stringVariantMapAlias.TargetType)}");
         Assert.Equal("const Urho3D::VariantMap&", getEventDataMap.CppReturnTypeName);
         Assert.Equal("const Urho3D::StringVariantMap&", getStringEventDataMap.CppReturnTypeName);
+    }
+
+    [Fact]
+    public void Bootstrap_pipeline_keeps_hash_map_wrapper_after_multi_header_merge()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "HashMapAlias");
+        var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+        var marshallerHeader = Path.Combine(fixtureDir, "SampleMarshallers.h");
+
+        var parser = new ClangSharpHeaderParser();
+        var clangArgs = new[] { "-x", "c++", "-std=c++20", $"-I{fixtureDir}" };
+        var marshallerFiles = new[] { marshallerHeader };
+        var compilation = new BindingCompilation(
+            "TestProject",
+            "Test",
+            "Bindings",
+            "Test.Native",
+            Array.Empty<string>());
+
+        foreach (var relativeHeaderPath in new[] { "First/Sample.hpp", "Second/Sample.hpp" })
+        {
+            var parsedHeaderCompilation = parser.Parse(new ClangSharpParseRequest(
+                ProjectName: compilation.ProjectName,
+                ManagedNamespace: compilation.ManagedNamespace,
+                ManagedClassName: compilation.ManagedClassName,
+                NativeLibraryName: compilation.NativeLibraryName,
+                HeaderFilePath: headerPath,
+                HeaderIncludePath: relativeHeaderPath,
+                ClangArguments: clangArgs,
+                MarshallerConfigurationFiles: marshallerFiles,
+                EntryPointPrefix: "Test_"));
+
+            compilation.HeaderFiles.Add(relativeHeaderPath);
+            foreach (var member in parsedHeaderCompilation.Members.ToArray())
+            {
+                compilation.Members.Add(member);
+            }
+
+            foreach (var alias in parsedHeaderCompilation.TypeAliases)
+            {
+                compilation.TypeAliases.Add(alias);
+            }
+        }
+
+        BindingCompilationBootstrapPipeline.Apply(compilation, marshallerFiles, clangArgs);
+
+        var unorderedMapRecord = Assert.Single(compilation.Records.Where(static record => record.ManagedName == "UnorderedMap"));
+        Assert.Equal("Ea", unorderedMapRecord.ManagedNamespace);
+        Assert.Equal("Ea.UnorderedMap<{0}, {1}>", unorderedMapRecord.ManagedTypeFormat);
+        Assert.False(unorderedMapRecord.GetMetadata<bool>(MetadataKeys.SuppressEmission));
+        Assert.False(unorderedMapRecord.GetMetadata<bool>(MetadataKeys.PlaceholderRecord));
+        Assert.False(unorderedMapRecord.IsIgnored(), unorderedMapRecord.GetIgnoreReason());
+
+        var stringVariantMapAliases = compilation.TypeAliases
+            .Where(static alias => alias.NativeName == "StringVariantMap")
+            .ToArray();
+        Assert.True(
+            stringVariantMapAliases.Length > 0,
+            $"Expected at least one StringVariantMap alias. Aliases: {string.Join("; ", compilation.TypeAliases.Select(static alias => $"{alias.CppQualifiedName}|{alias.NativeName}|{alias.ManagedName}|{alias.TargetType.RecordId}|{alias.TargetType.ManagedTypeName}"))}");
+        Assert.All(stringVariantMapAliases, alias => Assert.Equal(unorderedMapRecord.SymbolId, alias.TargetType.RecordId));
+        Assert.All(stringVariantMapAliases, static alias => Assert.Equal("Ea.UnorderedMap<Ea.String, Variant>", alias.TargetType.ManagedTypeName));
+    }
+
+    [Fact]
+    public void Bootstrap_pipeline_keeps_eastl_hash_map_wrapper_when_std_unordered_map_config_is_present()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "HashMapAlias");
+        var includeDir = Path.Combine(repoRoot, "include");
+        var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+        var coreMarshallerHeader = Path.Combine(includeDir, "SharpCpp", "Marshaller.hpp");
+        var eastlMarshallerHeader = Path.Combine(fixtureDir, "SampleMarshallers.h");
+
+        var parser = new ClangSharpHeaderParser();
+        var clangArgs = CreateStandardLibraryClangArgs(fixtureDir, includeDir);
+        var marshallerFiles = new[] { coreMarshallerHeader, eastlMarshallerHeader };
+
+        var compilation = parser.Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: clangArgs,
+            MarshallerConfigurationFiles: marshallerFiles,
+            EntryPointPrefix: "Test_"));
+
+        BindingCompilationBootstrapPipeline.Apply(compilation, marshallerFiles, clangArgs);
+
+        var unorderedMapRecords = compilation.Records
+            .Where(static record => record.ManagedName == "UnorderedMap")
+            .ToArray();
+        var candidates = string.Join("; ", unorderedMapRecords.Select(static record =>
+            $"{record.SymbolId}|{record.CppQualifiedName}|{record.ManagedNamespace}|ignored={record.IsIgnored()}|{record.GetIgnoreReason()}"));
+        var eastlMapRecords = unorderedMapRecords.Where(static record => record.ManagedNamespace == "Ea").ToArray();
+        var stdMapRecords = unorderedMapRecords.Where(static record => record.ManagedNamespace == "Std").ToArray();
+        Assert.True(eastlMapRecords.Length == 1, $"Expected one Ea UnorderedMap. Candidates: {candidates}");
+        Assert.True(stdMapRecords.Length == 1, $"Expected one Std UnorderedMap. Candidates: {candidates}");
+        var eastlMapRecord = eastlMapRecords[0];
+        var stdMapRecord = stdMapRecords[0];
+        var variantMapAlias = Assert.Single(compilation.TypeAliases.Where(static alias => alias.NativeName == "VariantMap"));
+
+        Assert.NotEqual(stdMapRecord.SymbolId, eastlMapRecord.SymbolId);
+        Assert.Equal("eastl::hash_map", eastlMapRecord.CppQualifiedName);
+        Assert.Equal(eastlMapRecord.SymbolId, variantMapAlias.TargetType.RecordId);
+        Assert.False(eastlMapRecord.IsIgnored(), eastlMapRecord.GetIgnoreReason());
+        Assert.NotEmpty(eastlMapRecord.SupportedGenericInstantiations);
+    }
+
+    [Fact]
+    public void Bootstrap_pipeline_materializes_std_string_wrapper_from_core_marshaller()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.E2E", "StandardLibrary");
+        var includeDir = Path.Combine(repoRoot, "include");
+        var headerPath = Path.Combine(fixtureDir, "StandardLibrary.hpp");
+        var marshallerHeader = Path.Combine(includeDir, "SharpCpp", "Marshaller.hpp");
+
+        var parser = new ClangSharpHeaderParser();
+        var clangArgs = CreateStandardLibraryClangArgs(fixtureDir, includeDir);
+        var marshallerFiles = new[] { marshallerHeader };
+
+        var compilation = parser.Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: clangArgs,
+            MarshallerConfigurationFiles: marshallerFiles,
+            EntryPointPrefix: "Test_"));
+
+        BindingCompilationBootstrapPipeline.Apply(compilation, marshallerFiles, clangArgs);
+
+        var makeText = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "e2e_make_std_text"));
+        Assert.False(makeText.IsIgnored(), makeText.GetIgnoreReason());
+        Assert.Equal("Std.String", makeText.ReturnType.ManagedTypeName);
+
+        var stringRecord = Assert.Single(compilation.Records.Where(static record => record.ManagedNamespace == "Std" && record.ManagedName == "String"));
+        Assert.Equal("std::basic_string", stringRecord.NativeName);
+        Assert.Equal("global::SharpCpp.Support.StringBase", stringRecord.ManagedBaseTypeName);
+        Assert.False(stringRecord.GetMetadata<bool>(MetadataKeys.SuppressEmission));
+        Assert.False(stringRecord.GetMetadata<bool>(MetadataKeys.PlaceholderRecord));
+        Assert.False(stringRecord.IsIgnored(), stringRecord.GetIgnoreReason());
+    }
+
+    [Fact]
+    public void Bootstrap_pipeline_keeps_std_string_wrapper_after_multi_header_merge()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureRoot = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.E2E");
+        var includeDir = Path.Combine(repoRoot, "include");
+        var marshallerHeader = Path.Combine(includeDir, "SharpCpp", "Marshaller.hpp");
+        var marshallerFiles = new[] { marshallerHeader };
+        var clangArgs = CreateStandardLibraryClangArgs(fixtureRoot, includeDir);
+        var parser = new ClangSharpHeaderParser();
+        var compilation = new BindingCompilation(
+            "TestProject",
+            "Test",
+            "Bindings",
+            "Test.Native",
+            Array.Empty<string>());
+
+        foreach (var relativeHeaderPath in new[] { "String/String.hpp", "StandardLibrary/StandardLibrary.hpp", "Callback/Callback.hpp" })
+        {
+            var headerPath = Path.Combine(fixtureRoot, relativeHeaderPath);
+            var parsedHeaderCompilation = parser.Parse(new ClangSharpParseRequest(
+                ProjectName: compilation.ProjectName,
+                ManagedNamespace: compilation.ManagedNamespace,
+                ManagedClassName: compilation.ManagedClassName,
+                NativeLibraryName: compilation.NativeLibraryName,
+                HeaderFilePath: headerPath,
+                HeaderIncludePath: relativeHeaderPath,
+                ClangArguments: clangArgs,
+                MarshallerConfigurationFiles: marshallerFiles,
+                EntryPointPrefix: "Test_"));
+
+            compilation.HeaderFiles.Add(relativeHeaderPath);
+            foreach (var member in parsedHeaderCompilation.Members.ToArray())
+            {
+                compilation.Members.Add(member);
+            }
+        }
+
+        BindingCompilationBootstrapPipeline.Apply(compilation, marshallerFiles, clangArgs);
+
+        var stringRecord = Assert.Single(compilation.Records.Where(static record => record.ManagedNamespace == "Std" && record.ManagedName == "String"));
+        Assert.Equal("std::basic_string", stringRecord.NativeName);
+        Assert.Equal("global::SharpCpp.Support.StringBase", stringRecord.ManagedBaseTypeName);
+        Assert.False(stringRecord.GetMetadata<bool>(MetadataKeys.SuppressEmission));
+        Assert.False(stringRecord.GetMetadata<bool>(MetadataKeys.PlaceholderRecord));
+        Assert.False(stringRecord.IsIgnored(), stringRecord.GetIgnoreReason());
+
+        var stringCallback = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "invoke_string_reference_callback"));
+        Assert.Equal(stringRecord.SymbolId, Assert.Single(stringCallback.Parameters[0].Type.CallbackParameterTypes).RecordId);
     }
 
     [Fact]

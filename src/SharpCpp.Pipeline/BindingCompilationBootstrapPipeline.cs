@@ -28,8 +28,8 @@ public static class BindingCompilationBootstrapPipeline
         RunTimed("NormalizeManagedNamespaces", () => NormalizeManagedNamespacesPass.Apply(compilation));
         RunTimed("MarshallerMetadataPhase2", () => MarshallerMetadataPhase2.ApplyWithClang(compilation, marshallerConfigFiles, clangArgs));
         RunTimed("SilentlyExcludeExternalDeclarations", () => SilentlyExcludeExternalDeclarationsPass.Apply(compilation));
-        RunTimed("DegradeUnsupportedSurface", () => DegradeUnsupportedSurfacePass.Apply(compilation));
         RunTimed("GenericInstantiation", () => BindingCompilationGenericInstantiationPass.Apply(compilation));
+        RunTimed("DegradeUnsupportedSurface", () => DegradeUnsupportedSurfacePass.Apply(compilation));
         RunTimed("Inheritance", () => BindingCompilationInheritancePass.Apply(compilation));
         RunTimed("InheritManagedRuntimePolicy", () => InheritManagedRuntimePolicyPass.Apply(compilation));
         RunTimed("Polymorphism", () => BindingCompilationPolymorphismPass.Apply(compilation));
@@ -153,18 +153,18 @@ public static class BindingCompilationBootstrapPipeline
 
     private static bool ShouldPruneHandleAliasTarget(RecordBinding record)
     {
-        if (record.IsIgnored() && ShouldPruneIgnoredHandleAliasTarget(record))
-        {
-            return true;
-        }
-
         if (!string.IsNullOrWhiteSpace(record.ManagedTypeFormat) ||
             !string.IsNullOrWhiteSpace(record.HandleMarshallerTypeName))
         {
             return false;
         }
 
-        if (record.HasMetadata(MetadataKeys.PlaceholderRecord))
+        if (record.IsIgnored() && ShouldPruneIgnoredHandleAliasTarget(record))
+        {
+            return true;
+        }
+
+        if (record.GetMetadata<bool>(MetadataKeys.PlaceholderRecord))
         {
             return true;
         }

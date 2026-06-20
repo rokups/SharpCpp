@@ -202,6 +202,54 @@ public sealed class BindingType
         return copy;
     }
 
+    public BindingType WithGenericArguments(IEnumerable<BindingType> genericArguments)
+    {
+        ArgumentNullException.ThrowIfNull(genericArguments);
+
+        var arguments = genericArguments.ToArray();
+        if (GenericArguments.SequenceEqual(arguments))
+        {
+            return this;
+        }
+
+        var copy = new BindingType(
+            Kind,
+            PrimitiveKind,
+            Marshaller,
+            RecordId,
+            EnumId,
+            GenericParameterName,
+            arguments,
+            IsCallback,
+            CallbackReturnType,
+            CallbackParameterTypes)
+        {
+            _managedTypeFormatOverride = _managedTypeFormatOverride
+        };
+        return copy;
+    }
+
+    public BindingType WithCallbackSignature(BindingType callbackReturnType, IReadOnlyList<BindingType> callbackParameterTypes)
+    {
+        ArgumentNullException.ThrowIfNull(callbackReturnType);
+        ArgumentNullException.ThrowIfNull(callbackParameterTypes);
+
+        if (!IsCallback ||
+            (Equals(CallbackReturnType, callbackReturnType) && CallbackParameterTypes.SequenceEqual(callbackParameterTypes)))
+        {
+            return this;
+        }
+
+        var copy = CreateCallback(
+            CppTypeName,
+            Marshaller.PublicTypeName,
+            ManagedMarshaller,
+            callbackReturnType,
+            callbackParameterTypes)
+            .WithManagedTypeFormatOverride(_managedTypeFormatOverride);
+        return copy;
+    }
+
     public static BindingType CreateHandle(
         string cppTypeName,
         string publicTypeName,
@@ -364,7 +412,46 @@ public sealed class BindingType
             .ToArray();
         var argumentNames = renderedArguments.Cast<object>().ToArray();
         return managedTypeFormat.Contains('{', StringComparison.Ordinal)
-            ? string.Format(System.Globalization.CultureInfo.InvariantCulture, managedTypeFormat, argumentNames)
+            ? FormatPlaceholderManagedTypeName(managedTypeFormat, argumentNames, renderedArguments)
             : $"{managedTypeFormat}<{string.Join(", ", renderedArguments)}>";
+    }
+
+    private static string FormatPlaceholderManagedTypeName(string managedTypeFormat, object[] argumentNames, IReadOnlyList<string> renderedArguments)
+    {
+        if (AllPlaceholdersInRange(managedTypeFormat, argumentNames.Length))
+        {
+            return string.Format(System.Globalization.CultureInfo.InvariantCulture, managedTypeFormat, argumentNames);
+        }
+
+        var genericStart = managedTypeFormat.IndexOf('<');
+        var managedTypeHead = genericStart >= 0 ? managedTypeFormat[..genericStart] : managedTypeFormat;
+        return $"{managedTypeHead}<{string.Join(", ", renderedArguments)}>";
+    }
+
+    private static bool AllPlaceholdersInRange(string format, int argumentCount)
+    {
+        for (var index = 0; index < format.Length; index++)
+        {
+            if (format[index] != '{')
+            {
+                continue;
+            }
+
+            var closeIndex = format.IndexOf('}', index + 1);
+            if (closeIndex <= index + 1)
+            {
+                continue;
+            }
+
+            if (int.TryParse(format[(index + 1)..closeIndex], out var placeholderIndex) &&
+                placeholderIndex >= argumentCount)
+            {
+                return false;
+            }
+
+            index = closeIndex;
+        }
+
+        return true;
     }
 }

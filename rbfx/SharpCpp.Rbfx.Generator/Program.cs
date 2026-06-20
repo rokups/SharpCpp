@@ -72,6 +72,7 @@ internal static class Program
         "Urho3D::TriggerAnimator",
         "Urho3D::RmlUIComponent",
         "Urho3D::ActionCallHandler",
+        "Urho3D::EventHandler",
     };
 
     public static int Main(string[] args)

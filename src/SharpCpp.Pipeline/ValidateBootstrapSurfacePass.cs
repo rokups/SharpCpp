@@ -73,7 +73,7 @@ public static class ValidateBootstrapSurfacePass
             return;
         }
 
-        FilterUnsupportedInstantiations(record.SupportedGenericInstantiations, recordsById);
+        FilterUnsupportedInstantiations(record, record.SupportedGenericInstantiations, recordsById);
 
         if (record.SupportedGenericInstantiations.Count == 0 &&
             !record.HasMetadata(MetadataKeys.ExplicitGenericInstantiations))
@@ -109,37 +109,81 @@ public static class ValidateBootstrapSurfacePass
     {
         foreach (var argument in instantiation.TypeArguments)
         {
-            if (argument.Kind is not (BindingTypeKind.Primitive or BindingTypeKind.Enum or BindingTypeKind.Handle))
+            if (!ValidateInstantiationArgument(argument, recordsById))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool ValidateInstantiationKinds(
+        RecordBinding record,
+        RecordGenericInstantiationBinding instantiation,
+        IReadOnlyDictionary<string, RecordBinding> recordsById)
+    {
+        foreach (var argument in SelectManagedVisibleTypeArguments(record, instantiation.TypeArguments))
+        {
+            if (!ValidateInstantiationArgument(argument, recordsById))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool ValidateInstantiationArgument(BindingType argument, IReadOnlyDictionary<string, RecordBinding> recordsById)
+    {
+        if (argument.Kind is not (BindingTypeKind.Primitive or BindingTypeKind.Enum or BindingTypeKind.Handle))
+        {
+            return false;
+        }
+
+        if (HasUnresolvedNamespaceColons(argument))
+        {
+            return false;
+        }
+
+        if (argument.Marshaller.IsRefStruct)
+        {
+            return false;
+        }
+
+        if (argument.Kind == BindingTypeKind.Handle &&
+            argument.RecordId is not null &&
+            recordsById.TryGetValue(argument.RecordId, out var argRecord))
+        {
+            if (argRecord.IsIgnored() && IsFatalIgnoredGenericArgumentRecord(argRecord))
             {
                 return false;
             }
 
-            if (HasUnresolvedNamespaceColons(argument))
+            // Placeholder records without SuppressEmission are unresolvable
+            // external types that should not produce bindings.
+            if (argRecord.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) &&
+                !argRecord.GetMetadata<bool>(MetadataKeys.SuppressEmission))
             {
                 return false;
             }
 
-            if (argument.Kind == BindingTypeKind.Handle &&
-                argument.RecordId is not null &&
-                recordsById.TryGetValue(argument.RecordId, out var argRecord))
+            // SuppressEmission placeholders that reference C++ types from
+            // namespaces not included in the native build (e.g. Rml::Vector3)
+            // produce broken native thunks — filter those instantiations.
+            if (argRecord.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) &&
+                argRecord.GetMetadata<bool>(MetadataKeys.SuppressEmission) &&
+                HasUnresolvedNativeNamespaceColons(argRecord))
             {
-                // Placeholder records without SuppressEmission are unresolvable
-                // external types that should not produce bindings.
-                if (argRecord.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) &&
-                    !argRecord.GetMetadata<bool>(MetadataKeys.SuppressEmission))
-                {
-                    return false;
-                }
+                return false;
+            }
+        }
 
-                // SuppressEmission placeholders that reference C++ types from
-                // namespaces not included in the native build (e.g. Rml::Vector3)
-                // produce broken native thunks — filter those instantiations.
-                if (argRecord.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) &&
-                    argRecord.GetMetadata<bool>(MetadataKeys.SuppressEmission) &&
-                    HasUnresolvedNativeNamespaceColons(argRecord))
-                {
-                    return false;
-                }
+        foreach (var genericArgument in SelectManagedVisibleNestedTypeArguments(argument, recordsById))
+        {
+            if (!ValidateInstantiationArgument(genericArgument, recordsById))
+            {
+                return false;
             }
         }
 
@@ -154,6 +198,119 @@ public static class ValidateBootstrapSurfacePass
         {
             if (!ValidateInstantiationKinds(instantiations[i], recordsById))
                 instantiations.RemoveAt(i);
+        }
+    }
+
+    private static void FilterUnsupportedInstantiations(
+        RecordBinding record,
+        IList<RecordGenericInstantiationBinding> instantiations,
+        IReadOnlyDictionary<string, RecordBinding> recordsById)
+    {
+        for (var i = instantiations.Count - 1; i >= 0; i--)
+        {
+            if (!ValidateInstantiationKinds(record, instantiations[i], recordsById))
+                instantiations.RemoveAt(i);
+        }
+    }
+
+    private static IEnumerable<BindingType> SelectManagedVisibleNestedTypeArguments(
+        BindingType type,
+        IReadOnlyDictionary<string, RecordBinding> recordsById)
+    {
+        if (type.Kind == BindingTypeKind.Handle &&
+            type.RecordId is not null &&
+            recordsById.TryGetValue(type.RecordId, out var record) &&
+            record.IsGeneric)
+        {
+            return SelectManagedVisibleTypeArguments(record, type.GenericArguments);
+        }
+
+        return type.GenericArguments;
+    }
+
+    private static IEnumerable<BindingType> SelectManagedVisibleTypeArguments(
+        RecordBinding record,
+        IReadOnlyList<BindingType> typeArguments)
+    {
+        var visibleIndices = GetManagedVisibleGenericParameterIndices(record);
+        if (visibleIndices.Count == 0 || typeArguments.Count == 0)
+        {
+            return typeArguments;
+        }
+
+        if (typeArguments.Count == record.GenericParameters.Count)
+        {
+            return visibleIndices
+                .Where(index => index < typeArguments.Count)
+                .Select(index => typeArguments[index]);
+        }
+
+        return typeArguments;
+    }
+
+    private static bool IsFatalIgnoredGenericArgumentRecord(RecordBinding record)
+    {
+        if (record.GetMetadata<bool>(MetadataKeys.ForwardDeclaration))
+        {
+            return true;
+        }
+
+        if (record.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) &&
+            !record.GetMetadata<bool>(MetadataKeys.SuppressEmission))
+        {
+            return true;
+        }
+
+        var ignoreReason = record.GetIgnoreReason() ?? string.Empty;
+        return ignoreReason.Contains("outside the configured namespace mappings", StringComparison.Ordinal) ||
+            ignoreReason.Contains("internal detail namespace", StringComparison.Ordinal) ||
+            ignoreReason.Contains("wrapper materialization requires a complete definition", StringComparison.Ordinal);
+    }
+
+    private static IReadOnlyList<int> GetManagedVisibleGenericParameterIndices(RecordBinding record)
+    {
+        var usedIndices = new HashSet<int>();
+        CollectManagedFormatPlaceholderIndices(record.ManagedTypeFormat, usedIndices);
+        CollectManagedFormatPlaceholderIndices(record.ManagedBaseTypeName, usedIndices);
+        CollectManagedFormatPlaceholderIndices(record.ManagedBaseTypeConstraints, usedIndices);
+
+        if (usedIndices.Count == 0)
+        {
+            return Enumerable.Range(0, record.GenericParameters.Count).ToArray();
+        }
+
+        return usedIndices
+            .Where(index => index >= 0 && index < record.GenericParameters.Count)
+            .OrderBy(static index => index)
+            .ToArray();
+    }
+
+    private static void CollectManagedFormatPlaceholderIndices(string? format, ISet<int> target)
+    {
+        if (string.IsNullOrWhiteSpace(format))
+        {
+            return;
+        }
+
+        for (var index = 0; index < format.Length; index++)
+        {
+            if (format[index] != '{')
+            {
+                continue;
+            }
+
+            var closeIndex = format.IndexOf('}', index + 1);
+            if (closeIndex <= index + 1)
+            {
+                continue;
+            }
+
+            if (int.TryParse(format[(index + 1)..closeIndex], out var placeholderIndex))
+            {
+                target.Add(placeholderIndex);
+            }
+
+            index = closeIndex;
         }
     }
 

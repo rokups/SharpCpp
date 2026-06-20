@@ -2,6 +2,7 @@ using ClangSharp;
 using ClangSharp.Interop;
 using Microsoft.Extensions.Logging;
 using SharpCpp.Model.Logging;
+using System.Reflection;
 using System.Text.RegularExpressions;
 
 namespace SharpCpp.Parsing;
@@ -18,6 +19,14 @@ namespace SharpCpp.Parsing;
 /// </summary>
 internal static class MarshallerConfigExtractor
 {
+    private static readonly MethodInfo GetOrCreateCursorMethod = typeof(TranslationUnit)
+        .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+        .Single(static method => method.Name == "GetOrCreate" &&
+            method.IsGenericMethodDefinition &&
+            method.GetParameters() is [{ ParameterType: var parameterType }] &&
+            parameterType == typeof(CXCursor))
+        .MakeGenericMethod(typeof(Decl));
+
     // Key=value extractors (attribute body parsing only — NOT C++ code parsing).
     private static readonly Regex PublicTypeExpression = new(
         @"public_type\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
@@ -245,19 +254,15 @@ internal static class MarshallerConfigExtractor
         IReadOnlyDictionary<string, Decl> declIndex,
         Dictionary<string, ManagedTypeOverride> result)
     {
-        foreach (var child in decl.Decls)
+        foreach (var child in EnumerateDescendantDecls(decl))
         {
-            if (child is RecordDecl or ClassTemplateDecl or ClassTemplatePartialSpecializationDecl)
+            if (child is RecordDecl or ClassTemplateDecl or ClassTemplatePartialSpecializationDecl &&
+                IsPotentialMarshallerDeclaration(child))
             {
                 if (TryGetMarshallerTemplateKind(child, out var isReturn))
                 {
                     ProcessMarshallerDeclaration(child, declIndex, isReturn, result);
                 }
-            }
-
-            if (child is NamespaceDecl)
-            {
-                WalkForMarshallerDeclarations(child, declIndex, result);
             }
         }
     }
@@ -299,11 +304,6 @@ internal static class MarshallerConfigExtractor
         cppTypeName = NormalizeTypeName(cppTypeName);
 
         var key = isReturn ? "return:" + cppTypeName : cppTypeName;
-
-        if (result.ContainsKey(key))
-        {
-            return;
-        }
 
         var undefaultableMatch = UndefaultableExpression.Match(body);
         var marshallerTypeMatch = MarshallerTypeInAttributeExpression.Match(body);
@@ -353,19 +353,15 @@ internal static class MarshallerConfigExtractor
         IReadOnlyDictionary<string, Decl> declIndex,
         Dictionary<string, MarshallerBodyConfig> result)
     {
-        foreach (var child in decl.Decls)
+        foreach (var child in EnumerateDescendantDecls(decl))
         {
-            if (child is RecordDecl or ClassTemplateDecl or ClassTemplatePartialSpecializationDecl)
+            if (child is RecordDecl or ClassTemplateDecl or ClassTemplatePartialSpecializationDecl &&
+                IsPotentialMarshallerDeclaration(child))
             {
                 if (TryGetMarshallerTemplateKind(child, out var isReturn) && !isReturn)
                 {
                     ProcessMarshallerBody(child, declIndex, result);
                 }
-            }
-
-            if (child is NamespaceDecl)
-            {
-                WalkForMarshallerBodies(child, declIndex, result);
             }
         }
     }
@@ -390,7 +386,7 @@ internal static class MarshallerConfigExtractor
         var releaseStrategyMatch = ReleaseStrategyExpression.Match(body);
 
         var cppTypeName = ExtractTemplateArgFromCursorType(decl, isReturn: false);
-        if (string.IsNullOrWhiteSpace(cppTypeName) || result.ContainsKey(cppTypeName))
+        if (string.IsNullOrWhiteSpace(cppTypeName))
         {
             return;
         }
@@ -578,14 +574,10 @@ internal static class MarshallerConfigExtractor
 
     private static void IndexRecordLikeDecls(Decl decl, IDictionary<string, Decl> declIndex)
     {
-        foreach (var child in decl.Decls)
+        foreach (var child in EnumerateDescendantDecls(decl))
         {
             switch (child)
             {
-                case NamespaceDecl namespaceDecl:
-                    IndexRecordLikeDecls(namespaceDecl, declIndex);
-                    break;
-
                 case ClassTemplateDecl classTemplateDecl:
                     AddDeclIndexEntry(classTemplateDecl, declIndex);
                     if (classTemplateDecl.TemplatedDecl is not null)
@@ -599,6 +591,70 @@ internal static class MarshallerConfigExtractor
                     break;
             }
         }
+    }
+
+    private static unsafe IEnumerable<Decl> EnumerateDescendantDecls(Cursor root)
+    {
+        var result = new List<Decl>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var translationUnit = TranslationUnit.GetOrCreate(root.Handle.TranslationUnit);
+
+        root.Handle.VisitChildren((cursor, _, _) =>
+        {
+            if (!IsRecordLikeCursor(cursor))
+            {
+                return CXChildVisitResult.CXChildVisit_Recurse;
+            }
+
+            if (!TryCreateDecl(translationUnit, cursor, out var decl))
+            {
+                return CXChildVisitResult.CXChildVisit_Recurse;
+            }
+
+            var key = GetDeclLocationKey(decl.Handle) ?? decl.Handle.GetHashCode().ToString(System.Globalization.CultureInfo.InvariantCulture);
+            if (seen.Add(key))
+            {
+                result.Add(decl);
+            }
+
+            return CXChildVisitResult.CXChildVisit_Recurse;
+        }, default);
+
+        return result;
+    }
+
+    private static bool IsRecordLikeCursor(CXCursor cursor)
+    {
+        return cursor.Kind is CXCursorKind.CXCursor_StructDecl or
+            CXCursorKind.CXCursor_ClassDecl or
+            CXCursorKind.CXCursor_ClassTemplate or
+            CXCursorKind.CXCursor_ClassTemplatePartialSpecialization;
+    }
+
+    private static bool TryCreateDecl(TranslationUnit translationUnit, CXCursor cursor, out Decl decl)
+    {
+        try
+        {
+            decl = (Decl)GetOrCreateCursorMethod.Invoke(translationUnit, [cursor])!;
+            return true;
+        }
+        catch (TargetInvocationException exception) when (exception.InnerException is ArgumentOutOfRangeException or InvalidOperationException)
+        {
+            decl = null!;
+            return false;
+        }
+    }
+
+    private static bool IsPotentialMarshallerDeclaration(Decl decl)
+    {
+        if (decl is not NamedDecl namedDecl)
+        {
+            return false;
+        }
+
+        var name = namedDecl.Name ?? namedDecl.Spelling.ToString();
+        return string.Equals(name, "Marshaller", StringComparison.Ordinal) ||
+            string.Equals(name, "ReturnMarshaller", StringComparison.Ordinal);
     }
 
     private static void AddDeclIndexEntry(Decl decl, IDictionary<string, Decl> declIndex)
@@ -669,15 +725,15 @@ internal static class MarshallerConfigExtractor
             }
         }
 
-        var patternParameters = ExtractTemplateParameterNamesFromTypePattern(cppTypeName);
-        if (patternParameters.Count > 0)
+        var sourceText = GetSourceText(decl.Handle.TranslationUnit, decl.Extent);
+        if (TryExtractTemplateParameterNamesFromSource(sourceText, out var sourceParameters))
         {
-            return patternParameters;
+            return sourceParameters;
         }
 
-        var sourceText = GetSourceText(decl.Handle.TranslationUnit, decl.Extent);
-        return TryExtractTemplateParameterNamesFromSource(sourceText, out var sourceParameters)
-            ? sourceParameters
+        var patternParameters = ExtractTemplateParameterNamesFromTypePattern(cppTypeName);
+        return patternParameters.Count > 0
+            ? patternParameters
             : Array.Empty<string>();
     }
 
@@ -719,15 +775,14 @@ internal static class MarshallerConfigExtractor
 
     private static IReadOnlyList<string> ExtractTemplateParameterNamesFromTypePattern(string cppTypeName)
     {
-        if (!cppTypeName.Contains('<', StringComparison.Ordinal))
+        var genericStart = cppTypeName.IndexOf('<');
+        var genericEnd = cppTypeName.LastIndexOf('>');
+        if (genericStart < 0 || genericEnd <= genericStart)
         {
             return Array.Empty<string>();
         }
 
-        if (!TryExtractTemplateArgumentFromSource($"Marshaller<{cppTypeName}>", isReturn: false, out var argumentText))
-        {
-            return Array.Empty<string>();
-        }
+        var argumentText = cppTypeName[(genericStart + 1)..genericEnd];
 
         var builtinTokens = new HashSet<string>(StringComparer.Ordinal)
         {

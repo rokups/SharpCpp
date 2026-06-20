@@ -589,6 +589,75 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Managed_output_restores_aliases_inside_callback_public_signatures()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "Urho3D",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Core/Object.hpp" });
+        var objectRecord = new RecordBinding("record:object", "Object", "Object", "Urho3D::Object")
+        {
+            ManagedNamespace = "Urho3D"
+        };
+        var stringHashRecord = new RecordBinding("record:string_hash", "StringHash", "StringHash", "Urho3D::StringHash")
+        {
+            ManagedNamespace = "Urho3D"
+        };
+        var variantRecord = new RecordBinding("record:variant", "Variant", "Variant", "Urho3D::Variant")
+        {
+            ManagedNamespace = "Urho3D"
+        };
+        var unorderedMapRecord = new RecordBinding("record:ea_unordered_map", "hash_map", "UnorderedMap", "eastl::hash_map")
+        {
+            ManagedNamespace = "Ea",
+            ManagedTypeFormat = "UnorderedMap<{0}, {1}>"
+        };
+        unorderedMapRecord.GenericParameters.Add(new BindingGenericParameter("TKey", 0));
+        unorderedMapRecord.GenericParameters.Add(new BindingGenericParameter("TValue", 1));
+        compilation.Members.Add(objectRecord);
+        compilation.Members.Add(stringHashRecord);
+        compilation.Members.Add(variantRecord);
+        compilation.Members.Add(unorderedMapRecord);
+
+        var variantMapType = BindingType.CreateHandle(
+            "Urho3D::VariantMap*",
+            "UnorderedMap",
+            unorderedMapRecord.SymbolId,
+            genericArguments: new[] { stringHashRecord.HandleType, variantRecord.HandleType });
+        compilation.TypeAliases.Add(new BindingTypeAlias("Urho3D::VariantMap", "VariantMap", "VariantMap", variantMapType));
+
+        var callbackType = BindingType.CreateCallback(
+            "ea::function<void(Urho3D::Object*, Urho3D::StringHash, Urho3D::VariantMap&)>",
+            "global::System.Action<{0}, {1}, {2}>",
+            managedMarshaller: null,
+            BindingType.Void,
+            [objectRecord.HandleType, stringHashRecord.HandleType, variantMapType]);
+        var function = new FunctionBinding(
+            "function:subscribe",
+            "Subscribe",
+            "Subscribe",
+            BindingType.Void,
+            "sharpcpp_sample_subscribe");
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:subscribe:handler",
+            "handler",
+            "handler",
+            callbackType,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "HandlerFunction"));
+        compilation.Members.Add(function);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath == "SharpCppSample.Bindings.g.cs").Content;
+
+        Assert.Contains("public static void Subscribe(global::System.Action<global::Urho3D.Object, global::Urho3D.StringHash, VariantMap> handler)", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("global::System.Action<global::Urho3D.Object, global::Urho3D.StringHash, global::Ea.UnorderedMap", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Managed_output_uses_shadow_projection_for_namespaces_and_type_qualification()
     {
         var compilation = new BindingCompilation(
