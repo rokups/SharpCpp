@@ -4355,6 +4355,7 @@ public static partial class BindingOutputRenderer
         var firstUnexpressibleDefault = parameterArray
             .Select((parameter, index) => (parameter, index))
             .FirstOrDefault(static entry => entry.parameter.HasMetadata(MetadataKeys.UnexpressibleDefault));
+        var lastRequiredParameterIndex = Array.FindLastIndex(parameterArray, static parameter => !CanRenderManagedPublicDefault(parameter));
 
         var parts = new List<string>(parameterArray.Length);
         for (var i = 0; i < parameterArray.Length; i++)
@@ -4373,6 +4374,12 @@ public static partial class BindingOutputRenderer
                     parts.Add(RenderManagedPublicParameterNoDefault(parameter, compilation));
                     continue;
                 }
+            }
+
+            if (i < lastRequiredParameterIndex && CanRenderManagedPublicDefault(parameter))
+            {
+                parts.Add(RenderManagedPublicParameterNoDefault(parameter, compilation));
+                continue;
             }
 
             parts.Add(RenderManagedPublicParameter(parameter, compilation));
@@ -4491,6 +4498,14 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedPublicParameterNoDefault(ParameterBinding parameter, BindingCompilation? compilation = null)
     {
         return RenderManagedPublicParameterCore(parameter, forceRequired: false, suppressDefault: true, compilation);
+    }
+
+    private static bool CanRenderManagedPublicDefault(ParameterBinding parameter)
+    {
+        return !parameter.HasMetadata(MetadataKeys.UnexpressibleDefault) &&
+            parameter.Direction == BindingParameterDirection.In &&
+            parameter.AbiKind == BindingParameterAbiKind.Value &&
+            parameter.ManagedDefaultValueExpression is { Length: > 0 };
     }
 
     private static string RenderManagedPublicParameterCore(ParameterBinding parameter, bool forceRequired, bool suppressDefault, BindingCompilation? compilation = null)

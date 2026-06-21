@@ -126,6 +126,14 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **Const/template overload pruning now matches exact callable shape, and rbfx post-processing no longer hides valid non-ImGui APIs**:
+  - `SilentlyExcludeConstOverloadMethodsPass` now keys const/non-const duplicate candidates by native name, generic parameters, return type, and parameter ABI/type details, so a template overload no longer causes an unrelated `Object* GetSubsystem(StringHash) const` overload to be discarded.
+  - `DegradeUnsupportedSurfacePass` includes generic-parameter shape in managed callable duplicate checks so template and non-template overloads do not collapse before the const-overload pass can reason about them.
+  - `RbfxImGuiSurfacePass` now scopes unsupported ImGui type/function/field pruning to actual ImGui records and callables instead of treating every non-ImGui record type as outside the ImGui bootstrap surface.
+  - Generated rbfx output now includes `Context.GetSubsystem(StringHash)` and `Object.GetSubsystem(StringHash)` while explicit handwritten rbfx conveniences are suppressed by `RbfxHandwrittenManagedTypeSuppressionPass`.
+  - Renderer public signatures now suppress defaults on non-trailing optional parameters, avoiding invalid C# for APIs such as `Widgets.ImageButton(..., framePadding = -1, bgCol, tintCol)`.
+  - Verification: focused model/rendering tests pass, `cmake --build --preset Debug` passes, generated rbfx grep checks for both `GetSubsystem(StringHash)` methods pass, and `ctest --preset Debug` passes.
+
 - **rbfx typed object helpers now use a generated static type-info contract**:
   - Added self-typed `SharpCpp.Rbfx.Bindings.Interop.IStaticTypeInfo<TSelf>`.
   - Added `managed_static_interfaces` and `managed_static_interfaces_abstract` marshaller metadata; `Marshaller<Urho3D::Object*>` now owns the inherited `IStaticTypeInfo<{managed_type}>` contract without forcing generated `Object` itself to implement it, and the renderer expands `{managed_type}` for generated derived records that expose public static `GetTypeStatic()`.

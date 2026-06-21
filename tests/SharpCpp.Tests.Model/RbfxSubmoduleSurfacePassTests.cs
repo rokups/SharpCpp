@@ -123,6 +123,60 @@ public sealed class RbfxSubmoduleSurfacePassTests
     }
 
     [Fact]
+    public void ImGui_pass_keeps_non_imgui_methods_with_non_imgui_record_types()
+    {
+        var compilation = CreateCompilation();
+        var objectRecord = new RecordBinding("record:Urho3D::Object", "Object", "Object", "Urho3D::Object");
+        var context = new RecordBinding("record:Urho3D::Context", "Context", "Context", "Urho3D::Context");
+        var getSubsystem = new FunctionBinding(
+            "method:Urho3D::Context::GetSubsystem",
+            "GetSubsystem",
+            "GetSubsystem",
+            BindingType.CreateHandle("Urho3D::Object*", "Object", objectRecord.SymbolId),
+            cppReturnTypeName: "Urho3D::Object*",
+            cppQualifiedName: "Urho3D::Context::GetSubsystem")
+        {
+            IsStatic = false,
+            IsConstMethod = true
+        };
+        getSubsystem.Parameters.Add(new ParameterBinding(
+            "parameter:Urho3D::Context::GetSubsystem:type",
+            "type",
+            "type",
+            BindingType.CreateConfigured("Urho3D::StringHash", "global::Urho3D.Math.StringHash"),
+            cppTypeName: "Urho3D::StringHash"));
+        context.Members.Add(getSubsystem);
+        compilation.Members.Add(objectRecord);
+        compilation.Members.Add(context);
+
+        RbfxImGuiSurfacePass.Apply(compilation);
+
+        Assert.False(getSubsystem.IsIgnored(), getSubsystem.GetIgnoreReason());
+        Assert.False(getSubsystem.IsSilentlyExcluded());
+    }
+
+    [Fact]
+    public void ImGui_pass_keeps_non_imgui_char_pointer_fields()
+    {
+        var compilation = CreateCompilation();
+        var record = new RecordBinding("record:Urho3D::NamedThing", "NamedThing", "NamedThing", "Urho3D::NamedThing");
+        var field = new FieldBinding(
+            "field:Urho3D::NamedThing::Name",
+            "Name",
+            "Name",
+            BindingType.CreateHandle("const char*", "global::System.ReadOnlySpan<byte>"),
+            "const char*",
+            "Urho3D::NamedThing");
+        record.Members.Add(field);
+        compilation.Members.Add(record);
+
+        RbfxImGuiSurfacePass.Apply(compilation);
+
+        Assert.False(field.IsIgnored(), field.GetIgnoreReason());
+        Assert.False(field.IsSilentlyExcluded());
+    }
+
+    [Fact]
     public void ImGui_pass_restores_public_records_after_prior_silent_exclusion()
     {
         var compilation = CreateCompilation();

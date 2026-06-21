@@ -828,6 +828,35 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Managed_output_suppresses_non_trailing_default_values()
+    {
+        var compilation = new BindingCompilation("TestProject", "Test", "Bindings", "Native", ["Sample.hpp"]);
+        var widgets = new RecordBinding("record:Widgets", "Widgets", "Widgets", "Test::Widgets");
+        var imageButton = new FunctionBinding(
+            "method:Widgets:ImageButton",
+            "ImageButton",
+            "ImageButton",
+            BindingType.Boolean,
+            "scrbfx_Widgets_ImageButton")
+        {
+            IsStatic = true,
+            OwningRecordCppTypeName = widgets.CppQualifiedName
+        };
+        imageButton.Parameters.Add(new ParameterBinding("parameter:framePadding", "framePadding", "framePadding", BindingType.Int32, cppTypeName: "int")
+        {
+            ManagedDefaultValueExpression = "-1"
+        });
+        imageButton.Parameters.Add(new ParameterBinding("parameter:bgCol", "bgCol", "bgCol", BindingType.Int32, cppTypeName: "int"));
+        widgets.Members.Add(imageButton);
+        compilation.Members.Add(widgets);
+
+        var output = BindingOutputRenderer.Render(compilation, "TestProject").Files.Single(static file => file.RelativePath == "TestProject.Bindings.g.cs").Content;
+
+        Assert.Contains("public static bool ImageButton(int framePadding, int bgCol)", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("int framePadding = -1, int bgCol", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Grouped_alias_output_uses_projected_namespaces_for_registry_types()
     {
         var compilation = new BindingCompilation(

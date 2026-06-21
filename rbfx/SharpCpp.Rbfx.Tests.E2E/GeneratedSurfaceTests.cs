@@ -18,7 +18,7 @@ public sealed class GeneratedSurfaceTests
     {
         var content = File.ReadAllText(Path.Combine(GetGeneratedDir(), "Core", "SharpCpp.Rbfx.Spline.g.cs"));
 
-        Assert.DoesNotContain("public global::Urho3D.Core.Variant GetPoint(float f)", content, StringComparison.Ordinal);
+        Assert.Contains("public global::Urho3D.Core.Variant GetPoint(float f)", content, StringComparison.Ordinal);
         Assert.Contains("public global::Urho3D.Core.InterpolationMode GetInterpolationMode()", content, StringComparison.Ordinal);
         Assert.Contains("public void SetInterpolationMode(global::Urho3D.Core.InterpolationMode interpolationMode)", content, StringComparison.Ordinal);
     }

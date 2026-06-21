@@ -93,8 +93,9 @@ public static class RbfxImGuiSurfacePass
 
         foreach (var field in compilation.Records.SelectMany(static record => record.Members.OfType<FieldBinding>()).Where(static field => !field.IsIgnored()))
         {
+            var parentIsDearImGui = field.Parent is RecordBinding parentRecord && IsDearImGuiRecord(parentRecord.CppQualifiedName);
             if (TypeUsesUnsupportedImGuiType(field.Type, field.CppTypeName, recordsBySymbolId) ||
-                IsUnsupportedImGuiFieldType(field.CppTypeName, field.Type.CppTypeName))
+                (parentIsDearImGui && IsUnsupportedImGuiFieldType(field.CppTypeName, field.Type.CppTypeName)))
             {
                 field.SetSilentExclusionReason("Dear ImGui field references a type outside the conservative bootstrap surface");
                 changed++;
@@ -134,9 +135,15 @@ public static class RbfxImGuiSurfacePass
         FunctionBinding function,
         IReadOnlyDictionary<string, RecordBinding> recordsBySymbolId)
     {
-        return IsUnsupportedImGuiFunction(function) ||
+        return (IsDearImGuiCallable(function) && IsUnsupportedImGuiFunction(function)) ||
             TypeUsesUnsupportedImGuiType(function.ReturnType, function.CppReturnTypeName, recordsBySymbolId) ||
             function.Parameters.Any(parameter => TypeUsesUnsupportedImGuiType(parameter.Type, parameter.CppTypeName, recordsBySymbolId));
+    }
+
+    private static bool IsDearImGuiCallable(FunctionBinding function)
+    {
+        return function.CppQualifiedName.StartsWith("ImGui::", StringComparison.Ordinal) ||
+            (function.Parent is RecordBinding parentRecord && IsDearImGuiRecord(parentRecord.CppQualifiedName));
     }
 
     private static bool IsUnsupportedImGuiFunction(FunctionBinding function)
@@ -159,6 +166,7 @@ public static class RbfxImGuiSurfacePass
 
         if (type.RecordId is not null &&
             recordsBySymbolId.TryGetValue(type.RecordId, out var record) &&
+            IsDearImGuiRecord(record.CppQualifiedName) &&
             !PublicGlobalRecordNames.Contains(record.CppQualifiedName) &&
             !ConfiguredValueRecordNames.Contains(record.CppQualifiedName))
         {
@@ -225,6 +233,10 @@ public static class RbfxImGuiSurfacePass
             cppTypeName.Contains("[]", StringComparison.Ordinal) ||
             cppTypeName.Contains("**", StringComparison.Ordinal) ||
             IsConfiguredValueFixedArrayType(cppTypeName);
+
+    private static bool IsDearImGuiRecord(string cppQualifiedName)
+        => IsDearImGuiGlobal(cppQualifiedName) ||
+            cppQualifiedName.StartsWith("ImGui::", StringComparison.Ordinal);
 
     private static bool IsUnsupportedImGuiFieldType(string cppTypeName, string modelCppTypeName)
         => IsCharPointer(cppTypeName) || IsCharPointer(modelCppTypeName);

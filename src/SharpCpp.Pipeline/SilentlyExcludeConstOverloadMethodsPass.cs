@@ -57,8 +57,13 @@ public static class SilentlyExcludeConstOverloadMethodsPass
         return string.Join(
             "|",
             function.ManagedName,
+            function.NativeName,
             function.IsStatic,
             function.IsConstructor,
+            GetGenericParameterSignature(function),
+            function.CppReturnTypeName,
+            function.ReturnType.Kind,
+            function.ReturnType.UnaliasedManagedTypeName,
             string.Join(
                 ";",
                 function.Parameters.Select(static parameter =>
@@ -66,7 +71,15 @@ public static class SilentlyExcludeConstOverloadMethodsPass
                         ":",
                         parameter.Direction,
                         parameter.AbiKind,
+                        parameter.CppTypeName,
                         parameter.Type.Kind,
-                        parameter.Type.ManagedTypeName))));
+                        parameter.Type.UnaliasedManagedTypeName))));
+    }
+
+    private static string GetGenericParameterSignature(FunctionBinding function)
+    {
+        return string.Join(
+            ",",
+            function.GenericParameters.Select(static parameter => $"{parameter.Position}:{parameter.Name}"));
     }
 }

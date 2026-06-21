@@ -192,7 +192,7 @@ internal static class Program
             var managedProjection = RbfxManagedNamespaceProjectionPass.Apply(compilation);
             Logger.LogInformation("Managed namespace projection complete: {NamespaceCount} namespace node(s).", managedProjection.Namespaces.Count);
             var suppressedHandwrittenTypes = RbfxHandwrittenManagedTypeSuppressionPass.Apply(compilation);
-            Logger.LogInformation("Suppressed {Count} generated managed type(s) already provided by handwritten rbfx sources.", suppressedHandwrittenTypes);
+            Logger.LogInformation("Suppressed {Count} generated declaration(s) already provided by handwritten rbfx sources.", suppressedHandwrittenTypes);
 
             Logger.LogInformation("Rendering...");
             var renderSw = Stopwatch.StartNew();

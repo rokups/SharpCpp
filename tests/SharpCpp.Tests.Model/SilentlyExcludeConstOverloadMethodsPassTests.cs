@@ -162,4 +162,36 @@ public sealed class SilentlyExcludeConstOverloadMethodsPassTests
         Assert.False(getByIndex.IsIgnored());
         Assert.False(getAll.IsIgnored());
     }
+
+    [Fact]
+    public void Apply_keeps_const_method_when_non_const_template_overload_has_same_managed_parameters()
+    {
+        var compilation = new BindingCompilation("TestProject", "Test", "Bindings", "Native", ["Sample.hpp"]);
+        var record = new RecordBinding("record:Test::Sample", "Sample", "Sample", "Test::Sample");
+        var mutableTemplate = new FunctionBinding("method:Test::Sample::GetSubsystem:template", "GetSubsystem", "GetSubsystem", BindingType.CreateGenericParameter("T"), cppQualifiedName: "Test::Sample::GetSubsystem")
+        {
+            IsStatic = false,
+            IsConstMethod = false,
+            CppReturnTypeName = "T*"
+        };
+        mutableTemplate.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        mutableTemplate.Parameters.Add(new ParameterBinding("parameter:type:template", "type", "type", BindingType.Int32, cppTypeName: "StringHash"));
+        var immutable = new FunctionBinding("method:Test::Sample::GetSubsystem:const", "GetSubsystem", "GetSubsystem", BindingType.Int32, cppQualifiedName: "Test::Sample::GetSubsystem")
+        {
+            IsStatic = false,
+            IsConstMethod = true,
+            CppReturnTypeName = "Object*"
+        };
+        immutable.Parameters.Add(new ParameterBinding("parameter:type", "type", "type", BindingType.Int32, cppTypeName: "StringHash"));
+        record.Members.Add(mutableTemplate);
+        record.Members.Add(immutable);
+        compilation.Members.Add(record);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+        SilentlyExcludeConstOverloadMethodsPass.Apply(compilation);
+
+        Assert.False(mutableTemplate.IsIgnored(), mutableTemplate.GetIgnoreReason());
+        Assert.False(immutable.IsIgnored(), immutable.GetIgnoreReason());
+        Assert.False(immutable.IsSilentlyExcluded());
+    }
 }

@@ -14,7 +14,7 @@ public sealed class BiasParametersTests
         var type = typeof(BiasParameters);
 
         Assert.True(type.IsSubclassOf(typeof(NativeObject)));
-        Assert.Null(type.GetConstructor(global::System.Type.EmptyTypes));
+        Assert.NotNull(type.GetConstructor(global::System.Type.EmptyTypes));
 
         Assert.Equal(typeof(float), type.GetProperty(nameof(BiasParameters.ConstantBias))!.PropertyType);
         Assert.Equal(typeof(float), type.GetProperty(nameof(BiasParameters.SlopeScaledBias))!.PropertyType);

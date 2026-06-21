@@ -28,8 +28,7 @@ public partial class Context
     public T? GetSubsystem<T>()
         where T : Object, global::SharpCpp.Rbfx.Bindings.Interop.IStaticTypeInfo<T>
     {
-        var handle = __RbfxCorePInvoke.ContextGetSubsystem(NativeObject.GetHandle(this), T.GetTypeStatic());
-        return handle == 0 ? null : Object.CreateManagedWrapper(handle, ownsHandle: false) as T;
+        return GetSubsystem(T.GetTypeStatic()) as T;
     }
 }
 
@@ -47,8 +46,7 @@ public abstract partial class Object
     public T? GetSubsystem<T>()
         where T : Object, global::SharpCpp.Rbfx.Bindings.Interop.IStaticTypeInfo<T>
     {
-        var handle = __RbfxCorePInvoke.ObjectGetSubsystem(NativeObject.GetHandle(this), T.GetTypeStatic());
-        return handle == 0 ? null : CreateManagedWrapper(handle, ownsHandle: false) as T;
+        return GetSubsystem(T.GetTypeStatic()) as T;
     }
 }
 

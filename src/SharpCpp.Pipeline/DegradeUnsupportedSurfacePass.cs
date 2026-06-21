@@ -860,6 +860,7 @@ public static class DegradeUnsupportedSurfacePass
             function.ManagedName,
             function.IsStatic,
             function.IsConstructor,
+            GetGenericParameterSignature(function),
             string.Join(";", function.Parameters.Select(static parameter => parameter.CppTypeName)));
     }
 
@@ -870,6 +871,7 @@ public static class DegradeUnsupportedSurfacePass
             function.ManagedName,
             function.IsStatic,
             function.IsConstructor,
+            GetGenericParameterSignature(function),
             string.Join(
                 ";",
                 function.Parameters.Select(static parameter =>
@@ -879,6 +881,13 @@ public static class DegradeUnsupportedSurfacePass
                         parameter.AbiKind,
                         parameter.Type.Kind,
                         parameter.Type.UnaliasedManagedTypeName))));
+    }
+
+    private static string GetGenericParameterSignature(FunctionBinding function)
+    {
+        return string.Join(
+            ",",
+            function.GenericParameters.Select(static parameter => $"{parameter.Position}:{parameter.Name}"));
     }
 
     /// <summary>
