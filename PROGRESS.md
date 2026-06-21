@@ -127,9 +127,9 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 ## Recently Fixed
 
 - **rbfx typed object helpers now use a generated static type-info contract**:
-  - Added `SharpCpp.Rbfx.Bindings.Interop.IStaticTypeInfo`.
-  - Added `managed_static_interfaces` and `managed_static_interfaces_abstract` marshaller metadata; `Marshaller<Urho3D::Object*>` now owns the inherited `IStaticTypeInfo` contract without forcing generated `Object` itself to implement it, and the renderer propagates that static contract to generated derived records that expose public static `GetTypeStatic()`.
-  - Updated typed subsystem/component/resource helpers to constrain `T` to `IStaticTypeInfo` and call `T.GetTypeStatic()` directly instead of reflecting through `ObjectReflection<T>`.
+  - Added self-typed `SharpCpp.Rbfx.Bindings.Interop.IStaticTypeInfo<TSelf>`.
+  - Added `managed_static_interfaces` and `managed_static_interfaces_abstract` marshaller metadata; `Marshaller<Urho3D::Object*>` now owns the inherited `IStaticTypeInfo<{managed_type}>` contract without forcing generated `Object` itself to implement it, and the renderer expands `{managed_type}` for generated derived records that expose public static `GetTypeStatic()`.
+  - Updated typed subsystem/component/resource helpers to constrain `T` to `IStaticTypeInfo<T>` and call `T.GetTypeStatic()` directly instead of reflecting through `ObjectReflection<T>`.
   - Verification: focused model/rendering tests pass, `cmake --build --preset Debug` passes, and `ctest --preset Debug` passes.
 
 - **`Rbfx.Application` now starts from the no-rebuild VS Code path**:

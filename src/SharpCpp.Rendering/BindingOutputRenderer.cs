@@ -2288,10 +2288,28 @@ public static partial class BindingOutputRenderer
                 continue;
             }
 
-            interfaces.AddRange(configured.Where(static item => !string.IsNullOrWhiteSpace(item)));
+            interfaces.AddRange(configured
+                .Where(static item => !string.IsNullOrWhiteSpace(item))
+                .Select(item => FormatManagedStaticInterface(compilation, record, item)));
         }
 
         return interfaces.Distinct(StringComparer.Ordinal).ToArray();
+    }
+
+    private static string FormatManagedStaticInterface(BindingCompilation compilation, RecordBinding record, string interfaceTemplate)
+    {
+        return interfaceTemplate.Replace(
+            "{managed_type}",
+            GetQualifiedManagedSelfTypeName(compilation, record),
+            StringComparison.Ordinal);
+    }
+
+    private static string GetQualifiedManagedSelfTypeName(BindingCompilation compilation, RecordBinding record)
+    {
+        var declarationName = record.IsGeneric
+            ? GetGenericRecordDeclarationName(record)
+            : record.ManagedName;
+        return $"global::{GetManagedNamespace(compilation, record)}.{declarationName}";
     }
 
     private static bool HasPublicStaticMethod(RecordBinding record, string managedName)

@@ -187,7 +187,7 @@ public sealed class MarshallerConfigExtractorTests
             .Single(ctor => ctor.GetParameters().Length == 6);
         var exposedMembers = Array.CreateInstance(exposedMemberType, 0);
         var genericParameters = Array.CreateInstance(typeof(string), 0);
-        var config = configCtor.Invoke(["[[sharpcpp::managed_type(managed_static_interfaces = \"global::Example.IStaticTypeInfo; global::Example.IOther\", managed_static_interfaces_abstract = true)]]", exposedMembers, genericParameters, null, null, true])!;
+        var config = configCtor.Invoke(["[[sharpcpp::managed_type(managed_static_interfaces = \"global::Example.IStaticTypeInfo<{managed_type}>; global::Example.IOther<{managed_type}>\", managed_static_interfaces_abstract = true)]]", exposedMembers, genericParameters, null, null, true])!;
 
         var applyMethod = Type.GetType("SharpCpp.Parsing.MarshallerMetadataPhase2, SharpCpp.Parsing", throwOnError: true)!
             .GetMethod("ApplyRecordMetadata", BindingFlags.NonPublic | BindingFlags.Static)!;
@@ -204,7 +204,7 @@ public sealed class MarshallerConfigExtractorTests
         applyMethod.Invoke(null, [compilation, configs, recordsByNativeName]);
 
         var interfaces = record.GetMetadata<IReadOnlyList<string>>(SharpCpp.Model.Ast.MetadataKeys.ManagedStaticInterfaces);
-        Assert.Equal(new[] { "global::Example.IStaticTypeInfo", "global::Example.IOther" }, interfaces);
+        Assert.Equal(new[] { "global::Example.IStaticTypeInfo<{managed_type}>", "global::Example.IOther<{managed_type}>" }, interfaces);
         Assert.True(record.GetMetadata<bool>(SharpCpp.Model.Ast.MetadataKeys.ManagedStaticInterfacesAbstract));
     }
 

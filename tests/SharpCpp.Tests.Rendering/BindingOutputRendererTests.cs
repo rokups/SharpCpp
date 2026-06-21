@@ -19,7 +19,7 @@ public sealed class BindingOutputRendererTests
         {
             IsAbstract = true
         };
-        objectRecord.SetMetadata(MetadataKeys.ManagedStaticInterfaces, new[] { "global::Example.IStaticTypeInfo" });
+        objectRecord.SetMetadata(MetadataKeys.ManagedStaticInterfaces, new[] { "global::Example.IStaticTypeInfo<{managed_type}>" });
         objectRecord.SetMetadata(MetadataKeys.ManagedStaticInterfacesAbstract, true);
         var nodeRecord = new RecordBinding("record:node", "Node", "Node")
         {
@@ -51,11 +51,11 @@ public sealed class BindingOutputRendererTests
             managedOutput,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
-            "public abstract partial class Object : global::SharpCpp.Support.NativeObject, global::Example.IStaticTypeInfo",
+            "public abstract partial class Object : global::SharpCpp.Support.NativeObject, global::Example.IStaticTypeInfo<global::SharpCpp.Sample.Object>",
             managedOutput,
             StringComparison.Ordinal);
         Assert.Contains(
-            "public partial class Node : global::SharpCpp.Sample.Object, global::Example.IStaticTypeInfo",
+            "public partial class Node : global::SharpCpp.Sample.Object, global::Example.IStaticTypeInfo<global::SharpCpp.Sample.Node>",
             managedOutput,
             StringComparison.Ordinal);
     }
