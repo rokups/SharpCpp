@@ -127,8 +127,8 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 ## Recently Fixed
 
 - **rbfx typed object helpers now use a generated static type-info contract**:
-  - Added `SharpCpp.Rbfx.Bindings.Interop.IStaticTypeInfo` and a handwritten `Urho3D.Core.Object` partial fallback for `GetTypeStatic()`.
-  - Added `managed_static_interfaces` marshaller metadata; `Marshaller<Urho3D::Object*>` now configures `IStaticTypeInfo`, and the renderer propagates that static contract to generated derived records that expose public static `GetTypeStatic()`.
+  - Added `SharpCpp.Rbfx.Bindings.Interop.IStaticTypeInfo`.
+  - Added `managed_static_interfaces` and `managed_static_interfaces_abstract` marshaller metadata; `Marshaller<Urho3D::Object*>` now owns the inherited `IStaticTypeInfo` contract without forcing generated `Object` itself to implement it, and the renderer propagates that static contract to generated derived records that expose public static `GetTypeStatic()`.
   - Updated typed subsystem/component/resource helpers to constrain `T` to `IStaticTypeInfo` and call `T.GetTypeStatic()` directly instead of reflecting through `ObjectReflection<T>`.
   - Verification: focused model/rendering tests pass, `cmake --build --preset Debug` passes, and `ctest --preset Debug` passes.
 

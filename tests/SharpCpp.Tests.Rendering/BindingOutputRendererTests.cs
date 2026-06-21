@@ -20,6 +20,7 @@ public sealed class BindingOutputRendererTests
             IsAbstract = true
         };
         objectRecord.SetMetadata(MetadataKeys.ManagedStaticInterfaces, new[] { "global::Example.IStaticTypeInfo" });
+        objectRecord.SetMetadata(MetadataKeys.ManagedStaticInterfacesAbstract, true);
         var nodeRecord = new RecordBinding("record:node", "Node", "Node")
         {
             ManagedBaseTypeName = "Object"
@@ -46,6 +47,10 @@ public sealed class BindingOutputRendererTests
             .Files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
         Assert.Contains(
+            "public abstract partial class Object : global::SharpCpp.Support.NativeObject",
+            managedOutput,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
             "public abstract partial class Object : global::SharpCpp.Support.NativeObject, global::Example.IStaticTypeInfo",
             managedOutput,
             StringComparison.Ordinal);

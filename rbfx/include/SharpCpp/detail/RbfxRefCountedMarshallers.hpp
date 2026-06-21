@@ -69,7 +69,8 @@ struct [[sharpcpp::managed_type(
 
 template <>
 struct [[sharpcpp::managed_type(
-    managed_static_interfaces = "global::SharpCpp.Rbfx.Bindings.Interop.IStaticTypeInfo"
+    managed_static_interfaces = "global::SharpCpp.Rbfx.Bindings.Interop.IStaticTypeInfo",
+    managed_static_interfaces_abstract = true
 )]] Marshaller<Urho3D::Object*>
 {
     using cpp_type = Urho3D::Object*;

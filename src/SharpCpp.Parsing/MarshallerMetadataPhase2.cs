@@ -39,6 +39,10 @@ public static class MarshallerMetadataPhase2
         @"managed_static_interfaces\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+    private static readonly Regex ManagedStaticInterfacesAbstractExpression = new(
+        @"managed_static_interfaces_abstract\s*=\s*true",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     private static readonly Regex SuppressEmissionExpression = new(
         @"suppress_emission\s*=\s*true",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -249,6 +253,12 @@ public static class MarshallerMetadataPhase2
                     SplitManagedTypeList(staticInterfacesMatch.Groups["value"].Value));
             }
 
+            // managed_static_interfaces_abstract → root does not directly implement inherited static interfaces
+            if (ManagedStaticInterfacesAbstractExpression.IsMatch(body))
+            {
+                record.SetMetadata(MetadataKeys.ManagedStaticInterfacesAbstract, true);
+            }
+
             if (!string.IsNullOrWhiteSpace(config.ManagedInstanceCacheFactoryExpression))
             {
                 record.ManagedInstanceCacheFactoryExpression = config.ManagedInstanceCacheFactoryExpression;
@@ -398,6 +408,7 @@ public static class MarshallerMetadataPhase2
             realRecord.EmitDefaultNativeReleaseOverride &= placeholder.EmitDefaultNativeReleaseOverride;
             realRecord.HasCopyConstructor |= placeholder.HasCopyConstructor;
             MergeMetadataList(realRecord, placeholder, MetadataKeys.ManagedStaticInterfaces);
+            MergeMetadataFlag(realRecord, placeholder, MetadataKeys.ManagedStaticInterfacesAbstract);
 
             foreach (var member in placeholder.Members.OfType<FunctionBinding>().ToArray())
             {
@@ -507,6 +518,7 @@ public static class MarshallerMetadataPhase2
         target.EmitDefaultNativeReleaseOverride &= source.EmitDefaultNativeReleaseOverride;
         target.HasCopyConstructor |= source.HasCopyConstructor;
         MergeMetadataList(target, source, MetadataKeys.ManagedStaticInterfaces);
+        MergeMetadataFlag(target, source, MetadataKeys.ManagedStaticInterfacesAbstract);
 
         if (string.IsNullOrWhiteSpace(target.CppQualifiedName) && !string.IsNullOrWhiteSpace(source.CppQualifiedName))
         {
@@ -589,6 +601,14 @@ public static class MarshallerMetadataPhase2
             ? existing.Concat(sourceValues).Distinct(StringComparer.Ordinal).ToArray()
             : sourceValues.Distinct(StringComparer.Ordinal).ToArray();
         target.SetMetadata(key, merged);
+    }
+
+    private static void MergeMetadataFlag(BindingNode target, BindingNode source, string key)
+    {
+        if (source.GetMetadata<bool>(key))
+        {
+            target.SetMetadata(key, true);
+        }
     }
 
     private static string GetSimpleTypeName(string managedTypeFormat)

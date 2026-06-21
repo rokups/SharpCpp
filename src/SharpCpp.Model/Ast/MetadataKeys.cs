@@ -27,6 +27,7 @@ public static class MetadataKeys
     public const string ManagedBindingProjection = "managed_binding_projection";
     public const string ExplicitManagedRename = "explicit_managed_rename";
     public const string ManagedStaticInterfaces = "managed_static_interfaces";
+    public const string ManagedStaticInterfacesAbstract = "managed_static_interfaces_abstract";
 }
 
 public enum AccessorPropertyKind

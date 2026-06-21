@@ -2271,7 +2271,13 @@ public static partial class BindingOutputRenderer
         var interfaces = new List<string>();
         foreach (var source in record.EnumerateAllBaseRecords(compilation).Append(record))
         {
-            if (!ReferenceEquals(source, record) && !HasPublicStaticMethod(record, "GetTypeStatic"))
+            var isDirectSource = ReferenceEquals(source, record);
+            if (isDirectSource && source.GetMetadata<bool>(MetadataKeys.ManagedStaticInterfacesAbstract))
+            {
+                continue;
+            }
+
+            if (!isDirectSource && !HasPublicStaticMethod(record, "GetTypeStatic"))
             {
                 continue;
             }
