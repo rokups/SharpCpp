@@ -241,13 +241,11 @@ partial class DemoApplication : Application
 
     public override void Setup()
     {
-        var resourceRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, ".."));
         EngineParameters[EngineDefs.FullScreen] = false;
         EngineParameters[EngineDefs.Borderless] = false;
         EngineParameters[EngineDefs.WindowWidth] = 1280;
         EngineParameters[EngineDefs.WindowHeight] = 720;
         EngineParameters[EngineDefs.WindowTitle] = "SharpCpp RmlUI + ImGui Demo";
-        EngineParameters[EngineDefs.ResourcePrefixPaths] = resourceRoot;
         EngineParameters[EngineDefs.EngineAutoLoadScripts] = false;
     }
 

@@ -25,8 +25,13 @@ public partial class Node
     public T? CreateComponent<T>(uint id = 0)
         where T : Component
     {
-        var handle = __RbfxGraphicsPInvoke.NodeCreateComponent(NativeObject.GetHandle(this), ObjectReflection<T>.TypeId, id);
-        return handle == 0 ? null : global::Urho3D.Core.Object.CreateManagedWrapper(handle, ownsHandle: false) as T;
+        return CreateComponent(ObjectReflection<T>.TypeId, id) as T;
+    }
+
+    public Component? CreateComponent(StringHash type, uint id = 0)
+    {
+        var handle = __RbfxGraphicsPInvoke.NodeCreateComponent(NativeObject.GetHandle(this), type, id);
+        return handle == 0 ? null : Component.CreateManagedWrapper(handle, ownsHandle: false);
     }
 }
 

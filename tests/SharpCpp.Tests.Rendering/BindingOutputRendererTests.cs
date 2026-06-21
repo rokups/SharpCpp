@@ -1481,6 +1481,101 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Managed_registry_skips_polymorphic_records_without_wrapper_factory()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/Inheritance.hpp" });
+        var abstractBase = new RecordBinding("record:abstract_base", "abstract_base", "AbstractBase")
+        {
+            IsPolymorphic = true
+        };
+        var pureVirtual = new FunctionBinding("method:abstract_base:tick", "tick", "Tick", BindingType.Void, "entry_tick")
+        {
+            IsVirtual = true,
+            IsPureVirtual = true,
+            OwningRecordCppTypeName = "abstract_base"
+        };
+        abstractBase.Members.Add(pureVirtual);
+        var inheritedAbstract = new RecordBinding("record:inherited_abstract", "inherited_abstract", "InheritedAbstract")
+        {
+            ManagedBaseTypeName = "AbstractBase",
+            IsPolymorphic = true
+        };
+        inheritedAbstract.Bases.Add(new RecordBaseBinding(
+            abstractBase.SymbolId,
+            abstractBase.NativeName,
+            abstractBase.ManagedName,
+            abstractBase.CppQualifiedName,
+            isVirtual: false));
+        var concreteRecord = new RecordBinding("record:concrete_counter", "concrete_counter", "ConcreteCounter")
+        {
+            IsPolymorphic = true
+        };
+        compilation.Members.Add(abstractBase);
+        compilation.Members.Add(inheritedAbstract);
+        compilation.Members.Add(concreteRecord);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public abstract partial class InheritedAbstract", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("INativeObjectRegistration<InheritedAbstract>.RegistrationCreateFactory => null", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("global::SharpCpp.Support.NativeObjectRegistry.RegisterType<global::SharpCpp.Sample.ConcreteCounter>();", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("global::SharpCpp.Support.NativeObjectRegistry.RegisterType<global::SharpCpp.Sample.InheritedAbstract>();", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Protected_pure_virtual_hooks_do_not_make_native_derived_wrappers_abstract()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/Inheritance.hpp" });
+        var nativeBase = new RecordBinding("record:native_base", "native_base", "NativeBase")
+        {
+            IsPolymorphic = true,
+            IsAbstract = true
+        };
+        var protectedHook = new FunctionBinding("method:native_base:on_update", "on_update", "OnUpdate", BindingType.Void, "entry_on_update")
+        {
+            IsStatic = false,
+            AccessModifier = BindingAccessModifier.Protected,
+            IsVirtual = true,
+            IsPureVirtual = true,
+            OwningRecordCppTypeName = "native_base"
+        };
+        nativeBase.Members.Add(protectedHook);
+        var nativeDerived = new RecordBinding("record:native_derived", "native_derived", "NativeDerived")
+        {
+            ManagedBaseTypeName = "NativeBase",
+            IsPolymorphic = true
+        };
+        nativeDerived.Bases.Add(new RecordBaseBinding(
+            nativeBase.SymbolId,
+            nativeBase.NativeName,
+            nativeBase.ManagedName,
+            nativeBase.CppQualifiedName,
+            isVirtual: false));
+        compilation.Members.Add(nativeBase);
+        compilation.Members.Add(nativeDerived);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("protected virtual void OnUpdate()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("Native pure virtual method 'OnUpdate' is not callable from managed code.", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public partial class NativeDerived", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("INativeObjectRegistration<NativeDerived>.RegistrationCreateFactory => static (handle, ownsHandle) => new NativeDerived(handle, ownsHandle)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("global::SharpCpp.Support.NativeObjectRegistry.RegisterType<global::SharpCpp.Sample.NativeDerived>();", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Director_records_emit_virtual_managed_methods_and_native_director_hooks()
     {
         var compilation = new BindingCompilation(

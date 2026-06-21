@@ -126,10 +126,18 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **`Rbfx.Application` now starts from the no-rebuild VS Code path**:
+  - Added `.Rbfx.Application.env` with `LD_LIBRARY_PATH`, `LD_PRELOAD`, and `RBFX_RESOURCE_PREFIX` so the app uses the already-built native libraries and the local rbfx `Data` / `CoreData` resource tree.
+  - Kept `Node.CreateComponent<T>()` as v1-style typed sugar over the `StringHash` overload: `CreateComponent(ObjectReflection<T>.TypeId, id) as T`.
+  - Fixed generated native-object registry emission so polymorphic wrappers are registered only when their managed wrapper factory is available.
+  - Adjusted renderer abstractness for non-public pure-virtual hooks: protected native hooks now render as protected throwing stubs instead of making every native-derived wrapper abstract, while public pure virtual methods remain managed abstract obligations.
+  - Verification: focused rendering regression tests pass, `cmake --build --preset Debug --target sharpcpp-rbfx-application`, full `cmake --build --preset Debug`, and `ctest --preset Debug --output-on-failure` pass; an 8-second preloaded app run reaches engine/RmlUI/ImGui startup and resource loading without managed exceptions.
+
 - **VS Code can build and run `Rbfx.Application` directly**:
-  - Added a focused `CMake: Build Rbfx.Application (Debug)` task and `Run: Rbfx.Application (Debug)` task.
-  - Added an `Rbfx.Application (Debug)` CoreCLR launch profile that builds the app target first, runs the CMake output DLL from `out/build/dev/bin/Debug`, and sets the rbfx Linux runtime library environment.
-  - Verification: `.vscode/tasks.json` / `.vscode/launch.json` pass `jq` validation, and `cmake --build --preset Debug --target sharpcpp-rbfx-application` produces the expected app output.
+  - Added a focused `CMake: Build Rbfx.Application (Debug)` task plus `Run: Rbfx.Application (Debug)` for running the already-built output without triggering CMake.
+  - Added an `Rbfx.Application (Debug)` CoreCLR launch profile that runs the current CMake output DLL from `out/build/dev/bin/Debug` without a `preLaunchTask` rebuild.
+  - Mirrored the v1 `.Rbfx.Application.env` workaround so `libUrho3D.so` is preloaded through `LD_PRELOAD` before the managed process starts, avoiding the known Linux TLS load-order issue.
+  - Verification: `.vscode/tasks.json` / `.vscode/launch.json` pass `jq` validation.
 
 - **Conservative rbfx RmlUI / ImGui submodule surfaces now build and test**:
   - Added rbfx submodule detection for `URHO3D_RMLUI=1` and `URHO3D_SYSTEMUI=1`, generated a parse umbrella, and tracked enabled SDK submodule headers as generator inputs.

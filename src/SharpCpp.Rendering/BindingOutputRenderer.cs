@@ -147,7 +147,7 @@ public static partial class BindingOutputRenderer
             .OrderBy(static record => record.ManagedName, StringComparer.Ordinal)
             .ToArray();
         var polymorphicConcreteRecords = records
-            .Where(static record => record.IsPolymorphic && !record.IsEffectivelyAbstract && !record.HasMetadata(MetadataKeys.IgnoreReason))
+            .Where(record => record.IsPolymorphic && CanCreateManagedWrapperFactory(compilation, record) && !record.HasMetadata(MetadataKeys.IgnoreReason))
             .ToArray();
         var genericImportDeclarations = new List<string>();
 
@@ -1520,7 +1520,7 @@ public static partial class BindingOutputRenderer
 
         var polymorphicConcreteRecords = needsRegistry
             ? compilation.Records
-                .Where(static record => record.IsPolymorphic && !record.IsEffectivelyAbstract && !record.HasMetadata(MetadataKeys.IgnoreReason))
+                .Where(record => record.IsPolymorphic && CanCreateManagedWrapperFactory(compilation, record) && !record.HasMetadata(MetadataKeys.IgnoreReason))
                 .ToArray()
             : Array.Empty<RecordBinding>();
         if (aliases.Length == 0 && needsRegistry && polymorphicConcreteRecords.Length == 0 && callbackParameters.Length == 0)
@@ -1923,9 +1923,7 @@ public static partial class BindingOutputRenderer
         }
         var requiresDirector = record.RequiresDirector(compilation);
         var virtualSlots = record.GetEffectiveVirtualMethodSlots(compilation);
-        var isEffectivelyAbstract = record.IsEffectivelyAbstract ||
-            virtualSlots.Any(static slot => slot.Method.IsPureVirtual) ||
-            record.HasUnimplementedAbstractBaseMethods(compilation);
+        var isEffectivelyAbstract = IsManagedWrapperAbstract(compilation, record, virtualSlots);
         if (record.IsPolymorphic)
         {
             pinvokeDeclarations.Add(RenderManagedStaticTypeIdImportDeclaration(compilation, record));
@@ -2109,10 +2107,13 @@ public static partial class BindingOutputRenderer
                 }
                 else
                 {
-                    pinvokeDeclarations.Add(RenderManagedInstanceImportDeclaration(compilation, method, record.ManagedName));
-                    if (HasUnexpressibleDefaultParams(method) || HasUndefaultableParams(method))
+                    if (!ShouldRenderPureVirtualManagedStub(method))
                     {
-                        pinvokeDeclarations.Add(RenderManagedUnexpressibleDefaultInstanceImports(compilation, method, record.ManagedName));
+                        pinvokeDeclarations.Add(RenderManagedInstanceImportDeclaration(compilation, method, record.ManagedName));
+                        if (HasUnexpressibleDefaultParams(method) || HasUndefaultableParams(method))
+                        {
+                            pinvokeDeclarations.Add(RenderManagedUnexpressibleDefaultInstanceImports(compilation, method, record.ManagedName));
+                        }
                     }
                 }
             }
@@ -2270,6 +2271,18 @@ public static partial class BindingOutputRenderer
             var parameterList = RenderManagedPublicParameterList(function.Parameters, compilation);
             writer.Write($$"""
                 {{GetManagedVisibilityNormalized(compilation, record, function)}} {{memberModifier}}{{returnTypeName}} {{function.ManagedName}}({{parameterList}});
+                """);
+            return writer.ToString();
+        }
+
+        if (ShouldRenderPureVirtualManagedStub(function))
+        {
+            var parameterList = RenderManagedPublicParameterList(function.Parameters, compilation);
+            writer.Write($$"""
+                {{GetManagedVisibilityNormalized(compilation, record, function)}} {{memberModifier}}{{returnTypeName}} {{function.ManagedName}}({{parameterList}})
+                {
+                throw new global::System.InvalidOperationException("Native pure virtual method '{{function.ManagedName}}' is not callable from managed code.");
+                }
                 """);
             return writer.ToString();
         }
@@ -4702,7 +4715,7 @@ public static partial class BindingOutputRenderer
         var hidingModifier = hidingObjectToString ? "new " : string.Empty;
         var primaryBaseVirtualMatch = hasManagedBase ? FindPrimaryBaseVirtualMatch(compilation, record, function) : null;
 
-        if (function.IsPureVirtual && primaryBaseVirtualMatch is null)
+        if (IsManagedAbstractMethod(function) && primaryBaseVirtualMatch is null)
         {
             return hidingModifier + "abstract ";
         }
@@ -4749,6 +4762,11 @@ public static partial class BindingOutputRenderer
         if (!function.IsVirtual)
         {
             return GetManagedVisibility(function.AccessModifier);
+        }
+
+        if (function.AccessModifier == BindingAccessModifier.Protected && FindPrimaryBaseVirtualMatch(compilation, record, function) is null)
+        {
+            return "protected";
         }
 
         var mostRestrictiveBaseAccess = FindMostRestrictiveBaseAccess(compilation, record, function);
@@ -5169,6 +5187,102 @@ public static partial class BindingOutputRenderer
         return record.HasCopyConstructor &&
             !isEffectivelyAbstract &&
             (!record.EmitDefaultNativeReleaseOverride || canEmitDeleteThunk);
+    }
+
+    private static bool CanCreateManagedWrapperFactory(BindingCompilation compilation, RecordBinding record)
+    {
+        ArgumentNullException.ThrowIfNull(compilation);
+        ArgumentNullException.ThrowIfNull(record);
+
+        return !IsManagedWrapperAbstract(compilation, record, record.GetEffectiveVirtualMethodSlots(compilation));
+    }
+
+    private static bool IsManagedWrapperAbstract(
+        BindingCompilation compilation,
+        RecordBinding record,
+        IReadOnlyCollection<VirtualMethodSlotBinding> virtualSlots)
+    {
+        ArgumentNullException.ThrowIfNull(compilation);
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentNullException.ThrowIfNull(virtualSlots);
+
+        return record.IsAbstract ||
+            virtualSlots.Any(static slot => IsManagedAbstractMethod(slot.Method)) ||
+            HasUnimplementedManagedAbstractBaseMethods(compilation, record);
+    }
+
+    private static bool IsManagedAbstractMethod(FunctionBinding method)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+
+        return method.IsPureVirtual && method.AccessModifier == BindingAccessModifier.Public;
+    }
+
+    private static bool ShouldRenderPureVirtualManagedStub(FunctionBinding method)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+
+        return method.IsPureVirtual && method.AccessModifier != BindingAccessModifier.Public;
+    }
+
+    private static bool HasUnimplementedManagedAbstractBaseMethods(BindingCompilation compilation, RecordBinding record)
+    {
+        ArgumentNullException.ThrowIfNull(compilation);
+        ArgumentNullException.ThrowIfNull(record);
+
+        var chain = new List<RecordBinding>();
+        var visited = new HashSet<string>(StringComparer.Ordinal) { record.SymbolId };
+        for (var current = record.GetPrimaryBaseRecord(compilation); current is not null; current = current.GetPrimaryBaseRecord(compilation))
+        {
+            if (!visited.Add(current.SymbolId))
+            {
+                break;
+            }
+
+            chain.Insert(0, current);
+        }
+
+        chain.Add(record);
+
+        var concreteImplementations = chain
+            .SelectMany(static candidate => candidate.Members.OfType<FunctionBinding>())
+            .Where(static method => !method.IsIgnored() && !method.IsPureVirtual)
+            .ToArray();
+
+        foreach (var baseRecord in chain.Take(chain.Count - 1))
+        {
+            foreach (var abstractMethod in baseRecord.Members.OfType<FunctionBinding>().Where(static method => !method.IsIgnored() && IsManagedAbstractMethod(method)))
+            {
+                if (!concreteImplementations.Any(candidate => ManagedSignaturesMatch(candidate, abstractMethod)))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool ManagedSignaturesMatch(FunctionBinding candidate, FunctionBinding abstractMethod)
+    {
+        if (!string.Equals(candidate.ManagedName, abstractMethod.ManagedName, StringComparison.Ordinal) ||
+            candidate.Parameters.Count != abstractMethod.Parameters.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < candidate.Parameters.Count; i++)
+        {
+            var left = candidate.Parameters[i].Type;
+            var right = abstractMethod.Parameters[i].Type;
+            if (!string.Equals(left.ManagedTypeName, right.ManagedTypeName, StringComparison.Ordinal) ||
+                left.Kind != right.Kind)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool InheritsCloneInterface(BindingCompilation compilation, RecordBinding record)
