@@ -36,7 +36,8 @@ public static class BindingNodeIgnoreExtensions
     public static bool ClearIgnoreReason(this BindingNode node)
     {
         ArgumentNullException.ThrowIfNull(node);
-        return node.RemoveMetadata(MetadataKeys.IgnoreReason);
+        var removed = node.RemoveMetadata(MetadataKeys.IgnoreReason);
+        return node.RemoveMetadata(MetadataKeys.SilentExclusion) || removed;
     }
 
     public static void SetSilentExclusionReason(this BindingNode node, string reason, bool overwriteExisting = false)

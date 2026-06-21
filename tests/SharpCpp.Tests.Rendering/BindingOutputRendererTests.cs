@@ -46,6 +46,29 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Free_functions_can_render_into_custom_managed_containers()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });
+        compilation.Members.Add(new FunctionBinding("function:default", "default_call", "Call", BindingType.Void, "entry_default"));
+        compilation.Members.Add(new FunctionBinding("function:custom", "custom_call", "Call", BindingType.Void, "entry_custom")
+        {
+            ManagedNamespace = "Custom.Api",
+            ManagedClassName = "CustomBindings"
+        });
+
+        var managedOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("namespace SharpCpp.Sample", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public static partial class SampleBindings", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke.Call();", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("EntryPoint = \"entry_default\"", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("namespace Custom.Api", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public static partial class CustomBindings", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("EntryPoint = \"entry_custom\"", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Silent_exclusions_do_not_render_comment_stubs()
     {
         var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });
@@ -654,7 +677,7 @@ public sealed class BindingOutputRendererTests
         var managedOutput = files.Single(static file => file.RelativePath == "SharpCppSample.Bindings.g.cs").Content;
 
         Assert.Contains("public static void Subscribe(global::System.Action<global::Urho3D.Object, global::Urho3D.StringHash, VariantMap> handler)", managedOutput, StringComparison.Ordinal);
-        Assert.DoesNotContain("global::System.Action<global::Urho3D.Object, global::Urho3D.StringHash, global::Ea.UnorderedMap", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("public static void Subscribe(global::System.Action<global::Urho3D.Object, global::Urho3D.StringHash, global::Ea.UnorderedMap", managedOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1096,6 +1119,37 @@ public sealed class BindingOutputRendererTests
 
         Assert.Contains("[Flags]", managedOutput, StringComparison.Ordinal);
         Assert.Contains("public enum Permissions : uint", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Managed_output_casts_enum_arguments_to_import_abi_type()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Enum/Enum.hpp" });
+        var modeAlias = new BindingTypeAlias("mode", "Mode", "Mode", BindingType.Int32);
+        var function = new FunctionBinding(
+            "function:set_mode",
+            "set_mode",
+            "SetMode",
+            BindingType.Void,
+            cppQualifiedName: "set_mode");
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:set_mode:mode",
+            "mode",
+            "mode",
+            BindingType.Int32));
+        compilation.TypeAliases.Add(modeAlias);
+        compilation.Members.Add(function);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public static void SetMode(Mode mode)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke.SetMode((int)mode);", managedOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2508,8 +2562,68 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("public static nint ConvertToUnmanaged(global::Ea.SharedArray<T> managed)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("public static global::Ea.SharedArray<T> ConvertToManaged(nint unmanaged)", managedOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("NativeArrayAbi", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("SHARPCPP_EXPORT ret_t<ea::shared_array<int>*> sharpcpp_e2e_shared_array_dynamic_array_create_int(arg_t<std::size_t> length)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT ret_t<ea::shared_array<int>*> sharpcpp_e2e_ea_shared_array_dynamic_array_create_int(arg_t<std::size_t> length)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("return new ea::shared_array<int>(new int[length]{});", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("(*self)[index]", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Ignored_fixed_array_surfaces_do_not_generate_helper_instantiations()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Array/NativeArray.hpp" });
+        var arrayRecord = new RecordBinding("record:NativeArray", "NativeArray", "NativeArray", "NativeArray")
+        {
+            ManagedTypeFormat = "global::SharpCpp.NativeArray<{0}>"
+        };
+        arrayRecord.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        arrayRecord.GenericParameters.Add(new BindingGenericParameter("N", 1));
+        arrayRecord.SetMetadata(MetadataKeys.NativeArrayRecord, true);
+        compilation.Members.Add(arrayRecord);
+
+        var vectorType = BindingType.CreateHandle("Vector2", "global::SharpCpp.Sample.Vector2");
+        var fixedArrayType = BindingType.CreateHandle(
+            "NativeArray<Vector2, 2>",
+            "global::SharpCpp.NativeArray<{0}>",
+            arrayRecord.SymbolId,
+            genericArguments: [vectorType, BindingType.CreateConfigured("2", "2")])
+            .WithFixedArray(vectorType, 2);
+        var ignoredFunction = new FunctionBinding("function:ignored", "ignored", "Ignored", BindingType.Void);
+        ignoredFunction.Parameters.Add(new ParameterBinding("parameter:ignored:values", "values", "values", fixedArrayType));
+        ignoredFunction.SetSilentExclusionReason("unsupported fixed array surface");
+        compilation.Members.Add(ignoredFunction);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.DoesNotContain("NativeArray_array_create", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("NativeArray_array_get", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Polymorphic_records_in_custom_namespace_qualify_registry_initializer()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Custom/Widget.hpp" });
+        var record = new RecordBinding("record:Custom::Widget", "Widget", "Widget", "Custom::Widget")
+        {
+            ManagedNamespace = "Custom",
+            IsPolymorphic = true
+        };
+        compilation.Members.Add(record);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("global::SharpCpp.Sample.SampleBindings.__NativeObjectRegistryInitializer.EnsureRegistered();", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n            SampleBindings.__NativeObjectRegistryInitializer.EnsureRegistered();", managedOutput, StringComparison.Ordinal);
     }
 }

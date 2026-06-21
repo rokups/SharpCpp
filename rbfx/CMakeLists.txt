@@ -127,7 +127,11 @@ file(GENERATE OUTPUT "${RBFX_SDK_FLAGS_FILE}" CONTENT "${_rbfx_sdk_flags_content
 
 file(GLOB_RECURSE RBFX_SDK_INPUT_HEADERS CONFIGURE_DEPENDS
   "${RBFX_SDK_ROOT}/include/Urho3D/*.h"
-  "${RBFX_SDK_ROOT}/include/Urho3D/*.hpp")
+  "${RBFX_SDK_ROOT}/include/Urho3D/*.hpp"
+  "${RBFX_SDK_ROOT}/include/RmlUi/*.h"
+  "${RBFX_SDK_ROOT}/include/RmlUi/*.hpp"
+  "${RBFX_SDK_ROOT}/include/ImGui/*.h"
+  "${RBFX_SDK_ROOT}/include/ImGui/*.hpp")
 
 set_property(GLOBAL PROPERTY SHARPCPP_RBFX_GENERATED_DIR "${RBFX_GENERATED_ROOT}")
 set_property(GLOBAL PROPERTY SHARPCPP_RBFX_GENERATED_STAMP "${RBFX_GENERATED_STAMP}")
@@ -187,7 +191,11 @@ if(NOT RBFX_GENERATED_CPP_FILES)
   set(RBFX_GENERATED_CPP_FILES "${RBFX_GENERATED_ROOT}/.stub.cpp")
 endif()
 set_source_files_properties(${RBFX_GENERATED_CPP_FILES} PROPERTIES OBJECT_DEPENDS "${RBFX_GENERATED_STAMP}")
-add_library(SharpCppRbfx_Native SHARED ${RBFX_GENERATED_CPP_FILES} "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Bindings/Interop/RefCountedRuntime.cpp")
+add_library(SharpCppRbfx_Native SHARED
+  ${RBFX_GENERATED_CPP_FILES}
+  "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Bindings/Interop/RefCountedRuntime.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Bindings/Interop/RbfxApplicationRuntime.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Bindings/Rml/RmlDataModelRuntime.cpp")
 add_dependencies(SharpCppRbfx_Native sharpcpp-generate-rbfx)
 target_compile_features(SharpCppRbfx_Native PRIVATE cxx_std_20)
 set_target_properties(SharpCppRbfx_Native PROPERTIES CXX_SCAN_FOR_MODULES OFF UNITY_BUILD ON UNITY_BUILD_BATCH_SIZE 100 OUTPUT_NAME "SharpCpp.Rbfx.Native")

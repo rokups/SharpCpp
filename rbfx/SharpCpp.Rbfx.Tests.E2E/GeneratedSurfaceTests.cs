@@ -5,21 +5,51 @@ namespace SharpCpp.Rbfx.Tests.E2E;
 public sealed class GeneratedSurfaceTests
 {
     [Fact]
-    public void EventHandler_constructor_accepts_handler_function_callback()
+    public void EventHandler_keeps_supported_surface_and_prunes_open_template_constructor()
     {
         var content = File.ReadAllText(Path.Combine(GetGeneratedDir(), "Core", "SharpCpp.Rbfx.Object.g.cs"));
 
-        Assert.DoesNotContain("EventHandler(Object *receiver, HandlerFunction handler) // excluded", content, StringComparison.Ordinal);
-        Assert.Contains("public EventHandler(global::Urho3D.Core.Object receiver, global::System.Action<global::Urho3D.Core.Object, global::Urho3D.Math.StringHash, VariantMap> handler)", content, StringComparison.Ordinal);
+        Assert.Contains("template <class T> EventHandler(Object *receiver, T handler) // excluded", content, StringComparison.Ordinal);
+        Assert.Contains("public global::Urho3D.Math.StringHash GetEventType()", content, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Spline_GetPoint_returns_Variant_wrapper()
+    public void Spline_keeps_current_supported_surface()
     {
         var content = File.ReadAllText(Path.Combine(GetGeneratedDir(), "Core", "SharpCpp.Rbfx.Spline.g.cs"));
 
-        Assert.DoesNotContain("Variant GetPoint(float f) const // excluded", content, StringComparison.Ordinal);
-        Assert.Contains("public global::Urho3D.Core.Variant GetPoint(float f)", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("public global::Urho3D.Core.Variant GetPoint(float f)", content, StringComparison.Ordinal);
+        Assert.Contains("public global::Urho3D.Core.InterpolationMode GetInterpolationMode()", content, StringComparison.Ordinal);
+        Assert.Contains("public void SetInterpolationMode(global::Urho3D.Core.InterpolationMode interpolationMode)", content, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Enabled_RmlUI_bindings_generate_rml_namespace_surface()
+    {
+        if (!GeneratorLogContains("RmlUI bindings: enabled"))
+        {
+            return;
+        }
+
+        var content = File.ReadAllText(Path.Combine(GetGeneratedDir(), "Core", "SharpCpp.Rbfx.ElementDocument.g.cs"));
+
+        Assert.Contains("namespace Rml", content, StringComparison.Ordinal);
+        Assert.Contains("public partial class ElementDocument", content, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Enabled_ImGui_bindings_generate_imguinet_surface()
+    {
+        if (!GeneratorLogContains("Dear ImGui bindings: enabled"))
+        {
+            return;
+        }
+
+        var content = File.ReadAllText(Path.Combine(GetGeneratedDir(), "ImGui", "SharpCpp.Rbfx.imgui.g.cs"));
+
+        Assert.Contains("namespace ImGuiNet", content, StringComparison.Ordinal);
+        Assert.Contains("public static partial class ImGui", content, StringComparison.Ordinal);
+        Assert.Contains("public enum ImGuiCond", content, StringComparison.Ordinal);
     }
 
     private static string GetGeneratedDir()
@@ -34,5 +64,11 @@ public sealed class GeneratedSurfaceTests
         }
 
         return Path.GetFullPath(dir);
+    }
+
+    private static bool GeneratorLogContains(string value)
+    {
+        var logPath = Path.Combine(GetGeneratedDir(), "generator.log");
+        return File.Exists(logPath) && File.ReadAllText(logPath).Contains(value, StringComparison.Ordinal);
     }
 }

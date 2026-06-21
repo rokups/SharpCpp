@@ -3,6 +3,7 @@
     <AssemblyName>SharpCpp.Rbfx.Bindings</AssemblyName>
     <SharpCppGeneratedDir Condition="'$(SharpCppGeneratedDir)' == ''">$(BaseIntermediateOutputPath)generated/SharpCpp.Rbfx</SharpCppGeneratedDir>
     <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <NoWarn>$(NoWarn);CS0108;CS0109</NoWarn>
   </PropertyGroup>
 

@@ -20,6 +20,20 @@
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "preLaunchTask": "CMake: Build Tool (Debug)"
+    },
+    {
+      "name": "Rbfx.Application (Debug)",
+      "type": "coreclr",
+      "request": "launch",
+      "program": "${workspaceFolder}/out/build/dev/bin/Debug/Rbfx.Application.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/out/build/dev/bin/Debug",
+      "console": "integratedTerminal",
+      "env": {
+        "LD_LIBRARY_PATH": "${workspaceFolder}/out/build/dev/bin/Debug:${env:LD_LIBRARY_PATH}",
+        "LD_PRELOAD": "${workspaceFolder}/out/build/dev/bin/Debug/libUrho3D.so"
+      },
+      "preLaunchTask": "CMake: Build Rbfx.Application (Debug)"
     }
   ]
 }

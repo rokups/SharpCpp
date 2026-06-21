@@ -41,7 +41,7 @@ public static partial class BindingOutputRenderer
 
             if (concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
             {
-                writer.WriteLine($"        {GetGenericImportAccessor(compilation)}.{importMethodName}({string.Join(", ", invocationArguments)});");
+                writer.WriteLine($"        {GetGenericImportAccessor(compilation, function)}.{importMethodName}({string.Join(", ", invocationArguments)});");
                 foreach (var keepAlive in keepAliveStatements)
                 {
                     writer.WriteLine($"        {keepAlive}");
@@ -50,7 +50,7 @@ public static partial class BindingOutputRenderer
             }
             else if (function.ReturnType.IsGenericParameter)
             {
-                writer.WriteLine($"        var __result = {GetGenericImportAccessor(compilation)}.{importMethodName}({string.Join(", ", invocationArguments)});");
+                writer.WriteLine($"        var __result = {GetGenericImportAccessor(compilation, function)}.{importMethodName}({string.Join(", ", invocationArguments)});");
                 foreach (var keepAlive in keepAliveStatements)
                 {
                     writer.WriteLine($"        {keepAlive}");
@@ -66,7 +66,7 @@ public static partial class BindingOutputRenderer
             }
             else if (concreteReturnType.Kind == BindingTypeKind.Handle)
             {
-                writer.WriteLine($"        var __result = {GetGenericImportAccessor(compilation)}.{importMethodName}({string.Join(", ", invocationArguments)});");
+                writer.WriteLine($"        var __result = {GetGenericImportAccessor(compilation, function)}.{importMethodName}({string.Join(", ", invocationArguments)});");
                 foreach (var keepAlive in keepAliveStatements)
                 {
                     writer.WriteLine($"        {keepAlive}");
@@ -75,7 +75,7 @@ public static partial class BindingOutputRenderer
             }
             else
             {
-                writer.WriteLine($"        var __result = {GetGenericImportAccessor(compilation)}.{importMethodName}({string.Join(", ", invocationArguments)});");
+                writer.WriteLine($"        var __result = {GetGenericImportAccessor(compilation, function)}.{importMethodName}({string.Join(", ", invocationArguments)});");
                 foreach (var keepAlive in keepAliveStatements)
                 {
                     writer.WriteLine($"        {keepAlive}");
@@ -750,7 +750,7 @@ public static partial class BindingOutputRenderer
 
     private static IEnumerable<RecordGenericInstantiationBinding> CollectFixedArrayInstantiations(BindingCompilation compilation, RecordBinding record)
     {
-        foreach (var function in compilation.Functions)
+        foreach (var function in compilation.Functions.Where(static function => !function.IsIgnored() && function.Parent?.IsIgnored() != true))
         {
             foreach (var instantiation in CollectFixedArrayInstantiations(record, function.ReturnType))
             {
@@ -766,7 +766,7 @@ public static partial class BindingOutputRenderer
             }
         }
 
-        foreach (var field in compilation.Descendants<FieldBinding>())
+        foreach (var field in compilation.Descendants<FieldBinding>().Where(static field => !field.IsIgnored() && field.Parent?.IsIgnored() != true))
         {
             foreach (var instantiation in CollectFixedArrayInstantiations(record, field.Type))
             {
@@ -785,7 +785,7 @@ public static partial class BindingOutputRenderer
 
     private static IEnumerable<RecordGenericInstantiationBinding> CollectDynamicArrayInstantiations(BindingCompilation compilation, RecordBinding record)
     {
-        foreach (var function in compilation.Functions)
+        foreach (var function in compilation.Functions.Where(static function => !function.IsIgnored() && function.Parent?.IsIgnored() != true))
         {
             foreach (var instantiation in CollectDynamicArrayInstantiations(record, function.ReturnType))
             {
@@ -801,7 +801,7 @@ public static partial class BindingOutputRenderer
             }
         }
 
-        foreach (var field in compilation.Descendants<FieldBinding>())
+        foreach (var field in compilation.Descendants<FieldBinding>().Where(static field => !field.IsIgnored() && field.Parent?.IsIgnored() != true))
         {
             foreach (var instantiation in CollectDynamicArrayInstantiations(record, field.Type))
             {
@@ -988,42 +988,42 @@ public static partial class BindingOutputRenderer
 
     private static string GetFixedArrayCreateEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_array_create_{GetFixedArrayInstantiationToken(instantiation)}";
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_array_create_{GetFixedArrayInstantiationToken(instantiation)}";
     }
 
     private static string GetFixedArrayDeleteEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_array_delete_{GetFixedArrayInstantiationToken(instantiation)}";
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_array_delete_{GetFixedArrayInstantiationToken(instantiation)}";
     }
 
     private static string GetFixedArrayGetEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_array_get_{GetFixedArrayInstantiationToken(instantiation)}";
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_array_get_{GetFixedArrayInstantiationToken(instantiation)}";
     }
 
     private static string GetFixedArraySetEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_array_set_{GetFixedArrayInstantiationToken(instantiation)}";
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_array_set_{GetFixedArrayInstantiationToken(instantiation)}";
     }
 
     private static string GetDynamicArrayCreateEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_dynamic_array_create_{GetDynamicArrayInstantiationToken(instantiation)}";
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_dynamic_array_create_{GetDynamicArrayInstantiationToken(instantiation)}";
     }
 
     private static string GetDynamicArrayDeleteEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_dynamic_array_delete_{GetDynamicArrayInstantiationToken(instantiation)}";
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_dynamic_array_delete_{GetDynamicArrayInstantiationToken(instantiation)}";
     }
 
     private static string GetDynamicArrayGetEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_dynamic_array_get_{GetDynamicArrayInstantiationToken(instantiation)}";
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_dynamic_array_get_{GetDynamicArrayInstantiationToken(instantiation)}";
     }
 
     private static string GetDynamicArraySetEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_dynamic_array_set_{GetDynamicArrayInstantiationToken(instantiation)}";
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_dynamic_array_set_{GetDynamicArrayInstantiationToken(instantiation)}";
     }
 
     private static string RenderGenericArrayCreateDispatch(BindingCompilation compilation, RecordBinding record, IReadOnlyList<RecordGenericInstantiationBinding> instantiations)
@@ -1075,6 +1075,10 @@ public static partial class BindingOutputRenderer
             if (element.Kind == BindingTypeKind.Handle)
             {
                 resultExpression = $"{elementType}.CreateManagedWrapper({resultExpression}, ownsHandle: false)";
+            }
+            else if (element.Marshaller.CppIsRecordValue)
+            {
+                resultExpression = $"{elementType}.CreateManagedWrapper({resultExpression}, ownsHandle: true)";
             }
 
             writer.Write($$"""
@@ -1159,6 +1163,10 @@ public static partial class BindingOutputRenderer
             {
                 resultExpression = $"{elementType}.CreateManagedWrapper({resultExpression}, ownsHandle: false)";
             }
+            else if (element.Marshaller.CppIsRecordValue)
+            {
+                resultExpression = $"{elementType}.CreateManagedWrapper({resultExpression}, ownsHandle: true)";
+            }
 
             writer.Write($$"""
                 if (typeof(T) == typeof({{elementType}}))
@@ -1197,6 +1205,11 @@ public static partial class BindingOutputRenderer
     private static string GetGenericImportAccessor(BindingCompilation compilation)
     {
         return $"global::{compilation.ManagedNamespace}.{compilation.ManagedClassName}.__PInvoke";
+    }
+
+    private static string GetGenericImportAccessor(BindingCompilation compilation, FunctionBinding function)
+    {
+        return $"global::{GetManagedNamespace(compilation, function)}.{GetManagedClassName(compilation, function)}.__PInvoke";
     }
 
     private static string RenderGenericManagedConstructor(BindingCompilation compilation, RecordBinding record, FunctionBinding function, IReadOnlyList<RecordGenericInstantiationBinding> instantiations)
@@ -1850,7 +1863,7 @@ public static partial class BindingOutputRenderer
     {
         if (!parameter.Type.IsGenericParameter)
         {
-            return RenderManagedInvocationArgument(parameter);
+            return RenderManagedInvocationArgument(compilation, parameter);
         }
 
         if (concreteType.IsPointerType)
@@ -1908,12 +1921,12 @@ public static partial class BindingOutputRenderer
 
     private static string GetGenericDeleteEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_delete{GetGenericInstantiationSuffix(instantiation)}";
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_delete{GetGenericInstantiationSuffix(instantiation)}";
     }
 
     private static string GetGenericCloneEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.NativeName)}_clone{GetGenericInstantiationSuffix(instantiation)}";
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_clone{GetGenericInstantiationSuffix(instantiation)}";
     }
 
     private static string GetGenericInstantiationSuffix(RecordGenericInstantiationBinding instantiation)

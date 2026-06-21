@@ -59,9 +59,7 @@ public static class MarshallerMetadataPhase2
         ArgumentNullException.ThrowIfNull(marshallerFiles);
         ArgumentNullException.ThrowIfNull(clangArgs);
 
-        var recordsByNativeName = compilation.Records
-            .GroupBy(static record => record.NativeName, StringComparer.Ordinal)
-            .ToDictionary(static group => group.Key, static group => group.Last(), StringComparer.Ordinal);
+        var recordsByNativeName = BuildRecordLookup(compilation.Records);
 
         var marshallerFilesList = marshallerFiles.Where(f => File.Exists(Path.GetFullPath(f))).ToArray();
         if (marshallerFilesList.Length == 0)
@@ -134,7 +132,7 @@ public static class MarshallerMetadataPhase2
                     shortName.Split('_', StringSplitOptions.RemoveEmptyEntries)
                         .Select(static part => char.ToUpperInvariant(part[0]) + part[1..]));
                 record = new RecordBinding(
-                    $"record:{recordName}",
+                    CreateRecordSymbolId(recordName),
                     recordName,
                     pascalName,
                     config.TemplateParameterNames.Count > 0 ? recordName : cppTypeName);
@@ -143,7 +141,7 @@ public static class MarshallerMetadataPhase2
                 ApplyTemplateParameters(record, config.TemplateParameterNames);
                 // ManagedNamespace will be set below from managed_namespace.
                 compilation.Members.Add(record);
-                recordsByNativeName[recordName] = record;
+                IndexRecordLookup(recordsByNativeName, record);
             }
 
             // When a Marshaller<T> attribute provides metadata for a
@@ -329,6 +327,31 @@ public static class MarshallerMetadataPhase2
         return null;
     }
 
+    private static Dictionary<string, RecordBinding> BuildRecordLookup(IEnumerable<RecordBinding> records)
+    {
+        var result = new Dictionary<string, RecordBinding>(StringComparer.Ordinal);
+        foreach (var record in records)
+        {
+            IndexRecordLookup(result, record);
+        }
+
+        return result;
+    }
+
+    private static void IndexRecordLookup(IDictionary<string, RecordBinding> recordsByNativeName, RecordBinding record)
+    {
+        if (!string.IsNullOrWhiteSpace(record.CppQualifiedName))
+        {
+            recordsByNativeName[record.CppQualifiedName] = record;
+            recordsByNativeName[StripGenericArguments(record.CppQualifiedName)] = record;
+        }
+
+        if (!string.IsNullOrWhiteSpace(record.NativeName))
+        {
+            recordsByNativeName.TryAdd(record.NativeName, record);
+        }
+    }
+
     private static void SyncPlaceholderRecords(BindingCompilation compilation, IReadOnlyDictionary<string, RecordBinding> recordsByNativeName)
     {
         foreach (var placeholder in compilation.Records.Where(r => r.GetMetadata<bool>(MetadataKeys.PlaceholderRecord)).ToArray())
@@ -428,7 +451,7 @@ public static class MarshallerMetadataPhase2
                 duplicate.Detach();
             }
 
-            recordsByNativeName[preferred.NativeName] = preferred;
+            IndexRecordLookup(recordsByNativeName, preferred);
         }
 
         compilation.InvalidateCaches();
@@ -1223,4 +1246,7 @@ public static class MarshallerMetadataPhase2
             string.Equals(candidate.NativeName, qualifiedName, StringComparison.Ordinal) ||
             string.Equals(candidate.ManagedName, qualifiedName, StringComparison.Ordinal));
     }
+
+    private static string CreateRecordSymbolId(string cppQualifiedName)
+        => $"record:{MarshallerConfigExtractor.NormalizeTypeName(cppQualifiedName)}";
 }

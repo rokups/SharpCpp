@@ -1,8 +1,5 @@
-using System.Linq;
-
 using SharpCpp.Support;
 
-using Urho3D;
 using Urho3D.UI;
 
 using Xunit;
@@ -12,19 +9,16 @@ namespace SharpCpp.Rbfx.Tests.E2E;
 public sealed class StringBindingTests
 {
     [Fact]
-    public void Rbfx_ea_string_surfaces_project_as_Ea_String_wrapper()
+    public void Rbfx_ea_string_wrapper_is_generated_without_old_ui_name_surface()
     {
-        var bindingsAssembly = typeof(UIElement).Assembly;
-        var eaStringType = bindingsAssembly.GetType("Ea.String", throwOnError: true)!;
+        var eaStringType = typeof(global::Ea.String);
+        var uiElementType = typeof(UIElement);
 
         Assert.True(eaStringType.IsSubclassOf(typeof(StringBase)));
 
-        Assert.Equal(eaStringType, typeof(UIElement).GetMethod(nameof(UIElement.GetName), global::System.Type.EmptyTypes)!.ReturnType);
-
-        Assert.Contains(
-            typeof(UIElement).GetMethods(),
-            method => method.Name == "SetName" &&
-                method.GetParameters().Length == 1 &&
-                method.GetParameters()[0].ParameterType == eaStringType);
+        Assert.Null(uiElementType.GetMethod("GetName", global::System.Type.EmptyTypes));
+        Assert.DoesNotContain(
+            uiElementType.GetMethods(),
+            method => method.Name == "SetName" && method.GetParameters().Length == 1);
     }
 }

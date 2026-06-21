@@ -846,6 +846,40 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         Assert.Equal("int", samples.Type.FixedArrayElementType!.ManagedTypeName);
     }
 
+    [Fact]
+    public void Parse_uses_qualified_record_symbol_ids_for_same_named_records()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "QualifiedRecordIds");
+        var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+
+        var parser = new ClangSharpHeaderParser();
+        var compilation = parser.Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test.Namespace",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: ["-x", "c++", "-std=c++20", $"-I{fixtureDir}"],
+            MarshallerConfigurationFiles: Array.Empty<string>(),
+            EntryPointPrefix: "Test_"));
+
+        var recordDump = string.Join(", ", compilation.Records.Select(static record => $"{record.NativeName}|{record.CppQualifiedName}|{record.SymbolId}"));
+        var alphaRecords = compilation.Records.Where(static record => record.CppQualifiedName == "Alpha::Context").ToArray();
+        var betaRecords = compilation.Records.Where(static record => record.CppQualifiedName == "Beta::Context").ToArray();
+        Assert.True(alphaRecords.Length == 1, recordDump);
+        Assert.True(betaRecords.Length == 1, recordDump);
+        var alpha = alphaRecords[0];
+        var beta = betaRecords[0];
+
+        Assert.Equal("record:Alpha::Context", alpha.SymbolId);
+        Assert.Equal("record:Beta::Context", beta.SymbolId);
+        Assert.NotEqual(alpha.SymbolId, beta.SymbolId);
+        Assert.Same(alpha, compilation.FindRecordBySymbolId(alpha.SymbolId));
+        Assert.Same(beta, compilation.FindRecordBySymbolId(beta.SymbolId));
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

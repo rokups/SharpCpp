@@ -65,6 +65,7 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ### rbfx Consumer Slice
 - `rbfx/SharpCpp.Rbfx.Generator` parses `Urho3DAll.h` against SDK CMake flags
+- Optional RmlUI / ImGui SDK submodules are detected from rbfx compile definitions and parsed through an explicit generated umbrella when enabled
 - `SharpPtr<T>` / `WeakPtr<T>` projection via marshaller configuration
 - `ea::string` / `eastl::string` projected as `Ea.String`
 - Cross-module composition: `rbfx/Rbfx.UserCode` imports upstream metadata, extends wrappers
@@ -124,6 +125,21 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - All type-specific behaviors configured through C++/C# marshallers, never hardcoded in core
 
 ## Recently Fixed
+
+- **VS Code can build and run `Rbfx.Application` directly**:
+  - Added a focused `CMake: Build Rbfx.Application (Debug)` task and `Run: Rbfx.Application (Debug)` task.
+  - Added an `Rbfx.Application (Debug)` CoreCLR launch profile that builds the app target first, runs the CMake output DLL from `out/build/dev/bin/Debug`, and sets the rbfx Linux runtime library environment.
+  - Verification: `.vscode/tasks.json` / `.vscode/launch.json` pass `jq` validation, and `cmake --build --preset Debug --target sharpcpp-rbfx-application` produces the expected app output.
+
+- **Conservative rbfx RmlUI / ImGui submodule surfaces now build and test**:
+  - Added rbfx submodule detection for `URHO3D_RMLUI=1` and `URHO3D_SYSTEMUI=1`, generated a parse umbrella, and tracked enabled SDK submodule headers as generator inputs.
+  - Added conservative RmlUI and ImGui surface passes that keep sample-ready records/free functions while pruning unsupported templates, callbacks, raw arrays, pointer-to-pointer shapes, varargs, and stale silently excluded declarations.
+  - Added routed free-function rendering so ImGui globals emit under `ImGuiNet.ImGui` without ImGui-specific renderer branching.
+  - Added ImGui value marshaller configuration for `ImVec2` / `ImVec4`, fixed ignored array helper generation, enum/alias ABI casts, and polymorphic registry qualification for custom managed namespaces.
+  - Ported the full v1-style `rbfx/Rbfx.Application` sample with scene setup, resource loading, RmlUI in-memory document/data-model callbacks, Dear ImGui overlay, and update-loop wiring through narrow rbfx handwritten conveniences.
+  - Added sample-ready rbfx support shims for typed subsystem/resource/component lookups, application lifetime/update dispatch, viewport/node/resource conveniences, Rml data-model binding, and the ImGui calls used by the sample.
+  - Replaced stale rbfx E2E assertions with compile-time surface checks for the current conservative output, including Rml `ElementDocument`, `ImGuiNet.ImGui`, `Ea.String`, `UIElement`, and `BiasParameters`.
+  - Verification: focused model/rendering tests, focused `sharpcpp.e2e` rerun, `cmake --build --preset Debug --target sharpcpp-rbfx-application`, `cmake --build --preset Debug`, and `ctest --preset Debug --output-on-failure` all pass.
 
 - **Wrapped record value returns now work without per-type marshaller configuration**:
   - Degradation no longer treats by-value returns of owned parsed records as unsupported just because the type lacks a custom `Marshaller<T>` specialization.

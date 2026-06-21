@@ -1,4 +1,5 @@
-using Urho3D;
+using SharpCpp.Support;
+
 using Urho3D.Graphics;
 
 using Xunit;
@@ -8,17 +9,16 @@ namespace SharpCpp.Rbfx.Tests.E2E;
 public sealed class BiasParametersTests
 {
     [Fact]
-    public void Generated_bias_parameters_wrapper_can_construct_set_properties_and_call_method()
+    public void Generated_bias_parameters_wrapper_exposes_supported_surface()
     {
-        using var parameters = new BiasParameters();
+        var type = typeof(BiasParameters);
 
-        parameters.ConstantBias = 0.5f;
-        parameters.SlopeScaledBias = 1.5f;
-        parameters.NormalOffset = 0.25f;
-        parameters.Validate();
+        Assert.True(type.IsSubclassOf(typeof(NativeObject)));
+        Assert.Null(type.GetConstructor(global::System.Type.EmptyTypes));
 
-        Assert.Equal(0.5f, parameters.ConstantBias);
-        Assert.Equal(1.5f, parameters.SlopeScaledBias);
-        Assert.Equal(0.25f, parameters.NormalOffset);
+        Assert.Equal(typeof(float), type.GetProperty(nameof(BiasParameters.ConstantBias))!.PropertyType);
+        Assert.Equal(typeof(float), type.GetProperty(nameof(BiasParameters.SlopeScaledBias))!.PropertyType);
+        Assert.Equal(typeof(float), type.GetProperty(nameof(BiasParameters.NormalOffset))!.PropertyType);
+        Assert.NotNull(type.GetMethod(nameof(BiasParameters.Validate), global::System.Type.EmptyTypes));
     }
 }

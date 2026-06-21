@@ -62,6 +62,19 @@ public sealed class BindingNodeTests
     }
 
     [Fact]
+    public void Clearing_ignore_reason_also_clears_silent_exclusion()
+    {
+        var record = new RecordBinding("record:Widget", "Widget", "Widget");
+        record.SetSilentExclusionReason("internal implementation detail");
+
+        var removed = record.ClearIgnoreReason();
+
+        Assert.True(removed);
+        Assert.False(record.IsIgnored());
+        Assert.False(record.IsSilentlyExcluded());
+    }
+
+    [Fact]
     public void Detach_removes_child_from_parent_collection()
     {
         var function = new FunctionBinding("function:add_numbers", "add_numbers", "AddNumbers", BindingType.Int32);

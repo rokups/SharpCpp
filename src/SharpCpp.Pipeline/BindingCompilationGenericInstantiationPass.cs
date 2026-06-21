@@ -78,7 +78,9 @@ public static class BindingCompilationGenericInstantiationPass
 
     private static void NormalizeArrayTypeReferences(BindingCompilation compilation)
     {
-        var recordsById = compilation.Records.ToDictionary(static record => record.SymbolId, StringComparer.Ordinal);
+        var recordsById = compilation.Records
+            .GroupBy(static record => record.SymbolId, StringComparer.Ordinal)
+            .ToDictionary(static group => group.Key, static group => group.Last(), StringComparer.Ordinal);
 
         foreach (var function in compilation.Functions)
         {

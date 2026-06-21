@@ -35,6 +35,23 @@ public static partial class BindingOutputRenderer
             compilation.ManagedNamespace;
     }
 
+    private static string GetManagedNamespace(BindingCompilation compilation, FunctionBinding function)
+    {
+        return string.IsNullOrWhiteSpace(function.ManagedNamespace)
+            ? compilation.ManagedNamespace
+            : function.ManagedNamespace!;
+    }
+
+    private static string GetManagedClassName(BindingCompilation compilation, FunctionBinding function)
+    {
+        return string.IsNullOrWhiteSpace(function.ManagedClassName)
+            ? compilation.ManagedClassName
+            : function.ManagedClassName!;
+    }
+
+    private static string GetBindingClassAccessor(BindingCompilation compilation)
+        => $"global::{compilation.ManagedNamespace}.{compilation.ManagedClassName}";
+
     public static GeneratedBindingSet Render(BindingCompilation compilation, string fileStem,
         Func<string?, string>? deriveGroupStem = null)
     {
@@ -206,37 +223,50 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
-        writer.WriteLine();
-        writer.Write(
-            $$"""
-            namespace {{compilation.ManagedNamespace}}
-            {
-            """);
-        writer.Write(
-            $$"""
-            public static partial class {{compilation.ManagedClassName}}
-            {
-            """);
+        var callbackParameters = includeCallbackHelpers
+            ? CollectCallbackParameters(records, functions).ToArray()
+            : Array.Empty<ParameterBinding>();
+        var defaultContainer = (Namespace: compilation.ManagedNamespace, Class: compilation.ManagedClassName);
+        var freeFunctionGroups = functions
+            .Where(static function => function.Parent is not RecordBinding && !function.IsConstructor)
+            .GroupBy(function => (Namespace: GetManagedNamespace(compilation, function), Class: GetManagedClassName(compilation, function)))
+            .ToDictionary(static group => group.Key, static group => group.OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray());
 
-        var freeFunctionDeclarations = new List<string>();
-        var lastFreeFunctionWasIgnoredStub = false;
-
-        foreach (var function in functions.Where(static function => function.Parent is not RecordBinding && !function.IsConstructor))
+        if ((memberFilter is null && polymorphicConcreteRecords.Length > 0) || callbackParameters.Length > 0 || genericImportDeclarations.Count > 0)
         {
-            var isIgnoredStub = function.HasMetadata(MetadataKeys.IgnoreReason);
-            writer.WriteLine();
-            if (lastFreeFunctionWasIgnoredStub && !isIgnoredStub)
-            {
-                writer.WriteLine();
-            }
+            freeFunctionGroups.TryAdd(defaultContainer, Array.Empty<FunctionBinding>());
+        }
 
-            if (isIgnoredStub)
+        foreach (var (container, containerFunctions) in freeFunctionGroups
+            .OrderBy(static pair => pair.Key.Namespace, StringComparer.Ordinal)
+            .ThenBy(static pair => pair.Key.Class, StringComparer.Ordinal))
+        {
+            writer.WriteLine();
+            writer.Write(
+                $$"""
+                namespace {{container.Namespace}}
+                {
+                public static partial class {{container.Class}}
+                {
+                """);
+
+            var freeFunctionDeclarations = new List<string>();
+            var lastFreeFunctionWasIgnoredStub = false;
+
+            foreach (var function in containerFunctions)
             {
-                writer.Write(RenderIgnoredStub(function));
-            }
-            else
-            {
-                if (function.IsGeneric)
+                var isIgnoredStub = function.HasMetadata(MetadataKeys.IgnoreReason);
+                writer.WriteLine();
+                if (lastFreeFunctionWasIgnoredStub && !isIgnoredStub)
+                {
+                    writer.WriteLine();
+                }
+
+                if (isIgnoredStub)
+                {
+                    writer.Write(RenderIgnoredStub(function));
+                }
+                else if (function.IsGeneric)
                 {
                     writer.Write(RenderManagedGenericFreeFunction(compilation, function));
                     freeFunctionDeclarations.AddRange(CollectGenericFreeFunctionImportDeclarations(compilation, function));
@@ -249,70 +279,66 @@ public static partial class BindingOutputRenderer
                     if (HasUnexpressibleDefaultParams(function) || HasUndefaultableParams(function))
                         freeFunctionDeclarations.Add(RenderUnexpressibleDefaultFreeFunctionImport(compilation, function));
                 }
+
+                lastFreeFunctionWasIgnoredStub = isIgnoredStub;
             }
 
-            lastFreeFunctionWasIgnoredStub = isIgnoredStub;
-        }
+            if (lastFreeFunctionWasIgnoredStub)
+            {
+                writer.WriteLine();
+            }
 
-        if (lastFreeFunctionWasIgnoredStub)
-        {
-            writer.WriteLine();
-        }
+            var isDefaultContainer = container == defaultContainer;
+            if (isDefaultContainer && memberFilter is null && polymorphicConcreteRecords.Length > 0)
+            {
+                writer.WriteLine();
+                writer.Write(RenderNativeObjectRegistryInitializer(compilation, polymorphicConcreteRecords));
+            }
 
-        if (memberFilter is null && polymorphicConcreteRecords.Length > 0)
-        {
-            writer.WriteLine();
-            writer.Write(RenderNativeObjectRegistryInitializer(compilation, polymorphicConcreteRecords));
-        }
+            if (isDefaultContainer && callbackParameters.Length > 0)
+            {
+                writer.WriteLine();
+                writer.Write(RenderManagedCallbackSupport(compilation, callbackParameters));
+            }
 
-        var callbackParameters = includeCallbackHelpers
-            ? CollectCallbackParameters(records, functions).ToArray()
-            : Array.Empty<ParameterBinding>();
-        if (callbackParameters.Length > 0)
-        {
-            writer.WriteLine();
-            writer.Write(RenderManagedCallbackSupport(compilation, callbackParameters));
-        }
+            if (freeFunctionDeclarations.Count > 0 || isDefaultContainer && genericImportDeclarations.Count > 0)
+            {
+                writer.WriteLine();
+                writer.Write(
+                    """
+                    internal static partial class __PInvoke
+                    {
+                    """);
 
-        if (freeFunctionDeclarations.Count > 0 || genericImportDeclarations.Count > 0)
-        {
-            writer.WriteLine();
-            writer.Write(
-                """
-                internal static partial class __PInvoke
+                foreach (var declaration in freeFunctionDeclarations)
                 {
-                """);
+                    writer.WriteLine();
+                    writer.Write(declaration);
+                }
 
-            foreach (var declaration in freeFunctionDeclarations)
-            {
-                writer.WriteLine();
-                writer.Write(declaration);
-            }
+                if (isDefaultContainer)
+                {
+                    foreach (var declaration in genericImportDeclarations)
+                    {
+                        writer.WriteLine();
+                        writer.Write(declaration);
+                    }
+                }
 
-            foreach (var declaration in genericImportDeclarations)
-            {
                 writer.WriteLine();
-                writer.Write(declaration);
+                writer.Write(
+                    """
+                    }
+                    """);
             }
 
             writer.WriteLine();
             writer.Write(
                 """
                 }
+                }
                 """);
         }
-
-        writer.WriteLine();
-        writer.Write(
-            """
-            }
-            """);
-
-        writer.WriteLine();
-        writer.Write(
-            """
-            }
-            """);
 
         return writer.ToString();
     }
@@ -469,7 +495,7 @@ public static partial class BindingOutputRenderer
         var arguments = string.Join(", ", slots.Select((_, index) => $"slot{index}"));
 
         writer.Write($$"""
-            SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.NativeName)}}_connect_director({{parameterList}})
+            SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_connect_director({{parameterList}})
             {
             auto* director = dynamic_cast<{{directorName}}*>(self);
             if (director != nullptr)
@@ -486,7 +512,7 @@ public static partial class BindingOutputRenderer
         if (!requiresDirector)
         {
             return $$"""
-                SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.NativeName)}}_delete(arg_t<{{record.CppQualifiedName}}*> self)
+                SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_delete(arg_t<{{record.CppQualifiedName}}*> self)
                 {
                 MarshallerInvoker::destroy<{{record.CppQualifiedName}}>(self);
                 }
@@ -495,7 +521,7 @@ public static partial class BindingOutputRenderer
 
         var directorName = GetNativeDirectorClassName(record);
         return $$"""
-            SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.NativeName)}}_delete(arg_t<{{record.CppQualifiedName}}*> self)
+            SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_delete(arg_t<{{record.CppQualifiedName}}*> self)
             {
             if (auto* director = dynamic_cast<{{directorName}}*>(self))
             {
@@ -511,7 +537,7 @@ public static partial class BindingOutputRenderer
     private static string RenderNativeClone(RecordBinding record)
     {
         return $$"""
-            SHARPCPP_EXPORT ret_t<{{record.CppQualifiedName}}*> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.NativeName)}}_clone(arg_t<{{record.CppQualifiedName}}*> self)
+            SHARPCPP_EXPORT ret_t<{{record.CppQualifiedName}}*> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_clone(arg_t<{{record.CppQualifiedName}}*> self)
             {
             Marshaller<{{record.CppQualifiedName}}*> self_marshaller;
             auto* instance = static_cast<{{record.CppQualifiedName}}*>(self_marshaller.ConvertToCpp(self));
@@ -1961,7 +1987,7 @@ public static partial class BindingOutputRenderer
             if (handle == 0)
                 {{(isEffectivelyAbstract ? "return null!;" : $"return new {record.ManagedName}(0, ownsHandle);")}}
 
-            {{(record.IsPolymorphic ? $"{compilation.ManagedClassName}.__NativeObjectRegistryInitializer.EnsureRegistered();" : string.Empty)}}
+            {{(record.IsPolymorphic ? $"{GetBindingClassAccessor(compilation)}.__NativeObjectRegistryInitializer.EnsureRegistered();" : string.Empty)}}
             if (s_instanceCache.TryGetExisting(handle, ownsHandle, out var existing) && existing is {{record.ManagedName}} cached)
                 return cached;
 
@@ -2387,7 +2413,7 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedDeleteImportDeclaration(BindingCompilation compilation, RecordBinding record)
     {
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.NativeName)}}_delete", StringMarshalling = StringMarshalling.Utf8)]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_delete", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             internal static partial void Delete(nint self);
             """;
@@ -2402,7 +2428,7 @@ public static partial class BindingOutputRenderer
             : $"{returnAttribute}\ninternal static partial {returnTypeName} CloneCopyCtor({record.ManagedName} self);";
 
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.NativeName)}}_clone", StringMarshalling = StringMarshalling.Utf8)]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_clone", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             {{importMethodLine}}
             """;
@@ -2477,7 +2503,7 @@ public static partial class BindingOutputRenderer
                 writer.Write($$"""
                     get
                     {
-                    return __PInvoke.{{GetManagedImportMethodName(property.Getter)}}(this);
+                    return {{BuildManagedImportToPublicExpression(compilation, property.Getter.ReturnType, $"__PInvoke.{GetManagedImportMethodName(property.Getter)}(this)")}};
                     }
                     """);
             }
@@ -2491,7 +2517,7 @@ public static partial class BindingOutputRenderer
                 ? "value"
                 : requiresWrapping
                 ? "global::SharpCpp.Support.NativeObject.GetHandle(value)"
-                : "value";
+                : BuildManagedPublicToImportExpression(compilation, property.Setter.Parameters[0].Type, "value");
             var setterKeepAlive = requiresWrapping
                 ? "\n            global::System.GC.KeepAlive(value);"
                 : string.Empty;
@@ -2576,7 +2602,7 @@ public static partial class BindingOutputRenderer
         }
 
         var parameterList = RenderManagedPublicParameterList(function.Parameters, compilation);
-        var invokeArguments = string.Join(", ", function.Parameters.Select(RenderManagedInvocationArgument));
+        var invokeArguments = string.Join(", ", function.Parameters.Select(parameter => RenderManagedInvocationArgument(compilation, parameter)));
         var hasHandleParams = function.Parameters.Any(static parameter => parameter.Type.Kind == BindingTypeKind.Handle);
         var hasUnexpressibleDefaults = HasUnexpressibleDefaultParams(function);
 
@@ -2687,7 +2713,7 @@ public static partial class BindingOutputRenderer
             else
             {
                 var aPlan = BuildManagedInvocationPlan(null!, beforeParams);
-                var aInvokeArgs = string.Join(", ", beforeParams.Select(RenderManagedInvocationArgument));
+                var aInvokeArgs = string.Join(", ", beforeParams.Select(parameter => RenderManagedInvocationArgument(compilation, parameter)));
                 writer.Write($$"""
                     var __handle = __PInvoke.{{GetUnexpressibleVariantImportName(importMethodName, firstU)}}({{aInvokeArgs}});
                     """);
@@ -2763,7 +2789,7 @@ public static partial class BindingOutputRenderer
             }
             else
             {
-                var bInvokeArgs = string.Join(", ", function.Parameters.Select(RenderManagedInvocationArgument));
+                var bInvokeArgs = string.Join(", ", function.Parameters.Select(parameter => RenderManagedInvocationArgument(compilation, parameter)));
                 writer.Write($$"""
                     var __handle = __PInvoke.{{importMethodName}}({{bInvokeArgs}});
                     return __handle;
@@ -2802,7 +2828,7 @@ public static partial class BindingOutputRenderer
             new[] { "nint self" }.Concat(slots.Select((_, index) => $"nint slot{index}")));
 
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.NativeName)}}_connect_director", StringMarshalling = StringMarshalling.Utf8)]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_connect_director", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             internal static partial void ConnectDirector({{parameterList}});
             """;
@@ -3342,7 +3368,7 @@ public static partial class BindingOutputRenderer
         else
         {
             writer.Write($$"""
-                return __PInvoke.Get_{{field.ManagedName}}(this);
+                return {{BuildManagedImportToPublicExpression(compilation, field.Type, $"__PInvoke.Get_{field.ManagedName}(this)")}};
                 """);
         }
 
@@ -3367,7 +3393,7 @@ public static partial class BindingOutputRenderer
                 ? "value"
                 : RequiresHandleWrapping(field.Type)
                 ? "global::SharpCpp.Support.NativeObject.GetHandle(value)"
-                : "value";
+                : BuildManagedPublicToImportExpression(compilation, field.Type, "value");
             var setterPrecondition = field.Type.IsFixedArray
                 ? $$"""
                     global::System.ArgumentNullException.ThrowIfNull(value);
@@ -3832,7 +3858,7 @@ public static partial class BindingOutputRenderer
 
             writer.WriteLine();
             writer.Write($$"""
-                SHARPCPP_EXPORT ret_t<std::size_t> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.NativeName)}}_type_id()
+                SHARPCPP_EXPORT ret_t<std::size_t> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_type_id()
                 {
                 return typeid({{record.CppQualifiedName}}).hash_code();
                 }
@@ -3840,7 +3866,7 @@ public static partial class BindingOutputRenderer
 
             writer.WriteLine();
             writer.Write($$"""
-                SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.NativeName)}}_metadata(arg_t<{{record.CppQualifiedName}}*> self, void** handle, std::size_t* dynamicTypeId)
+                SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_metadata(arg_t<{{record.CppQualifiedName}}*> self, void** handle, std::size_t* dynamicTypeId)
                 {
                 if (handle == nullptr || dynamicTypeId == nullptr)
                 {
@@ -4522,7 +4548,7 @@ public static partial class BindingOutputRenderer
         return type.IsPointerType;
     }
 
-    private static string RenderManagedInvocationArgument(ParameterBinding parameter)
+    private static string RenderManagedInvocationArgument(BindingCompilation? compilation, ParameterBinding parameter)
     {
         if (parameter.Type.IsFixedArray)
         {
@@ -4542,11 +4568,12 @@ public static partial class BindingOutputRenderer
 
         if (!requiresWrapping)
         {
+            var importExpression = BuildManagedPublicToImportExpression(compilation, parameter.Type, valueExpression);
             return parameter.Direction switch
             {
                 BindingParameterDirection.Ref => $"ref {valueExpression}",
                 BindingParameterDirection.Out => $"out {valueExpression}",
-                _ => valueExpression
+                _ => importExpression
             };
         }
 
@@ -4588,7 +4615,7 @@ public static partial class BindingOutputRenderer
                         throw new global::System.ArgumentException("Expected array length {{expectedLength}}.", nameof({{parameter.ManagedName}}));
                     }
                     """);
-                arguments.Add(RenderManagedInvocationArgument(parameter));
+                arguments.Add(RenderManagedInvocationArgument(compilation, parameter));
                 postCallStatements.Add($"global::System.GC.KeepAlive({parameter.ManagedName});");
                 continue;
             }
@@ -4625,7 +4652,7 @@ public static partial class BindingOutputRenderer
                 postCallStatements.Add($"global::System.GC.KeepAlive({parameter.ManagedName});");
             }
 
-            arguments.Add(RenderManagedInvocationArgument(parameter));
+            arguments.Add(RenderManagedInvocationArgument(compilation, parameter));
         }
 
         return new ManagedInvocationPlan(arguments, preCallStatements, postCallStatements);
@@ -4635,6 +4662,34 @@ public static partial class BindingOutputRenderer
         IReadOnlyList<string> Arguments,
         IReadOnlyList<string> PreCallStatements,
         IReadOnlyList<string> PostCallStatements);
+
+    private static string BuildManagedPublicToImportExpression(BindingCompilation? compilation, BindingType type, string expression)
+    {
+        if (type.Kind == BindingTypeKind.Handle || type.IsFixedArray)
+        {
+            return expression;
+        }
+
+        var importTypeName = GetManagedImportTypeName(type, compilation);
+        var publicTypeName = GetManagedPublicReturnTypeName(type, compilation);
+        return string.Equals(importTypeName, publicTypeName, StringComparison.Ordinal)
+            ? expression
+            : $"({importTypeName}){expression}";
+    }
+
+    private static string BuildManagedImportToPublicExpression(BindingCompilation? compilation, BindingType type, string expression)
+    {
+        if (type.Kind == BindingTypeKind.Handle || type.IsFixedArray)
+        {
+            return expression;
+        }
+
+        var importTypeName = GetManagedImportTypeName(type, compilation);
+        var publicTypeName = GetManagedPublicReturnTypeName(type, compilation);
+        return string.Equals(importTypeName, publicTypeName, StringComparison.Ordinal)
+            ? expression
+            : $"({publicTypeName})({expression})";
+    }
 
     private sealed record AccessorProperty(string PropertyName, FunctionBinding? Getter, FunctionBinding? Setter);
 
@@ -4874,9 +4929,10 @@ public static partial class BindingOutputRenderer
             return $"{GetManagedWrapperTypeName(type, compilation)}.CreateManagedWrapper({handleExpression}, ownsHandle: {ownsHandle.ToString().ToLowerInvariant()})";
         }
 
+        var wrapperTypeName = GetManagedWrapperTypeName(type, compilation);
         return ownsHandle
-            ? $"new {type.ManagedTypeName}({handleExpression}, true)"
-            : $"new {type.ManagedTypeName}({handleExpression})";
+            ? $"new {wrapperTypeName}({handleExpression}, true)"
+            : $"new {wrapperTypeName}({handleExpression})";
     }
 
     private static RecordBinding? ResolveRecord(BindingCompilation compilation, BindingType type)
@@ -4900,7 +4956,7 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedStaticTypeIdImportDeclaration(BindingCompilation compilation, RecordBinding record)
     {
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.NativeName)}}_type_id", StringMarshalling = StringMarshalling.Utf8)]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_type_id", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             internal static partial nuint GetStaticTypeId();
             """;
@@ -4909,7 +4965,7 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedNativeObjectMetadataImportDeclaration(BindingCompilation compilation, RecordBinding record)
     {
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.NativeName)}}_metadata", StringMarshalling = StringMarshalling.Utf8)]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_metadata", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             internal static partial void GetNativeObjectMetadata(nint self, out nint handle, out nuint dynamicTypeId);
             """;
@@ -5255,7 +5311,7 @@ public static partial class BindingOutputRenderer
     {
         foreach (var group in compilation.Members.OfType<FunctionBinding>()
             .Where(static function => function.Parent is not RecordBinding)
-            .GroupBy(static function => function.ManagedName, StringComparer.Ordinal))
+            .GroupBy(function => $"{GetManagedNamespace(compilation, function)}|{GetManagedClassName(compilation, function)}|{function.ManagedName}", StringComparer.Ordinal))
         {
             var counter = 0;
             foreach (var function in group.OrderBy(static f => f.SymbolId, StringComparer.Ordinal))

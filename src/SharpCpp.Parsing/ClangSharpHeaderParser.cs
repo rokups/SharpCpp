@@ -523,17 +523,7 @@ public sealed partial class ClangSharpHeaderParser
 
         // Look up ghost records under both the unqualified spelling and the fully
         // qualified name — placeholders created by MapType may be keyed by either.
-        RecordBinding? ghostRecord = null;
-        var ghostKey = nativeName;
-        if (!recordsByName.TryGetValue(nativeName, out ghostRecord) &&
-            !string.IsNullOrWhiteSpace(cppQualifiedName) &&
-            !string.Equals(nativeName, cppQualifiedName, StringComparison.Ordinal))
-        {
-            if (recordsByName.TryGetValue(cppQualifiedName, out ghostRecord))
-            {
-                ghostKey = cppQualifiedName;
-            }
-        }
+        var ghostRecord = FindExistingRecordForDeclaration(recordsByName, nativeName, cppQualifiedName);
 
         if (ghostRecord?.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) == true)
         {
@@ -552,7 +542,7 @@ public sealed partial class ClangSharpHeaderParser
             return;
         }
         var cxxRecord = recordDecl as CXXRecordDecl;
-        var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(GetManagedTypeHead(nativeName)), cppQualifiedName)
+        var record = new RecordBinding(CreateRecordSymbolId(cppQualifiedName), nativeName, ToPascalCase(GetManagedTypeHead(nativeName)), cppQualifiedName)
         {
             IsAbstract = cxxRecord?.IsAbstract ?? false,
             IsDirector = HasSharpCppAttribute(declarationText, "director") || IsForcedDirectorRecord(cppQualifiedName, directorRecordCppTypeNames),
@@ -602,17 +592,7 @@ public sealed partial class ClangSharpHeaderParser
 
         // Look up ghost records under both the unqualified spelling and the fully
         // qualified name — placeholders created by MapType may be keyed by either.
-        RecordBinding? ghostRecord = null;
-        var ghostKey = nativeName;
-        if (!recordsByName.TryGetValue(nativeName, out ghostRecord) &&
-            !string.IsNullOrWhiteSpace(cppQualifiedName) &&
-            !string.Equals(nativeName, cppQualifiedName, StringComparison.Ordinal))
-        {
-            if (recordsByName.TryGetValue(cppQualifiedName, out ghostRecord))
-            {
-                ghostKey = cppQualifiedName;
-            }
-        }
+        var ghostRecord = FindExistingRecordForDeclaration(recordsByName, nativeName, cppQualifiedName);
 
         if (ghostRecord?.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) == true)
         {
@@ -639,7 +619,7 @@ public sealed partial class ClangSharpHeaderParser
             ? sourceText[..braceIndex]
             : sourceText;
         var templatedRecord = classTemplate.TemplatedDecl;
-        var record = new RecordBinding($"record:{nativeName}", nativeName, ToPascalCase(GetManagedTypeHead(nativeName)), cppQualifiedName)
+        var record = new RecordBinding(CreateRecordSymbolId(cppQualifiedName), nativeName, ToPascalCase(GetManagedTypeHead(nativeName)), cppQualifiedName)
         {
             IsAbstract = templatedRecord is CXXRecordDecl cxx && cxx.IsAbstract,
             IsDirector = HasSharpCppAttribute(declarationText, "director") || IsForcedDirectorRecord(cppQualifiedName, directorRecordCppTypeNames),
@@ -696,7 +676,7 @@ public sealed partial class ClangSharpHeaderParser
             {
                 var baseQualifiedName = NormalizeNamedTypeName(baseSpec.Type.Handle.Spelling.ToString());
                 var unqualifiedBaseName = GetManagedTypeHead(baseTypeName);
-                baseRecord = new RecordBinding($"record:{baseTypeName}", unqualifiedBaseName, ToPascalCase(unqualifiedBaseName), baseQualifiedName);
+                baseRecord = new RecordBinding(CreateRecordSymbolId(baseQualifiedName), unqualifiedBaseName, ToPascalCase(unqualifiedBaseName), baseQualifiedName);
                 baseRecord.SetMetadata(MetadataKeys.PlaceholderRecord, true);
                 IndexRecordKeys(recordsByName, baseRecord);
             }
@@ -2091,7 +2071,7 @@ public sealed partial class ClangSharpHeaderParser
                     // Use the resolved qualified name for CppQualifiedName so the
                     // placeholder passes namespace-exclusion checks in the pipeline.
                     var unqualifiedRecordName = GetManagedTypeHead(recordName);
-                    record = new RecordBinding($"record:{recordName}", unqualifiedRecordName, ToPascalCase(unqualifiedRecordName), recordName);
+                    record = new RecordBinding(CreateRecordSymbolId(recordName), unqualifiedRecordName, ToPascalCase(unqualifiedRecordName), recordName);
                     record.SetMetadata(MetadataKeys.PlaceholderRecord, true);
                     IndexRecordKeys(recordsByName, record);
                 }
@@ -2135,7 +2115,7 @@ public sealed partial class ClangSharpHeaderParser
             if (!recordsByName.TryGetValue(recordName, out var record))
             {
                 var unqualifiedRecordName = GetManagedTypeHead(recordName);
-                record = new RecordBinding($"record:{recordName}", unqualifiedRecordName, ToPascalCase(unqualifiedRecordName), recordName);
+                record = new RecordBinding(CreateRecordSymbolId(recordName), unqualifiedRecordName, ToPascalCase(unqualifiedRecordName), recordName);
                 record.SetMetadata(MetadataKeys.PlaceholderRecord, true);
                 IndexRecordKeys(recordsByName, record);
             }
@@ -2262,7 +2242,7 @@ public sealed partial class ClangSharpHeaderParser
         if (!recordsByName.TryGetValue(recordName, out var record))
         {
             record = new RecordBinding(
-                $"record:{recordName}",
+                CreateRecordSymbolId(recordName),
                 recordName,
                 GetSimpleManagedTypeName(managedTypeOverride.PublicTypeName),
                 managedTypeOverride.TemplateParameterNames.Count > 0 ? recordName : managedTypeOverride.CppTypeName)
@@ -3865,6 +3845,30 @@ public sealed partial class ClangSharpHeaderParser
         TryAddBindingKey(recordsByName, record.NativeName, record);
         TryAddBindingKey(recordsByName, record.CppQualifiedName, record);
     }
+
+    private static RecordBinding? FindExistingRecordForDeclaration(
+        IDictionary<string, RecordBinding> recordsByName,
+        string nativeName,
+        string cppQualifiedName)
+    {
+        if (recordsByName.TryGetValue(cppQualifiedName, out var qualifiedRecord))
+        {
+            return qualifiedRecord;
+        }
+
+        if (!recordsByName.TryGetValue(nativeName, out var unqualifiedRecord))
+        {
+            return null;
+        }
+
+        return string.Equals(unqualifiedRecord.CppQualifiedName, cppQualifiedName, StringComparison.Ordinal) ||
+            string.Equals(unqualifiedRecord.CppQualifiedName, nativeName, StringComparison.Ordinal)
+            ? unqualifiedRecord
+            : null;
+    }
+
+    private static string CreateRecordSymbolId(string cppQualifiedName)
+        => $"record:{NormalizeNamedTypeName(cppQualifiedName)}";
 
     private static void RemoveRecordKeys(IDictionary<string, RecordBinding> recordsByName, RecordBinding record)
     {

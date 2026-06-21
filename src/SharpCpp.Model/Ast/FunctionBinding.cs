@@ -39,6 +39,10 @@ public sealed class FunctionBinding : BindingNamedNode
 
     public string ImportMethodName { get; set; }
 
+    public string? ManagedNamespace { get; set; }
+
+    public string? ManagedClassName { get; set; }
+
     public bool IsStatic { get; set; } = true;
 
     public BindingAccessModifier AccessModifier { get; set; } = BindingAccessModifier.Public;

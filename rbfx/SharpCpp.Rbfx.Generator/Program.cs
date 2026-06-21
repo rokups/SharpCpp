@@ -96,7 +96,7 @@ internal static class Program
             }
 
             var projectRoot = Path.GetFullPath(options.ProjectRoot);
-            var marshallerConfigurationFiles = new[]
+            var marshallerConfigurationFiles = new List<string>
             {
                 Path.Combine(projectRoot, "include", "SharpCpp", "Marshaller.hpp"),
                 Path.Combine(projectRoot, "rbfx", "include", "SharpCpp", "detail", "RbfxValueTypeMarshallers.hpp")
@@ -107,6 +107,15 @@ internal static class Program
             Logger.LogInformation("Generated output root: {GeneratedRoot}", options.GeneratedRoot);
 
             var sdkFlags = SdkParseFlags.Load(options.FlagsFilePath);
+            var submodules = RbfxBindingSubmodules.Detect(sdkFlags);
+            if (submodules.HasSystemUi)
+            {
+                marshallerConfigurationFiles.Add(Path.Combine(projectRoot, "rbfx", "include", "SharpCpp", "detail", "RbfxImGuiValueMarshallers.hpp"));
+            }
+
+            Logger.LogInformation("RmlUI bindings: {State}", submodules.HasRmlUi ? "enabled" : "disabled");
+            Logger.LogInformation("Dear ImGui bindings: {State}", submodules.HasSystemUi ? "enabled" : "disabled");
+
             var clangArguments = BuildClangArguments(projectRoot, includeRoot, sdkFlags);
             var umbrellaHeaderPath = Path.Combine(urhoIncludeRoot, "Urho3DAll.h");
             if (!File.Exists(umbrellaHeaderPath))
@@ -114,23 +123,32 @@ internal static class Program
                 throw new InvalidOperationException($"rbfx umbrella header was not found at '{umbrellaHeaderPath}'.");
             }
 
-            Logger.LogInformation("Parsing umbrella header '{Header}' with owned declaration root '{Root}'.", NativeOutputHeader, urhoIncludeRoot);
+            var parseUmbrellaHeaderPath = submodules.WriteParseUmbrella(options.GeneratedRoot);
+
+            Logger.LogInformation("Parsing umbrella header '{Header}' with owned declaration root '{Root}'.", parseUmbrellaHeaderPath, urhoIncludeRoot);
 
             var parseSw = Stopwatch.StartNew();
             var parser = new ClangSharpHeaderParser();
             var compilation = parser.Parse(
                 new ClangSharpParseRequest(
                     ProjectName,
-                    ManagedNamespace,
-                    ManagedClassName,
-                    NativeLibraryName,
-                    umbrellaHeaderPath,
-                    NativeOutputHeader,
-                    clangArguments,
-                    marshallerConfigurationFiles,
-                    EntryPointPrefix,
-                    OwnedFileRoots: new[] { urhoIncludeRoot },
-                    DirectorRecordCppTypeNames: InheritableDirectorRecordCppTypeNames));
+                     ManagedNamespace,
+                     ManagedClassName,
+                     NativeLibraryName,
+                     parseUmbrellaHeaderPath,
+                     Path.GetFileName(parseUmbrellaHeaderPath),
+                     clangArguments,
+                     marshallerConfigurationFiles,
+                     EntryPointPrefix,
+                     OwnedFileRoots: submodules.BuildOwnedFileRoots(includeRoot),
+                     DirectorRecordCppTypeNames: InheritableDirectorRecordCppTypeNames));
+            foreach (var headerPath in submodules.EnabledHeaderPaths)
+            {
+                if (!compilation.HeaderFiles.Contains(headerPath, StringComparer.Ordinal))
+                {
+                    compilation.HeaderFiles.Add(headerPath);
+                }
+            }
             Logger.LogInformation("Parse complete: {Records} records, {Functions} functions.", compilation.Records.Count, compilation.Functions.Count);
             Logger.LogInformation("Parse completed in {Duration}", FormatDuration(parseSw.Elapsed));
 
@@ -139,7 +157,7 @@ internal static class Program
                 compilation.NativeSupportHeaders.Add(marshallerHeader.Replace('\\', '/'));
             }
 
-            compilation.NamespaceMappings = BuildNamespaceMappings(compilation);
+            compilation.NamespaceMappings = BuildNamespaceMappings(compilation, submodules);
 
             Logger.LogInformation("Applying pipeline passes...");
             var pipelineSw = Stopwatch.StartNew();
@@ -157,6 +175,18 @@ internal static class Program
             ApplySdkExportFilter(compilation, options.SdkLibraryPath);
             Logger.LogInformation("SDK filter complete.");
             Logger.LogInformation("SDK filter completed in {Duration}", FormatDuration(sdkFilterSw.Elapsed));
+
+            if (submodules.HasRmlUi)
+            {
+                var rmlCount = RbfxRmlUiSurfacePass.Apply(compilation);
+                Logger.LogInformation("Applied RmlUI surface shaping to {Count} declaration(s).", rmlCount);
+            }
+
+            if (submodules.HasSystemUi)
+            {
+                var imguiCount = RbfxImGuiSurfacePass.Apply(compilation);
+                Logger.LogInformation("Applied Dear ImGui surface shaping to {Count} declaration(s).", imguiCount);
+            }
 
             RbfxFlagSetLoweringPass.Apply(compilation);
             var managedProjection = RbfxManagedNamespaceProjectionPass.Apply(compilation);
@@ -353,12 +383,22 @@ internal static class Program
         }
     }
 
-    private static IReadOnlyDictionary<string, string> BuildNamespaceMappings(BindingCompilation compilation)
+    private static IReadOnlyDictionary<string, string> BuildNamespaceMappings(BindingCompilation compilation, RbfxBindingSubmodules submodules)
     {
         var mappings = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["Urho3D"] = "Urho3D"
         };
+
+        if (submodules.HasRmlUi)
+        {
+            mappings["Rml"] = "Rml";
+        }
+
+        if (submodules.HasSystemUi)
+        {
+            mappings["ImGui"] = "ImGuiNet";
+        }
 
         foreach (var cppQualifiedName in compilation.Records.Select(static record => record.CppQualifiedName)
                      .Concat(compilation.Enums.Select(static @enum => @enum.CppQualifiedName)))
@@ -390,6 +430,16 @@ internal static class Program
         if (normalizedHeaderPath.StartsWith("Urho3D/", StringComparison.Ordinal))
         {
             normalizedHeaderPath = normalizedHeaderPath["Urho3D/".Length..];
+        }
+
+        if (string.Equals(normalizedHeaderPath, "Core.h", StringComparison.Ordinal) ||
+            string.Equals(normalizedHeaderPath, "Debugger.h", StringComparison.Ordinal))
+        {
+            normalizedHeaderPath = $"RmlUi/{normalizedHeaderPath}";
+        }
+        else if (string.Equals(normalizedHeaderPath, "imgui.h", StringComparison.Ordinal))
+        {
+            normalizedHeaderPath = $"ImGui/{normalizedHeaderPath}";
         }
 
         var pathWithoutExtension = Path.ChangeExtension(normalizedHeaderPath, null)!.Replace('\\', '/');
