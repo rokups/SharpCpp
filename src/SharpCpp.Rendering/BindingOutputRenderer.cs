@@ -52,7 +52,9 @@ public static partial class BindingOutputRenderer
     private static string GetBindingClassAccessor(BindingCompilation compilation)
         => $"global::{compilation.ManagedNamespace}.{compilation.ManagedClassName}";
 
-    public static GeneratedBindingSet Render(BindingCompilation compilation, string fileStem,
+    public static GeneratedBindingSet Render(
+        BindingCompilation compilation,
+        string fileStem,
         Func<string?, string>? deriveGroupStem = null)
     {
         ArgumentNullException.ThrowIfNull(compilation);
@@ -64,7 +66,9 @@ public static partial class BindingOutputRenderer
         {
             var files = new[]
             {
-                new GeneratedBindingFile($"{fileStem}.Bindings.g.cs", RenderManagedBindings(compilation, includeCallbackHelpers: false)),
+                new GeneratedBindingFile($"{fileStem}.Bindings.g.cs", RenderManagedBindings(
+                    compilation,
+                    includeCallbackHelpers: false)),
                 new GeneratedBindingFile($"{fileStem}.Bindings.Aliases.g.cs", RenderAliasBindings(compilation, includeSharedCallbackHelpers: true)),
                 new GeneratedBindingFile($"{fileStem}.Bindings.g.cpp", RenderNativeBindings(compilation))
             };
@@ -83,7 +87,9 @@ public static partial class BindingOutputRenderer
 
         if (groups.Count == 0)
         {
-            allFiles.Add(new GeneratedBindingFile($"{fileStem}.Bindings.g.cs", RenderManagedBindings(compilation, includeCallbackHelpers: false)));
+            allFiles.Add(new GeneratedBindingFile($"{fileStem}.Bindings.g.cs", RenderManagedBindings(
+                compilation,
+                includeCallbackHelpers: false)));
             allFiles.Add(new GeneratedBindingFile($"{fileStem}.Bindings.g.cpp", RenderNativeBindings(compilation)));
         }
         else
@@ -95,7 +101,10 @@ public static partial class BindingOutputRenderer
                 var memberSet = new HashSet<BindingNode>(group);
 
                 allFiles.Add(new GeneratedBindingFile($"{stem}.g.cs",
-                    RenderManagedBindings(compilation, node => memberSet.Contains(node) || (node is RecordBinding r && memberSet.Contains(r)), includeCallbackHelpers: false)));
+                    RenderManagedBindings(
+                        compilation,
+                        node => memberSet.Contains(node) || (node is RecordBinding r && memberSet.Contains(r)),
+                        includeCallbackHelpers: false)));
                 allFiles.Add(new GeneratedBindingFile($"{stem}.g.cpp",
                     RenderNativeBindings(
                         compilation,
@@ -1957,6 +1966,7 @@ public static partial class BindingOutputRenderer
         {
             baseTypes.Add(ICloneableFullName);
         }
+        baseTypes.AddRange(GetConfiguredManagedStaticInterfaces(compilation, record));
         var baseClause = $" : {string.Join(", ", baseTypes)}";
         writer.Write(
             $$"""
@@ -2254,6 +2264,37 @@ public static partial class BindingOutputRenderer
         writer.WriteLine();
         writer.Write(RenderManagedHandleReturnMarshallerHelpers(compilation, record, record.ManagedName));
         return writer.ToString();
+    }
+
+    private static IReadOnlyList<string> GetConfiguredManagedStaticInterfaces(BindingCompilation compilation, RecordBinding record)
+    {
+        var interfaces = new List<string>();
+        foreach (var source in record.EnumerateAllBaseRecords(compilation).Append(record))
+        {
+            if (!ReferenceEquals(source, record) && !HasPublicStaticMethod(record, "GetTypeStatic"))
+            {
+                continue;
+            }
+
+            var configured = source.GetMetadata<IReadOnlyList<string>>(MetadataKeys.ManagedStaticInterfaces);
+            if (configured is null)
+            {
+                continue;
+            }
+
+            interfaces.AddRange(configured.Where(static item => !string.IsNullOrWhiteSpace(item)));
+        }
+
+        return interfaces.Distinct(StringComparer.Ordinal).ToArray();
+    }
+
+    private static bool HasPublicStaticMethod(RecordBinding record, string managedName)
+    {
+        return record.Members.OfType<FunctionBinding>().Any(function =>
+            string.Equals(function.ManagedName, managedName, StringComparison.Ordinal) &&
+            function is { IsStatic: true, AccessModifier: BindingAccessModifier.Public } &&
+            !function.IsIgnored() &&
+            !function.IsSilentlyExcluded());
     }
 
     private static string RenderManagedInstanceMethod(BindingCompilation compilation, RecordBinding record, FunctionBinding function, bool useCallbase = false)

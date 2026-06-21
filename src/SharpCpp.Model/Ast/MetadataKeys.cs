@@ -26,6 +26,7 @@ public static class MetadataKeys
     public const string UndefaultableParam = "undefaultable_param";
     public const string ManagedBindingProjection = "managed_binding_projection";
     public const string ExplicitManagedRename = "explicit_managed_rename";
+    public const string ManagedStaticInterfaces = "managed_static_interfaces";
 }
 
 public enum AccessorPropertyKind

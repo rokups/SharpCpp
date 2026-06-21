@@ -122,10 +122,14 @@ public static partial class BindingOutputRenderer
         var baseTypeName = GetGenericManagedBaseTypeName(compilation, record);
         var genericConstraints = GetGenericRecordConstraints(record);
         var canEmitClone = CanEmitClone(record, isEffectivelyAbstract: false, canEmitDeleteThunk: true);
+        var additionalInterfaces = GetConfiguredManagedStaticInterfaces(compilation, record);
+        var additionalInterfaceClause = additionalInterfaces.Count == 0
+            ? string.Empty
+            : $", {string.Join(", ", additionalInterfaces)}";
 
         WriteDocumentationComment(writer, record);
         writer.Write($$"""
-            public partial class {{GetGenericRecordDeclarationName(record)}} : {{baseTypeName}}{{(canEmitClone ? ", global::System.ICloneable" : string.Empty)}}{{genericConstraints}}
+            public partial class {{GetGenericRecordDeclarationName(record)}} : {{baseTypeName}}{{(canEmitClone ? ", global::System.ICloneable" : string.Empty)}}{{additionalInterfaceClause}}{{genericConstraints}}
             {
             internal static readonly {{GetInstanceCacheFieldTypeName(record)}} s_instanceCache = {{GetInstanceCacheFactoryExpression(record)}};
 

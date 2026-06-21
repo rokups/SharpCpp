@@ -173,6 +173,41 @@ public sealed class MarshallerConfigExtractorTests
     }
 
     [Fact]
+    public void ApplyRecordMetadata_reads_static_interface_contracts()
+    {
+        var compilation = new SharpCpp.Model.Ast.BindingCompilation("TestProject", "Test.Namespace", "Bindings", "Test.Native", new[] { "MarshallerConfig.hpp" });
+        var record = new SharpCpp.Model.Ast.RecordBinding("record:object", "Object", "Object", "Object");
+        compilation.Members.Add(record);
+
+        var extractorType = Type.GetType("SharpCpp.Parsing.MarshallerConfigExtractor, SharpCpp.Parsing", throwOnError: true)!;
+        var exposedMemberType = extractorType.GetNestedType("ExposedMemberInfo", BindingFlags.NonPublic)!;
+        var configType = extractorType.GetNestedType("MarshallerBodyConfig", BindingFlags.NonPublic)!;
+
+        var configCtor = configType.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            .Single(ctor => ctor.GetParameters().Length == 6);
+        var exposedMembers = Array.CreateInstance(exposedMemberType, 0);
+        var genericParameters = Array.CreateInstance(typeof(string), 0);
+        var config = configCtor.Invoke(["[[sharpcpp::managed_type(managed_static_interfaces = \"global::Example.IStaticTypeInfo; global::Example.IOther\")]]", exposedMembers, genericParameters, null, null, true])!;
+
+        var applyMethod = Type.GetType("SharpCpp.Parsing.MarshallerMetadataPhase2, SharpCpp.Parsing", throwOnError: true)!
+            .GetMethod("ApplyRecordMetadata", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var configs = (System.Collections.IDictionary)Activator.CreateInstance(
+            typeof(Dictionary<,>).MakeGenericType(typeof(string), configType),
+            StringComparer.Ordinal)!;
+        configs["Object"] = config;
+
+        var recordsByNativeName = (System.Collections.IDictionary)Activator.CreateInstance(
+            typeof(Dictionary<,>).MakeGenericType(typeof(string), typeof(SharpCpp.Model.Ast.RecordBinding)),
+            StringComparer.Ordinal)!;
+        recordsByNativeName[record.NativeName] = record;
+
+        applyMethod.Invoke(null, [compilation, configs, recordsByNativeName]);
+
+        var interfaces = record.GetMetadata<IReadOnlyList<string>>(SharpCpp.Model.Ast.MetadataKeys.ManagedStaticInterfaces);
+        Assert.Equal(new[] { "global::Example.IStaticTypeInfo", "global::Example.IOther" }, interfaces);
+    }
+
+    [Fact]
     public void ApplyRecordMetadata_leaves_synthetic_record_header_path_null()
     {
         var compilation = new SharpCpp.Model.Ast.BindingCompilation("TestProject", "Test.Namespace", "Bindings", "Test.Native", new[] { "MarshallerConfig.hpp" });

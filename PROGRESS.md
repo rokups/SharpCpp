@@ -31,7 +31,7 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - Primitives, handles/records, enums, references, pointers
 - `Marshaller<T>` / `ReturnMarshaller<T>` for custom type interop
 - Wrapped record value returns (`T` returned as an owned generated wrapper handle) without per-type marshaller configuration
-- Managed type overrides (`managed_type`, `managed_base_type`, `managed_base_type_constraints`)
+- Managed type overrides (`managed_type`, `managed_base_type`, `managed_base_type_constraints`, `managed_static_interfaces`)
 - Container wrappers: `vector`, `list`, `map`, `unordered_map`
 - Native-backed fixed-size array wrappers: `std::array<T, N>` / `eastl::array<T, N>` → `Std.Array<T>` / `Ea.Array<T>` and native C array fields `T[N]` → `SharpCpp.NativeArray<T>` with runtime length validation
 - Native-backed shared dynamic array wrappers: `ea::shared_array<T>` / `eastl::shared_array<T>` → `Ea.SharedArray<T>` with unsafe indexed access
@@ -126,9 +126,15 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **rbfx typed object helpers now use a generated static type-info contract**:
+  - Added `SharpCpp.Rbfx.Bindings.Interop.IStaticTypeInfo` and a handwritten `Urho3D.Core.Object` partial fallback for `GetTypeStatic()`.
+  - Added `managed_static_interfaces` marshaller metadata; `Marshaller<Urho3D::Object*>` now configures `IStaticTypeInfo`, and the renderer propagates that static contract to generated derived records that expose public static `GetTypeStatic()`.
+  - Updated typed subsystem/component/resource helpers to constrain `T` to `IStaticTypeInfo` and call `T.GetTypeStatic()` directly instead of reflecting through `ObjectReflection<T>`.
+  - Verification: focused model/rendering tests pass, `cmake --build --preset Debug` passes, and `ctest --preset Debug` passes.
+
 - **`Rbfx.Application` now starts from the no-rebuild VS Code path**:
   - Added `.Rbfx.Application.env` with `LD_LIBRARY_PATH`, `LD_PRELOAD`, and `RBFX_RESOURCE_PREFIX` so the app uses the already-built native libraries and the local rbfx `Data` / `CoreData` resource tree.
-  - Kept `Node.CreateComponent<T>()` as v1-style typed sugar over the `StringHash` overload: `CreateComponent(ObjectReflection<T>.TypeId, id) as T`.
+  - Kept `Node.CreateComponent<T>()` as v1-style typed sugar over the `StringHash` overload; it now resolves the hash through the generated static type-info contract.
   - Fixed generated native-object registry emission so polymorphic wrappers are registered only when their managed wrapper factory is available.
   - Adjusted renderer abstractness for non-public pure-virtual hooks: protected native hooks now render as protected throwing stubs instead of making every native-derived wrapper abstract, while public pure virtual methods remain managed abstract obligations.
   - Verification: focused rendering regression tests pass, `cmake --build --preset Debug --target sharpcpp-rbfx-application`, full `cmake --build --preset Debug`, and `ctest --preset Debug --output-on-failure` pass; an 8-second preloaded app run reaches engine/RmlUI/ImGui startup and resource loading without managed exceptions.

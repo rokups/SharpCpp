@@ -3,6 +3,7 @@
 #include <SharpCpp/Marshaller.hpp>
 
 #include <Urho3D/Container/Ptr.h>
+#include <Urho3D/Core/Object.h>
 #include <Urho3D/Container/RefCounted.h>
 
 namespace SharpCpp::rbfx::detail
@@ -54,6 +55,25 @@ struct [[sharpcpp::managed_type(
 {
     using cpp_type = Urho3D::RefCounted*;
     using abi_type = Urho3D::RefCounted*;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return value;
+    }
+
+    constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        return value;
+    }
+};
+
+template <>
+struct [[sharpcpp::managed_type(
+    managed_static_interfaces = "global::SharpCpp.Rbfx.Bindings.Interop.IStaticTypeInfo"
+)]] Marshaller<Urho3D::Object*>
+{
+    using cpp_type = Urho3D::Object*;
+    using abi_type = Urho3D::Object*;
 
     constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
     {

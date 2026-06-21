@@ -23,9 +23,9 @@ public partial class Node
     }
 
     public T? CreateComponent<T>(uint id = 0)
-        where T : Component
+        where T : Component, global::SharpCpp.Rbfx.Bindings.Interop.IStaticTypeInfo
     {
-        return CreateComponent(ObjectReflection<T>.TypeId, id) as T;
+        return CreateComponent(T.GetTypeStatic(), id) as T;
     }
 
     public Component? CreateComponent(StringHash type, uint id = 0)
@@ -106,7 +106,7 @@ namespace Urho3D.Resource
 public partial class ResourceCache
 {
     public T? GetResource<T>(string name, bool sendEventOnFailure = true)
-        where T : global::Urho3D.Core.Object
+        where T : global::Urho3D.Core.Object, global::SharpCpp.Rbfx.Bindings.Interop.IStaticTypeInfo
     {
         if (string.IsNullOrEmpty(name))
         {
@@ -115,7 +115,7 @@ public partial class ResourceCache
 
         var handle = __RbfxGraphicsPInvoke.ResourceCacheGetResource(
             NativeObject.GetHandle(this),
-            ObjectReflection<T>.TypeId,
+            T.GetTypeStatic(),
             name,
             sendEventOnFailure);
         return handle == 0 ? null : global::Urho3D.Core.Object.CreateManagedWrapper(handle, ownsHandle: false) as T;

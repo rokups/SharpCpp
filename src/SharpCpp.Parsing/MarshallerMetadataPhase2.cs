@@ -35,6 +35,10 @@ public static class MarshallerMetadataPhase2
         @"managed_base_type_constraints\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+    private static readonly Regex ManagedStaticInterfacesExpression = new(
+        @"managed_static_interfaces\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     private static readonly Regex SuppressEmissionExpression = new(
         @"suppress_emission\s*=\s*true",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -237,6 +241,14 @@ public static class MarshallerMetadataPhase2
                 record.ManagedBaseTypeConstraints = constraintsMatch.Groups["value"].Value;
             }
 
+            // managed_static_interfaces → ManagedStaticInterfaces metadata
+            if (ManagedStaticInterfacesExpression.Match(body) is { Success: true } staticInterfacesMatch)
+            {
+                record.SetMetadata(
+                    MetadataKeys.ManagedStaticInterfaces,
+                    SplitManagedTypeList(staticInterfacesMatch.Groups["value"].Value));
+            }
+
             if (!string.IsNullOrWhiteSpace(config.ManagedInstanceCacheFactoryExpression))
             {
                 record.ManagedInstanceCacheFactoryExpression = config.ManagedInstanceCacheFactoryExpression;
@@ -385,6 +397,7 @@ public static class MarshallerMetadataPhase2
             realRecord.ManagedInstanceCacheTypeName ??= placeholder.ManagedInstanceCacheTypeName;
             realRecord.EmitDefaultNativeReleaseOverride &= placeholder.EmitDefaultNativeReleaseOverride;
             realRecord.HasCopyConstructor |= placeholder.HasCopyConstructor;
+            MergeMetadataList(realRecord, placeholder, MetadataKeys.ManagedStaticInterfaces);
 
             foreach (var member in placeholder.Members.OfType<FunctionBinding>().ToArray())
             {
@@ -493,6 +506,7 @@ public static class MarshallerMetadataPhase2
         target.ManagedInstanceCacheTypeName ??= source.ManagedInstanceCacheTypeName;
         target.EmitDefaultNativeReleaseOverride &= source.EmitDefaultNativeReleaseOverride;
         target.HasCopyConstructor |= source.HasCopyConstructor;
+        MergeMetadataList(target, source, MetadataKeys.ManagedStaticInterfaces);
 
         if (string.IsNullOrWhiteSpace(target.CppQualifiedName) && !string.IsNullOrWhiteSpace(source.CppQualifiedName))
         {
@@ -552,6 +566,29 @@ public static class MarshallerMetadataPhase2
 
         var genericStart = localName.IndexOf('<');
         return genericStart >= 0 ? localName[..genericStart] : localName;
+    }
+
+    private static IReadOnlyList<string> SplitManagedTypeList(string value)
+    {
+        return value
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(static item => !string.IsNullOrWhiteSpace(item))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static void MergeMetadataList(BindingNode target, BindingNode source, string key)
+    {
+        var sourceValues = source.GetMetadata<IReadOnlyList<string>>(key);
+        if (sourceValues is null || sourceValues.Count == 0)
+        {
+            return;
+        }
+
+        var merged = target.GetMetadata<IReadOnlyList<string>>(key) is { Count: > 0 } existing
+            ? existing.Concat(sourceValues).Distinct(StringComparer.Ordinal).ToArray()
+            : sourceValues.Distinct(StringComparer.Ordinal).ToArray();
+        target.SetMetadata(key, merged);
     }
 
     private static string GetSimpleTypeName(string managedTypeFormat)

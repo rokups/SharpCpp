@@ -12,6 +12,50 @@ namespace SharpCpp.Tests.Rendering;
 public sealed class BindingOutputRendererTests
 {
     [Fact]
+    public void Managed_record_declarations_include_configured_static_interfaces()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });
+        var objectRecord = new RecordBinding("record:object", "Object", "Object")
+        {
+            IsAbstract = true
+        };
+        objectRecord.SetMetadata(MetadataKeys.ManagedStaticInterfaces, new[] { "global::Example.IStaticTypeInfo" });
+        var nodeRecord = new RecordBinding("record:node", "Node", "Node")
+        {
+            ManagedBaseTypeName = "Object"
+        };
+        nodeRecord.Bases.Add(new RecordBaseBinding(
+            objectRecord.SymbolId,
+            objectRecord.NativeName,
+            objectRecord.ManagedName,
+            objectRecord.CppQualifiedName,
+            isVirtual: false));
+        nodeRecord.Members.Add(new FunctionBinding(
+            "method:node:GetTypeStatic",
+            "GetTypeStatic",
+            "GetTypeStatic",
+            BindingType.Int32,
+            "node_get_type_static")
+        {
+            IsStatic = true
+        });
+        compilation.Members.Add(objectRecord);
+        compilation.Members.Add(nodeRecord);
+
+        var managedOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample")
+            .Files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains(
+            "public abstract partial class Object : global::SharpCpp.Support.NativeObject, global::Example.IStaticTypeInfo",
+            managedOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "public partial class Node : global::SharpCpp.Sample.Object, global::Example.IStaticTypeInfo",
+            managedOutput,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Ignored_stubs_prefer_native_declaration_metadata()
     {
         var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });
