@@ -126,6 +126,12 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **`Rbfx.Application` launch path no longer crashes in `Setup()`**:
+  - Added handwritten managed `Application.SetEngineParameter(...)` overloads that route through the existing native `SharpCppRbfxApplication` runtime helpers instead of mutating the generated `EngineParameters` map projection.
+  - Updated `Rbfx.Application.Setup()` to use those helpers for window/fullscreen/autoload settings, avoiding the invalid `eastl::hash_map<ea::string*, Variant*>` insertion path hit by the generated map wrapper.
+  - Updated VS Code app launch/task entries to build the app target first and set explicit `LD_LIBRARY_PATH` / `LD_PRELOAD` paths for the `out/build/dev/bin/Debug` output.
+  - Verification: `cmake --build --preset Debug --target sharpcpp-rbfx-application`; 8-second preloaded app launch reaches engine/RmlUI/ImGui startup and exits only via timeout.
+
 - **Generated string wrappers now expose borrowed UTF-8 spans**:
   - Extended the marshaller-exposed string wrapper contract with generated `GetDataCore()` overrides, so `StringBase.AsUtf8Span()` can return a span over native string storage instead of materializing a managed byte-array copy.
   - Added an interpolated-string formatting extension for `Ea.String`, allowing app code to format directly into native UTF-8 strings with ordinary C# format specifiers. Formatting defaults to invariant culture while still accepting an explicit provider.

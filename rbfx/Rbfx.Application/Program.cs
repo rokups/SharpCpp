@@ -1,12 +1,10 @@
 using Urho3D.Core;
 using Urho3D.Engine;
-using Urho3D.Interop;
 using Urho3D.Graphics;
 using Urho3D.Scene;
 using Urho3D.Input;
 using Urho3D.Math;
 using Urho3D.Resource;
-using Urho3D;
 using Ea;
 using ImGuiNet;
 using System.Globalization;
@@ -303,10 +301,7 @@ partial class DemoApplication : Application
         _ui = GetContext().GetSubsystem<Urho3D.RmlUI.RmlUI>()
             ?? throw new InvalidOperationException("Rbfx RmlUI subsystem is not available.");
 
-        using var regularFont = new Ea.String("Fonts/NotoSans-Condensed.ttf");
-        using var boldFont = new Ea.String("Fonts/NotoSans-CondensedBold.ttf");
-
-        if (!_ui.LoadFont(regularFont) || !_ui.LoadFont(boldFont))
+        if (!_ui.LoadFont("Fonts/NotoSans-Condensed.ttf") || !_ui.LoadFont("Fonts/NotoSans-CondensedBold.ttf"))
         {
             throw new InvalidOperationException("Failed to load the fonts required by the RmlUI demo.");
         }

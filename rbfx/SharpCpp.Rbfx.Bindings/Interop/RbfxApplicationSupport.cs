@@ -37,6 +37,24 @@ public unsafe partial class Application
         }
     }
 
+    protected void SetEngineParameter(string name, bool value)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        __RbfxApplicationPInvoke.SetEngineParameterBool(NativeObject.GetHandle(this), name, value);
+    }
+
+    protected void SetEngineParameter(string name, int value)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        __RbfxApplicationPInvoke.SetEngineParameterInt(NativeObject.GetHandle(this), name, value);
+    }
+
+    protected void SetEngineParameter(string name, string value)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        __RbfxApplicationPInvoke.SetEngineParameterString(NativeObject.GetHandle(this), name, value);
+    }
+
     private void ConnectRbfxDirector()
     {
         var runtimeType = ((object)this).GetType();
@@ -66,4 +84,16 @@ internal static partial class __RbfxApplicationPInvoke
     [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_Application_SubscribeToUpdate", StringMarshalling = StringMarshalling.Utf8)]
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static partial void SubscribeToUpdate(nint self, nint callback, nint context);
+
+    [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_Application_SetEngineParameterBool", StringMarshalling = StringMarshalling.Utf8)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static partial void SetEngineParameterBool(nint self, string name, [MarshalAs(UnmanagedType.I1)] bool value);
+
+    [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_Application_SetEngineParameterInt", StringMarshalling = StringMarshalling.Utf8)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static partial void SetEngineParameterInt(nint self, string name, int value);
+
+    [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_Application_SetEngineParameterString", StringMarshalling = StringMarshalling.Utf8)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static partial void SetEngineParameterString(nint self, string name, string value);
 }
