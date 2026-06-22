@@ -139,11 +139,6 @@ SHARPCPP_EXPORT ret_t<ea::string*> sharpcpp_rbfx_String_Create()
     return new ea::string();
 }
 
-SHARPCPP_EXPORT ret_t<Urho3D::Context*> sharpcpp_rbfx_Context_Create()
-{
-    return AddRefAndReturn(new Urho3D::Context());
-}
-
 SHARPCPP_EXPORT ret_t<Urho3D::Object*> sharpcpp_rbfx_Context_GetSubsystem(arg_t<Urho3D::Context*> self, arg_t<Urho3D::StringHash> type)
 {
     ParameterMarshaller<Urho3D::StringHash> typeMarshaller;

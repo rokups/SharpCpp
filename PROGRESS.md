@@ -126,6 +126,11 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **rbfx `Context` default constructor now comes from generated bindings**:
+  - Removed stale handwritten suppression for `Urho3D::Context::Context()` and deleted the handwritten managed constructor/import path, allowing the normal parser/render pipeline to emit `Core/SharpCpp.Rbfx.Context.g.cs` and `.g.cpp` constructor wrappers from `Context.h`.
+  - Added generated-surface coverage that asserts `public Context()`, its P/Invoke call, and the native `MarshallerInvoker::construct<Urho3D::Context>()` thunk are emitted.
+  - Verification: focused model regression test passes, `cmake --build --preset Debug` passes, generated rbfx grep confirms the constructor wrapper/thunk, and `ctest --preset Debug` passes.
+
 - **rbfx third-party library bindings now generate under dedicated output roots**:
   - Added parser support for preserving caller-configured include prefixes for owned declaration roots, so rbfx can keep header locations such as `RmlUi/Core/ElementDocument.h` and `ImGui/imgui.h` without using namespaces to classify output ownership.
   - Configured the rbfx generator to preserve `RmlUi` and `ImGui` header roots and route those generated files under `generated/rbfx/ThirdParty/RmlUi/` and `generated/rbfx/ThirdParty/ImGui/`.

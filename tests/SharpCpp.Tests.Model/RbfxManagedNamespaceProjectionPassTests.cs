@@ -88,7 +88,7 @@ public sealed class RbfxManagedNamespaceProjectionPassTests
     }
 
     [Fact]
-    public void Handwritten_member_suppression_only_prunes_configured_members()
+    public void Handwritten_member_suppression_keeps_generated_context_constructor()
     {
         var compilation = new BindingCompilation("SharpCpp.Rbfx.Bindings", "Urho3D", "Bindings", "Native", ["Urho3D/Urho3DAll.h"]);
         var context = new RecordBinding("record:Context", "Context", "Context", "Urho3D::Context");
@@ -107,8 +107,9 @@ public sealed class RbfxManagedNamespaceProjectionPassTests
 
         var suppressed = RbfxHandwrittenManagedTypeSuppressionPass.Apply(compilation);
 
-        Assert.Equal(1, suppressed);
-        Assert.True(contextConstructor.IsSilentlyExcluded());
+        Assert.Equal(0, suppressed);
+        Assert.False(contextConstructor.IsIgnored(), contextConstructor.GetIgnoreReason());
+        Assert.False(contextConstructor.IsSilentlyExcluded());
         Assert.False(getSubsystem.IsIgnored(), getSubsystem.GetIgnoreReason());
     }
 }

@@ -28,7 +28,6 @@ public static class RbfxHandwrittenManagedTypeSuppressionPass
         new("Rml::DataModelConstructor", "GetModelHandle", HandwrittenMemberKind.Method, 0),
         new("Urho3D::Application", "Application", HandwrittenMemberKind.Constructor, 1),
         new("Urho3D::Application", "EngineParameters", HandwrittenMemberKind.FieldOrProperty, 0),
-        new("Urho3D::Context", "Context", HandwrittenMemberKind.Constructor, 0),
         new("Urho3D::Node", "CreateComponent", HandwrittenMemberKind.Method, 2),
         new("Urho3D::Object", "Context", HandwrittenMemberKind.FieldOrProperty, 0),
         new("Urho3D::Renderer", "SetViewport", HandwrittenMemberKind.Method, 2),

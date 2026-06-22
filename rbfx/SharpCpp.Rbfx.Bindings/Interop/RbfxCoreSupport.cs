@@ -20,11 +20,6 @@ namespace Urho3D.Core
 {
 public partial class Context
 {
-    public Context()
-        : this(__RbfxCorePInvoke.CreateContext(), ownsHandle: true)
-    {
-    }
-
     public T? GetSubsystem<T>()
         where T : Object, global::SharpCpp.Rbfx.Bindings.Interop.IStaticTypeInfo<T>
     {
@@ -55,10 +50,6 @@ internal static partial class __RbfxCorePInvoke
     [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_String_Create", StringMarshalling = StringMarshalling.Utf8)]
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static partial nint CreateString();
-
-    [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_Context_Create", StringMarshalling = StringMarshalling.Utf8)]
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static partial nint CreateContext();
 
     [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_Context_GetSubsystem", StringMarshalling = StringMarshalling.Utf8)]
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

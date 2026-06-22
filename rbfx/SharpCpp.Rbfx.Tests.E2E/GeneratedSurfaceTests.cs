@@ -24,6 +24,17 @@ public sealed class GeneratedSurfaceTests
     }
 
     [Fact]
+    public void Context_generates_default_constructor_surface()
+    {
+        var managedContent = File.ReadAllText(Path.Combine(GetGeneratedDir(), "Core", "SharpCpp.Rbfx.Context.g.cs"));
+        var nativeContent = File.ReadAllText(Path.Combine(GetGeneratedDir(), "Core", "SharpCpp.Rbfx.Context.g.cpp"));
+
+        Assert.Contains("public Context()", managedContent, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke.Context()", managedContent, StringComparison.Ordinal);
+        Assert.Contains("MarshallerInvoker::construct<Urho3D::Context>()", nativeContent, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Enabled_RmlUI_bindings_generate_rml_namespace_surface()
     {
         if (!GeneratorLogContains("RmlUI bindings: enabled"))
