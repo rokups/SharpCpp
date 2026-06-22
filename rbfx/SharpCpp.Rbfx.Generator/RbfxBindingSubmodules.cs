@@ -69,4 +69,18 @@ internal sealed record RbfxBindingSubmodules(bool HasRmlUi, bool HasSystemUi)
 
         return roots.Where(Directory.Exists).Distinct(StringComparer.Ordinal).ToArray();
     }
+
+    public IReadOnlyDictionary<string, string> BuildOwnedFileRootIncludePrefixes(string includeRoot)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(includeRoot);
+        var prefixes = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        if (HasRmlUi)
+            prefixes[Path.Combine(includeRoot, "RmlUi")] = "RmlUi";
+
+        if (HasSystemUi)
+            prefixes[Path.Combine(includeRoot, "ImGui")] = "ImGui";
+
+        return prefixes;
+    }
 }

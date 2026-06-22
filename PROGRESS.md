@@ -126,6 +126,12 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **rbfx third-party library bindings now generate under dedicated output roots**:
+  - Added parser support for preserving caller-configured include prefixes for owned declaration roots, so rbfx can keep header locations such as `RmlUi/Core/ElementDocument.h` and `ImGui/imgui.h` without using namespaces to classify output ownership.
+  - Configured the rbfx generator to preserve `RmlUi` and `ImGui` header roots and route those generated files under `generated/rbfx/ThirdParty/RmlUi/` and `generated/rbfx/ThirdParty/ImGui/`.
+  - Updated rbfx surface tests and rendering path coverage for the new third-party output layout.
+  - Verification: focused rendering path test passes, `dotnet build SharpCpp.slnx --no-restore -m:1` passes, `cmake --build --preset Debug` passes, and `ctest --preset Debug` passes.
+
 - **Const/template overload pruning now matches exact callable shape, and rbfx post-processing no longer hides valid non-ImGui APIs**:
   - `SilentlyExcludeConstOverloadMethodsPass` now keys const/non-const duplicate candidates by native name, generic parameters, return type, and parameter ABI/type details, so a template overload no longer causes an unrelated `Object* GetSubsystem(StringHash) const` overload to be discarded.
   - `DegradeUnsupportedSurfacePass` includes generic-parameter shape in managed callable duplicate checks so template and non-template overloads do not collapse before the const-overload pass can reason about them.

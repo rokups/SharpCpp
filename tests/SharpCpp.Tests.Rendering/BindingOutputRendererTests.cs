@@ -2453,10 +2453,20 @@ public sealed class BindingOutputRendererTests
         {
             HeaderIncludePath = "Foo/Bar/Baz.h"
         };
+        var rmlDocument = new RecordBinding("record:rml_document", "rml_document", "ElementDocument")
+        {
+            HeaderIncludePath = "RmlUi/Core/ElementDocument.h"
+        };
+        var imguiIo = new RecordBinding("record:imgui_io", "imgui_io", "ImGuiIO")
+        {
+            HeaderIncludePath = "ImGui/imgui.h"
+        };
 
         compilation.Members.Add(graphicsModel);
         compilation.Members.Add(graphicsMaterial);
         compilation.Members.Add(deepNode);
+        compilation.Members.Add(rmlDocument);
+        compilation.Members.Add(imguiIo);
 
         var files = BindingOutputRenderer.Render(compilation, "SharpCpp.Rbfx", DeriveRbfxGroupStem).Files;
 
@@ -2466,6 +2476,10 @@ public sealed class BindingOutputRendererTests
         Assert.Contains(files, static file => file.RelativePath == "Graphics/SharpCpp.Rbfx.Material.g.cpp");
         Assert.Contains(files, static file => file.RelativePath == "Foo/SharpCpp.Rbfx.Bar.Baz.g.cs");
         Assert.Contains(files, static file => file.RelativePath == "Foo/SharpCpp.Rbfx.Bar.Baz.g.cpp");
+        Assert.Contains(files, static file => file.RelativePath == "ThirdParty/RmlUi/SharpCpp.Rbfx.Core.ElementDocument.g.cs");
+        Assert.Contains(files, static file => file.RelativePath == "ThirdParty/RmlUi/SharpCpp.Rbfx.Core.ElementDocument.g.cpp");
+        Assert.Contains(files, static file => file.RelativePath == "ThirdParty/ImGui/SharpCpp.Rbfx.imgui.g.cs");
+        Assert.Contains(files, static file => file.RelativePath == "ThirdParty/ImGui/SharpCpp.Rbfx.imgui.g.cpp");
         Assert.Contains(files, static file => file.RelativePath == "SharpCpp.Rbfx.Bindings.Aliases.g.cs");
 
         var modelManagedOutput = files.Single(static file => file.RelativePath == "Graphics/SharpCpp.Rbfx.Model.g.cs").Content;
@@ -2584,11 +2598,22 @@ public sealed class BindingOutputRendererTests
             normalizedHeaderPath = normalizedHeaderPath["Urho3D/".Length..];
         }
 
+        if (normalizedHeaderPath.StartsWith("RmlUi/", StringComparison.Ordinal) ||
+            normalizedHeaderPath.StartsWith("ImGui/", StringComparison.Ordinal))
+        {
+            normalizedHeaderPath = $"ThirdParty/{normalizedHeaderPath}";
+        }
+
         var pathWithoutExtension = Path.ChangeExtension(normalizedHeaderPath, null)!.Replace('\\', '/');
         var pathParts = pathWithoutExtension.Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (pathParts.Length == 0)
         {
             return "SharpCpp.Rbfx.Bindings";
+        }
+
+        if (pathParts.Length >= 3 && string.Equals(pathParts[0], "ThirdParty", StringComparison.Ordinal))
+        {
+            return $"ThirdParty/{pathParts[1]}/SharpCpp.Rbfx.{string.Join('.', pathParts.Skip(2))}";
         }
 
         if (pathParts.Length == 1)

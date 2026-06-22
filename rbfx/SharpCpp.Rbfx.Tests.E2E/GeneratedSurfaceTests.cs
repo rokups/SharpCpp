@@ -31,7 +31,7 @@ public sealed class GeneratedSurfaceTests
             return;
         }
 
-        var content = File.ReadAllText(Path.Combine(GetGeneratedDir(), "Core", "SharpCpp.Rbfx.ElementDocument.g.cs"));
+        var content = File.ReadAllText(Path.Combine(GetGeneratedDir(), "ThirdParty", "RmlUi", "SharpCpp.Rbfx.Core.ElementDocument.g.cs"));
 
         Assert.Contains("namespace Rml", content, StringComparison.Ordinal);
         Assert.Contains("public partial class ElementDocument", content, StringComparison.Ordinal);
@@ -45,7 +45,7 @@ public sealed class GeneratedSurfaceTests
             return;
         }
 
-        var content = File.ReadAllText(Path.Combine(GetGeneratedDir(), "ImGui", "SharpCpp.Rbfx.imgui.g.cs"));
+        var content = File.ReadAllText(Path.Combine(GetGeneratedDir(), "ThirdParty", "ImGui", "SharpCpp.Rbfx.imgui.g.cs"));
 
         Assert.Contains("namespace ImGuiNet", content, StringComparison.Ordinal);
         Assert.Contains("public static partial class ImGui", content, StringComparison.Ordinal);

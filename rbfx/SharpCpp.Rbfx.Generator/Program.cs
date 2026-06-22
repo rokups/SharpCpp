@@ -141,6 +141,7 @@ internal static class Program
                      marshallerConfigurationFiles,
                      EntryPointPrefix,
                      OwnedFileRoots: submodules.BuildOwnedFileRoots(includeRoot),
+                     OwnedFileRootIncludePrefixes: submodules.BuildOwnedFileRootIncludePrefixes(includeRoot),
                      DirectorRecordCppTypeNames: InheritableDirectorRecordCppTypeNames));
             foreach (var headerPath in submodules.EnabledHeaderPaths)
             {
@@ -432,14 +433,13 @@ internal static class Program
             normalizedHeaderPath = normalizedHeaderPath["Urho3D/".Length..];
         }
 
-        if (string.Equals(normalizedHeaderPath, "Core.h", StringComparison.Ordinal) ||
-            string.Equals(normalizedHeaderPath, "Debugger.h", StringComparison.Ordinal))
+        if (normalizedHeaderPath.StartsWith("RmlUi/", StringComparison.Ordinal))
         {
-            normalizedHeaderPath = $"RmlUi/{normalizedHeaderPath}";
+            normalizedHeaderPath = $"ThirdParty/{normalizedHeaderPath}";
         }
-        else if (string.Equals(normalizedHeaderPath, "imgui.h", StringComparison.Ordinal))
+        else if (normalizedHeaderPath.StartsWith("ImGui/", StringComparison.Ordinal))
         {
-            normalizedHeaderPath = $"ImGui/{normalizedHeaderPath}";
+            normalizedHeaderPath = $"ThirdParty/{normalizedHeaderPath}";
         }
 
         var pathWithoutExtension = Path.ChangeExtension(normalizedHeaderPath, null)!.Replace('\\', '/');
@@ -447,6 +447,11 @@ internal static class Program
         if (pathParts.Length == 0)
         {
             return $"{GeneratedFileStem}.Bindings";
+        }
+
+        if (pathParts.Length >= 3 && string.Equals(pathParts[0], "ThirdParty", StringComparison.Ordinal))
+        {
+            return $"ThirdParty/{pathParts[1]}/{GeneratedFileStem}.{string.Join('.', pathParts.Skip(2))}";
         }
 
         if (pathParts.Length == 1)

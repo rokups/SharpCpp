@@ -179,6 +179,7 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         var ownedFileRoots = NormalizeOwnedFileRoots(headerFilePath, request.OwnedFileRoots);
+        var ownedFileRootIncludePrefixes = NormalizeOwnedFileRootIncludePrefixes(request.OwnedFileRootIncludePrefixes);
         var annotationFiles = EnumerateOwnedHeaderFiles(headerFilePath, ownedFileRoots);
 
         PreScanIgnoreAnnotations(annotationFiles);
@@ -227,24 +228,24 @@ public sealed partial class ClangSharpHeaderParser
             switch (child)
             {
                 case NamespaceDecl nsChild:
-                    VisitNamespace(nsChild, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix, ownedFileRoots, request.HeaderIncludePath, request.DirectorRecordCppTypeNames);
+                    VisitNamespace(nsChild, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix, ownedFileRoots, ownedFileRootIncludePrefixes, request.HeaderIncludePath, request.DirectorRecordCppTypeNames);
                     break;
 
                 case RecordDecl recordDecl:
                     RegisterRecord(recordDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix,
-                        ResolveDeclIncludePath(recordDecl, ownedFileRoots, request.HeaderIncludePath), request.DirectorRecordCppTypeNames);
+                        ResolveDeclIncludePath(recordDecl, ownedFileRoots, ownedFileRootIncludePrefixes, request.HeaderIncludePath), request.DirectorRecordCppTypeNames);
                     break;
 
                 case ClassTemplateDecl classTemplateDecl:
                     RegisterTemplateRecord(classTemplateDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix,
-                        ResolveDeclIncludePath(classTemplateDecl, ownedFileRoots, request.HeaderIncludePath), request.DirectorRecordCppTypeNames);
+                        ResolveDeclIncludePath(classTemplateDecl, ownedFileRoots, ownedFileRootIncludePrefixes, request.HeaderIncludePath), request.DirectorRecordCppTypeNames);
                     break;
 
                 case EnumDecl enumChildDecl:
                     if (!string.IsNullOrEmpty(enumChildDecl.Name) &&
                         !GetCppQualifiedName(enumChildDecl).Contains("(unnamed enum", StringComparison.Ordinal))
                         RegisterEnum(enumChildDecl, compilation, enumsByName,
-                            ResolveDeclIncludePath(child, ownedFileRoots, request.HeaderIncludePath));
+                            ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, request.HeaderIncludePath));
                     break;
 
                 case FunctionTemplateDecl funcTemplateDecl:
@@ -261,7 +262,7 @@ public sealed partial class ClangSharpHeaderParser
                         ExtractAndApplyDocumentation(funcTemplateDecl, function);
                         ApplyCallableDefinitionMetadata(funcTemplateDecl, function);
                         ApplyDeletedCallableIgnore(funcTemplateDecl.TemplatedDecl, function);
-                        function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, request.HeaderIncludePath);
+                        function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, request.HeaderIncludePath);
                         compilation.Members.Add(function);
                     }
                     break;
@@ -282,7 +283,7 @@ public sealed partial class ClangSharpHeaderParser
                     ExtractAndApplyDocumentation(functionDecl, function);
                     ApplyCallableDefinitionMetadata(functionDecl, function);
                     ApplyDeletedCallableIgnore(functionDecl, function);
-                    function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, request.HeaderIncludePath);
+                    function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, request.HeaderIncludePath);
                     compilation.Members.Add(function);
                     break;
                 }
@@ -375,6 +376,27 @@ public sealed partial class ClangSharpHeaderParser
         return normalizedRoots.Distinct(StringComparer.Ordinal).ToArray();
     }
 
+    private static IReadOnlyDictionary<string, string> NormalizeOwnedFileRootIncludePrefixes(IReadOnlyDictionary<string, string>? includePrefixes)
+    {
+        if (includePrefixes is null || includePrefixes.Count == 0)
+        {
+            return new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+
+        var normalized = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (root, prefix) in includePrefixes)
+        {
+            if (string.IsNullOrWhiteSpace(root) || string.IsNullOrWhiteSpace(prefix))
+            {
+                continue;
+            }
+
+            normalized[Path.GetFullPath(root)] = prefix.Replace('\\', '/').Trim('/');
+        }
+
+        return normalized;
+    }
+
     private static IReadOnlyList<string> EnumerateOwnedHeaderFiles(string headerFilePath, IReadOnlyList<string> ownedFileRoots)
     {
         var files = new HashSet<string>(StringComparer.Ordinal)
@@ -458,7 +480,11 @@ public sealed partial class ClangSharpHeaderParser
         return false;
     }
 
-    private static string ResolveDeclIncludePath(Decl decl, IReadOnlyList<string> ownedFileRoots, string fallbackHeaderIncludePath)
+    private static string ResolveDeclIncludePath(
+        Decl decl,
+        IReadOnlyList<string> ownedFileRoots,
+        IReadOnlyDictionary<string, string> ownedFileRootIncludePrefixes,
+        string fallbackHeaderIncludePath)
     {
         decl.Location.GetFileLocation(out var file, out _, out _, out _);
         var location = file.Name.CString;
@@ -476,7 +502,10 @@ public sealed partial class ClangSharpHeaderParser
                 continue;
             }
 
-            return Path.GetRelativePath(ownedFileRoot, filePath).Replace('\\', '/');
+            var relativePath = Path.GetRelativePath(ownedFileRoot, filePath).Replace('\\', '/');
+            return ownedFileRootIncludePrefixes.TryGetValue(ownedFileRoot, out var includePrefix)
+                ? $"{includePrefix}/{relativePath}"
+                : relativePath;
         }
 
         return fallbackHeaderIncludePath;
@@ -4121,6 +4150,7 @@ public sealed partial class ClangSharpHeaderParser
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         string entryPointPrefix,
         IReadOnlyList<string> ownedFileRoots,
+        IReadOnlyDictionary<string, string> ownedFileRootIncludePrefixes,
         string? headerIncludePath,
         IReadOnlySet<string>? directorRecordCppTypeNames)
     {
@@ -4134,24 +4164,24 @@ public sealed partial class ClangSharpHeaderParser
             switch (child)
             {
                 case NamespaceDecl nsChild:
-                    VisitNamespace(nsChild, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, ownedFileRoots, headerIncludePath, directorRecordCppTypeNames);
+                    VisitNamespace(nsChild, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath, directorRecordCppTypeNames);
                     break;
 
                 case RecordDecl recordDecl:
                     RegisterRecord(recordDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix,
-                        ResolveDeclIncludePath(recordDecl, ownedFileRoots, headerIncludePath ?? string.Empty), directorRecordCppTypeNames);
+                        ResolveDeclIncludePath(recordDecl, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty), directorRecordCppTypeNames);
                     break;
 
                 case ClassTemplateDecl classTemplateDecl:
                     RegisterTemplateRecord(classTemplateDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix,
-                        ResolveDeclIncludePath(classTemplateDecl, ownedFileRoots, headerIncludePath ?? string.Empty), directorRecordCppTypeNames);
+                        ResolveDeclIncludePath(classTemplateDecl, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty), directorRecordCppTypeNames);
                     break;
 
                 case EnumDecl enumChildDecl:
                     if (!string.IsNullOrEmpty(enumChildDecl.Name) &&
                         !GetCppQualifiedName(enumChildDecl).Contains("(unnamed enum", StringComparison.Ordinal))
                         RegisterEnum(enumChildDecl, compilation, enumsByName,
-                            ResolveDeclIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty));
+                            ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty));
                     break;
 
                 case FunctionTemplateDecl funcTemplateDecl:
@@ -4168,7 +4198,7 @@ public sealed partial class ClangSharpHeaderParser
                         ExtractAndApplyDocumentation(funcTemplateDecl, function);
                         ApplyCallableDefinitionMetadata(funcTemplateDecl, function);
                         ApplyDeletedCallableIgnore(funcTemplateDecl.TemplatedDecl, function);
-                        function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty);
+                        function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty);
                         compilation.Members.Add(function);
                     }
                     break;
@@ -4189,7 +4219,7 @@ public sealed partial class ClangSharpHeaderParser
                     ExtractAndApplyDocumentation(functionDecl, function);
                     ApplyCallableDefinitionMetadata(functionDecl, function);
                     ApplyDeletedCallableIgnore(functionDecl, function);
-                    function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, headerIncludePath ?? string.Empty);
+                    function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty);
                     compilation.Members.Add(function);
                     break;
                 }
