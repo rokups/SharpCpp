@@ -346,8 +346,51 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("if (callback is not null)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("__PInvoke.InvokeOptionalCallback(callback);", managedOutput, StringComparison.Ordinal);
         Assert.Contains("if (callback is null)", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("public static void InvokeOptionalCallback()", managedOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("callback.HasValue", managedOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("callback.Value", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Trailing_unexpressible_defaults_do_not_emit_redundant_public_overloads()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "ImGui/imgui.h" });
+        var function = new FunctionBinding(
+            "function:button",
+            "Button",
+            "Button",
+            BindingType.Boolean,
+            "sharpcpp_sample_button");
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:button:label",
+            "label",
+            "label",
+            BindingType.CreateConfigured("const char*", "global::System.ReadOnlySpan<byte>"),
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "const char*"));
+        var size = new ParameterBinding(
+            "parameter:button:size",
+            "size",
+            "size",
+            BindingType.CreateConfigured("ImVec2", "global::Urho3D.Math.Vector2"),
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Reference,
+            "const ImVec2&");
+        size.SetMetadata(MetadataKeys.UnexpressibleDefault, true);
+        function.Parameters.Add(size);
+        compilation.Members.Add(function);
+
+        var managedOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public static bool Button(global::System.ReadOnlySpan<byte> label, in global::Urho3D.Math.Vector2? size = default)", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("public static bool Button(global::System.ReadOnlySpan<byte> label)\n", managedOutput, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -23,7 +23,7 @@ public sealed class UnsupportedDefaultsTests
         Assert.True(thresholdParam.HasDefaultValue);
         Assert.Null(thresholdParam.DefaultValue);
 
-        Assert.NotNull(typeof(E2EBindings).GetMethod(
+        Assert.Null(typeof(E2EBindings).GetMethod(
             nameof(E2EBindings.CheckThresholdSingleDefault),
             BindingFlags.Public | BindingFlags.Static,
             [typeof(float)]));
@@ -66,7 +66,7 @@ public sealed class UnsupportedDefaultsTests
             nameof(E2EBindings.CheckTwoDefaultsCascade),
             BindingFlags.Public | BindingFlags.Static,
             [typeof(float)]));
-        Assert.NotNull(typeof(E2EBindings).GetMethod(
+        Assert.Null(typeof(E2EBindings).GetMethod(
             nameof(E2EBindings.CheckTwoDefaultsCascade),
             BindingFlags.Public | BindingFlags.Static,
             [typeof(float), typeof(float?)]));
@@ -125,8 +125,8 @@ public sealed class UnsupportedDefaultsTests
         var freeFunctionConvenience = typeof(E2EBindings).GetMethod(
             nameof(E2EBindings.CheckMixedDefaults),
             BindingFlags.Public | BindingFlags.Static,
-            [typeof(int), typeof(int)])!;
-        Assert.False(freeFunctionConvenience.GetParameters()[1].HasDefaultValue);
+            [typeof(int), typeof(int)]);
+        Assert.Null(freeFunctionConvenience);
 
         var constructor = typeof(UnsupportedDefaultCounter).GetConstructor([typeof(int), typeof(int), typeof(int?), typeof(int)])!;
         var constructorParameters = constructor.GetParameters();
@@ -138,8 +138,8 @@ public sealed class UnsupportedDefaultsTests
         Assert.Null(constructorParameters[2].DefaultValue);
         Assert.Equal(5, constructorParameters[3].DefaultValue);
 
-        var constructorConvenience = typeof(UnsupportedDefaultCounter).GetConstructor([typeof(int), typeof(int)])!;
-        Assert.False(constructorConvenience.GetParameters()[1].HasDefaultValue);
+        var constructorConvenience = typeof(UnsupportedDefaultCounter).GetConstructor([typeof(int), typeof(int)]);
+        Assert.Null(constructorConvenience);
 
         var combine = typeof(UnsupportedDefaultCounter).GetMethod(nameof(UnsupportedDefaultCounter.Combine), [typeof(int), typeof(int), typeof(int?), typeof(int)])!;
         var combineParameters = combine.GetParameters();
@@ -151,8 +151,8 @@ public sealed class UnsupportedDefaultsTests
         Assert.Null(combineParameters[2].DefaultValue);
         Assert.Equal(2, combineParameters[3].DefaultValue);
 
-        var combineConvenience = typeof(UnsupportedDefaultCounter).GetMethod(nameof(UnsupportedDefaultCounter.Combine), [typeof(int), typeof(int)])!;
-        Assert.False(combineConvenience.GetParameters()[1].HasDefaultValue);
+        var combineConvenience = typeof(UnsupportedDefaultCounter).GetMethod(nameof(UnsupportedDefaultCounter.Combine), [typeof(int), typeof(int)]);
+        Assert.Null(combineConvenience);
 
         var add = typeof(UnsupportedDefaultCounter).GetMethod(nameof(UnsupportedDefaultCounter.Add), BindingFlags.Public | BindingFlags.Static, [typeof(int), typeof(int?), typeof(int)])!;
         var addParameters = add.GetParameters();
@@ -164,7 +164,7 @@ public sealed class UnsupportedDefaultsTests
         Assert.Equal(typeof(int), addParameters[2].ParameterType);
         Assert.Equal(5, addParameters[2].DefaultValue);
 
-        Assert.NotNull(typeof(UnsupportedDefaultCounter).GetMethod(nameof(UnsupportedDefaultCounter.Add), BindingFlags.Public | BindingFlags.Static, [typeof(int)]));
+        Assert.Null(typeof(UnsupportedDefaultCounter).GetMethod(nameof(UnsupportedDefaultCounter.Add), BindingFlags.Public | BindingFlags.Static, [typeof(int)]));
     }
 
     [Fact]

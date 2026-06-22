@@ -126,6 +126,12 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **Redundant public overloads for nullable unexpressible defaults are pruned**:
+  - Renderer convenience-overload generation now skips public overloads that are equivalent to the full C# signature with nullable `= default` optional parameters, avoiding duplicate surfaces such as `ImGui.Button(label)` beside `ImGui.Button(label, size = default)`.
+  - Useful overloads are still preserved when they restore an expressible default before a later unexpressible default, such as alternating-default shapes where the full signature must suppress that default.
+  - Native `__ArgsN` dispatch variants are unchanged, so omitted nullable/unexpressible arguments still route to the correct C++ default path.
+  - Verification: focused rendering regression tests, `cmake --build --preset Debug`, focused `sharpcpp.e2e` / `sharpcpp.rbfx.e2e`, and full `ctest --preset Debug` all pass.
+
 - **rbfx managed-object RTTI source generator was ported into v3 bindings**:
   - Added `SharpCpp.Rbfx.SourceGenerator` with `ManagedObjectRttiGenerator`, updated for v3 namespaces (`Urho3D.Math.StringHash` and `SharpCpp.Rbfx.Bindings.Interop.ManagedTypeInfoRegistry`).
   - Wired the source generator as an analyzer for rbfx bindings, rbfx E2E tests, and `Rbfx.Application`, so managed subclasses such as `DemoApplication : Application` receive generated RTTI overrides.

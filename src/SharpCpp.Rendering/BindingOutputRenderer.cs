@@ -4405,7 +4405,7 @@ public static partial class BindingOutputRenderer
         string? returnTypeName,
         bool isConstructor)
     {
-        foreach (var keepCount in GetUnexpressibleDefaultParameterIndices(function).Where(keepCount => keepCount < function.Parameters.Count))
+        foreach (var keepCount in GetUnexpressibleDefaultConvenienceOverloadParameterIndices(function))
         {
             var variantParams = function.Parameters.Take(keepCount).ToArray();
             var parameterList = RenderManagedUnexpressibleDefaultOverloadParameterList(function, keepCount, compilation);
@@ -5617,6 +5617,83 @@ public static partial class BindingOutputRenderer
         }
 
         return indices;
+    }
+
+    private static IReadOnlyList<int> GetUnexpressibleDefaultConvenienceOverloadParameterIndices(FunctionBinding function)
+    {
+        var mainDefaultFlags = GetManagedPublicParameterDefaultFlags(function);
+        return GetUnexpressibleDefaultParameterIndices(function)
+            .Where(index => !IsRedundantUnexpressibleDefaultConvenienceOverload(function, index, mainDefaultFlags))
+            .ToArray();
+    }
+
+    private static bool IsRedundantUnexpressibleDefaultConvenienceOverload(
+        FunctionBinding function,
+        int keepCount,
+        IReadOnlyList<bool> mainDefaultFlags)
+    {
+        for (var i = 0; i < keepCount; i++)
+        {
+            if (HasManagedUnexpressibleDefaultOverloadParameterDefault(function, keepCount, i) && !mainDefaultFlags[i])
+            {
+                return false;
+            }
+        }
+
+        for (var i = keepCount; i < function.Parameters.Count; i++)
+        {
+            if (!mainDefaultFlags[i])
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool HasManagedUnexpressibleDefaultOverloadParameterDefault(FunctionBinding function, int keepCount, int parameterIndex)
+    {
+        var previousUnexpressibleDefaultIndex = GetUnexpressibleDefaultParameterIndices(function)
+            .Where(index => index < keepCount)
+            .DefaultIfEmpty(-1)
+            .Max();
+        var suppressDefaultsThroughIndex = previousUnexpressibleDefaultIndex >= 0
+            ? previousUnexpressibleDefaultIndex
+            : keepCount - 1;
+
+        return parameterIndex > suppressDefaultsThroughIndex && CanRenderManagedPublicDefault(function.Parameters[parameterIndex]);
+    }
+
+    private static IReadOnlyList<bool> GetManagedPublicParameterDefaultFlags(FunctionBinding function)
+    {
+        var parameterArray = function.Parameters.ToArray();
+        var firstUnexpressibleDefault = parameterArray
+            .Select((parameter, index) => (parameter, index))
+            .FirstOrDefault(static entry => entry.parameter.HasMetadata(MetadataKeys.UnexpressibleDefault));
+        var lastRequiredParameterIndex = Array.FindLastIndex(parameterArray, static parameter => !CanRenderManagedPublicDefault(parameter));
+        var flags = new bool[parameterArray.Length];
+
+        for (var i = 0; i < parameterArray.Length; i++)
+        {
+            var parameter = parameterArray[i];
+            if (firstUnexpressibleDefault.parameter is not null)
+            {
+                if (i < firstUnexpressibleDefault.index)
+                {
+                    continue;
+                }
+
+                if (parameter.HasMetadata(MetadataKeys.UnexpressibleDefault))
+                {
+                    flags[i] = i >= lastRequiredParameterIndex;
+                    continue;
+                }
+            }
+
+            flags[i] = i >= lastRequiredParameterIndex && CanRenderManagedPublicDefault(parameter);
+        }
+
+        return flags;
     }
 
     private static IReadOnlyList<int> GetNativeDefaultDispatchParameterIndices(FunctionBinding function)
