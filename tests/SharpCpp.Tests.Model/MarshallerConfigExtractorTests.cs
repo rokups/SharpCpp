@@ -283,6 +283,307 @@ public sealed class MarshallerConfigExtractorTests
     }
 
     [Fact]
+    public void ApplyManagedTypeFormats_preserves_record_value_cpp_type_when_rebinding_generic_arguments()
+    {
+        var compilation = new SharpCpp.Model.Ast.BindingCompilation("TestProject", "Test.Namespace", "Bindings", "Test.Native", Array.Empty<string>());
+        var stringRecord = new SharpCpp.Model.Ast.RecordBinding("record:string", "basic_string", "String", "eastl::basic_string<char>")
+        {
+            ManagedTypeFormat = "Ea.String",
+            ManagedNamespace = "Ea",
+            ManagedBaseTypeName = "SharpCpp.Support.StringBase"
+        };
+        var variantRecord = new SharpCpp.Model.Ast.RecordBinding("record:variant", "Variant", "Variant", "Urho3D::Variant")
+        {
+            ManagedTypeFormat = "Urho3D.Core.Variant",
+            ManagedNamespace = "Urho3D.Core",
+            HasCopyConstructor = true
+        };
+        var mapRecord = new SharpCpp.Model.Ast.RecordBinding("record:hash_map", "hash_map", "UnorderedMap", "eastl::hash_map")
+        {
+            ManagedTypeFormat = "Ea.UnorderedMap<{0}, {1}>",
+            ManagedNamespace = "Ea"
+        };
+        mapRecord.GenericParameters.Add(new SharpCpp.Model.Ast.BindingGenericParameter("TKey", 0));
+        mapRecord.GenericParameters.Add(new SharpCpp.Model.Ast.BindingGenericParameter("TValue", 1));
+        compilation.Members.Add(stringRecord);
+        compilation.Members.Add(variantRecord);
+        compilation.Members.Add(mapRecord);
+
+        var stringType = SharpCpp.Model.Ast.BindingType.CreateHandle(
+            "eastl::basic_string<char>*",
+            "String",
+            "record:eastl::basic_string<char>");
+        var variantType = SharpCpp.Model.Ast.BindingType.CreateHandle(
+            "Urho3D::Variant*",
+            "Variant",
+            "record:Urho3D::Variant");
+        var mapType = SharpCpp.Model.Ast.BindingType.CreateHandle(
+            "eastl::hash_map<eastl::basic_string<char>, Urho3D::Variant>",
+            "UnorderedMap",
+            mapRecord.SymbolId,
+            genericArguments: [stringType, variantType]);
+        var function = new SharpCpp.Model.Ast.FunctionBinding(
+            "function:GetMap",
+            "GetMap",
+            "GetMap",
+            mapType,
+            "GetMap",
+            mapType.CppTypeName,
+            "GetMap");
+        compilation.Members.Add(function);
+
+        var applyMethod = Type.GetType("SharpCpp.Parsing.MarshallerMetadataPhase2, SharpCpp.Parsing", throwOnError: true)!
+            .GetMethod("ApplyManagedTypeFormats", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var recordsByNativeName = new Dictionary<string, SharpCpp.Model.Ast.RecordBinding>(StringComparer.Ordinal)
+        {
+            [stringRecord.CppQualifiedName] = stringRecord,
+            [variantRecord.CppQualifiedName] = variantRecord,
+            [mapRecord.NativeName] = mapRecord
+        };
+
+        applyMethod.Invoke(null, [compilation, recordsByNativeName]);
+
+        Assert.Equal("Ea.UnorderedMap<Ea.String, Urho3D.Core.Variant>", function.ReturnType.ManagedTypeName);
+        Assert.Equal("eastl::basic_string<char>", function.ReturnType.GenericArguments[0].CppTypeName);
+        Assert.Equal("Urho3D::Variant", function.ReturnType.GenericArguments[1].CppTypeName);
+    }
+
+    [Fact]
+    public void ApplyManagedTypeFormats_recovers_record_identity_from_native_template_argument()
+    {
+        var compilation = new SharpCpp.Model.Ast.BindingCompilation("TestProject", "Test.Namespace", "Bindings", "Test.Native", Array.Empty<string>());
+        var stringRecord = new SharpCpp.Model.Ast.RecordBinding("record:string", "basic_string", "String", "eastl::basic_string<char>")
+        {
+            ManagedTypeFormat = "Ea.String",
+            ManagedNamespace = "Ea"
+        };
+        var urhoVariantRecord = new SharpCpp.Model.Ast.RecordBinding("record:Urho3D::Variant", "Variant", "Variant", "Urho3D::Variant")
+        {
+            ManagedTypeFormat = "Urho3D.Core.Variant",
+            ManagedNamespace = "Urho3D.Core"
+        };
+        var rmlVariantRecord = new SharpCpp.Model.Ast.RecordBinding("record:Rml::Variant", "Variant", "Variant", "Rml::Variant")
+        {
+            ManagedTypeFormat = "Urho3D.Core.Variant",
+            ManagedNamespace = "Urho3D.Core"
+        };
+        var mapRecord = new SharpCpp.Model.Ast.RecordBinding("record:hash_map", "hash_map", "UnorderedMap", "eastl::hash_map")
+        {
+            ManagedTypeFormat = "Ea.UnorderedMap<{0}, {1}>",
+            ManagedNamespace = "Ea"
+        };
+        mapRecord.GenericParameters.Add(new SharpCpp.Model.Ast.BindingGenericParameter("TKey", 0));
+        mapRecord.GenericParameters.Add(new SharpCpp.Model.Ast.BindingGenericParameter("TValue", 1));
+        compilation.Members.Add(stringRecord);
+        compilation.Members.Add(urhoVariantRecord);
+        compilation.Members.Add(rmlVariantRecord);
+        compilation.Members.Add(mapRecord);
+
+        var stringType = SharpCpp.Model.Ast.BindingType.CreateHandle(
+            "eastl::basic_string<char>*",
+            "String",
+            stringRecord.SymbolId);
+        var rmlVariantTypeWithWrongRecordId = SharpCpp.Model.Ast.BindingType.CreateHandle(
+            "Rml::Variant*",
+            "Variant",
+            urhoVariantRecord.SymbolId);
+        var mapType = SharpCpp.Model.Ast.BindingType.CreateHandle(
+            "eastl::hash_map<eastl::basic_string<char>, Rml::Variant>",
+            "UnorderedMap",
+            mapRecord.SymbolId,
+            genericArguments: [stringType, rmlVariantTypeWithWrongRecordId]);
+        var function = new SharpCpp.Model.Ast.FunctionBinding(
+            "function:GetRmlMap",
+            "GetRmlMap",
+            "GetRmlMap",
+            mapType,
+            "GetRmlMap",
+            mapType.CppTypeName,
+            "GetRmlMap");
+        compilation.Members.Add(function);
+
+        var applyMethod = Type.GetType("SharpCpp.Parsing.MarshallerMetadataPhase2, SharpCpp.Parsing", throwOnError: true)!
+            .GetMethod("ApplyManagedTypeFormats", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var recordsByNativeName = new Dictionary<string, SharpCpp.Model.Ast.RecordBinding>(StringComparer.Ordinal)
+        {
+            [stringRecord.CppQualifiedName] = stringRecord,
+            [urhoVariantRecord.CppQualifiedName] = urhoVariantRecord,
+            [rmlVariantRecord.CppQualifiedName] = rmlVariantRecord,
+            [mapRecord.NativeName] = mapRecord
+        };
+
+        applyMethod.Invoke(null, [compilation, recordsByNativeName]);
+
+        Assert.Equal("Rml::Variant*", function.ReturnType.GenericArguments[1].CppTypeName);
+        Assert.Equal(rmlVariantRecord.SymbolId, function.ReturnType.GenericArguments[1].RecordId);
+    }
+
+    [Fact]
+    public void ApplyManagedTypeFormats_recovers_record_value_cpp_type_from_configured_marshaller_metadata()
+    {
+        var compilation = new SharpCpp.Model.Ast.BindingCompilation("TestProject", "Test.Namespace", "Bindings", "Test.Native", Array.Empty<string>());
+        var valueRecord = new SharpCpp.Model.Ast.RecordBinding(
+            "record:value",
+            "Value",
+            "Value",
+            "Test::Value",
+            marshallerTypeName: "global::Test.__ValueMarshaller<{0}>");
+        var vectorRecord = new SharpCpp.Model.Ast.RecordBinding("record:vector", "vector", "Vector", "eastl::vector")
+        {
+            ManagedTypeFormat = "Ea.Vector<{0}>",
+            ManagedNamespace = "Ea"
+        };
+        vectorRecord.GenericParameters.Add(new SharpCpp.Model.Ast.BindingGenericParameter("T", 0));
+        compilation.Members.Add(valueRecord);
+        compilation.Members.Add(vectorRecord);
+
+        var valueType = SharpCpp.Model.Ast.BindingType.CreateHandle(
+            "Test::Value*",
+            "Value",
+            valueRecord.SymbolId,
+            marshallerTypeName: valueRecord.HandleMarshallerTypeName);
+        var vectorType = SharpCpp.Model.Ast.BindingType.CreateHandle(
+            "eastl::vector<Test::Value>",
+            "Vector",
+            vectorRecord.SymbolId,
+            genericArguments: [valueType]);
+        var function = new SharpCpp.Model.Ast.FunctionBinding(
+            "function:GetVector",
+            "GetVector",
+            "GetVector",
+            vectorType,
+            "GetVector",
+            vectorType.CppTypeName,
+            "GetVector");
+        compilation.Members.Add(function);
+
+        var applyMethod = Type.GetType("SharpCpp.Parsing.MarshallerMetadataPhase2, SharpCpp.Parsing", throwOnError: true)!
+            .GetMethod("ApplyManagedTypeFormats", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var recordsByNativeName = new Dictionary<string, SharpCpp.Model.Ast.RecordBinding>(StringComparer.Ordinal)
+        {
+            [valueRecord.CppQualifiedName] = valueRecord,
+            [vectorRecord.NativeName] = vectorRecord
+        };
+
+        applyMethod.Invoke(null, [compilation, recordsByNativeName]);
+
+        Assert.Equal("Test::Value", function.ReturnType.GenericArguments[0].CppTypeName);
+    }
+
+    [Fact]
+    public void ApplyManagedTypeFormats_keeps_handle_cpp_type_for_unconfigured_record_generic_arguments()
+    {
+        var compilation = new SharpCpp.Model.Ast.BindingCompilation("TestProject", "Test.Namespace", "Bindings", "Test.Native", Array.Empty<string>());
+        var itemRecord = new SharpCpp.Model.Ast.RecordBinding("record:item", "Item", "Item", "Test::Item");
+        var vectorRecord = new SharpCpp.Model.Ast.RecordBinding("record:vector", "vector", "Vector", "eastl::vector")
+        {
+            ManagedTypeFormat = "Ea.Vector<{0}>",
+            ManagedNamespace = "Ea"
+        };
+        vectorRecord.GenericParameters.Add(new SharpCpp.Model.Ast.BindingGenericParameter("T", 0));
+        compilation.Members.Add(itemRecord);
+        compilation.Members.Add(vectorRecord);
+
+        var itemType = SharpCpp.Model.Ast.BindingType.CreateHandle(
+            "Test::Item*",
+            "Item",
+            itemRecord.SymbolId);
+        var vectorType = SharpCpp.Model.Ast.BindingType.CreateHandle(
+            "eastl::vector<Test::Item>",
+            "Vector",
+            vectorRecord.SymbolId,
+            genericArguments: [itemType]);
+        var function = new SharpCpp.Model.Ast.FunctionBinding(
+            "function:GetVector",
+            "GetVector",
+            "GetVector",
+            vectorType,
+            "GetVector",
+            vectorType.CppTypeName,
+            "GetVector");
+        compilation.Members.Add(function);
+
+        var applyMethod = Type.GetType("SharpCpp.Parsing.MarshallerMetadataPhase2, SharpCpp.Parsing", throwOnError: true)!
+            .GetMethod("ApplyManagedTypeFormats", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var recordsByNativeName = new Dictionary<string, SharpCpp.Model.Ast.RecordBinding>(StringComparer.Ordinal)
+        {
+            [itemRecord.CppQualifiedName] = itemRecord,
+            [vectorRecord.NativeName] = vectorRecord
+        };
+
+        applyMethod.Invoke(null, [compilation, recordsByNativeName]);
+
+        Assert.Equal("Test::Item*", function.ReturnType.GenericArguments[0].CppTypeName);
+    }
+
+    [Fact]
+    public void ApplyManagedTypeFormats_keeps_closed_generic_argument_when_recovering_map_values()
+    {
+        var compilation = new SharpCpp.Model.Ast.BindingCompilation("TestProject", "Test.Namespace", "Bindings", "Test.Native", Array.Empty<string>());
+        var stringHashRecord = new SharpCpp.Model.Ast.RecordBinding("record:string_hash", "StringHash", "StringHash", "Urho3D::StringHash")
+        {
+            ManagedTypeFormat = "Urho3D.Math.StringHash",
+            ManagedNamespace = "Urho3D.Math"
+        };
+        var vectorRecord = new SharpCpp.Model.Ast.RecordBinding("record:vector", "vector", "Vector", "eastl::vector")
+        {
+            ManagedTypeFormat = "Ea.Vector<{0}>",
+            ManagedNamespace = "Ea"
+        };
+        vectorRecord.GenericParameters.Add(new SharpCpp.Model.Ast.BindingGenericParameter("T", 0));
+        var mapRecord = new SharpCpp.Model.Ast.RecordBinding("record:hash_map", "hash_map", "UnorderedMap", "eastl::hash_map")
+        {
+            ManagedTypeFormat = "Ea.UnorderedMap<{0}, {1}>",
+            ManagedNamespace = "Ea"
+        };
+        mapRecord.GenericParameters.Add(new SharpCpp.Model.Ast.BindingGenericParameter("TKey", 0));
+        mapRecord.GenericParameters.Add(new SharpCpp.Model.Ast.BindingGenericParameter("TValue", 1));
+        compilation.Members.Add(stringHashRecord);
+        compilation.Members.Add(vectorRecord);
+        compilation.Members.Add(mapRecord);
+
+        var keyType = SharpCpp.Model.Ast.BindingType.UInt32;
+        var stringHashType = SharpCpp.Model.Ast.BindingType.CreateHandle(
+            "Urho3D::StringHash",
+            "StringHash",
+            stringHashRecord.SymbolId,
+            cppIsRecordValue: true);
+        var vectorType = SharpCpp.Model.Ast.BindingType.CreateHandle(
+            "eastl::vector<Urho3D::StringHash>",
+            "Vector",
+            vectorRecord.SymbolId,
+            genericArguments: [stringHashType]);
+        var mapType = SharpCpp.Model.Ast.BindingType.CreateHandle(
+            "eastl::hash_map<unsigned int, eastl::vector<Urho3D::StringHash>>",
+            "UnorderedMap",
+            mapRecord.SymbolId,
+            genericArguments: [keyType, vectorType]);
+        var function = new SharpCpp.Model.Ast.FunctionBinding(
+            "function:GetMap",
+            "GetMap",
+            "GetMap",
+            mapType,
+            "GetMap",
+            mapType.CppTypeName,
+            "GetMap");
+        compilation.Members.Add(function);
+
+        var applyMethod = Type.GetType("SharpCpp.Parsing.MarshallerMetadataPhase2, SharpCpp.Parsing", throwOnError: true)!
+            .GetMethod("ApplyManagedTypeFormats", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var recordsByNativeName = new Dictionary<string, SharpCpp.Model.Ast.RecordBinding>(StringComparer.Ordinal)
+        {
+            [stringHashRecord.CppQualifiedName] = stringHashRecord,
+            [vectorRecord.CppQualifiedName] = vectorRecord,
+            [mapRecord.NativeName] = mapRecord
+        };
+
+        applyMethod.Invoke(null, [compilation, recordsByNativeName]);
+
+        Assert.Equal("Ea.UnorderedMap<uint, Ea.Vector<Urho3D.Math.StringHash>>", function.ReturnType.ManagedTypeName);
+        Assert.Single(function.ReturnType.GenericArguments[1].GenericArguments);
+    }
+
+    [Fact]
     public void ExtractMarshallerBodies_includes_inherited_expose_members_and_leaf_overrides()
     {
         var repoRoot = FindRepositoryRoot();

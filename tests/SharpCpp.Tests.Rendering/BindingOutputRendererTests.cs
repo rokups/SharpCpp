@@ -2142,8 +2142,10 @@ public sealed class BindingOutputRendererTests
             ManagedTypeFormat = "BoxOf<{0}>"
         };
         record.GenericParameters.Add(new BindingGenericParameter("T", 0));
-        record.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding(new[] { BindingType.Int32 }));
-        record.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding(new[] { BindingType.Single }));
+        var intInstantiation = new RecordGenericInstantiationBinding(new[] { BindingType.Int32 });
+        var floatInstantiation = new RecordGenericInstantiationBinding(new[] { BindingType.Single });
+        record.SupportedGenericInstantiations.Add(intInstantiation);
+        record.SupportedGenericInstantiations.Add(floatInstantiation);
 
         var ctor = new FunctionBinding("ctor:value_box:T", "value_box", "BoxOf", record.HandleType, "entry_ctor")
         {
@@ -2189,8 +2191,78 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("public T GetValue()", managedOutput, StringComparison.Ordinal);
         Assert.Contains("(global::SharpCpp.Sample.BoxOf<T>)(object)__result!;", managedOutput, StringComparison.Ordinal);
         AssertAllLibraryImportsAreAggressivelyInlined(managedOutput);
-        Assert.Contains("entry_get__1", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("entry_get__2", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains($"entry_get{intInstantiation.Suffix}", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains($"entry_get{floatInstantiation.Suffix}", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Generic_record_dispatch_deduplicates_managed_signatures_and_prefers_native_value_arguments()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/UnorderedMap.hpp" });
+        var stringRecord = new RecordBinding("record:string", "basic_string", "String", "eastl::basic_string<char>")
+        {
+            ManagedNamespace = "Ea",
+            ManagedTypeFormat = "global::Ea.String"
+        };
+        var urhoVariantRecord = new RecordBinding("record:urho_variant", "Variant", "Variant", "Urho3D::Variant")
+        {
+            ManagedNamespace = "Urho3D.Core",
+            ManagedTypeFormat = "global::Urho3D.Core.Variant"
+        };
+        var rmlVariantRecord = new RecordBinding("record:rml_variant", "Variant", "Variant", "Rml::Variant")
+        {
+            ManagedNamespace = "Rml",
+            ManagedTypeFormat = "global::Urho3D.Core.Variant"
+        };
+        var mapRecord = new RecordBinding("record:hash_map", "hash_map", "UnorderedMap", "eastl::hash_map")
+        {
+            ManagedNamespace = "Ea",
+            ManagedTypeFormat = "global::Ea.UnorderedMap<{0}, {1}>"
+        };
+        mapRecord.GenericParameters.Add(new BindingGenericParameter("TKey", 0));
+        mapRecord.GenericParameters.Add(new BindingGenericParameter("TValue", 1));
+
+        var stringPointerType = BindingType.CreateHandle("eastl::basic_string<char>*", "String", stringRecord.SymbolId)
+            .WithManagedTypeFormatOverride("global::Ea.String");
+        var stringValueType = BindingType.CreateHandle("eastl::basic_string<char>", "String", stringRecord.SymbolId, cppIsRecordValue: true)
+            .WithManagedTypeFormatOverride("global::Ea.String");
+        var urhoVariantValueType = BindingType.CreateHandle("Urho3D::Variant", "Variant", urhoVariantRecord.SymbolId, cppIsRecordValue: true)
+            .WithManagedTypeFormatOverride("global::Urho3D.Core.Variant");
+        var rmlVariantValueType = BindingType.CreateHandle("Rml::Variant", "Variant", rmlVariantRecord.SymbolId, cppIsRecordValue: true)
+            .WithManagedTypeFormatOverride("global::Urho3D.Core.Variant");
+        var pointerKeyInstantiation = new RecordGenericInstantiationBinding([stringPointerType, urhoVariantValueType]);
+        var rmlVariantInstantiation = new RecordGenericInstantiationBinding([stringValueType, rmlVariantValueType]);
+        var valueInstantiation = new RecordGenericInstantiationBinding([stringValueType, urhoVariantValueType]);
+        mapRecord.SupportedGenericInstantiations.Add(pointerKeyInstantiation);
+        mapRecord.SupportedGenericInstantiations.Add(rmlVariantInstantiation);
+        mapRecord.SupportedGenericInstantiations.Add(valueInstantiation);
+
+        var setValue = new FunctionBinding("method:hash_map:set_value", "SetValueCore", "SetValueCore", BindingType.Void, "entry_set")
+        {
+            IsStatic = false,
+            OwningRecordCppTypeName = "eastl::hash_map"
+        };
+        setValue.Parameters.Add(new ParameterBinding("parameter:key", "key", "key", BindingType.CreateGenericParameter("TKey"), cppTypeName: "TKey"));
+        setValue.Parameters.Add(new ParameterBinding("parameter:value", "value", "value", BindingType.CreateGenericParameter("TValue"), cppTypeName: "TValue"));
+        mapRecord.Members.Add(setValue);
+
+        compilation.Members.Add(stringRecord);
+        compilation.Members.Add(urhoVariantRecord);
+        compilation.Members.Add(rmlVariantRecord);
+        compilation.Members.Add(mapRecord);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Equal(1, CountOccurrences(managedOutput, "EntryPoint = \"entry_set"));
+        Assert.Contains($"EntryPoint = \"entry_set{valueInstantiation.Suffix}\"", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain($"EntryPoint = \"entry_set{pointerKeyInstantiation.Suffix}\"", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain($"EntryPoint = \"entry_set{rmlVariantInstantiation.Suffix}\"", managedOutput, StringComparison.Ordinal);
     }
 
     [Fact]

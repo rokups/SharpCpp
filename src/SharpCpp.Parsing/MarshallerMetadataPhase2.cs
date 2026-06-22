@@ -1037,8 +1037,12 @@ public static class MarshallerMetadataPhase2
             return type;
         }
 
+        var cppTypeName = type.Marshaller.CppIsRecordValue
+            ? record.FormatCppTypeName(type.GenericArguments)
+            : type.CppTypeName;
+
         var rebound = BindingType.CreateHandle(
-            type.CppTypeName,
+            cppTypeName,
             type.Marshaller.PublicTypeName,
             record.SymbolId,
             type.MarshallerTypeName,
@@ -1059,23 +1063,20 @@ public static class MarshallerMetadataPhase2
             return type;
         }
 
-        if (visibleIndices.Count == type.GenericArguments.Count && IsIdentityProjection(visibleIndices))
+        var sourceArguments = type.GenericArguments;
+        var sourceArgumentsChanged = false;
+        if (TryRecoverGenericArgumentsFromCppType(type.CppTypeName, recordsByNativeName, out var recoveredArguments) &&
+            recoveredArguments.Count >= sourceArguments.Count)
         {
-            return type;
+            sourceArguments = MergeRecoveredGenericArguments(
+                type.GenericArguments,
+                recoveredArguments,
+                out sourceArgumentsChanged);
         }
 
-        var sourceArguments = type.GenericArguments;
-        if (visibleIndices.Any(index => index >= sourceArguments.Count) &&
-            TryRecoverGenericArgumentsFromCppType(type.CppTypeName, recordsByNativeName, out var recoveredArguments) &&
-            recoveredArguments.Count > sourceArguments.Count)
+        if (!sourceArgumentsChanged && visibleIndices.Count == type.GenericArguments.Count && IsIdentityProjection(visibleIndices))
         {
-            var mergedArguments = recoveredArguments.ToArray();
-            for (var index = 0; index < type.GenericArguments.Count && index < mergedArguments.Length; index++)
-            {
-                mergedArguments[index] = type.GenericArguments[index];
-            }
-
-            sourceArguments = mergedArguments;
+            return type;
         }
 
         if (visibleIndices.Any(index => index >= sourceArguments.Count))
@@ -1088,6 +1089,66 @@ public static class MarshallerMetadataPhase2
             .ToArray();
         return WithGenericArguments(type, projectedArguments);
     }
+
+    private static IReadOnlyList<BindingType> MergeRecoveredGenericArguments(
+        IReadOnlyList<BindingType> currentArguments,
+        IReadOnlyList<BindingType> recoveredArguments,
+        out bool changed)
+    {
+        var mergedArguments = recoveredArguments.ToArray();
+        changed = recoveredArguments.Count != currentArguments.Count;
+        for (var index = 0; index < currentArguments.Count && index < mergedArguments.Length; index++)
+        {
+            var currentArgument = currentArguments[index];
+            var recoveredArgument = mergedArguments[index];
+            if (ShouldPreferRecoveredGenericArgument(currentArgument, recoveredArgument))
+            {
+                mergedArguments[index] = currentArgument.ManagedTypeFormatOverride is null
+                    ? recoveredArgument
+                    : recoveredArgument.WithManagedTypeFormatOverride(currentArgument.ManagedTypeFormatOverride);
+                changed = true;
+                continue;
+            }
+
+            mergedArguments[index] = currentArgument;
+        }
+
+        return changed ? mergedArguments : currentArguments;
+    }
+
+    private static bool ShouldPreferRecoveredGenericArgument(
+        BindingType currentArgument,
+        BindingType recoveredArgument)
+    {
+        if (currentArgument.Kind != BindingTypeKind.Handle ||
+            recoveredArgument.Kind != BindingTypeKind.Handle ||
+            (currentArgument.GenericArguments.Count > 0 && recoveredArgument.GenericArguments.Count == 0) ||
+            recoveredArgument.ManagedTypeName.Contains('{', StringComparison.Ordinal) ||
+            !IsSameRecoveredRecordArgument(currentArgument, recoveredArgument))
+        {
+            return false;
+        }
+
+        return !string.Equals(currentArgument.RecordId, recoveredArgument.RecordId, StringComparison.Ordinal) ||
+            !string.Equals(currentArgument.CppTypeName, recoveredArgument.CppTypeName, StringComparison.Ordinal) ||
+            currentArgument.Marshaller.CppIsRecordValue != recoveredArgument.Marshaller.CppIsRecordValue;
+    }
+
+    private static bool IsSameRecoveredRecordArgument(BindingType currentArgument, BindingType recoveredArgument)
+    {
+        if (!string.IsNullOrWhiteSpace(currentArgument.RecordId) &&
+            string.Equals(currentArgument.RecordId, recoveredArgument.RecordId, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var currentCppTypeName = NormalizeRecoveredRecordTypeName(currentArgument.CppTypeName);
+        var recoveredCppTypeName = NormalizeRecoveredRecordTypeName(recoveredArgument.CppTypeName);
+        return string.Equals(currentCppTypeName, recoveredCppTypeName, StringComparison.Ordinal);
+    }
+
+    private static string NormalizeRecoveredRecordTypeName(string typeName)
+        => StripCvAndIndirection(MarshallerConfigExtractor.NormalizeTypeName(typeName)).TrimEnd('*').Trim();
 
     private static bool IsIdentityProjection(IReadOnlyList<int> indices)
     {
@@ -1121,23 +1182,52 @@ public static class MarshallerMetadataPhase2
 
     private static BindingType MapRecoveredTemplateArgument(string argument, IReadOnlyDictionary<string, RecordBinding> recordsByNativeName)
     {
-        var normalized = StripCvAndIndirection(MarshallerConfigExtractor.NormalizeTypeName(argument));
-        if (MapManagedPrimitiveType(normalized) is { } primitive)
+        var normalizedArgument = MarshallerConfigExtractor.NormalizeTypeName(argument);
+        var normalized = StripCvAndIndirection(normalizedArgument);
+        var lookupName = normalized.TrimEnd('*').Trim();
+        if (MapManagedPrimitiveType(lookupName) is { } primitive)
         {
             return primitive;
         }
 
-        var record = recordsByNativeName.Values.FirstOrDefault(candidate =>
-            string.Equals(candidate.CppQualifiedName, StripGenericArguments(normalized), StringComparison.Ordinal) ||
-            string.Equals(candidate.NativeName, StripGenericArguments(normalized), StringComparison.Ordinal) ||
-            normalized.EndsWith("::" + candidate.NativeName, StringComparison.Ordinal));
+        var record = FindRecordByCppTypeName(lookupName, recordsByNativeName);
         if (record is not null)
         {
-            var handleCppTypeName = normalized.EndsWith("*", StringComparison.Ordinal) ? normalized : normalized + "*";
-            return BindingType.CreateHandle(handleCppTypeName, record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName);
+            var isPointerArgument = normalized.EndsWith("*", StringComparison.Ordinal);
+            var isRecordValueArgument = !isPointerArgument && CanUseRecoveredRecordValueArgument(record);
+            var handleCppTypeName = isPointerArgument
+                ? normalized
+                : isRecordValueArgument
+                    ? lookupName
+                    : $"{lookupName}*";
+            var handle = BindingType.CreateHandle(
+                handleCppTypeName,
+                record.ManagedName,
+                record.SymbolId,
+                record.HandleMarshallerTypeName,
+                cppIsRecordValue: isRecordValueArgument);
+            var managedTypeFormatOverride = record.ManagedTypeFormat;
+            if (!string.IsNullOrWhiteSpace(managedTypeFormatOverride) &&
+                !managedTypeFormatOverride.Contains('{', StringComparison.Ordinal))
+            {
+                handle.SetManagedTypeFormatOverride(managedTypeFormatOverride);
+            }
+
+            return handle;
         }
 
-        return BindingType.CreateConfigured(normalized, normalized);
+        return BindingType.CreateConfigured(lookupName, lookupName);
+    }
+
+    private static bool CanUseRecoveredRecordValueArgument(RecordBinding record)
+    {
+        return record.HasCopyConstructor ||
+            record.GetMetadata<bool>(MetadataKeys.MarshallerConfiguredRecord) ||
+            record.GetMetadata<bool>(MetadataKeys.SuppressEmission) ||
+            !string.IsNullOrWhiteSpace(record.HandleMarshallerTypeName) ||
+            !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ||
+            !string.IsNullOrWhiteSpace(record.ManagedBaseTypeConstraints) ||
+            record.Members.OfType<FunctionBinding>().Any(static member => member.HasMetadata(MetadataKeys.MarshallerExposedMethod));
     }
 
     private static bool TryGetTopLevelTemplateArguments(string typeName, out IReadOnlyList<string> arguments)
@@ -1302,12 +1392,28 @@ public static class MarshallerMetadataPhase2
             return record;
         }
 
-        var qualifiedName = StripGenericArguments(type.RecordId["record:".Length..]);
+        var qualifiedName = MarshallerConfigExtractor.NormalizeTypeName(type.RecordId["record:".Length..]);
+        return FindRecordByCppTypeName(qualifiedName, recordsByNativeName);
+    }
+
+    private static RecordBinding? FindRecordByCppTypeName(string cppTypeName, IReadOnlyDictionary<string, RecordBinding> recordsByNativeName)
+    {
+        var normalizedName = MarshallerConfigExtractor.NormalizeTypeName(cppTypeName);
+        var strippedName = StripGenericArguments(normalizedName);
+        if (recordsByNativeName.TryGetValue(normalizedName, out var record) ||
+            recordsByNativeName.TryGetValue(strippedName, out record))
+        {
+            return record;
+        }
+
+        var isQualified = strippedName.Contains("::", StringComparison.Ordinal);
         return recordsByNativeName.Values.FirstOrDefault(candidate =>
-            string.Equals(candidate.CppQualifiedName, qualifiedName, StringComparison.Ordinal) ||
-            candidate.CppQualifiedName.EndsWith("::" + qualifiedName, StringComparison.Ordinal) ||
-            string.Equals(candidate.NativeName, qualifiedName, StringComparison.Ordinal) ||
-            string.Equals(candidate.ManagedName, qualifiedName, StringComparison.Ordinal));
+            string.Equals(candidate.CppQualifiedName, normalizedName, StringComparison.Ordinal) ||
+            string.Equals(StripGenericArguments(candidate.CppQualifiedName), strippedName, StringComparison.Ordinal) ||
+            (!isQualified &&
+                (string.Equals(candidate.NativeName, strippedName, StringComparison.Ordinal) ||
+                 candidate.CppQualifiedName.EndsWith("::" + strippedName, StringComparison.Ordinal) ||
+                 StripGenericArguments(candidate.CppQualifiedName).EndsWith("::" + strippedName, StringComparison.Ordinal))));
     }
 
     private static string CreateRecordSymbolId(string cppQualifiedName)

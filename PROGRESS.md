@@ -126,11 +126,13 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
-- **`Rbfx.Application` launch path no longer crashes in `Setup()`**:
-  - Added handwritten managed `Application.SetEngineParameter(...)` overloads that route through the existing native `SharpCppRbfxApplication` runtime helpers instead of mutating the generated `EngineParameters` map projection.
-  - Updated `Rbfx.Application.Setup()` to use those helpers for window/fullscreen/autoload settings, avoiding the invalid `eastl::hash_map<ea::string*, Variant*>` insertion path hit by the generated map wrapper.
-  - Updated VS Code app launch/task entries to build the app target first and set explicit `LD_LIBRARY_PATH` / `LD_PRELOAD` paths for the `out/build/dev/bin/Debug` output.
-  - Verification: `cmake --build --preset Debug --target sharpcpp-rbfx-application`; 8-second preloaded app launch reaches engine/RmlUI/ImGui startup and exits only via timeout.
+- **`Rbfx.Application` launch path uses the generated `EngineParameters` map directly**:
+  - Removed the associative-collection-specific recovery rule; core no longer needs to know about `EngineParameters`, `VariantMap`, or any concrete collection/type pair.
+  - `MarshallerMetadataPhase2` now resolves recovered template arguments by normalized C++ record identity, preventing same-managed-name collisions such as `Rml::Variant` rebinding to `Urho3D::Variant`.
+  - Recovered value ABI is gated by generic facts: copyable records or records with configured marshaller/support metadata may use value spelling; unconfigured records keep handle/pointer ABI so non-copyable values are not forced through collection thunks.
+  - Generic record rendering deduplicates duplicate managed generic signatures and chooses the best native instantiation using generic signals, so `Ea.UnorderedMap<Ea.String, Urho3D.Core.Variant>` dispatches to `eastl::hash_map<eastl::basic_string<char>, Urho3D::Variant>`.
+  - VS Code `Rbfx.Application (Debug)` launch and `Run: Rbfx.Application (Debug)` task now start the built DLL directly without triggering a build.
+  - Verification: focused model/rendering tests pass, `cmake --build --preset Debug --target sharpcpp-rbfx-application` passes, and an 8-second preloaded app launch reaches engine/RmlUI/ImGui startup and exits only via timeout.
 
 - **Generated string wrappers now expose borrowed UTF-8 spans**:
   - Extended the marshaller-exposed string wrapper contract with generated `GetDataCore()` overrides, so `StringBase.AsUtf8Span()` can return a span over native string storage instead of materializing a managed byte-array copy.

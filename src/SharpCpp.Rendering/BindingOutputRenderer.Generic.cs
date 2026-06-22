@@ -118,7 +118,7 @@ public static partial class BindingOutputRenderer
         var genericInstanceMethods = instanceMethods.Where(static function => function.IsGeneric).ToArray();
         var concreteInstanceMethods = instanceMethods.Where(static function => !function.IsGeneric).ToArray();
         var staticMethods = record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic && function.OperatorToken is null && !function.IsConversionOperator && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
-        var instantiations = record.SupportedGenericInstantiations.OrderBy(static instantiation => string.Join("|", instantiation.TypeArguments.Select(static argument => argument.CppTypeName)), StringComparer.Ordinal).ToArray();
+        var instantiations = GetCanonicalManagedGenericInstantiations(compilation, record);
         var baseTypeName = GetGenericManagedBaseTypeName(compilation, record);
         var genericConstraints = GetGenericRecordConstraints(record);
         var canEmitClone = CanEmitClone(record, isEffectivelyAbstract: false, canEmitDeleteThunk: true);
@@ -225,7 +225,7 @@ public static partial class BindingOutputRenderer
         var concreteInstanceMethods = instanceMethods.Where(static function => !function.IsGeneric).ToArray();
         var genericInstanceMethods = instanceMethods.Where(static function => function.IsGeneric).ToArray();
         var staticMethods = record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic && function.OperatorToken is null && !function.IsConversionOperator && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
-        var instantiations = record.SupportedGenericInstantiations.OrderBy(static instantiation => string.Join("|", instantiation.TypeArguments.Select(static argument => argument.CppTypeName)), StringComparer.Ordinal).ToArray();
+        var instantiations = GetCanonicalManagedGenericInstantiations(compilation, record);
 
         foreach (var constructor in constructors)
         {
@@ -281,6 +281,69 @@ public static partial class BindingOutputRenderer
         {
             yield return RenderGenericDeleteImportDeclaration(compilation, record, instantiation);
         }
+    }
+
+    private static IReadOnlyList<RecordGenericInstantiationBinding> GetCanonicalManagedGenericInstantiations(
+        BindingCompilation compilation,
+        RecordBinding record)
+    {
+        return record.SupportedGenericInstantiations
+            .GroupBy(instantiation => GetManagedGenericInstantiationKey(compilation, record, instantiation), StringComparer.Ordinal)
+            .Select(group => group
+                .OrderBy(instantiation => CountPointerLikeGenericArguments(instantiation.TypeArguments))
+                .ThenByDescending(instantiation => CountManagedNativeNamespaceMatches(instantiation.TypeArguments))
+                .ThenByDescending(instantiation => CountRecordValueGenericArguments(instantiation.TypeArguments))
+                .ThenBy(instantiation => string.Join("|", instantiation.TypeArguments.Select(static argument => argument.CppTypeName)), StringComparer.Ordinal)
+                .First())
+            .OrderBy(static instantiation => string.Join("|", instantiation.TypeArguments.Select(static argument => argument.CppTypeName)), StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static string GetManagedGenericInstantiationKey(
+        BindingCompilation compilation,
+        RecordBinding record,
+        RecordGenericInstantiationBinding instantiation)
+    {
+        var visibleIndices = GetManagedVisibleGenericParameterIndices(record);
+        var indices = visibleIndices.Count == 0
+            ? Enumerable.Range(0, instantiation.TypeArguments.Count)
+            : visibleIndices.Where(index => index < instantiation.TypeArguments.Count);
+
+        return string.Join("|", indices.Select(index => GetManagedWrapperTypeName(instantiation.TypeArguments[index], compilation)));
+    }
+
+    private static int CountPointerLikeGenericArguments(IReadOnlyList<BindingType> arguments)
+        => arguments.Sum(static argument =>
+            (argument.CppTypeName.Contains('*', StringComparison.Ordinal) ? 1 : 0) +
+            CountPointerLikeGenericArguments(argument.GenericArguments));
+
+    private static int CountRecordValueGenericArguments(IReadOnlyList<BindingType> arguments)
+        => arguments.Sum(static argument =>
+            (argument.Marshaller.CppIsRecordValue ? 1 : 0) +
+            CountRecordValueGenericArguments(argument.GenericArguments));
+
+    private static int CountManagedNativeNamespaceMatches(IReadOnlyList<BindingType> arguments)
+        => arguments.Sum(static argument =>
+            (ManagedRootNamespaceMatchesCpp(argument) ? 1 : 0) +
+            CountManagedNativeNamespaceMatches(argument.GenericArguments));
+
+    private static bool ManagedRootNamespaceMatchesCpp(BindingType argument)
+    {
+        var managedName = argument.ManagedTypeName;
+        const string GlobalPrefix = "global::";
+        if (managedName.StartsWith(GlobalPrefix, StringComparison.Ordinal))
+        {
+            managedName = managedName[GlobalPrefix.Length..];
+        }
+
+        var separator = managedName.IndexOf('.');
+        if (separator <= 0)
+        {
+            return false;
+        }
+
+        var managedRoot = managedName[..separator];
+        return argument.CppTypeName.StartsWith(managedRoot + "::", StringComparison.Ordinal);
     }
 
     private static bool IsGenericArrayRecord(RecordBinding record)
@@ -1332,11 +1395,9 @@ public static partial class BindingOutputRenderer
         var returnTypeName = GetGenericManagedReturnType(function.ReturnType, compilation);
         var parameterList = string.Join(", ", function.Parameters.Select(p => RenderManagedPublicParameter(p, compilation)));
         var methodInstantiations = function.SupportedGenericInstantiations.ToArray();
-        var recordInstantiations = record.SupportedGenericInstantiations.OrderBy(
-            static instantiation => string.Join("|", instantiation.TypeArguments.Select(static argument => argument.CppTypeName)),
-            StringComparer.Ordinal).ToArray();
+        var recordInstantiations = GetCanonicalManagedGenericInstantiations(compilation, record);
 
-        if (methodInstantiations.Length == 0 || recordInstantiations.Length == 0)
+        if (methodInstantiations.Length == 0 || recordInstantiations.Count == 0)
         {
             writer.Write($$"""
                 public {{returnTypeName}} {{function.ManagedName}}<{{methodTypeParams}}>({{parameterList}})
