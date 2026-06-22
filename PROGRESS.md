@@ -126,6 +126,11 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **Rbfx.Application ImGui text now uses pooled UTF-8 buffers**:
+  - Replaced per-frame ImGui label byte-array allocations with reusable `ArrayPool<byte>` backed buffers that are returned during application disposal.
+  - Formatted elapsed time, rotation, frame rate, event count, and note length directly into UTF-8 with `Utf8Formatter.TryFormat`; arbitrary status/note strings still use span-based UTF-8 encoding into the same pooled buffers.
+  - Verification: `cmake --build --preset Debug` and `ctest --preset Debug` pass.
+
 - **Redundant public overloads for nullable unexpressible defaults are pruned**:
   - Renderer convenience-overload generation now skips public overloads that are equivalent to the full C# signature with nullable `= default` optional parameters, avoiding duplicate surfaces such as `ImGui.Button(label)` beside `ImGui.Button(label, size = default)`.
   - Useful overloads are still preserved when they restore an expressible default before a later unexpressible default, such as alternating-default shapes where the full signature must suppress that default.

@@ -8,6 +8,8 @@ using Urho3D.Math;
 using Urho3D.Resource;
 using Urho3D;
 using ImGuiNet;
+using System.Buffers;
+using System.Buffers.Text;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -209,15 +211,17 @@ partial class DemoApplication : Application
     private string _fpsText = "--";
     private string _statusText = "Initializing";
     private string _noteText = "Bindings online";
+    private float _framesPerSecond;
+    private bool _hasFrameRate;
     private int _eventCount;
     private bool _showImGuiDetails = true;
-    private byte[] _imguiElapsedLabel = Array.Empty<byte>();
-    private byte[] _imguiRotationLabel = Array.Empty<byte>();
-    private byte[] _imguiFpsLabel = Array.Empty<byte>();
-    private byte[] _imguiStatusLabel = Array.Empty<byte>();
-    private byte[] _imguiNoteValue = Array.Empty<byte>();
-    private byte[] _imguiToggleLabel = Array.Empty<byte>();
-    private byte[] _imguiDetailsText = Array.Empty<byte>();
+    private readonly PooledUtf8Text _imguiElapsedLabel = new();
+    private readonly PooledUtf8Text _imguiRotationLabel = new();
+    private readonly PooledUtf8Text _imguiFpsLabel = new();
+    private readonly PooledUtf8Text _imguiStatusLabel = new();
+    private readonly PooledUtf8Text _imguiNoteValue = new();
+    private readonly PooledUtf8Text _imguiToggleLabel = new();
+    private readonly PooledUtf8Text _imguiDetailsText = new();
 
     public DemoApplication(Context context) : base(context)
     {
@@ -234,6 +238,13 @@ partial class DemoApplication : Application
             _viewport?.Dispose();
             _scene?.Dispose();
             _documentSource.Dispose();
+            _imguiElapsedLabel.Dispose();
+            _imguiRotationLabel.Dispose();
+            _imguiFpsLabel.Dispose();
+            _imguiStatusLabel.Dispose();
+            _imguiNoteValue.Dispose();
+            _imguiToggleLabel.Dispose();
+            _imguiDetailsText.Dispose();
         }
 
         base.Dispose(disposing);
@@ -346,8 +357,11 @@ partial class DemoApplication : Application
 
         UpdateModelValue(ref _elapsedText, $"{_elapsedTime.ToString("0.0")} s", "elapsed");
         UpdateModelValue(ref _rotationText, $"{_cubeRotation.ToString("0")} deg", "rotation");
-        UpdateModelValue(ref _fpsText, timeStep > 0.0f
-            ? $"{(1.0f / timeStep).ToString("0")} fps"
+        _hasFrameRate = timeStep > 0.0f;
+        _framesPerSecond = _hasFrameRate ? 1.0f / timeStep : 0.0f;
+
+        UpdateModelValue(ref _fpsText, _hasFrameRate
+            ? $"{_framesPerSecond.ToString("0")} fps"
             : "--",
             "fps");
 
@@ -387,13 +401,13 @@ partial class DemoApplication : Application
                 ImGui.PopTextWrapPos();
             }
 
-            ImGui.TextUnformatted(_imguiElapsedLabel);
-            ImGui.TextUnformatted(_imguiRotationLabel);
-            ImGui.TextUnformatted(_imguiFpsLabel);
+            ImGui.TextUnformatted(_imguiElapsedLabel.Span);
+            ImGui.TextUnformatted(_imguiRotationLabel.Span);
+            ImGui.TextUnformatted(_imguiFpsLabel.Span);
             ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.56f, 0.78f, 0.92f, 1.0f));
             try
             {
-                ImGui.TextUnformatted(_imguiStatusLabel);
+                ImGui.TextUnformatted(_imguiStatusLabel.Span);
             }
             finally
             {
@@ -404,14 +418,14 @@ partial class DemoApplication : Application
             ImGui.PushTextWrapPos();
             try
             {
-                ImGui.TextUnformatted(_imguiNoteValue);
+                ImGui.TextUnformatted(_imguiNoteValue.Span);
             }
             finally
             {
                 ImGui.PopTextWrapPos();
             }
 
-            if (ImGui.Button(_imguiToggleLabel))
+            if (ImGui.Button(_imguiToggleLabel.Span))
             {
                 _showImGuiDetails = !_showImGuiDetails;
                 UpdateImGuiTextState();
@@ -435,7 +449,7 @@ partial class DemoApplication : Application
                 ImGui.PushTextWrapPos();
                 try
                 {
-                    ImGui.TextUnformatted(_imguiDetailsText);
+                    ImGui.TextUnformatted(_imguiDetailsText.Span);
                 }
                 finally
                 {
@@ -451,23 +465,84 @@ partial class DemoApplication : Application
 
     private void UpdateImGuiTextState()
     {
-        _imguiElapsedLabel = Utf8($"Elapsed: {_elapsedText}");
-        _imguiRotationLabel = Utf8($"Rotation: {_rotationText}");
-        _imguiFpsLabel = Utf8($"Frame rate: {_fpsText}");
-        _imguiStatusLabel = Utf8($"Status: {_statusText}");
-        _imguiNoteValue = string.IsNullOrWhiteSpace(_noteText)
-            ? "(empty)"u8.ToArray()
-            : Utf8(_noteText);
-        _imguiToggleLabel = _showImGuiDetails
-            ? "Hide extra ImGui details"u8.ToArray()
-            : "Show extra ImGui details"u8.ToArray();
-        _imguiDetailsText = Utf8(
-            $"UI hovered: {(_ui != null && _ui.IsHovered() ? "yes" : "no")} | Event callbacks: {_eventCount.ToString(CultureInfo.InvariantCulture)} | Note length: {_noteText.Length.ToString(CultureInfo.InvariantCulture)}");
-    }
+        {
+            var writer = _imguiElapsedLabel.BeginWrite();
+            writer.Append("Elapsed: "u8);
+            if (!Utf8Formatter.TryFormat(_elapsedTime, writer.Reserve(32), out var written, new StandardFormat('F', 1)))
+            {
+                throw new InvalidOperationException("Failed to format elapsed time as UTF-8.");
+            }
 
-    private static byte[] Utf8(string value)
-    {
-        return Encoding.UTF8.GetBytes(value);
+            writer.Advance(written);
+            writer.Append(" s"u8);
+        }
+
+        {
+            var writer = _imguiRotationLabel.BeginWrite();
+            writer.Append("Rotation: "u8);
+            if (!Utf8Formatter.TryFormat(_cubeRotation, writer.Reserve(32), out var written, new StandardFormat('F', 0)))
+            {
+                throw new InvalidOperationException("Failed to format cube rotation as UTF-8.");
+            }
+
+            writer.Advance(written);
+            writer.Append(" deg"u8);
+        }
+
+        {
+            var writer = _imguiFpsLabel.BeginWrite();
+            writer.Append("Frame rate: "u8);
+            if (_hasFrameRate)
+            {
+                if (!Utf8Formatter.TryFormat(_framesPerSecond, writer.Reserve(32), out var written, new StandardFormat('F', 0)))
+                {
+                    throw new InvalidOperationException("Failed to format frame rate as UTF-8.");
+                }
+
+                writer.Advance(written);
+                writer.Append(" fps"u8);
+            }
+            else
+            {
+                writer.Append("--"u8);
+            }
+        }
+
+        {
+            var writer = _imguiStatusLabel.BeginWrite();
+            writer.Append("Status: "u8);
+            writer.Append(_statusText);
+        }
+
+        {
+            var writer = _imguiNoteValue.BeginWrite();
+            writer.Append(string.IsNullOrWhiteSpace(_noteText) ? "(empty)" : _noteText);
+        }
+
+        {
+            var writer = _imguiToggleLabel.BeginWrite();
+            writer.Append(_showImGuiDetails ? "Hide extra ImGui details"u8 : "Show extra ImGui details"u8);
+        }
+
+        {
+            var writer = _imguiDetailsText.BeginWrite();
+            writer.Append("UI hovered: "u8);
+            writer.Append(_ui != null && _ui.IsHovered() ? "yes"u8 : "no"u8);
+            writer.Append(" | Event callbacks: "u8);
+            if (!Utf8Formatter.TryFormat(_eventCount, writer.Reserve(11), out var eventCountBytes))
+            {
+                throw new InvalidOperationException("Failed to format event count as UTF-8.");
+            }
+
+            writer.Advance(eventCountBytes);
+            writer.Append(" | Note length: "u8);
+            if (!Utf8Formatter.TryFormat(_noteText.Length, writer.Reserve(11), out var noteLengthBytes))
+            {
+                throw new InvalidOperationException("Failed to format note length as UTF-8.");
+            }
+
+            writer.Advance(noteLengthBytes);
+        }
     }
 
     private void BindRequired(Ea.String name, SharpCppCallback_BindFuncGetFunc getFunc)
@@ -552,6 +627,96 @@ partial class DemoApplication : Application
         _eventCount++;
         handle.DirtyVariable("note");
         handle.DirtyVariable("status");
+    }
+
+    private sealed class PooledUtf8Text : IDisposable
+    {
+        private byte[] _buffer = Array.Empty<byte>();
+        private int _length;
+
+        public ReadOnlySpan<byte> Span => _buffer.AsSpan(0, _length);
+
+        public Writer BeginWrite()
+        {
+            _length = 0;
+            return new Writer(this);
+        }
+
+        public void Dispose()
+        {
+            if (_buffer.Length == 0)
+            {
+                return;
+            }
+
+            ArrayPool<byte>.Shared.Return(_buffer, clearArray: true);
+            _buffer = Array.Empty<byte>();
+            _length = 0;
+        }
+
+        private Span<byte> Reserve(int start, int additionalLength)
+        {
+            var requiredLength = checked(start + additionalLength);
+            if (requiredLength <= _buffer.Length)
+            {
+                return _buffer.AsSpan(start, additionalLength);
+            }
+
+            var nextLength = Math.Max(requiredLength, _buffer.Length == 0 ? 64 : _buffer.Length * 2);
+            var nextBuffer = ArrayPool<byte>.Shared.Rent(nextLength);
+            _buffer.AsSpan(0, _length).CopyTo(nextBuffer);
+
+            if (_buffer.Length != 0)
+            {
+                ArrayPool<byte>.Shared.Return(_buffer, clearArray: true);
+            }
+
+            _buffer = nextBuffer;
+            return _buffer.AsSpan(start, additionalLength);
+        }
+
+        private void SetLength(int length)
+        {
+            _length = length;
+        }
+
+        public ref struct Writer
+        {
+            private readonly PooledUtf8Text _text;
+            private int _length;
+
+            public Writer(PooledUtf8Text text)
+            {
+                _text = text;
+                _length = 0;
+            }
+
+            public Span<byte> Reserve(int length)
+            {
+                return _text.Reserve(_length, length);
+            }
+
+            public void Advance(int length)
+            {
+                _length = checked(_length + length);
+                _text.SetLength(_length);
+            }
+
+            public void Append(ReadOnlySpan<byte> value)
+            {
+                var destination = Reserve(value.Length);
+                value.CopyTo(destination);
+                Advance(value.Length);
+            }
+
+            public void Append(string value)
+            {
+                var maxByteCount = Encoding.UTF8.GetMaxByteCount(value.Length);
+                var destination = Reserve(maxByteCount);
+                var written = Encoding.UTF8.GetBytes(value.AsSpan(), destination);
+                Advance(written);
+            }
+        }
     }
 }
 
