@@ -342,7 +342,7 @@ public sealed class BindingOutputRendererTests
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("public static void InvokeOptionalCallback(global::System.Action<int>? callback)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public static void InvokeOptionalCallback(global::System.Action<int>? callback = default)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("if (callback is not null)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("__PInvoke.InvokeOptionalCallback(callback);", managedOutput, StringComparison.Ordinal);
         Assert.Contains("if (callback is null)", managedOutput, StringComparison.Ordinal);

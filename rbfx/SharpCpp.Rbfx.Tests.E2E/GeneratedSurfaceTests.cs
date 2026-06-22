@@ -62,8 +62,10 @@ public sealed class GeneratedSurfaceTests
         Assert.Contains("public static partial class ImGui", content, StringComparison.Ordinal);
         Assert.Contains("public enum ImGuiCond", content, StringComparison.Ordinal);
         Assert.Contains("public static void SetNextWindowPos(in global::Urho3D.Math.Vector2 pos, ImGuiCond cond = 0)", content, StringComparison.Ordinal);
+        Assert.Contains("public static void SetNextWindowPos(in global::Urho3D.Math.Vector2 pos, ImGuiCond cond, in global::Urho3D.Math.Vector2? pivot = default)", content, StringComparison.Ordinal);
         Assert.Contains("public static void PushTextWrapPos", content, StringComparison.Ordinal);
         Assert.Contains("public static bool Button(global::System.ReadOnlySpan<byte> label)", content, StringComparison.Ordinal);
+        Assert.Contains("public static bool Button(global::System.ReadOnlySpan<byte> label, in global::Urho3D.Math.Vector2? size = default)", content, StringComparison.Ordinal);
         Assert.Contains("public static bool BeginItemTooltip", content, StringComparison.Ordinal);
         Assert.Contains("public static void EndTooltip", content, StringComparison.Ordinal);
     }

@@ -4343,7 +4343,12 @@ public static partial class BindingOutputRenderer
 
     private static string RenderManagedPublicParameter(ParameterBinding parameter, BindingCompilation? compilation = null)
     {
-        return RenderManagedPublicParameterCore(parameter, forceRequired: false, suppressDefault: false, compilation);
+        return RenderManagedPublicParameterCore(parameter, forceRequired: false, suppressDefault: false, compilation, renderUnexpressibleDefault: false);
+    }
+
+    private static string RenderManagedPublicParameterWithUnexpressibleDefault(ParameterBinding parameter, BindingCompilation? compilation = null)
+    {
+        return RenderManagedPublicParameterCore(parameter, forceRequired: false, suppressDefault: false, compilation, renderUnexpressibleDefault: true);
     }
 
     private static string RenderManagedPublicParameterList(IEnumerable<ParameterBinding> parameters, BindingCompilation? compilation = null)
@@ -4369,9 +4374,11 @@ public static partial class BindingOutputRenderer
                     continue;
                 }
 
-                if (i == firstUnexpressibleDefault.index)
+                if (parameter.HasMetadata(MetadataKeys.UnexpressibleDefault))
                 {
-                    parts.Add(RenderManagedPublicParameterNoDefault(parameter, compilation));
+                    parts.Add(i < lastRequiredParameterIndex
+                        ? RenderManagedPublicParameterNoDefault(parameter, compilation)
+                        : RenderManagedPublicParameterWithUnexpressibleDefault(parameter, compilation));
                     continue;
                 }
             }
@@ -4492,12 +4499,12 @@ public static partial class BindingOutputRenderer
 
     private static string RenderManagedPublicParameterRequired(ParameterBinding parameter, BindingCompilation? compilation = null)
     {
-        return RenderManagedPublicParameterCore(parameter, forceRequired: true, suppressDefault: true, compilation);
+        return RenderManagedPublicParameterCore(parameter, forceRequired: true, suppressDefault: true, compilation, renderUnexpressibleDefault: false);
     }
 
     private static string RenderManagedPublicParameterNoDefault(ParameterBinding parameter, BindingCompilation? compilation = null)
     {
-        return RenderManagedPublicParameterCore(parameter, forceRequired: false, suppressDefault: true, compilation);
+        return RenderManagedPublicParameterCore(parameter, forceRequired: false, suppressDefault: true, compilation, renderUnexpressibleDefault: false);
     }
 
     private static bool CanRenderManagedPublicDefault(ParameterBinding parameter)
@@ -4508,7 +4515,12 @@ public static partial class BindingOutputRenderer
             parameter.ManagedDefaultValueExpression is { Length: > 0 };
     }
 
-    private static string RenderManagedPublicParameterCore(ParameterBinding parameter, bool forceRequired, bool suppressDefault, BindingCompilation? compilation = null)
+    private static string RenderManagedPublicParameterCore(
+        ParameterBinding parameter,
+        bool forceRequired,
+        bool suppressDefault,
+        BindingCompilation? compilation = null,
+        bool renderUnexpressibleDefault = false)
     {
         var modifier = parameter.Direction switch
         {
@@ -4534,6 +4546,10 @@ public static partial class BindingOutputRenderer
         {
             if (parameter.HasMetadata(MetadataKeys.UnexpressibleDefault))
             {
+                if (renderUnexpressibleDefault)
+                {
+                    signature += " = default";
+                }
             }
             else if (isNullableManagedReferenceDefault)
             {
