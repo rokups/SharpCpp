@@ -4090,7 +4090,7 @@ public sealed partial class ClangSharpHeaderParser
             return null;
         }
 
-        if (expression.Contains('{') || expression.Contains('}'))
+        if (expression.Contains('{') || expression.Contains('}') || expression.Contains('(') || expression.Contains(')'))
         {
             return null;
         }

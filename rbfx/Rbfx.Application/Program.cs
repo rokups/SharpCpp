@@ -367,7 +367,7 @@ partial class DemoApplication : Application
         ImGui.SetNextWindowPos(new Vector2(430.0f, 28.0f), ImGuiCond.Once);
         ImGui.SetNextWindowSize(new Vector2(380.0f, 248.0f), ImGuiCond.Once);
 
-        var renderBody = ImGui.Begin(_imguiWindowTitle);
+        var renderBody = ImGui.Begin(_imguiWindowTitle, out _);
 
         try
         {

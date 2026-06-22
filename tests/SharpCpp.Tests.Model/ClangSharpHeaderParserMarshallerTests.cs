@@ -727,6 +727,34 @@ public sealed class ClangSharpHeaderParserMarshallerTests
     }
 
     [Fact]
+    public void Parse_marks_constructor_expression_defaults_as_unexpressible()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "Vector3Alias");
+        var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+        var marshallerHeader = Path.Combine(fixtureDir, "SampleMarshallers.h");
+
+        var parser = new ClangSharpHeaderParser();
+        var clangArgs = new[] { "-x", "c++", "-std=c++20", $"-I{fixtureDir}" };
+        var compilation = parser.Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Urho3D",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: clangArgs,
+            MarshallerConfigurationFiles: [marshallerHeader],
+            EntryPointPrefix: "Test_"));
+
+        var actionBuilder = Assert.Single(compilation.Records.Where(static record => record.NativeName == "ActionBuilder"));
+        var moveBy = Assert.Single(actionBuilder.Members.OfType<FunctionBinding>().Where(static function => function.NativeName == "MoveBy"));
+        var offset = Assert.Single(moveBy.Parameters);
+        Assert.Null(offset.ManagedDefaultValueExpression);
+        Assert.True(offset.HasMetadata(MetadataKeys.UnexpressibleDefault));
+    }
+
+    [Fact]
     public void Bootstrap_pipeline_preserves_string_vector_alias_and_emits_alias_metadata()
     {
         var repoRoot = FindRepositoryRoot();
