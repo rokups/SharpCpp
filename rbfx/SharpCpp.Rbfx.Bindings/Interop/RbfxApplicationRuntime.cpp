@@ -337,36 +337,4 @@ SHARPCPP_EXPORT ret_t<void> sharpcpp_rbfx_Rml_ElementDocument_Show(arg_t<Rml::El
     }
 }
 
-SHARPCPP_EXPORT ret_t<void> sharpcpp_rbfx_ImGui_SetNextWindowPos(const Urho3D::Vector2* pos, arg_t<int> cond)
-{
-    if (pos != nullptr)
-    {
-        ImGui::SetNextWindowPos(ImVec2{pos->x_, pos->y_}, static_cast<ImGuiCond>(cond));
-    }
-}
-
-SHARPCPP_EXPORT ret_t<void> sharpcpp_rbfx_ImGui_PushTextWrapPos(arg_t<float> wrapLocalPosX)
-{
-    ImGui::PushTextWrapPos(wrapLocalPosX);
-}
-
-SHARPCPP_EXPORT ret_t<void> sharpcpp_rbfx_ImGui_PopTextWrapPos()
-{
-    ImGui::PopTextWrapPos();
-}
-
-SHARPCPP_EXPORT ret_t<bool> sharpcpp_rbfx_ImGui_Button(const char* label)
-{
-    return ImGui::Button(label != nullptr ? label : "");
-}
-
-SHARPCPP_EXPORT ret_t<bool> sharpcpp_rbfx_ImGui_BeginItemTooltip()
-{
-    return ImGui::BeginItemTooltip();
-}
-
-SHARPCPP_EXPORT ret_t<void> sharpcpp_rbfx_ImGui_EndTooltip()
-{
-    ImGui::EndTooltip();
-}
 }

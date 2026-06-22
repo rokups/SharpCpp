@@ -215,6 +215,36 @@ public sealed class RbfxSubmoduleSurfacePassTests
         Assert.False(begin.IsSilentlyExcluded());
     }
 
+    [Theory]
+    [InlineData("SetNextWindowPos")]
+    [InlineData("PushTextWrapPos")]
+    [InlineData("PopTextWrapPos")]
+    [InlineData("Button")]
+    [InlineData("BeginItemTooltip")]
+    [InlineData("EndTooltip")]
+    public void ImGui_pass_restores_application_free_functions_after_prior_silent_exclusion(string nativeName)
+    {
+        var compilation = CreateCompilation();
+        var function = new FunctionBinding(
+            $"function:ImGui::{nativeName}",
+            nativeName,
+            nativeName,
+            nativeName == "Button" || nativeName == "BeginItemTooltip" ? BindingType.Boolean : BindingType.Void,
+            cppQualifiedName: $"ImGui::{nativeName}")
+        {
+            HeaderIncludePath = "ImGui/imgui.h"
+        };
+        function.SetSilentExclusionReason("outside default rbfx surface");
+        compilation.Members.Add(function);
+
+        RbfxImGuiSurfacePass.Apply(compilation);
+
+        Assert.Equal("ImGuiNet", function.ManagedNamespace);
+        Assert.Equal("ImGui", function.ManagedClassName);
+        Assert.False(function.IsIgnored());
+        Assert.False(function.IsSilentlyExcluded());
+    }
+
     [Fact]
     public void ImGui_pass_keeps_internal_free_functions_silently_excluded()
     {

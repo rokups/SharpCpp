@@ -61,6 +61,24 @@ public sealed class GeneratedSurfaceTests
         Assert.Contains("namespace ImGuiNet", content, StringComparison.Ordinal);
         Assert.Contains("public static partial class ImGui", content, StringComparison.Ordinal);
         Assert.Contains("public enum ImGuiCond", content, StringComparison.Ordinal);
+        Assert.Contains("public static void SetNextWindowPos", content, StringComparison.Ordinal);
+        Assert.Contains("public static void PushTextWrapPos", content, StringComparison.Ordinal);
+        Assert.Contains("public static bool Button", content, StringComparison.Ordinal);
+        Assert.Contains("public static bool BeginItemTooltip", content, StringComparison.Ordinal);
+        Assert.Contains("public static void EndTooltip", content, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Variant_helpers_expose_v1_style_type_mapping()
+    {
+        Assert.Equal(global::Urho3D.Core.VariantType.VarInt, global::Urho3D.Core.Variant.GetVariantType(typeof(int)));
+        Assert.Equal(global::Urho3D.Core.VariantType.VarBool, global::Urho3D.Core.Variant.GetVariantType(typeof(bool)));
+        Assert.Equal(global::Urho3D.Core.VariantType.VarString, global::Urho3D.Core.Variant.GetVariantType(typeof(string)));
+        Assert.Equal(global::Urho3D.Core.VariantType.VarVector3, global::Urho3D.Core.Variant.GetVariantType(typeof(global::Urho3D.Math.Vector3)));
+        Assert.Equal(global::Urho3D.Core.VariantType.VarResourceref, global::Urho3D.Core.Variant.GetVariantType(typeof(global::Urho3D.Core.ResourceRef)));
+        Assert.Equal(global::Urho3D.Core.VariantType.VarVariantvector, global::Urho3D.Core.Variant.GetVariantType(typeof(global::Ea.Vector<global::Urho3D.Core.Variant>)));
+        Assert.Equal(global::Urho3D.Core.VariantType.VarStringvariantmap, global::Urho3D.Core.Variant.GetVariantType(typeof(global::Ea.UnorderedMap<global::Ea.String, global::Urho3D.Core.Variant>)));
+        Assert.Equal(global::Urho3D.Core.VariantType.VarNone, global::Urho3D.Core.Variant.GetVariantType(typeof(GeneratedSurfaceTests)));
     }
 
     private static string GetGeneratedDir()

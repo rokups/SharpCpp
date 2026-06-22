@@ -25,11 +25,17 @@ public static class RbfxImGuiSurfacePass
     private static readonly HashSet<string> PublicFreeFunctionNames = new(StringComparer.Ordinal)
     {
         "Begin",
+        "BeginItemTooltip",
+        "Button",
         "End",
+        "EndTooltip",
         "PopStyleColor",
+        "PopTextWrapPos",
         "PushStyleColor",
+        "PushTextWrapPos",
         "Separator",
         "SeparatorText",
+        "SetNextWindowPos",
         "SetNextWindowSize",
         "TextUnformatted"
     };

@@ -126,6 +126,13 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **rbfx manual helper port is broader and ImGui helpers now prefer generated APIs**:
+  - Expanded the additive `Variant` partial to cover the v1-style implicit conversions and `GetVariantType(Type)` mappings that are supported by the current generated v3 surface, including primitives, math types, resource refs, variant vectors/maps, string vectors/maps, `VariantCurve`, and `IntPtr`/`ScriptObject`.
+  - Left old v1 helper surfaces out when v3 cannot safely express them yet, such as `byte[] -> Variant` without public vector construction and old callback/native-shim helpers for `WorkQueue` / `ActionBuilder`.
+  - Expanded `RbfxImGuiSurfacePass` so app-used ImGui functions are generated directly (`SetNextWindowPos`, text-wrap helpers, `Button`, tooltip helpers), removed the duplicate native ImGui helper exports, and kept only pure C# overload sugar for generated methods with awkward native defaults.
+  - Added regression coverage for the generated ImGui functions and the v1-style `Variant.GetVariantType` mapping.
+  - Verification: `cmake --build --preset Debug --target sharpcpp-tests-model`, `git diff --check`, `cmake --build --preset Debug`, and `ctest --preset Debug` all pass.
+
 - **rbfx handwritten replacement suppression was removed; generated wrappers are canonical**:
   - Deleted `RbfxHandwrittenManagedTypeSuppressionPass` and removed it from the rbfx generator pipeline, so handwritten rbfx code can no longer hide generated types or members.
   - Removed handwritten managed replacements for generated rbfx members such as `Application(Context)`, `Node.CreateComponent(StringHash, ...)`, `Scene(Context)`, `Viewport(Context)`, `Renderer.SetViewport`, `StaticModel.SetModel`, RmlUI document/font/model-handle APIs, and the handwritten `Intersection` enum.
