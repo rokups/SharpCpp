@@ -6,6 +6,8 @@
 #define E2E_UNSUPPORTED_DEFAULT_OFFSET 4
 #define E2E_UNSUPPORTED_DEFAULT_DELTA 6
 #define E2E_UNSUPPORTED_DEFAULT_RHS 7
+#define E2E_UNSUPPORTED_DEFAULT_ALTERNATING_OFFSET 8
+#define E2E_UNSUPPORTED_DEFAULT_ALTERNATING_DELTA 6
 
 /// Returns 0 when x is less than the threshold (defaults to 42.0f).
 inline int check_threshold_single_default(float x, float threshold = E2E_UNSUPPORTED_DEFAULT_SINGLE)
@@ -29,6 +31,17 @@ inline int check_plain_no_defaults(int value)
 inline int check_mixed_defaults(int seed, int factor = 2, int offset = E2E_UNSUPPORTED_DEFAULT_OFFSET, int tail = 5)
 {
     return (seed * 1000) + (factor * 100) + (offset * 10) + tail;
+}
+
+inline int check_alternating_defaults(
+    int seed,
+    int factor = 2,
+    int offset = E2E_UNSUPPORTED_DEFAULT_ALTERNATING_OFFSET,
+    int middle = 7,
+    int delta = E2E_UNSUPPORTED_DEFAULT_ALTERNATING_DELTA,
+    int tail = 5)
+{
+    return (seed * 100000) + (factor * 10000) + (offset * 1000) + (middle * 100) + (delta * 10) + tail;
 }
 
 struct unsupported_default_counter

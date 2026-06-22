@@ -389,6 +389,10 @@ public sealed class BindingOutputRendererTests
 
         Assert.Contains("public static void RegisterTimestamp(global::System.Func<uint>? getTimestamp = default)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("[MarshalUsing(typeof(global::SharpCpp.Sample.SampleBindings.__CallbackMarshaller_uint_none))] global::System.Func<uint>? getTimestamp", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("if (getTimestamp is not null)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke.RegisterTimestamp(getTimestamp);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("if (getTimestamp is null)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke.RegisterTimestamp__Args0();", managedOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("public static void RegisterTimestamp(global::System.Func<uint> getTimestamp = default)", managedOutput, StringComparison.Ordinal);
     }
 

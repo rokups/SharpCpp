@@ -285,7 +285,7 @@ public static partial class BindingOutputRenderer
                     writer.Write(RenderManagedWrapperMethod(compilation, function));
                     freeFunctionDeclarations.Add(RenderManagedImportDeclaration(compilation, function));
 
-                    if (HasUnexpressibleDefaultParams(function) || HasUndefaultableParams(function))
+                    if (HasNativeDefaultDispatchParams(function) || HasUndefaultableParams(function))
                         freeFunctionDeclarations.Add(RenderUnexpressibleDefaultFreeFunctionImport(compilation, function));
                 }
 
@@ -930,7 +930,7 @@ public static partial class BindingOutputRenderer
             writer.Write(statement);
         }
 
-        if (HasUnexpressibleDefaultParams(function))
+        if (HasNativeDefaultDispatchParams(function))
         {
             WriteUnexpressibleDefaultCascade(compilation, writer, function, importMethodName, []);
         }
@@ -2072,7 +2072,7 @@ public static partial class BindingOutputRenderer
             {
                 writer.Write(RenderManagedConstructor(compilation, record, constructor, requiresDirector));
                 pinvokeDeclarations.Add(RenderManagedConstructorImportDeclaration(compilation, constructor));
-                if (HasUnexpressibleDefaultParams(constructor) || HasUndefaultableParams(constructor))
+                if (HasNativeDefaultDispatchParams(constructor) || HasUndefaultableParams(constructor))
                 {
                     pinvokeDeclarations.Add(RenderManagedUnexpressibleDefaultConstructorImports(compilation, constructor));
                 }
@@ -2110,7 +2110,7 @@ public static partial class BindingOutputRenderer
                 if (isDirectorVirtual)
                 {
                     pinvokeDeclarations.Add(RenderManagedCallbaseImportDeclaration(compilation, method, record.ManagedName));
-                    if (HasUnexpressibleDefaultParams(method) || HasUndefaultableParams(method))
+                    if (HasNativeDefaultDispatchParams(method) || HasUndefaultableParams(method))
                     {
                         pinvokeDeclarations.Add(RenderManagedUnexpressibleDefaultInstanceImports(compilation, method, record.ManagedName, useCallbase: true));
                     }
@@ -2120,7 +2120,7 @@ public static partial class BindingOutputRenderer
                     if (!ShouldRenderPureVirtualManagedStub(method))
                     {
                         pinvokeDeclarations.Add(RenderManagedInstanceImportDeclaration(compilation, method, record.ManagedName));
-                        if (HasUnexpressibleDefaultParams(method) || HasUndefaultableParams(method))
+                        if (HasNativeDefaultDispatchParams(method) || HasUndefaultableParams(method))
                         {
                             pinvokeDeclarations.Add(RenderManagedUnexpressibleDefaultInstanceImports(compilation, method, record.ManagedName));
                         }
@@ -2141,7 +2141,7 @@ public static partial class BindingOutputRenderer
             {
                 writer.Write(RenderManagedStaticMethod(compilation, method));
                 pinvokeDeclarations.Add(RenderManagedStaticImportDeclaration(compilation, method));
-                if (HasUnexpressibleDefaultParams(method) || HasUndefaultableParams(method))
+                if (HasNativeDefaultDispatchParams(method) || HasUndefaultableParams(method))
                 {
                     pinvokeDeclarations.Add(RenderManagedUnexpressibleDefaultStaticImports(compilation, method));
                 }
@@ -2378,7 +2378,7 @@ public static partial class BindingOutputRenderer
             {
             """);
 
-        if (HasUnexpressibleDefaultParams(function))
+        if (HasNativeDefaultDispatchParams(function))
         {
             WriteUnexpressibleDefaultCascade(compilation, writer, function, importMethodName, ["this"]);
         }
@@ -2682,9 +2682,9 @@ public static partial class BindingOutputRenderer
         var parameterList = RenderManagedPublicParameterList(function.Parameters, compilation);
         var invokeArguments = string.Join(", ", function.Parameters.Select(parameter => RenderManagedInvocationArgument(compilation, parameter)));
         var hasHandleParams = function.Parameters.Any(static parameter => parameter.Type.Kind == BindingTypeKind.Handle);
-        var hasUnexpressibleDefaults = HasUnexpressibleDefaultParams(function);
+        var hasNativeDefaultDispatch = HasNativeDefaultDispatchParams(function);
 
-        if (hasHandleParams || hasUnexpressibleDefaults)
+        if (hasHandleParams || hasNativeDefaultDispatch)
         {
             var factoryName = $"__CreateHandle_{importMethodName}";
 
@@ -2699,7 +2699,7 @@ public static partial class BindingOutputRenderer
                 {
                 """);
 
-            if (hasUnexpressibleDefaults)
+            if (hasNativeDefaultDispatch)
             {
                 WriteUnexpressibleDefaultConstructorCascade(writer, function, importMethodName);
             }
@@ -3043,7 +3043,7 @@ public static partial class BindingOutputRenderer
             {
             """);
 
-        if (HasUnexpressibleDefaultParams(function))
+        if (HasNativeDefaultDispatchParams(function))
         {
             WriteUnexpressibleDefaultCascade(compilation, writer, function, importMethodName, []);
         }
@@ -3643,7 +3643,7 @@ public static partial class BindingOutputRenderer
                         """);
                 }
 
-                if (HasUnexpressibleDefaultParams(method) || HasUndefaultableParams(method))
+                if (HasNativeDefaultDispatchParams(method) || HasUndefaultableParams(method))
                 {
                     writer.WriteLine();
                     writer.Write(RenderNativeUnexpressibleDefaultCallbase(record, method));
@@ -3759,7 +3759,7 @@ public static partial class BindingOutputRenderer
                 }
                 """);
 
-            if (HasUnexpressibleDefaultParams(function) || HasUndefaultableParams(function))
+            if (HasNativeDefaultDispatchParams(function) || HasUndefaultableParams(function))
             {
                 writer.WriteLine();
                 writer.Write(RenderNativeUnexpressibleDefaultFreeFunction(function));
@@ -3800,7 +3800,7 @@ public static partial class BindingOutputRenderer
                 """);
             }
 
-            if (HasUnexpressibleDefaultParams(method) || HasUndefaultableParams(method))
+            if (HasNativeDefaultDispatchParams(method) || HasUndefaultableParams(method))
             {
                 writer.WriteLine();
                 writer.Write(RenderNativeUnexpressibleDefaultInstanceMethod(method));
@@ -3839,7 +3839,7 @@ public static partial class BindingOutputRenderer
                 }
                 """);
 
-            if (HasUnexpressibleDefaultParams(method) || HasUndefaultableParams(method))
+            if (HasNativeDefaultDispatchParams(method) || HasUndefaultableParams(method))
             {
                 writer.WriteLine();
                 writer.Write(RenderNativeUnexpressibleDefaultStaticMethod(method));
@@ -3863,7 +3863,7 @@ public static partial class BindingOutputRenderer
                 }
                 """);
 
-            if (HasUnexpressibleDefaultParams(constructor) || HasUndefaultableParams(constructor))
+            if (HasNativeDefaultDispatchParams(constructor) || HasUndefaultableParams(constructor))
             {
                 writer.WriteLine();
                 writer.Write(RenderNativeUnexpressibleDefaultConstructor(constructor, owningRecord is not null && owningRecord.RequiresDirector(compilation)));
@@ -4405,10 +4405,10 @@ public static partial class BindingOutputRenderer
         string? returnTypeName,
         bool isConstructor)
     {
-        foreach (var keepCount in GetVariantParameterIndices(function).Where(keepCount => keepCount < function.Parameters.Count))
+        foreach (var keepCount in GetUnexpressibleDefaultParameterIndices(function).Where(keepCount => keepCount < function.Parameters.Count))
         {
             var variantParams = function.Parameters.Take(keepCount).ToArray();
-            var parameterList = RenderManagedPublicParameterList(variantParams, compilation);
+            var parameterList = RenderManagedUnexpressibleDefaultOverloadParameterList(function, keepCount, compilation);
             var forwardedArgs = string.Join(
                 ", ",
                 variantParams.Select(static parameter => parameter.ManagedName)
@@ -4460,6 +4460,31 @@ public static partial class BindingOutputRenderer
                     """);
             }
         }
+    }
+
+    private static string RenderManagedUnexpressibleDefaultOverloadParameterList(
+        FunctionBinding function,
+        int keepCount,
+        BindingCompilation? compilation = null)
+    {
+        var previousUnexpressibleDefaultIndex = GetUnexpressibleDefaultParameterIndices(function)
+            .Where(index => index < keepCount)
+            .DefaultIfEmpty(-1)
+            .Max();
+        var suppressDefaultsThroughIndex = previousUnexpressibleDefaultIndex >= 0
+            ? previousUnexpressibleDefaultIndex
+            : keepCount - 1;
+
+        var parts = new List<string>(keepCount);
+        for (var i = 0; i < keepCount; i++)
+        {
+            var parameter = function.Parameters[i];
+            parts.Add(i <= suppressDefaultsThroughIndex
+                ? RenderManagedPublicParameterNoDefault(parameter, compilation)
+                : RenderManagedPublicParameter(parameter, compilation));
+        }
+
+        return string.Join(", ", parts);
     }
 
     private static string GetManagedOmittedDefaultArgument(ParameterBinding parameter, BindingCompilation? compilation = null)
@@ -5551,6 +5576,17 @@ public static partial class BindingOutputRenderer
         return function.Parameters.Any(static parameter => parameter.HasMetadata(MetadataKeys.UnexpressibleDefault));
     }
 
+    private static bool HasNativeDefaultDispatchParams(FunctionBinding function)
+    {
+        return function.Parameters.Any(IsNativeDefaultDispatchParameter);
+    }
+
+    private static bool IsNativeDefaultDispatchParameter(ParameterBinding parameter)
+    {
+        return parameter.HasMetadata(MetadataKeys.UnexpressibleDefault) ||
+            IsNullableManagedReferenceDefaultParameter(parameter);
+    }
+
     private static bool HasUndefaultableParams(FunctionBinding function)
     {
         return function.Parameters.Any(static parameter => parameter.HasMetadata(MetadataKeys.UndefaultableParam));
@@ -5583,9 +5619,23 @@ public static partial class BindingOutputRenderer
         return indices;
     }
 
+    private static IReadOnlyList<int> GetNativeDefaultDispatchParameterIndices(FunctionBinding function)
+    {
+        var indices = new List<int>();
+        for (var i = 0; i < function.Parameters.Count; i++)
+        {
+            if (IsNativeDefaultDispatchParameter(function.Parameters[i]))
+            {
+                indices.Add(i);
+            }
+        }
+
+        return indices;
+    }
+
     private static IReadOnlyList<int> GetVariantParameterIndices(FunctionBinding function)
     {
-        var indices = new HashSet<int>(GetUnexpressibleDefaultParameterIndices(function));
+        var indices = new HashSet<int>(GetNativeDefaultDispatchParameterIndices(function));
         var firstUndefaultable = GetFirstUndefaultableParamIndex(function);
         if (firstUndefaultable >= 0)
         {
@@ -5914,6 +5964,14 @@ public static partial class BindingOutputRenderer
     private static bool IsManagedReferenceDefaultParameter(ParameterBinding parameter)
     {
         return parameter.Type.IsPointerType || parameter.Type.IsCallback;
+    }
+
+    private static bool IsNullableManagedReferenceDefaultParameter(ParameterBinding parameter)
+    {
+        return parameter.Direction == BindingParameterDirection.In &&
+            parameter.AbiKind == BindingParameterAbiKind.Value &&
+            parameter.ManagedDefaultValueExpression == "null" &&
+            IsManagedReferenceDefaultParameter(parameter);
     }
 
     private static string BuildUnexpressibleDefaultCondition(FunctionBinding function, IReadOnlyList<int> defaultIndices, int providedDefaultCount)
@@ -6320,7 +6378,7 @@ public static partial class BindingOutputRenderer
 
     private static void WriteUnexpressibleDefaultCascade(BindingCompilation compilation, CodeWriter writer, FunctionBinding function, string importMethodName, IReadOnlyList<string> leadingArguments)
     {
-        var defaultIndices = GetUnexpressibleDefaultParameterIndices(function);
+        var defaultIndices = GetNativeDefaultDispatchParameterIndices(function);
         var invocationPlan = BuildManagedInvocationPlan(compilation, function.Parameters);
 
         foreach (var statement in invocationPlan.PreCallStatements)
@@ -6404,7 +6462,7 @@ public static partial class BindingOutputRenderer
 
     private static void WriteUnexpressibleDefaultConstructorCascade(CodeWriter writer, FunctionBinding function, string importMethodName)
     {
-        var defaultIndices = GetUnexpressibleDefaultParameterIndices(function);
+        var defaultIndices = GetNativeDefaultDispatchParameterIndices(function);
         var invocationPlan = BuildManagedInvocationPlan(null!, function.Parameters);
 
         foreach (var statement in invocationPlan.PreCallStatements)
