@@ -193,6 +193,7 @@ endif()
 set_source_files_properties(${RBFX_GENERATED_CPP_FILES} PROPERTIES OBJECT_DEPENDS "${RBFX_GENERATED_STAMP}")
 add_library(SharpCppRbfx_Native SHARED
   ${RBFX_GENERATED_CPP_FILES}
+  "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Bindings/Interop/ManagedTypeInfoRegistry.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Bindings/Interop/RefCountedRuntime.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Bindings/Interop/RbfxApplicationRuntime.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Bindings/Rml/RmlDataModelRuntime.cpp")

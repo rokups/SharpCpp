@@ -126,6 +126,13 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **rbfx managed-object RTTI source generator was ported into v3 bindings**:
+  - Added `SharpCpp.Rbfx.SourceGenerator` with `ManagedObjectRttiGenerator`, updated for v3 namespaces (`Urho3D.Math.StringHash` and `SharpCpp.Rbfx.Bindings.Interop.ManagedTypeInfoRegistry`).
+  - Wired the source generator as an analyzer for rbfx bindings, rbfx E2E tests, and `Rbfx.Application`, so managed subclasses such as `DemoApplication : Application` receive generated RTTI overrides.
+  - Added the managed and native `ManagedTypeInfoRegistry` runtime bridge that owns process-local `Urho3D::TypeInfo` instances for generated managed object types.
+  - Added rbfx E2E coverage for a managed `Application` subclass returning its generated type hash/type info and satisfying base-type checks.
+  - Verification: `cmake --build --preset Debug --target sharpcpp-rbfx-managed`, `cmake --build --preset Debug --target sharpcpp-rbfx-application sharpcpp-rbfx-tests-e2e-managed`, focused rbfx E2E, full `cmake --build --preset Debug`, and `ctest --preset Debug` all pass.
+
 - **rbfx manual helper port is broader and ImGui helpers now prefer generated APIs**:
   - Expanded the additive `Variant` partial to cover the v1-style implicit conversions and `GetVariantType(Type)` mappings that are supported by the current generated v3 surface, including primitives, math types, resource refs, variant vectors/maps, string vectors/maps, `VariantCurve`, and `IntPtr`/`ScriptObject`.
   - Left old v1 helper surfaces out when v3 cannot safely express them yet, such as `byte[] -> Variant` without public vector construction and old callback/native-shim helpers for `WorkQueue` / `ActionBuilder`.

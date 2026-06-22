@@ -9,6 +9,9 @@
 
   <ItemGroup>
     <ProjectReference Include="../SharpCpp.Rbfx.Bindings/SharpCpp.Rbfx.Bindings.csproj" />
+    <ProjectReference Include="../SharpCpp.Rbfx.SourceGenerator/SharpCpp.Rbfx.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
     <Reference Include="Rbfx.UserCode.Bindings">
       <HintPath>$(OutputPath)Rbfx.UserCode.Bindings.dll</HintPath>
       <Private>true</Private>

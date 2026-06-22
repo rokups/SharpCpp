@@ -20,6 +20,7 @@
     <Project Path="rbfx/Rbfx.UserCode/Rbfx.UserCode.Generator/Rbfx.UserCode.Generator.csproj" />
     <Project Path="rbfx/SharpCpp.Rbfx.Bindings/SharpCpp.Rbfx.Bindings.csproj" />
     <Project Path="rbfx/SharpCpp.Rbfx.Generator/SharpCpp.Rbfx.Generator.csproj" />
+    <Project Path="rbfx/SharpCpp.Rbfx.SourceGenerator/SharpCpp.Rbfx.SourceGenerator.csproj" />
     <Project Path="rbfx/SharpCpp.Rbfx.Tests.E2E/SharpCpp.Rbfx.Tests.E2E.csproj" />
   </Folder>
 </Solution>
