@@ -53,12 +53,6 @@ public unsafe partial class DataModelConstructor
         return success;
     }
 
-    public DataModelHandle? GetModelHandle()
-    {
-        var handle = __RmlDataModelPInvoke.GetModelHandle(NativeObject.GetHandle(this));
-        return handle == 0 ? null : DataModelHandle.CreateManagedWrapper(handle, ownsHandle: true);
-    }
-
     private static void RootOrRelease(GCHandle handle, bool success)
     {
         if (!success)
@@ -173,10 +167,6 @@ internal static unsafe partial class __RmlDataModelPInvoke
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     [return: MarshalAs(UnmanagedType.I1)]
     internal static partial bool BindEventCallback(nint self, nint name, nint eventFunc, nint context);
-
-    [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rml_DataModelConstructor_GetModelHandle", StringMarshalling = StringMarshalling.Utf8)]
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static partial nint GetModelHandle(nint self);
 
     [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rml_DataModelHandle_IsVariableDirty", StringMarshalling = StringMarshalling.Utf8)]
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -126,6 +126,15 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **rbfx handwritten replacement suppression was removed; generated wrappers are canonical**:
+  - Deleted `RbfxHandwrittenManagedTypeSuppressionPass` and removed it from the rbfx generator pipeline, so handwritten rbfx code can no longer hide generated types or members.
+  - Removed handwritten managed replacements for generated rbfx members such as `Application(Context)`, `Node.CreateComponent(StringHash, ...)`, `Scene(Context)`, `Viewport(Context)`, `Renderer.SetViewport`, `StaticModel.SetModel`, RmlUI document/font/model-handle APIs, and the handwritten `Intersection` enum.
+  - Kept handwritten rbfx code additive only, including typed convenience helpers for resources, components, nodes, UI elements, event definitions, `Variant` / `Ea.String` conversions, and reflection metadata; updated `Rbfx.Application` to use the generated protected `Application.EngineParameters` map directly from its subclass.
+  - Fixed parser enum-value normalization so all-caps native enum constants such as `OUTSIDE` generate idiomatic managed names such as `Outside` instead of relying on a handwritten enum.
+  - Verified `Urho3D::Object::GetContext() const` is retained as generated `Object.GetContext()` with the generated native entry point `scrbfx_Urho3D_Object_GetContext_const_*`; the former conflict was the handwritten `Context` property colliding with generated field/property projection, not const-overload pruning of `GetContext()`.
+  - Updated `Rbfx.Application` to consume generated canonical APIs (`GetContext()`, `EngineParameters`, generated enum names, generated rbfx constructors/methods) plus additive helpers.
+  - Verification: `cmake --build --preset Debug`, explicit `cmake --build --preset Debug --target sharpcpp-tests-model`, generated rbfx grep for `Object.GetContext()`, `git diff --check`, and `ctest --preset Debug` all pass.
+
 - **rbfx `Context` default constructor now comes from generated bindings**:
   - Removed stale handwritten suppression for `Urho3D::Context::Context()` and deleted the handwritten managed constructor/import path, allowing the normal parser/render pipeline to emit `Core/SharpCpp.Rbfx.Context.g.cs` and `.g.cpp` constructor wrappers from `Context.h`.
   - Added generated-surface coverage that asserts `public Context()`, its P/Invoke call, and the native `MarshallerInvoker::construct<Urho3D::Context>()` thunk are emitted.

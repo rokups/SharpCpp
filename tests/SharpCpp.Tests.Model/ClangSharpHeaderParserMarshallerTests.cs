@@ -880,6 +880,29 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         Assert.Same(beta, compilation.FindRecordBySymbolId(beta.SymbolId));
     }
 
+    [Fact]
+    public void Parse_normalizes_all_caps_enum_values_to_managed_names()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "EnumNames");
+        var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+
+        var parser = new ClangSharpHeaderParser();
+        var compilation = parser.Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test.Namespace",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: ["-x", "c++", "-std=c++20", $"-I{fixtureDir}"],
+            MarshallerConfigurationFiles: Array.Empty<string>(),
+            EntryPointPrefix: "Test_"));
+
+        var enumBinding = Assert.Single(compilation.Enums, static @enum => @enum.NativeName == "Intersection");
+        Assert.Equal(["Outside", "Intersects", "Inside"], enumBinding.Values.Select(static value => value.ManagedName));
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

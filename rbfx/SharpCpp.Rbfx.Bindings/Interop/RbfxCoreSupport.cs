@@ -13,6 +13,9 @@ public partial class String
     {
         Assign(value);
     }
+
+    public static implicit operator String(string? value)
+        => new(value);
 }
 }
 
@@ -29,15 +32,6 @@ public partial class Context
 
 public abstract partial class Object
 {
-    public Context? Context
-    {
-        get
-        {
-            var handle = __RbfxCorePInvoke.ObjectGetContext(NativeObject.GetHandle(this));
-            return handle == 0 ? null : Context.CreateManagedWrapper(handle, ownsHandle: false);
-        }
-    }
-
     public T? GetSubsystem<T>()
         where T : Object, global::SharpCpp.Rbfx.Bindings.Interop.IStaticTypeInfo<T>
     {
@@ -59,8 +53,5 @@ internal static partial class __RbfxCorePInvoke
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static partial nint ObjectGetSubsystem(nint self, StringHash type);
 
-    [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_Object_GetContext", StringMarshalling = StringMarshalling.Utf8)]
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static partial nint ObjectGetContext(nint self);
 }
 }

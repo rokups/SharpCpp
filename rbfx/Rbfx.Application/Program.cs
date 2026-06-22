@@ -251,21 +251,22 @@ partial class DemoApplication : Application
 
     public override void Start()
     {
-        var input = this.Context!.GetSubsystem<Input>();
-        input.SetMouseMode(MouseMode.MMFREE);
+        var context = GetContext();
+        var input = context.GetSubsystem<Input>();
+        input.SetMouseMode(MouseMode.MmFree);
         input.SetMouseVisible(true);
 
-        _scene = new Scene(this.Context!);
+        _scene = new Scene(context);
         _scene.CreateComponent<Octree>();
 
         _camera = _scene.CreateChild("Camera");
-        _viewport = new Viewport(this.Context!)
+        _viewport = new Viewport(context)
         {
             Scene = _scene,
             Camera = _camera.CreateComponent<Camera>()
         };
 
-        var renderer = this.Context!.GetSubsystem<Renderer>();
+        var renderer = context.GetSubsystem<Renderer>();
         renderer.SetViewport(0, _viewport);
 
         renderer.SetDefaultZoneFogColor(new Color(0.5f, 0.5f, 0.7f));
@@ -275,7 +276,7 @@ partial class DemoApplication : Application
 
         _cube = _scene.CreateChild("Cube");
         var model = _cube.CreateComponent<StaticModel>();
-        var resourceCache = this.Context!.GetSubsystem<ResourceCache>();
+        var resourceCache = context.GetSubsystem<ResourceCache>();
         model.SetModel(resourceCache.GetResource<Model>("Models/Box.mdl"));
         model.SetMaterial(0, resourceCache.GetResource<Material>("Materials/Stone.xml"));
 
@@ -291,7 +292,7 @@ partial class DemoApplication : Application
 
     private void InitializeRmlUi()
     {
-        _ui = this.Context!.GetSubsystem<Urho3D.RmlUI.RmlUI>()
+        _ui = GetContext().GetSubsystem<Urho3D.RmlUI.RmlUI>()
             ?? throw new InvalidOperationException("Rbfx RmlUI subsystem is not available.");
 
         using var regularFont = new Ea.String("Fonts/NotoSans-Condensed.ttf");

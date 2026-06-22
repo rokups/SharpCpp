@@ -26,13 +26,6 @@ using System.Runtime.InteropServices;
 
 namespace Urho3D.Math
 {
-    public enum Intersection
-    {
-        Outside,
-        Intersects,
-        Inside
-    }
-
     [StructLayout(LayoutKind.Sequential)]
     public struct BoundingBox
     {

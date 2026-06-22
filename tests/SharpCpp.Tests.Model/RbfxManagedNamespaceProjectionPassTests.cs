@@ -69,47 +69,4 @@ public sealed class RbfxManagedNamespaceProjectionPassTests
         Assert.Contains(projection.Root.DescendantsAndSelf(), ns => ns.FullName == "Urho3D.Physics");
     }
 
-    [Fact]
-    public void Handwritten_type_suppression_uses_projected_managed_namespace()
-    {
-        var compilation = new BindingCompilation("SharpCpp.Rbfx.Bindings", "Urho3D", "Bindings", "Native", ["Urho3D/Urho3DAll.h"]);
-        var intersection = new EnumBinding("enum:Intersection", "Intersection", "Intersection", cppQualifiedName: "Urho3D::Intersection")
-        {
-            HeaderIncludePath = "Math/MathDefs.h",
-            ManagedNamespace = "Urho3D"
-        };
-        compilation.Members.Add(intersection);
-        RbfxManagedNamespaceProjectionPass.Apply(compilation);
-
-        var suppressed = RbfxHandwrittenManagedTypeSuppressionPass.Apply(compilation);
-
-        Assert.Equal(1, suppressed);
-        Assert.True(intersection.GetMetadata<bool>(MetadataKeys.SuppressEmission));
-    }
-
-    [Fact]
-    public void Handwritten_member_suppression_keeps_generated_context_constructor()
-    {
-        var compilation = new BindingCompilation("SharpCpp.Rbfx.Bindings", "Urho3D", "Bindings", "Native", ["Urho3D/Urho3DAll.h"]);
-        var context = new RecordBinding("record:Context", "Context", "Context", "Urho3D::Context");
-        var contextConstructor = new FunctionBinding("ctor:Context", "Context", "Context", context.HandleType, cppQualifiedName: "Urho3D::Context::Context")
-        {
-            IsConstructor = true
-        };
-        var getSubsystem = new FunctionBinding("method:Context:GetSubsystem", "GetSubsystem", "GetSubsystem", BindingType.CreateHandle("Urho3D::Object*", "Object", "record:Object"), cppQualifiedName: "Urho3D::Context::GetSubsystem")
-        {
-            IsConstMethod = true
-        };
-        getSubsystem.Parameters.Add(new ParameterBinding("parameter:GetSubsystem:type", "type", "type", BindingType.CreateConfigured("Urho3D::StringHash", "global::Urho3D.Math.StringHash"), cppTypeName: "Urho3D::StringHash"));
-        context.Members.Add(contextConstructor);
-        context.Members.Add(getSubsystem);
-        compilation.Members.Add(context);
-
-        var suppressed = RbfxHandwrittenManagedTypeSuppressionPass.Apply(compilation);
-
-        Assert.Equal(0, suppressed);
-        Assert.False(contextConstructor.IsIgnored(), contextConstructor.GetIgnoreReason());
-        Assert.False(contextConstructor.IsSilentlyExcluded());
-        Assert.False(getSubsystem.IsIgnored(), getSubsystem.GetIgnoreReason());
-    }
 }

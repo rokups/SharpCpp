@@ -2905,7 +2905,19 @@ public sealed partial class ClangSharpHeaderParser
         return string.Concat(
             nativeName
                 .Split('_', StringSplitOptions.RemoveEmptyEntries)
-                .Select(static part => char.ToUpperInvariant(part[0]) + part[1..]));
+                .Select(static part => char.ToUpperInvariant(part[0]) + NormalizePascalCaseSuffix(part)));
+    }
+
+    private static string NormalizePascalCaseSuffix(string part)
+    {
+        if (part.Length <= 1)
+        {
+            return string.Empty;
+        }
+
+        return part.All(static c => !char.IsLetter(c) || char.IsUpper(c))
+            ? part[1..].ToLowerInvariant()
+            : part[1..];
     }
 
     private static string EscapeManagedIdentifier(string name)

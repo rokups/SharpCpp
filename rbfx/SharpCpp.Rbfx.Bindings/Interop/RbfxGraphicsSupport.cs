@@ -27,20 +27,6 @@ public partial class Node
     {
         return CreateComponent(T.GetTypeStatic(), id) as T;
     }
-
-    public Component? CreateComponent(StringHash type, uint id = 0)
-    {
-        var handle = __RbfxGraphicsPInvoke.NodeCreateComponent(NativeObject.GetHandle(this), type, id);
-        return handle == 0 ? null : Component.CreateManagedWrapper(handle, ownsHandle: false);
-    }
-}
-
-public partial class Scene
-{
-    public Scene(Context context)
-        : this(__RbfxGraphicsPInvoke.SceneCreate(NativeObject.GetHandle(context)), ownsHandle: true)
-    {
-    }
 }
 }
 
@@ -48,37 +34,14 @@ namespace Urho3D.Graphics
 {
 public partial class Renderer
 {
-    public void SetViewport(uint index, Viewport? viewport)
-    {
-        __RbfxGraphicsPInvoke.RendererSetViewport(NativeObject.GetHandle(this), index, NativeObject.GetHandle(viewport));
-    }
-
     public void SetDefaultZoneFogColor(in Color color)
     {
         __RbfxGraphicsPInvoke.RendererSetDefaultZoneFogColor(NativeObject.GetHandle(this), color);
     }
 }
 
-public partial class StaticModel
-{
-    public void SetModel(Model? model)
-    {
-        __RbfxGraphicsPInvoke.StaticModelSetModel(NativeObject.GetHandle(this), NativeObject.GetHandle(model));
-    }
-
-    public bool SetMaterial(uint index, Material? material)
-    {
-        return __RbfxGraphicsPInvoke.StaticModelSetMaterial(NativeObject.GetHandle(this), index, NativeObject.GetHandle(material));
-    }
-}
-
 public partial class Viewport
 {
-    public Viewport(Context context)
-        : this(__RbfxGraphicsPInvoke.ViewportCreate(NativeObject.GetHandle(context)), ownsHandle: true)
-    {
-    }
-
     public global::Urho3D.Scene.Scene? Scene
     {
         get
@@ -101,47 +64,13 @@ public partial class Viewport
 }
 }
 
-namespace Urho3D.Resource
-{
-public partial class ResourceCache
-{
-    public T? GetResource<T>(string name, bool sendEventOnFailure = true)
-        where T : global::Urho3D.Core.Object, global::SharpCpp.Rbfx.Bindings.Interop.IStaticTypeInfo<T>
-    {
-        if (string.IsNullOrEmpty(name))
-        {
-            return null;
-        }
-
-        var handle = __RbfxGraphicsPInvoke.ResourceCacheGetResource(
-            NativeObject.GetHandle(this),
-            T.GetTypeStatic(),
-            name,
-            sendEventOnFailure);
-        return handle == 0 ? null : global::Urho3D.Core.Object.CreateManagedWrapper(handle, ownsHandle: false) as T;
-    }
-}
-}
-
 namespace Urho3D
 {
 internal static partial class __RbfxGraphicsPInvoke
 {
-    [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_Scene_Create", StringMarshalling = StringMarshalling.Utf8)]
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static partial nint SceneCreate(nint context);
-
     [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_Node_CreateChild", StringMarshalling = StringMarshalling.Utf8)]
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static partial nint NodeCreateChild(nint self, string name);
-
-    [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_Node_CreateComponent", StringMarshalling = StringMarshalling.Utf8)]
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static partial nint NodeCreateComponent(nint self, StringHash type, uint id);
-
-    [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_Viewport_Create", StringMarshalling = StringMarshalling.Utf8)]
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static partial nint ViewportCreate(nint context);
 
     [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_Viewport_GetScene", StringMarshalling = StringMarshalling.Utf8)]
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -159,25 +88,8 @@ internal static partial class __RbfxGraphicsPInvoke
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static partial void ViewportSetCamera(nint self, nint camera);
 
-    [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_ResourceCache_GetResource", StringMarshalling = StringMarshalling.Utf8)]
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static partial nint ResourceCacheGetResource(nint self, StringHash type, string name, [MarshalAs(UnmanagedType.I1)] bool sendEventOnFailure);
-
-    [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_Renderer_SetViewport", StringMarshalling = StringMarshalling.Utf8)]
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static partial void RendererSetViewport(nint self, uint index, nint viewport);
-
     [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_Renderer_SetDefaultZoneFogColor", StringMarshalling = StringMarshalling.Utf8)]
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static partial void RendererSetDefaultZoneFogColor(nint self, in Color color);
-
-    [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_StaticModel_SetModel", StringMarshalling = StringMarshalling.Utf8)]
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static partial void StaticModelSetModel(nint self, nint model);
-
-    [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_StaticModel_SetMaterial", StringMarshalling = StringMarshalling.Utf8)]
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    [return: MarshalAs(UnmanagedType.I1)]
-    internal static partial bool StaticModelSetMaterial(nint self, uint index, nint material);
 }
 }
