@@ -57,4 +57,14 @@ public sealed class StringBindingTests
 
         Assert.Equal("Elapsed: 1,2 s", value.ToString());
     }
+
+    [Fact]
+    public void Ea_string_converts_to_utf8_span()
+    {
+        using var value = new global::Ea.String("hello");
+
+        ReadOnlySpan<byte> span = value;
+
+        Assert.True(span.SequenceEqual("hello"u8));
+    }
 }

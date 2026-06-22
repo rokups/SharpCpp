@@ -398,13 +398,13 @@ partial class DemoApplication : Application
                 ImGui.PopTextWrapPos();
             }
 
-            ImGui.TextUnformatted(_imguiElapsedLabel.AsUtf8Span());
-            ImGui.TextUnformatted(_imguiRotationLabel.AsUtf8Span());
-            ImGui.TextUnformatted(_imguiFpsLabel.AsUtf8Span());
+            ImGui.TextUnformatted(_imguiElapsedLabel);
+            ImGui.TextUnformatted(_imguiRotationLabel);
+            ImGui.TextUnformatted(_imguiFpsLabel);
             ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.56f, 0.78f, 0.92f, 1.0f));
             try
             {
-                ImGui.TextUnformatted(_imguiStatusLabel.AsUtf8Span());
+                ImGui.TextUnformatted(_imguiStatusLabel);
             }
             finally
             {
@@ -415,14 +415,14 @@ partial class DemoApplication : Application
             ImGui.PushTextWrapPos();
             try
             {
-                ImGui.TextUnformatted(_imguiNoteValue.AsUtf8Span());
+                ImGui.TextUnformatted(_imguiNoteValue);
             }
             finally
             {
                 ImGui.PopTextWrapPos();
             }
 
-            if (ImGui.Button(_imguiToggleLabel.AsUtf8Span()))
+            if (ImGui.Button(_imguiToggleLabel))
             {
                 _showImGuiDetails = !_showImGuiDetails;
                 UpdateImGuiTextState();
@@ -446,7 +446,7 @@ partial class DemoApplication : Application
                 ImGui.PushTextWrapPos();
                 try
                 {
-                    ImGui.TextUnformatted(_imguiDetailsText.AsUtf8Span());
+                    ImGui.TextUnformatted(_imguiDetailsText);
                 }
                 finally
                 {
