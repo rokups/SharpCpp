@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
 
@@ -49,13 +50,13 @@ public ref struct StringUtf8FormatHandler
     private int _length;
 
     public StringUtf8FormatHandler(int literalLength, int formattedCount)
-        : this(literalLength, formattedCount, formatProvider: null)
+        : this(literalLength, formattedCount, CultureInfo.InvariantCulture)
     {
     }
 
     public StringUtf8FormatHandler(int literalLength, int formattedCount, IFormatProvider? formatProvider)
     {
-        _formatProvider = formatProvider;
+        _formatProvider = formatProvider ?? CultureInfo.InvariantCulture;
 
         var estimatedLength = Encoding.UTF8.GetMaxByteCount(literalLength) + formattedCount * 16;
         _buffer = ArrayPool<byte>.Shared.Rent(Math.Max(InitialCapacity, estimatedLength));

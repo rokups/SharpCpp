@@ -462,21 +462,21 @@ partial class DemoApplication : Application
 
     private void UpdateImGuiTextState()
     {
-        _imguiElapsedLabel.Format(CultureInfo.InvariantCulture, $"Elapsed: {_elapsedTime:F1} s");
-        _imguiRotationLabel.Format(CultureInfo.InvariantCulture, $"Rotation: {_cubeRotation:F0} deg");
+        _imguiElapsedLabel.Format($"Elapsed: {_elapsedTime:F1} s");
+        _imguiRotationLabel.Format($"Rotation: {_cubeRotation:F0} deg");
         if (_hasFrameRate)
         {
-            _imguiFpsLabel.Format(CultureInfo.InvariantCulture, $"Frame rate: {_framesPerSecond:F0} fps");
+            _imguiFpsLabel.Format($"Frame rate: {_framesPerSecond:F0} fps");
         }
         else
         {
-            _imguiFpsLabel.Format(CultureInfo.InvariantCulture, $"Frame rate: --");
+            _imguiFpsLabel.Format($"Frame rate: --");
         }
 
-        _imguiStatusLabel.Format(CultureInfo.InvariantCulture, $"Status: {_statusText}");
-        _imguiNoteValue.Format(CultureInfo.InvariantCulture, $"{(string.IsNullOrWhiteSpace(_noteText) ? "(empty)" : _noteText)}");
-        _imguiToggleLabel.Format(CultureInfo.InvariantCulture, $"{(_showImGuiDetails ? "Hide extra ImGui details" : "Show extra ImGui details")}");
-        _imguiDetailsText.Format(CultureInfo.InvariantCulture,
+        _imguiStatusLabel.Format($"Status: {_statusText}");
+        _imguiNoteValue.Format($"{(string.IsNullOrWhiteSpace(_noteText) ? "(empty)" : _noteText)}");
+        _imguiToggleLabel.Format($"{(_showImGuiDetails ? "Hide extra ImGui details" : "Show extra ImGui details")}");
+        _imguiDetailsText.Format(
             $"UI hovered: {(_ui != null && _ui.IsHovered() ? "yes" : "no")} | Event callbacks: {_eventCount} | Note length: {_noteText.Length}");
     }
 
