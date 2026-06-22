@@ -41,6 +41,12 @@ public abstract class StringBase : NativeObject, IReadOnlyList<char>, IEquatable
     protected virtual ulong GetCountCore() => throw new NotImplementedException();
 
     /// <summary>
+    /// When overridden in a derived class, gets a borrowed pointer to the native string's UTF-8 bytes.
+    /// </summary>
+    /// <returns>A borrowed pointer that remains valid until the native string is mutated.</returns>
+    protected virtual nint GetDataCore() => 0;
+
+    /// <summary>
     /// When overridden in a derived class, clears the native string contents.
     /// </summary>
     protected virtual void ClearCore() => throw new NotImplementedException();
@@ -87,6 +93,12 @@ public abstract class StringBase : NativeObject, IReadOnlyList<char>, IEquatable
     /// <returns>A new byte array containing the UTF-8 bytes of the native string.</returns>
     public byte[] ToUtf8Bytes()
     {
+        var span = AsUtf8Span();
+        return span.IsEmpty ? Array.Empty<byte>() : span.ToArray();
+    }
+
+    private byte[] CopyToUtf8Bytes()
+    {
         var byteCount = checked((int)GetCountCore());
         if (byteCount == 0) return Array.Empty<byte>();
         var buffer = new byte[byteCount];
@@ -96,10 +108,22 @@ public abstract class StringBase : NativeObject, IReadOnlyList<char>, IEquatable
     }
 
     /// <summary>
-    /// Returns a read-only span over a copy of the native string's UTF-8 bytes.
+    /// Returns a read-only span over the native string's UTF-8 bytes when the generated wrapper exposes native storage.
     /// </summary>
-    /// <returns>A read-only span of UTF-8 bytes copied from the native string.</returns>
-    public ReadOnlySpan<byte> AsUtf8Span() => ToUtf8Bytes();
+    /// <returns>A read-only span of UTF-8 bytes. The span remains valid until this string is mutated.</returns>
+    public unsafe ReadOnlySpan<byte> AsUtf8Span()
+    {
+        var byteCount = checked((int)GetCountCore());
+        if (byteCount == 0)
+        {
+            return ReadOnlySpan<byte>.Empty;
+        }
+
+        var data = GetDataCore();
+        return data == 0
+            ? CopyToUtf8Bytes()
+            : new ReadOnlySpan<byte>((void*)data, byteCount);
+    }
 
     /// <summary>
     /// Gets the character count of the string.

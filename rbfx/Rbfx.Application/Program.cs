@@ -7,12 +7,9 @@ using Urho3D.Input;
 using Urho3D.Math;
 using Urho3D.Resource;
 using Urho3D;
+using Ea;
 using ImGuiNet;
-using System.Buffers;
-using System.Buffers.Text;
 using System.Globalization;
-using System.IO;
-using System.Text;
 
 namespace SampleApplication;
 
@@ -215,13 +212,13 @@ partial class DemoApplication : Application
     private bool _hasFrameRate;
     private int _eventCount;
     private bool _showImGuiDetails = true;
-    private readonly PooledUtf8Text _imguiElapsedLabel = new();
-    private readonly PooledUtf8Text _imguiRotationLabel = new();
-    private readonly PooledUtf8Text _imguiFpsLabel = new();
-    private readonly PooledUtf8Text _imguiStatusLabel = new();
-    private readonly PooledUtf8Text _imguiNoteValue = new();
-    private readonly PooledUtf8Text _imguiToggleLabel = new();
-    private readonly PooledUtf8Text _imguiDetailsText = new();
+    private readonly Ea.String _imguiElapsedLabel = new(string.Empty);
+    private readonly Ea.String _imguiRotationLabel = new(string.Empty);
+    private readonly Ea.String _imguiFpsLabel = new(string.Empty);
+    private readonly Ea.String _imguiStatusLabel = new(string.Empty);
+    private readonly Ea.String _imguiNoteValue = new(string.Empty);
+    private readonly Ea.String _imguiToggleLabel = new(string.Empty);
+    private readonly Ea.String _imguiDetailsText = new(string.Empty);
 
     public DemoApplication(Context context) : base(context)
     {
@@ -401,13 +398,13 @@ partial class DemoApplication : Application
                 ImGui.PopTextWrapPos();
             }
 
-            ImGui.TextUnformatted(_imguiElapsedLabel.Span);
-            ImGui.TextUnformatted(_imguiRotationLabel.Span);
-            ImGui.TextUnformatted(_imguiFpsLabel.Span);
+            ImGui.TextUnformatted(_imguiElapsedLabel.AsUtf8Span());
+            ImGui.TextUnformatted(_imguiRotationLabel.AsUtf8Span());
+            ImGui.TextUnformatted(_imguiFpsLabel.AsUtf8Span());
             ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.56f, 0.78f, 0.92f, 1.0f));
             try
             {
-                ImGui.TextUnformatted(_imguiStatusLabel.Span);
+                ImGui.TextUnformatted(_imguiStatusLabel.AsUtf8Span());
             }
             finally
             {
@@ -418,14 +415,14 @@ partial class DemoApplication : Application
             ImGui.PushTextWrapPos();
             try
             {
-                ImGui.TextUnformatted(_imguiNoteValue.Span);
+                ImGui.TextUnformatted(_imguiNoteValue.AsUtf8Span());
             }
             finally
             {
                 ImGui.PopTextWrapPos();
             }
 
-            if (ImGui.Button(_imguiToggleLabel.Span))
+            if (ImGui.Button(_imguiToggleLabel.AsUtf8Span()))
             {
                 _showImGuiDetails = !_showImGuiDetails;
                 UpdateImGuiTextState();
@@ -449,7 +446,7 @@ partial class DemoApplication : Application
                 ImGui.PushTextWrapPos();
                 try
                 {
-                    ImGui.TextUnformatted(_imguiDetailsText.Span);
+                    ImGui.TextUnformatted(_imguiDetailsText.AsUtf8Span());
                 }
                 finally
                 {
@@ -465,84 +462,22 @@ partial class DemoApplication : Application
 
     private void UpdateImGuiTextState()
     {
+        _imguiElapsedLabel.Format(CultureInfo.InvariantCulture, $"Elapsed: {_elapsedTime:F1} s");
+        _imguiRotationLabel.Format(CultureInfo.InvariantCulture, $"Rotation: {_cubeRotation:F0} deg");
+        if (_hasFrameRate)
         {
-            var writer = _imguiElapsedLabel.BeginWrite();
-            writer.Append("Elapsed: "u8);
-            if (!Utf8Formatter.TryFormat(_elapsedTime, writer.Reserve(32), out var written, new StandardFormat('F', 1)))
-            {
-                throw new InvalidOperationException("Failed to format elapsed time as UTF-8.");
-            }
-
-            writer.Advance(written);
-            writer.Append(" s"u8);
+            _imguiFpsLabel.Format(CultureInfo.InvariantCulture, $"Frame rate: {_framesPerSecond:F0} fps");
+        }
+        else
+        {
+            _imguiFpsLabel.Format(CultureInfo.InvariantCulture, $"Frame rate: --");
         }
 
-        {
-            var writer = _imguiRotationLabel.BeginWrite();
-            writer.Append("Rotation: "u8);
-            if (!Utf8Formatter.TryFormat(_cubeRotation, writer.Reserve(32), out var written, new StandardFormat('F', 0)))
-            {
-                throw new InvalidOperationException("Failed to format cube rotation as UTF-8.");
-            }
-
-            writer.Advance(written);
-            writer.Append(" deg"u8);
-        }
-
-        {
-            var writer = _imguiFpsLabel.BeginWrite();
-            writer.Append("Frame rate: "u8);
-            if (_hasFrameRate)
-            {
-                if (!Utf8Formatter.TryFormat(_framesPerSecond, writer.Reserve(32), out var written, new StandardFormat('F', 0)))
-                {
-                    throw new InvalidOperationException("Failed to format frame rate as UTF-8.");
-                }
-
-                writer.Advance(written);
-                writer.Append(" fps"u8);
-            }
-            else
-            {
-                writer.Append("--"u8);
-            }
-        }
-
-        {
-            var writer = _imguiStatusLabel.BeginWrite();
-            writer.Append("Status: "u8);
-            writer.Append(_statusText);
-        }
-
-        {
-            var writer = _imguiNoteValue.BeginWrite();
-            writer.Append(string.IsNullOrWhiteSpace(_noteText) ? "(empty)" : _noteText);
-        }
-
-        {
-            var writer = _imguiToggleLabel.BeginWrite();
-            writer.Append(_showImGuiDetails ? "Hide extra ImGui details"u8 : "Show extra ImGui details"u8);
-        }
-
-        {
-            var writer = _imguiDetailsText.BeginWrite();
-            writer.Append("UI hovered: "u8);
-            writer.Append(_ui != null && _ui.IsHovered() ? "yes"u8 : "no"u8);
-            writer.Append(" | Event callbacks: "u8);
-            if (!Utf8Formatter.TryFormat(_eventCount, writer.Reserve(11), out var eventCountBytes))
-            {
-                throw new InvalidOperationException("Failed to format event count as UTF-8.");
-            }
-
-            writer.Advance(eventCountBytes);
-            writer.Append(" | Note length: "u8);
-            if (!Utf8Formatter.TryFormat(_noteText.Length, writer.Reserve(11), out var noteLengthBytes))
-            {
-                throw new InvalidOperationException("Failed to format note length as UTF-8.");
-            }
-
-            writer.Advance(noteLengthBytes);
-        }
+        _imguiStatusLabel.Format(CultureInfo.InvariantCulture, $"Status: {_statusText}");
+        _imguiNoteValue.Format(CultureInfo.InvariantCulture, $"{(string.IsNullOrWhiteSpace(_noteText) ? "(empty)" : _noteText)}");
+        _imguiToggleLabel.Format(CultureInfo.InvariantCulture, $"{(_showImGuiDetails ? "Hide extra ImGui details" : "Show extra ImGui details")}");
+        _imguiDetailsText.Format(CultureInfo.InvariantCulture,
+            $"UI hovered: {(_ui != null && _ui.IsHovered() ? "yes" : "no")} | Event callbacks: {_eventCount} | Note length: {_noteText.Length}");
     }
 
     private void BindRequired(Ea.String name, SharpCppCallback_BindFuncGetFunc getFunc)
@@ -629,95 +564,6 @@ partial class DemoApplication : Application
         handle.DirtyVariable("status");
     }
 
-    private sealed class PooledUtf8Text : IDisposable
-    {
-        private byte[] _buffer = Array.Empty<byte>();
-        private int _length;
-
-        public ReadOnlySpan<byte> Span => _buffer.AsSpan(0, _length);
-
-        public Writer BeginWrite()
-        {
-            _length = 0;
-            return new Writer(this);
-        }
-
-        public void Dispose()
-        {
-            if (_buffer.Length == 0)
-            {
-                return;
-            }
-
-            ArrayPool<byte>.Shared.Return(_buffer, clearArray: true);
-            _buffer = Array.Empty<byte>();
-            _length = 0;
-        }
-
-        private Span<byte> Reserve(int start, int additionalLength)
-        {
-            var requiredLength = checked(start + additionalLength);
-            if (requiredLength <= _buffer.Length)
-            {
-                return _buffer.AsSpan(start, additionalLength);
-            }
-
-            var nextLength = Math.Max(requiredLength, _buffer.Length == 0 ? 64 : _buffer.Length * 2);
-            var nextBuffer = ArrayPool<byte>.Shared.Rent(nextLength);
-            _buffer.AsSpan(0, _length).CopyTo(nextBuffer);
-
-            if (_buffer.Length != 0)
-            {
-                ArrayPool<byte>.Shared.Return(_buffer, clearArray: true);
-            }
-
-            _buffer = nextBuffer;
-            return _buffer.AsSpan(start, additionalLength);
-        }
-
-        private void SetLength(int length)
-        {
-            _length = length;
-        }
-
-        public ref struct Writer
-        {
-            private readonly PooledUtf8Text _text;
-            private int _length;
-
-            public Writer(PooledUtf8Text text)
-            {
-                _text = text;
-                _length = 0;
-            }
-
-            public Span<byte> Reserve(int length)
-            {
-                return _text.Reserve(_length, length);
-            }
-
-            public void Advance(int length)
-            {
-                _length = checked(_length + length);
-                _text.SetLength(_length);
-            }
-
-            public void Append(ReadOnlySpan<byte> value)
-            {
-                var destination = Reserve(value.Length);
-                value.CopyTo(destination);
-                Advance(value.Length);
-            }
-
-            public void Append(string value)
-            {
-                var maxByteCount = Encoding.UTF8.GetMaxByteCount(value.Length);
-                var destination = Reserve(maxByteCount);
-                var written = Encoding.UTF8.GetBytes(value.AsSpan(), destination);
-                Advance(written);
-            }
-        }
-    }
 }
 
 internal class Program

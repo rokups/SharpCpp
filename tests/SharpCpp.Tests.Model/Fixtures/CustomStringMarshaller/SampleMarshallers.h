@@ -17,6 +17,9 @@ struct OwnedStringMarshallerBase
     static unsigned long long GetCountCore(const cpp_type& self);
 
     [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
+    static const char* GetDataCore(const cpp_type& self);
+
+    [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
     static void AddCore(cpp_type& self, unsigned char value);
 
     [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]

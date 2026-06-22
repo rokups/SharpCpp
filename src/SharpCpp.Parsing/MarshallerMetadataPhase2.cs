@@ -646,6 +646,12 @@ public static class MarshallerMetadataPhase2
         var normalized = MarshallerConfigExtractor.NormalizeTypeName(cppType);
         var stripped = StripExposedTypeQualifiers(normalized);
 
+        if (normalized.EndsWith("*", StringComparison.Ordinal) &&
+            stripped is "char" or "signed char" or "unsigned char")
+        {
+            return BindingType.IntPtr;
+        }
+
         var genericParameter = record.GenericParameters.FirstOrDefault(parameter =>
             string.Equals(parameter.Name, stripped, StringComparison.Ordinal));
         if (genericParameter is not null)

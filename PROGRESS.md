@@ -126,9 +126,10 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
-- **Rbfx.Application ImGui text now uses pooled UTF-8 buffers**:
-  - Replaced per-frame ImGui label byte-array allocations with reusable `ArrayPool<byte>` backed buffers that are returned during application disposal.
-  - Formatted elapsed time, rotation, frame rate, event count, and note length directly into UTF-8 with `Utf8Formatter.TryFormat`; arbitrary status/note strings still use span-based UTF-8 encoding into the same pooled buffers.
+- **Generated string wrappers now expose borrowed UTF-8 spans**:
+  - Extended the marshaller-exposed string wrapper contract with generated `GetDataCore()` overrides, so `StringBase.AsUtf8Span()` can return a span over native string storage instead of materializing a managed byte-array copy.
+  - Added an interpolated-string formatting extension for `Ea.String`, allowing app code to format directly into native UTF-8 strings with ordinary C# format specifiers.
+  - Simplified `Rbfx.Application` ImGui labels to use reusable `Ea.String` instances and `Ea.String.Format(...)`, then pass `AsUtf8Span()` into generated ImGui APIs.
   - Verification: `cmake --build --preset Debug` and `ctest --preset Debug` pass.
 
 - **Redundant public overloads for nullable unexpressible defaults are pruned**:

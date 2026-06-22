@@ -2736,6 +2736,17 @@ public sealed class BindingOutputRendererTests
         };
         stringRecord.Members.Add(getCountCore);
 
+        var getDataCore = new FunctionBinding("method:std::basic_string:data", "data", "GetDataCore",
+            BindingType.IntPtr, "sharpcpp_e2e_std_basic_string_data", "const char*", "std::basic_string::data")
+        {
+            IsStatic = false,
+            AccessModifier = BindingAccessModifier.Protected,
+            IsConstMethod = true,
+            IsOverride = true,
+            OwningRecordCppTypeName = "std::basic_string"
+        };
+        stringRecord.Members.Add(getDataCore);
+
         var addCore = new FunctionBinding("method:std::basic_string:push_back", "push_back", "AddCore",
             BindingType.Void, "sharpcpp_e2e_std_basic_string_push_back", "void", "std::basic_string::push_back")
         {
@@ -2755,8 +2766,10 @@ public sealed class BindingOutputRendererTests
         var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
 
         Assert.Contains("GetCountCore()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("GetDataCore()", managedOutput, StringComparison.Ordinal);
         Assert.Contains("AddCore", managedOutput, StringComparison.Ordinal);
         Assert.Contains("SHARPCPP_EXPORT ret_t<std::size_t> sharpcpp_e2e_std_basic_string_size(arg_t<std::basic_string*> self)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT ret_t<const char*> sharpcpp_e2e_std_basic_string_data(arg_t<std::basic_string*> self)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_std_basic_string_push_back(arg_t<std::basic_string*> self", nativeOutput, StringComparison.Ordinal);
     }
 

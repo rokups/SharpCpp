@@ -1,5 +1,8 @@
 using SharpCpp.Support;
 
+using System.Globalization;
+
+using Ea;
 using Urho3D.UI;
 
 using Xunit;
@@ -22,5 +25,15 @@ public sealed class StringBindingTests
             method => method.Name == "SetName" &&
                 method.GetParameters() is [{ ParameterType: var parameterType }] &&
                 parameterType == eaStringType);
+    }
+
+    [Fact]
+    public void Ea_string_format_writes_interpolated_utf8_text()
+    {
+        using var value = new global::Ea.String(string.Empty);
+
+        value.Format(CultureInfo.InvariantCulture, $"Elapsed: {1.25f:F1} s | Events: {7,3}");
+
+        Assert.Equal("Elapsed: 1.2 s | Events:   7", value.ToString());
     }
 }

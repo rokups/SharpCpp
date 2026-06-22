@@ -60,6 +60,12 @@ struct OwnedStringMarshallerBase
     }
 
     [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
+    static const char* GetDataCore(const cpp_type& self)
+    {
+        return self.data();
+    }
+
+    [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
     static void AddCore(cpp_type& self, unsigned char value)
     {
         self.push_back(static_cast<char>(value));

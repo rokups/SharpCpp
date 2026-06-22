@@ -31,7 +31,7 @@
 
 | Type | Kind | File | Description |
 |---|---|---|---|
-| `StringBase` | `abstract class` | `StringBase.cs:8` | UTF-8 string bridge extending `NativeObject`, implementing `IReadOnlyList<char>` and `IEquatable<string>`. Protected abstract core methods (`GetCountCore`, `ClearCore`, `GetAtCore`, `AddCore`) are overridden by generated code to call native `std::string` operations. Public surface: `Assign(string?/ReadOnlySpan<byte>)`, `ToUtf8Bytes()`, `AsUtf8Span()`, `ToString()`, `Equals(string?)`. |
+| `StringBase` | `abstract class` | `StringBase.cs:8` | UTF-8 string bridge extending `NativeObject`, implementing `IReadOnlyList<char>` and `IEquatable<string>`. Protected core methods (`GetCountCore`, `GetDataCore`, `ClearCore`, `GetAtCore`, `AddCore`) are overridden by generated code to call native string operations. Public surface: `Assign(string?/ReadOnlySpan<byte>)`, `ToUtf8Bytes()`, borrowed `AsUtf8Span()`, `ToString()`, `Equals(string?)`. |
 
 ### Collection Hierarchy
 
@@ -132,11 +132,12 @@ Native objects can be destroyed from either side:
 ### 7. StringBase — UTF-8 String Bridge
 
 `StringBase` extends `NativeObject` and implements `IReadOnlyList<char>` and `IEquatable<string>`:
-- Virtual methods `GetCountCore()`, `ClearCore()`, `GetAtCore(ulong)`, `AddCore(byte)` — generated overrides that delegate to the native `std::string`'s `size()`, `clear()`, `operator[]`, and `push_back()`.
+- Virtual methods `GetCountCore()`, `GetDataCore()`, `ClearCore()`, `GetAtCore(ulong)`, `AddCore(byte)` — generated overrides that delegate to the native string's `size()`, `data()`, `clear()`, indexed byte access, and `push_back()`.
 - `Assign(string?)` / `Assign(ReadOnlySpan<byte>)` — replace contents with UTF-8 encoded text.
 - `ToUtf8Bytes()` — copy native string into a managed `byte[]`.
+- `AsUtf8Span()` — return a borrowed span over native UTF-8 storage when `GetDataCore()` is available; falls back to a managed copy otherwise.
 - `ToString()` — decode from UTF-8 bytes.
-- The `Marshaller<std::string>` specialization in the native layer (`Marshaller.hpp`) declares the same four methods as `protected_override` shapes, completing the bridge.
+- The native string marshaller specializations in `Marshaller.hpp` declare these methods as `protected_override` shapes, completing the bridge.
 
 ### 8. INativeObjectRegistration<T> — Static Abstract Interface
 

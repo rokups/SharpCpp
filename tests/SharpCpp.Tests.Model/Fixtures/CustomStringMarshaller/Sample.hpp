@@ -10,6 +10,11 @@ public:
         return 0;
     }
 
+    const char* data() const
+    {
+        return nullptr;
+    }
+
     void push_back(char value)
     {
     }

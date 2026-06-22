@@ -138,6 +138,11 @@ public:
         return value_.size();
     }
 
+    const char* data() const
+    {
+        return value_.data();
+    }
+
     void push_back(char value)
     {
         value_.push_back(value);
