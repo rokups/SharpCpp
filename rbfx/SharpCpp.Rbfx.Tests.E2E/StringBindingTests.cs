@@ -19,12 +19,10 @@ public sealed class StringBindingTests
 
         Assert.True(eaStringType.IsSubclassOf(typeof(StringBase)));
 
-        Assert.Equal(eaStringType, uiElementType.GetMethod("GetName", global::System.Type.EmptyTypes)!.ReturnType);
-        Assert.Contains(
-            uiElementType.GetMethods(),
-            method => method.Name == "SetName" &&
-                method.GetParameters() is [{ ParameterType: var parameterType }] &&
-                parameterType == eaStringType);
+        var nameProperty = uiElementType.GetProperty("Name")!;
+        Assert.Equal(eaStringType, nameProperty.PropertyType);
+        Assert.True(nameProperty.CanRead);
+        Assert.True(nameProperty.CanWrite);
     }
 
     [Fact]

@@ -8,7 +8,7 @@ Bootstrap an independent SharpCpp line from `doc/`, selectively adapting small b
 
 All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E) on the last clean verified baseline. The full pipeline — C++ headers → generated C# wrappers + native thunks — runs end-to-end for both synthetic fixtures and the real rbfx SDK.
 
-Current worktree verification passes with the intentional deletion of superfluous handwritten rbfx helpers (`ObjectReflection.cs`, `ApplicationSupport.cs`, and `RbfxApplicationRuntime.cpp`). The remaining consumers now use generated binding surfaces instead of restoring those manual additions.
+Current worktree verification passes with rbfx accessor-style `Get*` / `Set*` / `Is*` pairs promoted to generated C# properties. Redundant handwritten conveniences covered by those generated properties were removed, and remaining consumers use the generated property surface.
 
 ### Model & Metadata
 - Binding model: records, enums, free functions, methods, constructors, fields, operators, templates/generics
@@ -73,6 +73,7 @@ Current worktree verification passes with the intentional deletion of superfluou
 - Cross-module composition: `rbfx/Rbfx.UserCode` imports upstream metadata, extends wrappers
 - rbfx inheritable SDK classes are marked director-capable at parse time so abstract constructors can support managed subclasses without weakening the core abstract-constructor gate
 - rbfx macro headers are molded into managed-only AST nodes and rendered by the normal grouped renderer, generating surfaces like `EngineDefs` and `EngineEvents`
+- rbfx accessor pairs are promoted to generated C# properties through configured marshaller patterns, with reserved SDK getters and projected secondary-base methods kept as ordinary methods
 
 ### Infrastructure
 - Structured logging (`ILogger` with elapsed timestamps)
@@ -128,6 +129,14 @@ Current worktree verification passes with the intentional deletion of superfluou
 - All type-specific behaviors configured through C++/C# marshallers, never hardcoded in core
 
 ## Recently Fixed
+
+- **rbfx accessor pairs now generate C# properties instead of requiring handwritten conveniences**:
+  - Added `GenerateAccessorPropertiesPass` to annotate coherent getter/setter pairs as renderer properties without adding type-specific core rules.
+  - Configured the rbfx generator with v1-style `Get`/`Set` and `Is`/`Set` patterns, plus reserved getter filtering for APIs that must remain methods such as type-info and dirty-state calls.
+  - Suppressed property promotion for projected secondary-base methods so generated interfaces and concrete projected methods stay contract-compatible.
+  - Removed generated-covered handwritten helpers for `Viewport.Scene` / `Viewport.Camera`, `Node.Position`, `RmlUI.RmlContext`, `RmlUI.IsHoveredValue`, and the renderer default-zone fog-color shim now expressible as generated `Renderer.DefaultZone.FogColor`.
+  - Updated handwritten `Variant` conversions and rbfx E2E surface assertions to consume generated properties such as `Variant.Int`, `UIElement.Name`, `EventHandler.EventType`, and `Spline.InterpolationMode`.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj --configuration Debug --no-restore`, `dotnet test tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj --configuration Debug --no-restore`, `cmake --build --preset Debug`, and `ctest --preset Debug --output-on-failure` all pass.
 
 - **rbfx macro constants/events now generate through AST molding**:
   - Added neutral managed-only model nodes (`ManagedClassBinding`, `ManagedFieldBinding`) and renderer support so generated C# helper surfaces are ordinary `BindingCompilation` members instead of post-render fragments.

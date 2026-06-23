@@ -10,7 +10,7 @@ public sealed class GeneratedSurfaceTests
         var content = File.ReadAllText(Path.Combine(GetGeneratedDir(), "Core", "SharpCpp.Rbfx.Object.g.cs"));
 
         Assert.Contains("template <class T> EventHandler(Object *receiver, T handler) // excluded", content, StringComparison.Ordinal);
-        Assert.Contains("public global::Urho3D.Math.StringHash GetEventType()", content, StringComparison.Ordinal);
+        Assert.Contains("public global::Urho3D.Math.StringHash EventType", content, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -19,8 +19,8 @@ public sealed class GeneratedSurfaceTests
         var content = File.ReadAllText(Path.Combine(GetGeneratedDir(), "Core", "SharpCpp.Rbfx.Spline.g.cs"));
 
         Assert.Contains("public global::Urho3D.Core.Variant GetPoint(float f)", content, StringComparison.Ordinal);
-        Assert.Contains("public global::Urho3D.Core.InterpolationMode GetInterpolationMode()", content, StringComparison.Ordinal);
-        Assert.Contains("public void SetInterpolationMode(global::Urho3D.Core.InterpolationMode interpolationMode)", content, StringComparison.Ordinal);
+        Assert.Contains("public global::Urho3D.Core.InterpolationMode InterpolationMode", content, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke.SetInterpolationMode(this, value);", content, StringComparison.Ordinal);
     }
 
     [Fact]

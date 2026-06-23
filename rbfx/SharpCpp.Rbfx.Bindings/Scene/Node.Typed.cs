@@ -2,12 +2,6 @@ namespace Urho3D.Scene;
 
 public partial class Node
 {
-    public global::Urho3D.Math.Vector3 Position
-    {
-        get => GetPosition();
-        set => SetPosition(value);
-    }
-
     public Node? CreateChild(string? name = null)
     {
         using var nativeName = new global::Ea.String(name ?? string.Empty);

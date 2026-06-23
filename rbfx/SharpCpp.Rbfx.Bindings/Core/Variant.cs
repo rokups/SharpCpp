@@ -5,91 +5,91 @@ public partial class Variant
     public VariantType Type => GetType();
 
     public static implicit operator int(Variant value)
-        => value.GetInt();
+        => value.Int;
 
     public static implicit operator Variant(int value)
         => new(value);
 
     public static implicit operator long(Variant value)
-        => value.GetInt64();
+        => value.Int64;
 
     public static implicit operator Variant(long value)
         => new(value);
 
     public static implicit operator uint(Variant value)
-        => value.GetUInt();
+        => value.UInt;
 
     public static implicit operator Variant(uint value)
         => new(value);
 
     public static implicit operator ulong(Variant value)
-        => value.GetUInt64();
+        => value.UInt64;
 
     public static implicit operator Variant(ulong value)
         => new((ImU64)value);
 
     public static implicit operator global::Urho3D.Math.StringHash(Variant value)
-        => value.GetStringHash();
+        => value.StringHash;
 
     public static implicit operator Variant(global::Urho3D.Math.StringHash value)
         => new(value);
 
     public static implicit operator bool(Variant value)
-        => value.GetBool();
+        => value.Bool;
 
     public static implicit operator Variant(bool value)
         => new(value);
 
     public static implicit operator float(Variant value)
-        => value.GetFloat();
+        => value.Float;
 
     public static implicit operator Variant(float value)
         => new(value);
 
     public static implicit operator double(Variant value)
-        => value.GetDouble();
+        => value.Double;
 
     public static implicit operator Variant(double value)
         => new(value);
 
     public static implicit operator Vector2(Variant value)
-        => value.GetVector2();
+        => value.Vector2;
 
     public static implicit operator Variant(Vector2 value)
         => new(value);
 
     public static implicit operator Vector3(Variant value)
-        => value.GetVector3();
+        => value.Vector3;
 
     public static implicit operator Variant(Vector3 value)
         => new(value);
 
     public static implicit operator DoubleVector2(Variant value)
-        => value.GetDoubleVector2();
+        => value.DoubleVector2;
 
     public static implicit operator Variant(DoubleVector2 value)
         => new(value);
 
     public static implicit operator DoubleVector3(Variant value)
-        => value.GetDoubleVector3();
+        => value.DoubleVector3;
 
     public static implicit operator Variant(DoubleVector3 value)
         => new(value);
 
     public static implicit operator global::Urho3D.Math.Vector4(Variant value)
-        => value.GetVector4();
+        => value.Vector4;
 
     public static implicit operator Variant(global::Urho3D.Math.Vector4 value)
         => new(value);
 
     public static implicit operator global::Urho3D.Math.Quaternion(Variant value)
-        => value.GetQuaternion();
+        => value.Quaternion;
 
     public static implicit operator Variant(global::Urho3D.Math.Quaternion value)
         => new(value);
 
     public static implicit operator global::Urho3D.Math.Color(Variant value)
-        => value.GetColor();
+        => value.Color;
 
     public static implicit operator Variant(global::Urho3D.Math.Color value)
         => new(value);
@@ -101,70 +101,70 @@ public partial class Variant
     }
 
     public static implicit operator ByteVector(Variant value)
-        => value.GetBuffer();
+        => value.Buffer;
 
     public static implicit operator global::System.IntPtr(Variant value)
-        => value.GetVoidPtr();
+        => value.VoidPtr;
 
     public static implicit operator Variant(global::System.IntPtr value)
         => new(value);
 
     public static implicit operator ResourceRef(Variant value)
-        => value.GetResourceRef();
+        => value.ResourceRef;
 
     public static implicit operator Variant(ResourceRef value)
         => new(value);
 
     public static implicit operator ResourceRefList(Variant value)
-        => value.GetResourceRefList();
+        => value.ResourceRefList;
 
     public static implicit operator Variant(ResourceRefList value)
         => new(value);
 
     public static implicit operator VariantVector(Variant value)
-        => value.GetVariantVector();
+        => value.VariantVector;
 
     public static implicit operator Variant(VariantVector value)
         => new(value);
 
     public static implicit operator VariantMap(Variant value)
-        => value.GetVariantMap();
+        => value.VariantMap;
 
     public static implicit operator Variant(VariantMap value)
         => new(value);
 
     public static implicit operator StringVector(Variant value)
-        => value.GetStringVector();
+        => value.StringVector;
 
     public static implicit operator Variant(StringVector value)
         => new(value);
 
     public static implicit operator global::Ea.UnorderedMap<global::Ea.String, Variant>(Variant value)
-        => value.GetStringVariantMap();
+        => value.StringVariantMap;
 
     public static implicit operator Variant(global::Ea.UnorderedMap<global::Ea.String, Variant> value)
         => new(value);
 
     public static implicit operator global::Urho3D.Math.Rect(Variant value)
-        => value.GetRect();
+        => value.Rect;
 
     public static implicit operator Variant(global::Urho3D.Math.Rect value)
         => new(value);
 
     public static implicit operator global::Urho3D.Math.IntRect(Variant value)
-        => value.GetIntRect();
+        => value.IntRect;
 
     public static implicit operator Variant(global::Urho3D.Math.IntRect value)
         => new(value);
 
     public static implicit operator IntVector2(Variant value)
-        => value.GetIntVector2();
+        => value.IntVector2;
 
     public static implicit operator Variant(IntVector2 value)
         => new(value);
 
     public static implicit operator IntVector3(Variant value)
-        => value.GetIntVector3();
+        => value.IntVector3;
 
     public static implicit operator Variant(IntVector3 value)
         => new(value);
@@ -173,25 +173,25 @@ public partial class Variant
         => new(value);
 
     public static implicit operator global::Urho3D.Math.Matrix3(Variant value)
-        => value.GetMatrix3();
+        => value.Matrix3;
 
     public static implicit operator Variant(global::Urho3D.Math.Matrix3 value)
         => new(value);
 
     public static implicit operator global::Urho3D.Math.Matrix3x4(Variant value)
-        => value.GetMatrix3x4();
+        => value.Matrix3x4;
 
     public static implicit operator Variant(global::Urho3D.Math.Matrix3x4 value)
         => new(value);
 
     public static implicit operator global::Urho3D.Math.Matrix4(Variant value)
-        => value.GetMatrix4();
+        => value.Matrix4;
 
     public static implicit operator Variant(global::Urho3D.Math.Matrix4 value)
         => new(value);
 
     public static implicit operator VariantCurve(Variant value)
-        => value.GetVariantCurve();
+        => value.VariantCurve;
 
     public static implicit operator Variant(VariantCurve value)
         => new(value);

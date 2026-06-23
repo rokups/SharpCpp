@@ -259,32 +259,30 @@ partial class DemoApplication : Application
 
     public override void Start()
     {
-        var context = GetContext();
-        var input = context.GetSubsystem<Input>();
+        var input = Context.GetSubsystem<Input>();
         input.SetMouseMode(MouseMode.MmFree);
         input.SetMouseVisible(true);
 
-        _scene = new Scene(context);
+        _scene = new Scene(Context);
         _scene.CreateComponent<Octree>();
 
         _camera = _scene.CreateChild("Camera");
-        _viewport = new Viewport(context)
+        _viewport = new Viewport(Context)
         {
             Scene = _scene,
             Camera = _camera.CreateComponent<Camera>()
         };
 
-        var renderer = context.GetSubsystem<Renderer>();
+        var renderer = Context.GetSubsystem<Renderer>();
         renderer.SetViewport(0, _viewport);
-
-        renderer.SetDefaultZoneFogColor(new Color(0.5f, 0.5f, 0.7f));
+        renderer.DefaultZone.FogColor = new Color(0.5f, 0.5f, 0.7f);
 
         _camera.Position = new Vector3(0, 2, -2);
         _camera.LookAt(Vector3.Zero);
 
         _cube = _scene.CreateChild("Cube");
         var model = _cube.CreateComponent<StaticModel>();
-        var resourceCache = context.GetSubsystem<ResourceCache>();
+        var resourceCache = Context.GetSubsystem<ResourceCache>();
         model.SetModel(resourceCache.GetResource<Model>("Models/Box.mdl"));
         model.SetMaterial(0, resourceCache.GetResource<Material>("Materials/Stone.xml"));
 
@@ -302,14 +300,14 @@ partial class DemoApplication : Application
     private void OnUpdate(Urho3D.Core.Object sender, StringHash eventType, Ea.UnorderedMap<StringHash, Variant> eventData)
     {
         var timeStep = eventData.TryGetValue(CoreEvents.Update.TimeStep, out var value)
-            ? value.GetFloat()
+            ? value.Float
             : 0.0f;
         UpdateDashboard(timeStep);
     }
 
     private void InitializeRmlUi()
     {
-        _ui = GetContext().GetSubsystem<Urho3D.RmlUI.RmlUI>()
+        _ui = Context.GetSubsystem<Urho3D.RmlUI.RmlUI>()
             ?? throw new InvalidOperationException("Rbfx RmlUI subsystem is not available.");
 
         if (!_ui.LoadFont("Fonts/NotoSans-Condensed.ttf") || !_ui.LoadFont("Fonts/NotoSans-CondensedBold.ttf"))
@@ -372,7 +370,7 @@ partial class DemoApplication : Application
             ? $"{_eventCount.ToString(CultureInfo.InvariantCulture)} event callback(s) handled"
             : _dataModelHandle != null && _dataModelHandle.IsVariableDirty("note")
                 ? (string.IsNullOrWhiteSpace(_noteText) ? "Note cleared through the data model" : "Note updated through the data model")
-                : (_ui.IsHovered() ? "Pointer over UI" : "Pointer free for the 3D scene");
+                : (_ui.IsHovered ? "Pointer over UI" : "Pointer free for the 3D scene");
 
         UpdateModelValue(ref _statusText, statusText, "status");
         UpdateImGuiTextState();
@@ -483,7 +481,7 @@ partial class DemoApplication : Application
         _imguiNoteValue.Format($"{(string.IsNullOrWhiteSpace(_noteText) ? "(empty)" : _noteText)}");
         _imguiToggleLabel.Format($"{(_showImGuiDetails ? "Hide extra ImGui details" : "Show extra ImGui details")}");
         _imguiDetailsText.Format(
-            $"UI hovered: {(_ui != null && _ui.IsHovered() ? "yes" : "no")} | Event callbacks: {_eventCount} | Note length: {_noteText.Length}");
+            $"UI hovered: {(_ui != null && _ui.IsHovered ? "yes" : "no")} | Event callbacks: {_eventCount} | Note length: {_noteText.Length}");
     }
 
     private void BindRequired(Ea.String name, SharpCppCallback_BindFuncGetFunc getFunc)

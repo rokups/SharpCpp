@@ -7,17 +7,6 @@ namespace Urho3D.RmlUI
 {
 public partial class RmlUI
 {
-    public Rml.Context? RmlContext
-    {
-        get
-        {
-            var handle = Rml.__RmlUiConveniencePInvoke.GetRmlContext(NativeObject.GetHandle(this));
-            return handle == 0 ? null : Rml.Context.CreateManagedWrapper(handle, ownsHandle: false);
-        }
-    }
-
-    public bool IsHoveredValue => IsHovered();
-
 }
 }
 
@@ -44,10 +33,6 @@ public partial class ElementDocument
 
 internal static partial class __RmlUiConveniencePInvoke
 {
-    [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_RmlUI_GetRmlContext", StringMarshalling = StringMarshalling.Utf8)]
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static partial nint GetRmlContext(nint self);
-
     [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_Rml_Context_CreateDataModel", StringMarshalling = StringMarshalling.Utf8)]
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static partial nint CreateDataModel(nint self, nint name);

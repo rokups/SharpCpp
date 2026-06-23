@@ -56,6 +56,27 @@ internal static class Program
     private const string GeneratedFileStem = "SharpCpp.Rbfx";
     private const string EntryPointPrefix = "scrbfx";
     private const string NativeOutputHeader = "Urho3D/Urho3DAll.h";
+    private static readonly AccessorPropertyPattern[] Urho3DAccessorPropertyPatterns =
+    [
+        new("Get", "Set", allowGetterOnly: true),
+        new("Is", "Set", propertyNamePrefix: "Is", allowGetterOnly: true)
+    ];
+
+    private static readonly HashSet<string> ReservedUrho3DPropertyGetterNames = new(StringComparer.Ordinal)
+    {
+        "GetInstance",
+        "GetHashCode",
+        "GetRuntimeApi",
+        "GetType",
+        "GetTypeInfo",
+        "GetTypeInfoStatic",
+        "GetTypeName",
+        "GetTypeNameStatic",
+        "GetTypeStatic",
+        "GetLevelsDirty",
+        "GetResolveDirty"
+    };
+
     private static readonly HashSet<string> InheritableDirectorRecordCppTypeNames = new(StringComparer.Ordinal)
     {
         "Urho3D::Object",
@@ -195,6 +216,13 @@ internal static class Program
 
             var macroSurfaceCount = RbfxNamespaceMacroSurfacePass.Apply(compilation, includeRoot);
             Logger.LogInformation("Applied rbfx macro surface shaping to {Count} header class(es).", macroSurfaceCount);
+
+            var propertyCount = GenerateAccessorPropertiesPass.Apply(
+                compilation,
+                Urho3DAccessorPropertyPatterns,
+                recordFilter: static record => record.CppQualifiedName.StartsWith("Urho3D::", StringComparison.Ordinal),
+                getterFilter: function => !ReservedUrho3DPropertyGetterNames.Contains(function.ManagedName));
+            Logger.LogInformation("Promoted {Count} rbfx accessor propert(ies).", propertyCount);
 
             Logger.LogInformation("Rendering...");
             var renderSw = Stopwatch.StartNew();
