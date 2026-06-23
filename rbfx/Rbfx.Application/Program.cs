@@ -344,11 +344,11 @@ partial class DemoApplication : Application
         _dataModelConstructor = _rmlContext.CreateDataModel(modelName)
             ?? throw new InvalidOperationException("Failed to create the RmlUI data model.");
 
-        BindRequired(elapsedName, BindElapsedValue);
-        BindRequired(rotationName, BindRotationValue);
-        BindRequired(fpsName, BindFpsValue);
-        BindRequired(statusName, BindStatusValue);
-        BindRequired(noteName, BindNoteValue, SetNoteValue);
+        BindTextValue(elapsedName, _elapsedText);
+        BindTextValue(rotationName, _rotationText);
+        BindTextValue(fpsName, _fpsText);
+        BindTextValue(statusName, _statusText);
+        BindMutableTextValue(noteName, _noteText);
         BindRequired(applyNoteName, ApplyNoteFromEvent);
 
         _dataModelHandle = _dataModelConstructor.GetModelHandle()
@@ -515,6 +515,25 @@ partial class DemoApplication : Application
         }
     }
 
+    private void BindTextValue(Ea.String name, Ea.String text)
+    {
+        BindRequired(name, value =>
+        {
+            _ = value.Assign<Ea.String>(text);
+        });
+    }
+
+    private void BindMutableTextValue(Ea.String name, Ea.String text)
+    {
+        BindRequired(
+            name,
+            value =>
+            {
+                _ = value.Assign<Ea.String>(text);
+            },
+            value => CopyVariantString(text, value));
+    }
+
     private void UpdateModelValue(Ea.String currentValue, string newValue, string variableName)
     {
         if (currentValue.Equals(newValue) || _dataModelHandle == null)
@@ -525,36 +544,6 @@ partial class DemoApplication : Application
         currentValue.Assign(newValue);
         using var nativeVariableName = new Ea.String(variableName);
         _dataModelHandle.DirtyVariable(nativeVariableName);
-    }
-
-    private void BindElapsedValue(Rml.Variant value)
-    {
-        _ = value.Assign<Ea.String>(_elapsedText);
-    }
-
-    private void BindRotationValue(Rml.Variant value)
-    {
-        _ = value.Assign<Ea.String>(_rotationText);
-    }
-
-    private void BindFpsValue(Rml.Variant value)
-    {
-        _ = value.Assign<Ea.String>(_fpsText);
-    }
-
-    private void BindStatusValue(Rml.Variant value)
-    {
-        _ = value.Assign<Ea.String>(_statusText);
-    }
-
-    private void BindNoteValue(Rml.Variant value)
-    {
-        _ = value.Assign<Ea.String>(_noteText);
-    }
-
-    private void SetNoteValue(Rml.Variant value)
-    {
-        CopyVariantString(_noteText, value);
     }
 
     private void ApplyNoteFromEvent(Rml.DataModelHandle handle, Rml.Event @event, Ea.Vector<Rml.Variant> arguments)

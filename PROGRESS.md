@@ -133,6 +133,10 @@ Current worktree verification passes with rbfx accessor-style `Get*` / `Set*` / 
 
 ## Recently Fixed
 
+- **`Rbfx.Application` RmlUI text binding setup no longer uses one-line wrapper callbacks**:
+  - Replaced the separate `Bind*Value` / `SetNoteValue` methods with direct text-buffer binding helpers in the data-model setup.
+  - Verification: `cmake --build --preset Debug` and `ctest --preset Debug` pass.
+
 - **`Rbfx.Application` keeps RmlUI text state in reusable `Ea.String` buffers**:
   - Replaced per-value managed `string` RmlUI backing fields with disposed `Ea.String` instances so data-model getters can assign native text directly via generated `Rml.Variant.Assign<Ea.String>`.
   - Updated Rml note/event setters to copy generated `Variant.Get<Ea.String>` results into the existing buffer instead of replacing managed strings.
