@@ -366,9 +366,11 @@ partial class DemoApplication : Application
             : "--",
             "fps");
 
+        using var noteName = new Ea.String("note");
+        var noteDirty = _dataModelHandle != null && _dataModelHandle.IsVariableDirty(noteName);
         var statusText = _eventCount > 0
             ? $"{_eventCount.ToString(CultureInfo.InvariantCulture)} event callback(s) handled"
-            : _dataModelHandle != null && _dataModelHandle.IsVariableDirty("note")
+            : noteDirty
                 ? (string.IsNullOrWhiteSpace(_noteText) ? "Note cleared through the data model" : "Note updated through the data model")
                 : (_ui.IsHovered ? "Pointer over UI" : "Pointer free for the 3D scene");
 
@@ -484,7 +486,7 @@ partial class DemoApplication : Application
             $"UI hovered: {(_ui != null && _ui.IsHovered ? "yes" : "no")} | Event callbacks: {_eventCount} | Note length: {_noteText.Length}");
     }
 
-    private void BindRequired(Ea.String name, SharpCppCallback_BindFuncGetFunc getFunc)
+    private void BindRequired(Ea.String name, Action<Rml.Variant> getFunc)
     {
         if (!_dataModelConstructor.BindFunc(name, getFunc))
         {
@@ -492,7 +494,7 @@ partial class DemoApplication : Application
         }
     }
 
-    private void BindRequired(Ea.String name, SharpCppCallback_BindFuncGetFunc getFunc, SharpCppCallback_BindFuncSetFunc setFunc)
+    private void BindRequired(Ea.String name, Action<Rml.Variant> getFunc, Action<Rml.Variant> setFunc)
     {
         if (!_dataModelConstructor.BindFunc(name, getFunc, setFunc))
         {
@@ -500,7 +502,7 @@ partial class DemoApplication : Application
         }
     }
 
-    private void BindRequired(Ea.String name, SharpCppCallback_BindEventCallbackEventFunc eventFunc)
+    private void BindRequired(Ea.String name, Action<Rml.DataModelHandle, Rml.Event, Ea.Vector<Rml.Variant>> eventFunc)
     {
         if (!_dataModelConstructor.BindEventCallback(name, eventFunc))
         {
@@ -516,41 +518,41 @@ partial class DemoApplication : Application
         }
 
         currentValue = newValue;
-        _dataModelHandle.DirtyVariable(variableName);
+        using var nativeVariableName = new Ea.String(variableName);
+        _dataModelHandle.DirtyVariable(nativeVariableName);
     }
 
     private void BindElapsedValue(Rml.Variant value)
     {
-        value.Set(_elapsedText);
+        SetVariantString(value, _elapsedText);
     }
 
     private void BindRotationValue(Rml.Variant value)
     {
-        value.Set(_rotationText);
+        SetVariantString(value, _rotationText);
     }
 
     private void BindFpsValue(Rml.Variant value)
     {
-        value.Set(_fpsText);
+        SetVariantString(value, _fpsText);
     }
 
     private void BindStatusValue(Rml.Variant value)
     {
-        value.Set(_statusText);
+        SetVariantString(value, _statusText);
     }
 
     private void BindNoteValue(Rml.Variant value)
     {
-        value.Set(_noteText);
+        SetVariantString(value, _noteText);
     }
 
     private void SetNoteValue(Rml.Variant value)
     {
-        using var noteValue = value.GetString();
-        _noteText = noteValue.ToString() ?? string.Empty;
+        _noteText = GetVariantString(value);
     }
 
-    private void ApplyNoteFromEvent(Rml.DataModelHandle handle, Rml.Event @event, Rml.VariantList arguments)
+    private void ApplyNoteFromEvent(Rml.DataModelHandle handle, Rml.Event @event, Ea.Vector<Rml.Variant> arguments)
     {
         _ = @event;
 
@@ -558,14 +560,27 @@ partial class DemoApplication : Application
 
         if (arguments.Count > 0)
         {
-            using var noteValue = arguments[0].GetString();
-            nextNote = noteValue.ToString() ?? string.Empty;
+            nextNote = GetVariantString(arguments[0]);
         }
 
         _noteText = nextNote;
         _eventCount++;
-        handle.DirtyVariable("note");
-        handle.DirtyVariable("status");
+        using var noteName = new Ea.String("note");
+        using var statusName = new Ea.String("status");
+        handle.DirtyVariable(noteName);
+        handle.DirtyVariable(statusName);
+    }
+
+    private static void SetVariantString(Rml.Variant value, string text)
+    {
+        using var nativeText = new Ea.String(text);
+        value.SetString(nativeText);
+    }
+
+    private static string GetVariantString(Rml.Variant value)
+    {
+        using var nativeText = value.GetString();
+        return nativeText.ToString() ?? string.Empty;
     }
 
 }

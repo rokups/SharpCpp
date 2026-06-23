@@ -142,6 +142,98 @@ public sealed class RbfxSubmoduleSurfacePassTests
     }
 
     [Fact]
+    public void Rml_pass_keeps_data_model_callback_aliases_for_generated_binding_surface()
+    {
+        var compilation = CreateCompilation();
+        var constructor = new RecordBinding("record:Rml::DataModelConstructor", "DataModelConstructor", "DataModelConstructor", "Rml::DataModelConstructor");
+        var handle = new RecordBinding("record:Rml::DataModelHandle", "DataModelHandle", "DataModelHandle", "Rml::DataModelHandle");
+        var @event = new RecordBinding("record:Rml::Event", "Event", "Event", "Rml::Event");
+        var variant = new RecordBinding("record:Rml::Variant", "Variant", "Variant", "Rml::Variant");
+        var variantList = new RecordBinding("record:Rml::VariantList", "VariantList", "VariantList", "Rml::VariantList");
+        var bindFunc = new FunctionBinding(
+            "method:Rml::DataModelConstructor::BindFunc",
+            "BindFunc",
+            "BindFunc",
+            BindingType.Boolean,
+            cppReturnTypeName: "bool",
+            cppQualifiedName: "Rml::DataModelConstructor::BindFunc")
+        {
+            IsStatic = false
+        };
+        bindFunc.Parameters.Add(new ParameterBinding(
+            "parameter:Rml::DataModelConstructor::BindFunc:name",
+            "name",
+            "name",
+            BindingType.CreateConfigured("Rml::String", "global::Ea.String"),
+            cppTypeName: "Rml::String"));
+        bindFunc.Parameters.Add(new ParameterBinding(
+            "parameter:Rml::DataModelConstructor::BindFunc:get_func",
+            "get_func",
+            "getFunc",
+            BindingType.CreateCallback(
+                "Rml::DataGetFunc",
+                "global::System.Action<{0}>",
+                managedMarshaller: null,
+                BindingType.Void,
+                [BindingType.CreateHandle("Rml::Variant*", "Variant", variant.SymbolId)]),
+            cppTypeName: "Rml::DataGetFunc"));
+        bindFunc.Parameters.Add(new ParameterBinding(
+            "parameter:Rml::DataModelConstructor::BindFunc:set_func",
+            "set_func",
+            "setFunc",
+            BindingType.CreateCallback(
+                "Rml::DataSetFunc",
+                "global::System.Action<{0}>",
+                managedMarshaller: null,
+                BindingType.Void,
+                [BindingType.CreateHandle("const Rml::Variant&", "Variant", variant.SymbolId)]),
+            cppTypeName: "Rml::DataSetFunc"));
+        var bindEventCallback = new FunctionBinding(
+            "method:Rml::DataModelConstructor::BindEventCallback",
+            "BindEventCallback",
+            "BindEventCallback",
+            BindingType.Boolean,
+            cppReturnTypeName: "bool",
+            cppQualifiedName: "Rml::DataModelConstructor::BindEventCallback")
+        {
+            IsStatic = false
+        };
+        bindEventCallback.Parameters.Add(new ParameterBinding(
+            "parameter:Rml::DataModelConstructor::BindEventCallback:name",
+            "name",
+            "name",
+            BindingType.CreateConfigured("Rml::String", "global::Ea.String"),
+            cppTypeName: "Rml::String"));
+        bindEventCallback.Parameters.Add(new ParameterBinding(
+            "parameter:Rml::DataModelConstructor::BindEventCallback:event_func",
+            "event_func",
+            "eventFunc",
+            BindingType.CreateCallback(
+                "Rml::DataEventFunc",
+                "global::System.Action<{0}, {1}, {2}>",
+                managedMarshaller: null,
+                BindingType.Void,
+                [
+                    BindingType.CreateHandle("Rml::DataModelHandle", "DataModelHandle", handle.SymbolId),
+                    BindingType.CreateHandle("Rml::Event&", "Event", @event.SymbolId),
+                    BindingType.CreateHandle("const Rml::VariantList&", "VariantList", variantList.SymbolId)
+                ]),
+            cppTypeName: "Rml::DataEventFunc"));
+        constructor.Members.Add(bindFunc);
+        constructor.Members.Add(bindEventCallback);
+        compilation.Members.Add(constructor);
+        compilation.Members.Add(handle);
+        compilation.Members.Add(@event);
+        compilation.Members.Add(variant);
+        compilation.Members.Add(variantList);
+
+        RbfxRmlUiSurfacePass.Apply(compilation);
+
+        Assert.False(bindFunc.IsIgnored(), bindFunc.GetIgnoreReason());
+        Assert.False(bindEventCallback.IsIgnored(), bindEventCallback.GetIgnoreReason());
+    }
+
+    [Fact]
     public void ImGui_pass_prunes_texture_id_fields()
     {
         var compilation = CreateCompilation();

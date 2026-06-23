@@ -195,8 +195,7 @@ add_library(SharpCppRbfx_Native SHARED
   ${RBFX_GENERATED_CPP_FILES}
   "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Bindings/Core/WorkQueueRuntime.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Bindings/Interop/ManagedTypeInfoRegistry.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Bindings/Interop/RefCountedRuntime.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Bindings/Rml/RmlDataModelRuntime.cpp")
+  "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Bindings/Interop/RefCountedRuntime.cpp")
 add_dependencies(SharpCppRbfx_Native sharpcpp-generate-rbfx)
 target_compile_features(SharpCppRbfx_Native PRIVATE cxx_std_20)
 set_target_properties(SharpCppRbfx_Native PROPERTIES CXX_SCAN_FOR_MODULES OFF UNITY_BUILD ON UNITY_BUILD_BATCH_SIZE 100 OUTPUT_NAME "SharpCpp.Rbfx.Native")

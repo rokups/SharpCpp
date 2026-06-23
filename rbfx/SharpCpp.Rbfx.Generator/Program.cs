@@ -129,6 +129,11 @@ internal static class Program
 
             var sdkFlags = SdkParseFlags.Load(options.FlagsFilePath);
             var submodules = RbfxBindingSubmodules.Detect(sdkFlags);
+            if (submodules.HasRmlUi)
+            {
+                marshallerConfigurationFiles.Add(Path.Combine(projectRoot, "rbfx", "include", "SharpCpp", "detail", "RbfxRmlValueMarshallers.hpp"));
+            }
+
             if (submodules.HasSystemUi)
             {
                 marshallerConfigurationFiles.Add(Path.Combine(projectRoot, "rbfx", "include", "SharpCpp", "detail", "RbfxImGuiValueMarshallers.hpp"));

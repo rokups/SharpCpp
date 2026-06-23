@@ -28,6 +28,9 @@ public static class RbfxRmlUiSurfacePass
         "Rml::Event",
         "Rml::Variant",
         "Rml::VariantList",
+        "Rml::DataEventFunc",
+        "Rml::DataGetFunc",
+        "Rml::DataSetFunc",
         "Rml::String",
         "Rml::ModalFlag",
         "Rml::FocusFlag"
