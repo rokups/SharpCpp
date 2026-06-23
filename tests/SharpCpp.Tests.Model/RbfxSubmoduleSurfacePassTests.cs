@@ -102,6 +102,46 @@ public sealed class RbfxSubmoduleSurfacePassTests
     }
 
     [Fact]
+    public void Rml_pass_keeps_document_show_flags_for_generated_show_surface()
+    {
+        var compilation = CreateCompilation();
+        var document = new RecordBinding("record:Rml::ElementDocument", "ElementDocument", "ElementDocument", "Rml::ElementDocument");
+        var modalFlag = new EnumBinding("enum:Rml::ModalFlag", "ModalFlag", "ModalFlag", cppQualifiedName: "Rml::ModalFlag");
+        var focusFlag = new EnumBinding("enum:Rml::FocusFlag", "FocusFlag", "FocusFlag", cppQualifiedName: "Rml::FocusFlag");
+        var show = new FunctionBinding(
+            "method:Rml::ElementDocument::Show",
+            "Show",
+            "Show",
+            BindingType.Void,
+            cppQualifiedName: "Rml::ElementDocument::Show")
+        {
+            IsStatic = false
+        };
+        show.Parameters.Add(new ParameterBinding(
+            "parameter:Rml::ElementDocument::Show:modal_flag",
+            "modal_flag",
+            "modalFlag",
+            BindingType.CreateEnum("Rml::ModalFlag", "ModalFlag", enumId: modalFlag.SymbolId),
+            cppTypeName: "Rml::ModalFlag"));
+        show.Parameters.Add(new ParameterBinding(
+            "parameter:Rml::ElementDocument::Show:focus_flag",
+            "focus_flag",
+            "focusFlag",
+            BindingType.CreateEnum("Rml::FocusFlag", "FocusFlag", enumId: focusFlag.SymbolId),
+            cppTypeName: "Rml::FocusFlag"));
+        document.Members.Add(show);
+        compilation.Members.Add(document);
+        compilation.Members.Add(modalFlag);
+        compilation.Members.Add(focusFlag);
+
+        RbfxRmlUiSurfacePass.Apply(compilation);
+
+        Assert.False(modalFlag.IsIgnored());
+        Assert.False(focusFlag.IsIgnored());
+        Assert.False(show.IsIgnored());
+    }
+
+    [Fact]
     public void ImGui_pass_prunes_texture_id_fields()
     {
         var compilation = CreateCompilation();

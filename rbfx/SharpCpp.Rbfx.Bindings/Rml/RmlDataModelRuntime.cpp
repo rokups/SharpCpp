@@ -63,44 +63,6 @@ SHARPCPP_EXPORT ret_t<bool> sharpcpp_rml_DataModelConstructor_BindEventCallback(
     return self->BindEventCallback(*name, std::move(callback));
 }
 
-SHARPCPP_EXPORT ret_t<Rml::DataModelHandle*> sharpcpp_rml_DataModelConstructor_GetModelHandle(arg_t<Rml::DataModelConstructor*> self)
-{
-    if (self == nullptr)
-    {
-        return nullptr;
-    }
-
-    return new Rml::DataModelHandle(self->GetModelHandle());
-}
-
-SHARPCPP_EXPORT ret_t<bool> sharpcpp_rml_DataModelHandle_IsVariableDirty(
-    arg_t<Rml::DataModelHandle*> self,
-    const char* variableName,
-    std::size_t variableNameLength)
-{
-    if (self == nullptr)
-    {
-        return false;
-    }
-
-    const auto name = MakeRmlString(variableName, variableNameLength);
-    return self->IsVariableDirty(name);
-}
-
-SHARPCPP_EXPORT ret_t<void> sharpcpp_rml_DataModelHandle_DirtyVariable(
-    arg_t<Rml::DataModelHandle*> self,
-    const char* variableName,
-    std::size_t variableNameLength)
-{
-    if (self == nullptr)
-    {
-        return;
-    }
-
-    const auto name = MakeRmlString(variableName, variableNameLength);
-    self->DirtyVariable(name);
-}
-
 SHARPCPP_EXPORT ret_t<void> sharpcpp_rml_Variant_SetString(arg_t<Rml::Variant*> self, const char* value, std::size_t valueLength)
 {
     if (self == nullptr)

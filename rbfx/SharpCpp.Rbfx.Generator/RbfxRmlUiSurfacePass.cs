@@ -9,6 +9,7 @@ public static class RbfxRmlUiSurfacePass
         "Rml::Context",
         "Rml::DataModelConstructor",
         "Rml::DataModelHandle",
+        "Rml::DataTypeRegister",
         "Rml::Element",
         "Rml::ElementDocument",
         "Rml::Event",
@@ -21,13 +22,22 @@ public static class RbfxRmlUiSurfacePass
         "Rml::Context",
         "Rml::DataModelConstructor",
         "Rml::DataModelHandle",
+        "Rml::DataTypeRegister",
         "Rml::Element",
         "Rml::ElementDocument",
         "Rml::Event",
         "Rml::Variant",
         "Rml::VariantList",
-        "Rml::String"
+        "Rml::String",
+        "Rml::ModalFlag",
+        "Rml::FocusFlag"
     ];
+
+    private static readonly HashSet<string> PublicEnumNames = new(StringComparer.Ordinal)
+    {
+        "Rml::ModalFlag",
+        "Rml::FocusFlag"
+    };
 
     public static int Apply(BindingCompilation compilation)
     {
@@ -54,8 +64,16 @@ public static class RbfxRmlUiSurfacePass
         foreach (var enumBinding in compilation.Enums.Where(static enumBinding => IsRml(enumBinding.CppQualifiedName)))
         {
             enumBinding.ManagedNamespace = "Rml";
-            enumBinding.SetIgnoreReason("RmlUI enum is outside the conservative bootstrap surface", overwriteExisting: false);
-            enumBinding.SetMetadata(MetadataKeys.SilentExclusion, true);
+            if (PublicEnumNames.Contains(enumBinding.CppQualifiedName))
+            {
+                enumBinding.ClearIgnoreReason();
+                enumBinding.RemoveMetadata(MetadataKeys.SilentExclusion);
+            }
+            else
+            {
+                enumBinding.SetIgnoreReason("RmlUI enum is outside the conservative bootstrap surface", overwriteExisting: false);
+                enumBinding.SetMetadata(MetadataKeys.SilentExclusion, true);
+            }
             changed++;
         }
 

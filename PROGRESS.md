@@ -8,7 +8,7 @@ Bootstrap an independent SharpCpp line from `doc/`, selectively adapting small b
 
 All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E) on the last clean verified baseline. The full pipeline — C++ headers → generated C# wrappers + native thunks — runs end-to-end for both synthetic fixtures and the real rbfx SDK.
 
-Current worktree verification passes with rbfx accessor-style `Get*` / `Set*` / `Is*` pairs promoted to generated C# properties. Redundant handwritten conveniences covered by those generated properties were removed, and remaining consumers use the generated property surface.
+Current worktree verification passes with rbfx accessor-style `Get*` / `Set*` / `Is*` pairs promoted to generated C# properties and generated RmlUI data-model/document APIs replacing stale manual P/Invoke conveniences. Thin managed convenience wrappers remain acceptable when they delegate to generated APIs without handwritten native entrypoints.
 
 ### Model & Metadata
 - Binding model: records, enums, free functions, methods, constructors, fields, operators, templates/generics
@@ -74,6 +74,7 @@ Current worktree verification passes with rbfx accessor-style `Get*` / `Set*` / 
 - rbfx inheritable SDK classes are marked director-capable at parse time so abstract constructors can support managed subclasses without weakening the core abstract-constructor gate
 - rbfx macro headers are molded into managed-only AST nodes and rendered by the normal grouped renderer, generating surfaces like `EngineDefs` and `EngineEvents`
 - rbfx accessor pairs are promoted to generated C# properties through configured marshaller patterns, with reserved SDK getters and projected secondary-base methods kept as ordinary methods
+- RmlUI bootstrap generation keeps the narrow data-model/document surface needed by the sample, including generated `Context.CreateDataModel(...)` and `ElementDocument.Show(...)`
 
 ### Infrastructure
 - Structured logging (`ILogger` with elapsed timestamps)
@@ -129,6 +130,14 @@ Current worktree verification passes with rbfx accessor-style `Get*` / `Set*` / 
 - All type-specific behaviors configured through C++/C# marshallers, never hardcoded in core
 
 ## Recently Fixed
+
+- **Generated RmlUI document/data-model APIs replaced stale manual P/Invoke conveniences**:
+  - Narrowed `RbfxRmlUiSurfacePass` to keep `Rml::DataTypeRegister`, `Rml::ModalFlag`, and `Rml::FocusFlag`, allowing the normal generator to emit `Rml.Context.CreateDataModel(...)` and `Rml.ElementDocument.Show(...)` from SDK headers.
+  - Deleted the stale `RmlUiConvenience.cs` manual P/Invoke file; its two imports either lacked a native implementation or are now generated.
+  - Removed generated-covered handwritten Rml data-model dirty-variable P/Invokes/native exports and kept only thin managed `string` wrappers over generated `Ea.String` APIs.
+  - Removed the unused handwritten `DataModelConstructor_GetModelHandle` native export because generated `GetModelHandle()` is now the canonical surface.
+  - Kept true runtime bridges that still cover unsupported callback/template/lifetime gaps: WorkQueue callbacks, Rml `BindFunc`/`BindEventCallback`, Rml variant string conversion/list access, ref-counted runtime, and managed type-info registry.
+  - Verification: focused `RbfxSubmoduleSurfacePassTests`, `cmake --build --preset Debug`, and `ctest --preset Debug --output-on-failure` all pass.
 
 - **rbfx accessor pairs now generate C# properties instead of requiring handwritten conveniences**:
   - Added `GenerateAccessorPropertiesPass` to annotate coherent getter/setter pairs as renderer properties without adding type-specific core rules.

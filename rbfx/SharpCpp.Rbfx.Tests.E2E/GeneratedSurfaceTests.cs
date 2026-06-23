@@ -61,10 +61,15 @@ public sealed class GeneratedSurfaceTests
             return;
         }
 
-        var content = File.ReadAllText(Path.Combine(GetGeneratedDir(), "ThirdParty", "RmlUi", "SharpCpp.Rbfx.Core.ElementDocument.g.cs"));
+        var documentContent = File.ReadAllText(Path.Combine(GetGeneratedDir(), "ThirdParty", "RmlUi", "SharpCpp.Rbfx.Core.ElementDocument.g.cs"));
+        var contextContent = File.ReadAllText(Path.Combine(GetGeneratedDir(), "ThirdParty", "RmlUi", "SharpCpp.Rbfx.Core.Context.g.cs"));
 
-        Assert.Contains("namespace Rml", content, StringComparison.Ordinal);
-        Assert.Contains("public partial class ElementDocument", content, StringComparison.Ordinal);
+        Assert.Contains("namespace Rml", documentContent, StringComparison.Ordinal);
+        Assert.Contains("public partial class ElementDocument", documentContent, StringComparison.Ordinal);
+        Assert.Contains("public void Show(global::Rml.ModalFlag modal_flag = global::Rml.ModalFlag.None, global::Rml.FocusFlag focus_flag = global::Rml.FocusFlag.Auto)", documentContent, StringComparison.Ordinal);
+        Assert.Contains("public enum ModalFlag", documentContent, StringComparison.Ordinal);
+        Assert.Contains("public enum FocusFlag", documentContent, StringComparison.Ordinal);
+        Assert.Contains("public global::Rml.DataModelConstructor CreateDataModel(global::Ea.String name, global::Rml.DataTypeRegister? data_type_register = default)", contextContent, StringComparison.Ordinal);
     }
 
     [Fact]

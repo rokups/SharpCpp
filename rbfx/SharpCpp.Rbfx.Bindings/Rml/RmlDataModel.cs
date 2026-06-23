@@ -100,15 +100,15 @@ public partial class DataModelHandle
     public bool IsVariableDirty(string variableName)
     {
         ArgumentNullException.ThrowIfNull(variableName);
-        var bytes = Encoding.UTF8.GetBytes(variableName);
-        return __RmlDataModelPInvoke.IsVariableDirty(NativeObject.GetHandle(this), bytes, (nuint)bytes.Length);
+        using var nativeName = new Ea.String(variableName);
+        return IsVariableDirty(nativeName);
     }
 
     public void DirtyVariable(string variableName)
     {
         ArgumentNullException.ThrowIfNull(variableName);
-        var bytes = Encoding.UTF8.GetBytes(variableName);
-        __RmlDataModelPInvoke.DirtyVariable(NativeObject.GetHandle(this), bytes, (nuint)bytes.Length);
+        using var nativeName = new Ea.String(variableName);
+        DirtyVariable(nativeName);
     }
 }
 
@@ -167,15 +167,6 @@ internal static unsafe partial class __RmlDataModelPInvoke
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     [return: MarshalAs(UnmanagedType.I1)]
     internal static partial bool BindEventCallback(nint self, nint name, nint eventFunc, nint context);
-
-    [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rml_DataModelHandle_IsVariableDirty", StringMarshalling = StringMarshalling.Utf8)]
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    [return: MarshalAs(UnmanagedType.I1)]
-    internal static partial bool IsVariableDirty(nint self, ReadOnlySpan<byte> variableName, nuint variableNameLength);
-
-    [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rml_DataModelHandle_DirtyVariable", StringMarshalling = StringMarshalling.Utf8)]
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static partial void DirtyVariable(nint self, ReadOnlySpan<byte> variableName, nuint variableNameLength);
 
     [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rml_Variant_SetString", StringMarshalling = StringMarshalling.Utf8)]
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
