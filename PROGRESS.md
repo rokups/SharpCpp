@@ -133,6 +133,11 @@ Current worktree verification passes with rbfx accessor-style `Get*` / `Set*` / 
 
 ## Recently Fixed
 
+- **`Rbfx.Application` keeps RmlUI text state in reusable `Ea.String` buffers**:
+  - Replaced per-value managed `string` RmlUI backing fields with disposed `Ea.String` instances so data-model getters can assign native text directly via generated `Rml.Variant.Assign<Ea.String>`.
+  - Updated Rml note/event setters to copy generated `Variant.Get<Ea.String>` results into the existing buffer instead of replacing managed strings.
+  - Verification: `cmake --build --preset Debug` and `ctest --preset Debug` pass.
+
 - **RmlUI/ImGui ownership is header-path based and Rml Variant string APIs now use generated template instantiations**:
   - `RbfxRmlUiSurfacePass` and `RbfxImGuiSurfacePass` classify third-party declarations by parsed `HeaderIncludePath`; name allowlists now remain conservative exposure policy, not ownership detection.
   - Added generated explicit `Rml::Variant` string template instantiations for public `Variant::operator=<T>` and `Variant::Get<T>`, yielding `Variant.Assign<Ea.String>(...)` and `Variant.Get<Ea.String>(...)` without a custom Rml value marshaller header.

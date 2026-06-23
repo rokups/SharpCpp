@@ -202,11 +202,11 @@ partial class DemoApplication : Application
     private Urho3D.Core.EventHandler _updateHandler;
     private float _elapsedTime;
     private float _cubeRotation;
-    private string _elapsedText = "0.0 s";
-    private string _rotationText = "0 deg";
-    private string _fpsText = "--";
-    private string _statusText = "Initializing";
-    private string _noteText = "Bindings online";
+    private readonly Ea.String _elapsedText = new("0.0 s");
+    private readonly Ea.String _rotationText = new("0 deg");
+    private readonly Ea.String _fpsText = new("--");
+    private readonly Ea.String _statusText = new("Initializing");
+    private readonly Ea.String _noteText = new("Bindings online");
     private float _framesPerSecond;
     private bool _hasFrameRate;
     private int _eventCount;
@@ -235,6 +235,11 @@ partial class DemoApplication : Application
             _viewport?.Dispose();
             _scene?.Dispose();
             _documentSource.Dispose();
+            _elapsedText.Dispose();
+            _rotationText.Dispose();
+            _fpsText.Dispose();
+            _statusText.Dispose();
+            _noteText.Dispose();
             _imguiElapsedLabel.Dispose();
             _imguiRotationLabel.Dispose();
             _imguiFpsLabel.Dispose();
@@ -356,12 +361,12 @@ partial class DemoApplication : Application
         _cubeRotation = (_cubeRotation + CubeRotationSpeed * timeStep) % 360.0f;
         _cube.Yaw(CubeRotationSpeed * timeStep);
 
-        UpdateModelValue(ref _elapsedText, $"{_elapsedTime.ToString("0.0")} s", "elapsed");
-        UpdateModelValue(ref _rotationText, $"{_cubeRotation.ToString("0")} deg", "rotation");
+        UpdateModelValue(_elapsedText, $"{_elapsedTime.ToString("0.0")} s", "elapsed");
+        UpdateModelValue(_rotationText, $"{_cubeRotation.ToString("0")} deg", "rotation");
         _hasFrameRate = timeStep > 0.0f;
         _framesPerSecond = _hasFrameRate ? 1.0f / timeStep : 0.0f;
 
-        UpdateModelValue(ref _fpsText, _hasFrameRate
+        UpdateModelValue(_fpsText, _hasFrameRate
             ? $"{_framesPerSecond.ToString("0")} fps"
             : "--",
             "fps");
@@ -371,10 +376,10 @@ partial class DemoApplication : Application
         var statusText = _eventCount > 0
             ? $"{_eventCount.ToString(CultureInfo.InvariantCulture)} event callback(s) handled"
             : noteDirty
-                ? (string.IsNullOrWhiteSpace(_noteText) ? "Note cleared through the data model" : "Note updated through the data model")
+                ? (IsNullOrWhiteSpace(_noteText) ? "Note cleared through the data model" : "Note updated through the data model")
                 : (_ui.IsHovered ? "Pointer over UI" : "Pointer free for the 3D scene");
 
-        UpdateModelValue(ref _statusText, statusText, "status");
+        UpdateModelValue(_statusText, statusText, "status");
         UpdateImGuiTextState();
         DrawImGui();
     }
@@ -480,10 +485,10 @@ partial class DemoApplication : Application
         }
 
         _imguiStatusLabel.Format($"Status: {_statusText}");
-        _imguiNoteValue.Format($"{(string.IsNullOrWhiteSpace(_noteText) ? "(empty)" : _noteText)}");
+        _imguiNoteValue.Format($"{(IsNullOrWhiteSpace(_noteText) ? "(empty)" : _noteText)}");
         _imguiToggleLabel.Format($"{(_showImGuiDetails ? "Hide extra ImGui details" : "Show extra ImGui details")}");
         _imguiDetailsText.Format(
-            $"UI hovered: {(_ui != null && _ui.IsHovered ? "yes" : "no")} | Event callbacks: {_eventCount} | Note length: {_noteText.Length}");
+            $"UI hovered: {(_ui != null && _ui.IsHovered ? "yes" : "no")} | Event callbacks: {_eventCount} | Note length: {_noteText.Count}");
     }
 
     private void BindRequired(Ea.String name, Action<Rml.Variant> getFunc)
@@ -510,60 +515,61 @@ partial class DemoApplication : Application
         }
     }
 
-    private void UpdateModelValue(ref string currentValue, string newValue, string variableName)
+    private void UpdateModelValue(Ea.String currentValue, string newValue, string variableName)
     {
-        if (currentValue == newValue || _dataModelHandle == null)
+        if (currentValue.Equals(newValue) || _dataModelHandle == null)
         {
             return;
         }
 
-        currentValue = newValue;
+        currentValue.Assign(newValue);
         using var nativeVariableName = new Ea.String(variableName);
         _dataModelHandle.DirtyVariable(nativeVariableName);
     }
 
     private void BindElapsedValue(Rml.Variant value)
     {
-        SetVariantString(value, _elapsedText);
+        _ = value.Assign<Ea.String>(_elapsedText);
     }
 
     private void BindRotationValue(Rml.Variant value)
     {
-        SetVariantString(value, _rotationText);
+        _ = value.Assign<Ea.String>(_rotationText);
     }
 
     private void BindFpsValue(Rml.Variant value)
     {
-        SetVariantString(value, _fpsText);
+        _ = value.Assign<Ea.String>(_fpsText);
     }
 
     private void BindStatusValue(Rml.Variant value)
     {
-        SetVariantString(value, _statusText);
+        _ = value.Assign<Ea.String>(_statusText);
     }
 
     private void BindNoteValue(Rml.Variant value)
     {
-        SetVariantString(value, _noteText);
+        _ = value.Assign<Ea.String>(_noteText);
     }
 
     private void SetNoteValue(Rml.Variant value)
     {
-        _noteText = GetVariantString(value);
+        CopyVariantString(_noteText, value);
     }
 
     private void ApplyNoteFromEvent(Rml.DataModelHandle handle, Rml.Event @event, Ea.Vector<Rml.Variant> arguments)
     {
         _ = @event;
 
-        var nextNote = string.Empty;
-
         if (arguments.Count > 0)
         {
-            nextNote = GetVariantString(arguments[0]);
+            CopyVariantString(_noteText, arguments[0]);
+        }
+        else
+        {
+            _noteText.Assign(string.Empty);
         }
 
-        _noteText = nextNote;
         _eventCount++;
         using var noteName = new Ea.String("note");
         using var statusName = new Ea.String("status");
@@ -571,19 +577,15 @@ partial class DemoApplication : Application
         handle.DirtyVariable(statusName);
     }
 
-    private static void SetVariantString(Rml.Variant value, string text)
-    {
-        using var nativeText = new Ea.String(text);
-        _ = value.Assign<Ea.String>(nativeText);
-    }
-
-    private static string GetVariantString(Rml.Variant value)
+    private static void CopyVariantString(Ea.String target, Rml.Variant value)
     {
         using var fallback = new Ea.String();
         using var nativeText = value.Get<Ea.String>(fallback);
-        return nativeText.ToString() ?? string.Empty;
+        target.Assign(nativeText.AsUtf8Span());
     }
 
+    private static bool IsNullOrWhiteSpace(Ea.String value)
+        => string.IsNullOrWhiteSpace(value.ToString());
 }
 
 internal class Program
