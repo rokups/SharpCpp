@@ -141,7 +141,8 @@ public static class DegradeUnsupportedSurfacePass
                     continue;
                 }
 
-                if (TryGetNamespaceExclusionReason(function.CppQualifiedName, allowedNamespaceRoots, out var namespaceReason))
+                if (!function.HasMetadata(MetadataKeys.MarshallerExposedMethod) &&
+                    TryGetNamespaceExclusionReason(function.CppQualifiedName, allowedNamespaceRoots, out var namespaceReason))
                 {
                     function.SetIgnoreReason(namespaceReason);
                     changed = true;

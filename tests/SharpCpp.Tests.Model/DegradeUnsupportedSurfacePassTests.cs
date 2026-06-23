@@ -212,6 +212,42 @@ public sealed class DegradeUnsupportedSurfacePassTests
     }
 
     [Fact]
+    public void Apply_keeps_marshaller_exposed_members_outside_namespace_mappings()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Urho3D", "Bindings", "Native", ["Vector.h"])
+        {
+            NamespaceMappings = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["Urho3D"] = "Urho3D"
+            }
+        };
+        var vector = new RecordBinding("record:eastl::vector", "vector", "Vector", "eastl::vector")
+        {
+            ManagedBaseTypeName = "global::SharpCpp.Support.VectorBase<{0}>"
+        };
+        vector.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        var method = new FunctionBinding(
+            "method:eastl::vector:GetCountCore",
+            "GetCountCore",
+            "GetCountCore",
+            BindingType.UInt64,
+            cppQualifiedName: "eastl::vector::GetCountCore")
+        {
+            AccessModifier = BindingAccessModifier.Protected,
+            IsOverride = true,
+            OwningRecordCppTypeName = vector.CppQualifiedName
+        };
+        method.SetMetadata(MetadataKeys.MarshallerExposedMethod, "eastl::vector<T>");
+        vector.Members.Add(method);
+        compilation.Members.Add(vector);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.False(vector.IsIgnored(), vector.GetIgnoreReason());
+        Assert.False(method.IsIgnored(), method.GetIgnoreReason());
+    }
+
+    [Fact]
     public void Apply_ignores_callback_return_types()
     {
         var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Callbacks.h"]);

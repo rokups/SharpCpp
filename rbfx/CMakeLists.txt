@@ -160,7 +160,7 @@ file(GLOB_RECURSE RBFX_GENERATOR_INPUTS CONFIGURE_DEPENDS
 
 add_custom_command(
   OUTPUT "${RBFX_GENERATED_STAMP}"
-  COMMAND "${CMAKE_COMMAND}" 
+  COMMAND "${CMAKE_COMMAND}"
           "-DGENERATOR_DLL=${SHARPCPP_BIN_DIR}/SharpCpp.Rbfx.Generator.dll"
           "-DGENERATED_STAMP=${RBFX_GENERATED_STAMP}"
           "-DGENERATED_DIR=${RBFX_GENERATED_ROOT}"
@@ -196,7 +196,6 @@ add_library(SharpCppRbfx_Native SHARED
   "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Bindings/Core/WorkQueueRuntime.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Bindings/Interop/ManagedTypeInfoRegistry.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Bindings/Interop/RefCountedRuntime.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Bindings/Engine/RbfxApplicationRuntime.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Bindings/Rml/RmlDataModelRuntime.cpp")
 add_dependencies(SharpCppRbfx_Native sharpcpp-generate-rbfx)
 target_compile_features(SharpCppRbfx_Native PRIVATE cxx_std_20)

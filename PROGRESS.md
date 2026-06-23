@@ -6,7 +6,9 @@ Bootstrap an independent SharpCpp line from `doc/`, selectively adapting small b
 
 ## What Works Today
 
-All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pipeline — C++ headers → generated C# wrappers + native thunks — runs end-to-end for both synthetic fixtures and the real rbfx SDK.
+All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E) on the last clean verified baseline. The full pipeline — C++ headers → generated C# wrappers + native thunks — runs end-to-end for both synthetic fixtures and the real rbfx SDK.
+
+Current worktree verification passes with the intentional deletion of superfluous handwritten rbfx helpers (`ObjectReflection.cs`, `ApplicationSupport.cs`, and `RbfxApplicationRuntime.cpp`). The remaining consumers now use generated binding surfaces instead of restoring those manual additions.
 
 ### Model & Metadata
 - Binding model: records, enums, free functions, methods, constructors, fields, operators, templates/generics
@@ -70,6 +72,7 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - `ea::string` / `eastl::string` projected as `Ea.String`
 - Cross-module composition: `rbfx/Rbfx.UserCode` imports upstream metadata, extends wrappers
 - rbfx inheritable SDK classes are marked director-capable at parse time so abstract constructors can support managed subclasses without weakening the core abstract-constructor gate
+- rbfx macro headers are molded into managed-only AST nodes and rendered by the normal grouped renderer, generating surfaces like `EngineDefs` and `EngineEvents`
 
 ### Infrastructure
 - Structured logging (`ILogger` with elapsed timestamps)
@@ -125,6 +128,16 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 - All type-specific behaviors configured through C++/C# marshallers, never hardcoded in core
 
 ## Recently Fixed
+
+- **rbfx macro constants/events now generate through AST molding**:
+  - Added neutral managed-only model nodes (`ManagedClassBinding`, `ManagedFieldBinding`) and renderer support so generated C# helper surfaces are ordinary `BindingCompilation` members instead of post-render fragments.
+  - Added `RbfxNamespaceMacroSurfacePass` to scan SDK headers for `URHO3D_GLOBAL_CONSTANT`, `URHO3D_EVENT`, and `URHO3D_PARAM`, deriving managed classes from header paths such as `Urho3D/Engine/EngineDefs.h` -> `Urho3D.Engine.EngineDefs`.
+  - Constants render as managed `const string` fields, preserving existing consumers such as `EngineDefs.FullScreen` without adding native thunks or type-specific core rules.
+  - Events render as static event instances plus nested event wrapper classes deriving from `Urho3D.Detail.EventDefinition`, with parameter `StringHash` fields.
+  - Macro classes now avoid collisions with real generated records/enums by suffixing colliding names with `Macros` (for example `SerializableMacros`, `DragDropPayloadMacros`).
+  - Added renderer unit coverage for managed-only AST output and rbfx E2E generated-surface assertions for `EngineDefs` / `EngineEvents`.
+  - Fixed the generated-binding follow-through after deleting old helpers: marshaller-exposed collection/string core methods are no longer degraded for external namespace roots, marshaller-configured wrappers get generated default constructors for allocation, `Ea.String(string)` chains through generated construction instead of a handwritten native export, and `Rbfx.Application` subscribes to `CoreEvents.Update` via generated `EventHandler` / `SubscribeToEventManual`.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj`, `dotnet test tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj`, `cmake --build --preset Debug`, and `ctest --preset Debug --output-on-failure` all pass.
 
 - **rbfx handwritten helper layout now mirrors generated ownership instead of dumping domain helpers into `Interop`**:
   - Moved additive helpers from `Interop` into their owning domains: `Core` (`Context`, `Object`, `ObjectReflection`, `WorkQueue`), `Container` (`Ea.String` construction/formatting), `Engine` (`Application` update/engine-parameter helpers), and `Graphics` (`Renderer`/`Viewport` conveniences).

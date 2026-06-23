@@ -61,6 +61,66 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Managed_only_classes_render_through_normal_grouped_output()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });
+        var engineDefs = new ManagedClassBinding("managed:engine-defs", "EngineDefs", "EngineDefs")
+        {
+            HeaderIncludePath = "Urho3D/Engine/EngineDefs.h",
+            ManagedNamespace = "SharpCpp.Sample.Engine",
+            IsStatic = true,
+            IsPartial = true
+        };
+        engineDefs.Members.Add(new ManagedFieldBinding("managed:engine-defs:FullScreen", "FullScreen", "FullScreen", "string", "\"FullScreen\"")
+        {
+            HeaderIncludePath = engineDefs.HeaderIncludePath,
+            IsConst = true
+        });
+
+        var detail = new ManagedClassBinding("managed:engine-events:Detail", "Detail", "Detail")
+        {
+            HeaderIncludePath = "Urho3D/Engine/EngineEvents.h",
+            IsStatic = true,
+            IsPartial = true
+        };
+        var updateEvent = new ManagedClassBinding("managed:engine-events:Detail:UpdateEvent", "UpdateEvent", "UpdateEvent")
+        {
+            HeaderIncludePath = detail.HeaderIncludePath,
+            IsSealed = true,
+            IsPartial = false,
+            BaseTypeName = "global::SharpCpp.Sample.EventDefinition"
+        };
+        updateEvent.BodyCodeBlocks.Add(
+            """
+            public UpdateEvent()
+                : base("Update")
+            {
+            }
+            """);
+        updateEvent.Members.Add(new ManagedFieldBinding("managed:engine-events:Detail:UpdateEvent:TimeStep", "TimeStep", "TimeStep", "global::SharpCpp.Sample.StringHash", "\"TimeStep\"")
+        {
+            IsStatic = false
+        });
+        detail.Members.Add(updateEvent);
+        engineDefs.Members.Add(detail);
+        compilation.Members.Add(engineDefs);
+
+        var managedOutput = BindingOutputRenderer.Render(
+                compilation,
+                "SharpCppSample",
+                header => header == "Urho3D/Engine/EngineDefs.h" ? "Engine/SharpCppSample.EngineDefs" : "SharpCppSample.Bindings")
+            .Files.Single(static file => file.RelativePath == "Engine/SharpCppSample.EngineDefs.g.cs")
+            .Content;
+
+        Assert.Contains("namespace SharpCpp.Sample.Engine", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public static partial class EngineDefs", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public const string FullScreen = \"FullScreen\";", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public static partial class Detail", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public sealed class UpdateEvent : global::SharpCpp.Sample.EventDefinition", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public readonly global::SharpCpp.Sample.StringHash TimeStep = \"TimeStep\";", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Ignored_stubs_prefer_native_declaration_metadata()
     {
         var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });

@@ -35,6 +35,25 @@ public sealed class GeneratedSurfaceTests
     }
 
     [Fact]
+    public void Macro_headers_generate_engine_constants_and_events()
+    {
+        var defsContent = File.ReadAllText(Path.Combine(GetGeneratedDir(), "Engine", "SharpCpp.Rbfx.EngineDefs.g.cs"));
+        var eventsContent = File.ReadAllText(Path.Combine(GetGeneratedDir(), "Engine", "SharpCpp.Rbfx.EngineEvents.g.cs"));
+
+        Assert.Contains("public static partial class EngineDefs", defsContent, StringComparison.Ordinal);
+        Assert.Contains("public const string FullScreen = \"FullScreen\";", defsContent, StringComparison.Ordinal);
+        Assert.Contains("public const string WindowTitle = \"WindowTitle\";", defsContent, StringComparison.Ordinal);
+        Assert.Equal("FullScreen", global::Urho3D.Engine.EngineDefs.FullScreen);
+        Assert.Equal("WindowTitle", global::Urho3D.Engine.EngineDefs.WindowTitle);
+
+        Assert.Contains("public static partial class EngineEvents", eventsContent, StringComparison.Ordinal);
+        Assert.Contains("public static readonly Detail.ConsoleCommandEvent ConsoleCommand = new Detail.ConsoleCommandEvent();", eventsContent, StringComparison.Ordinal);
+        Assert.Contains("public sealed class ConsoleCommandEvent : global::Urho3D.Detail.EventDefinition", eventsContent, StringComparison.Ordinal);
+        Assert.Contains("public readonly global::Urho3D.Math.StringHash Command = \"Command\";", eventsContent, StringComparison.Ordinal);
+        Assert.IsType<global::Urho3D.Engine.EngineEvents.Detail.ConsoleCommandEvent>(global::Urho3D.Engine.EngineEvents.ConsoleCommand);
+    }
+
+    [Fact]
     public void Enabled_RmlUI_bindings_generate_rml_namespace_surface()
     {
         if (!GeneratorLogContains("RmlUI bindings: enabled"))

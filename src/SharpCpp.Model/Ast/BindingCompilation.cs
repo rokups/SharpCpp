@@ -49,6 +49,7 @@ public sealed class BindingCompilation : BindingContainerNode
     private IReadOnlyList<RecordBinding>? _records;
     private IReadOnlyList<EnumBinding>? _enums;
     private IReadOnlyList<FunctionBinding>? _functions;
+    private IReadOnlyList<ManagedClassBinding>? _managedClasses;
     private IReadOnlyDictionary<string, RecordBinding>? _recordsBySymbolId;
     private IReadOnlyDictionary<string, EnumBinding>? _enumsBySymbolId;
 
@@ -57,6 +58,8 @@ public sealed class BindingCompilation : BindingContainerNode
     public IReadOnlyList<EnumBinding> Enums => _enums ??= Descendants<EnumBinding>().ToArray();
 
     public IReadOnlyList<FunctionBinding> Functions => _functions ??= Descendants<FunctionBinding>().ToArray();
+
+    public IReadOnlyList<ManagedClassBinding> ManagedClasses => _managedClasses ??= Descendants<ManagedClassBinding>().ToArray();
 
     public RecordBinding? FindRecordBySymbolId(string? symbolId)
     {
@@ -92,7 +95,14 @@ public sealed class BindingCompilation : BindingContainerNode
         _records = null;
         _enums = null;
         _functions = null;
+        _managedClasses = null;
         _recordsBySymbolId = null;
         _enumsBySymbolId = null;
+    }
+
+    internal override void NotifyStructureChanged()
+    {
+        InvalidateCaches();
+        base.NotifyStructureChanged();
     }
 }

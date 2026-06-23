@@ -7,5 +7,7 @@ public enum BindingNodeKind
     Function = 3,
     Parameter = 4,
     Enum = 5,
-    Field = 6
+    Field = 6,
+    ManagedClass = 7,
+    ManagedField = 8
 }

@@ -311,7 +311,40 @@ public static class MarshallerMetadataPhase2
 
                 record.Members.Add(function);
             }
+
+            AddDefaultConstructorForConfiguredWrapper(compilation, record, cppTypeName, config);
         }
+    }
+
+    private static void AddDefaultConstructorForConfiguredWrapper(
+        BindingCompilation compilation,
+        RecordBinding record,
+        string cppTypeName,
+        MarshallerConfigExtractor.MarshallerBodyConfig config)
+    {
+        if (config.ExposedMembers.Count == 0 ||
+            string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ||
+            record.Members.OfType<FunctionBinding>().Any(static member => member.IsConstructor && member.Parameters.Count == 0))
+        {
+            return;
+        }
+
+        var constructor = new FunctionBinding(
+            $"ctor:{record.NativeName}:marshaller-default",
+            record.NativeName,
+            record.ManagedName,
+            record.HandleType,
+            $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.NativeName)}_ctor",
+            $"{record.CppQualifiedName}*",
+            $"{record.CppQualifiedName}::{record.NativeName}")
+        {
+            IsStatic = false,
+            AccessModifier = BindingAccessModifier.Public,
+            IsConstructor = true,
+            OwningRecordCppTypeName = record.CppQualifiedName
+        };
+        constructor.SetMetadata(MetadataKeys.MarshallerExposedMethod, cppTypeName);
+        record.Members.Add(constructor);
     }
 
     private static RecordBinding? FindRecordByName(

@@ -80,7 +80,8 @@ public static partial class BindingOutputRenderer
         var groups = compilation.Members.OfType<BindingNode>()
             .Where(m => m is FunctionBinding ||
                         m is RecordBinding record && !record.GetMetadata<bool>(MetadataKeys.SuppressEmission) ||
-                        m is EnumBinding @enum && !@enum.GetMetadata<bool>(MetadataKeys.SuppressEmission))
+                        m is EnumBinding @enum && !@enum.GetMetadata<bool>(MetadataKeys.SuppressEmission) ||
+                        m is ManagedClassBinding managedClass && managedClass.Parent is not ManagedClassBinding)
             .GroupBy(m => deriveGroupStem(string.IsNullOrEmpty(m.HeaderIncludePath) ? null : m.HeaderIncludePath), StringComparer.Ordinal)
             .OrderBy(static group => group.Key, StringComparer.Ordinal)
             .ToList();
@@ -129,17 +130,22 @@ public static partial class BindingOutputRenderer
         var allEnums = compilation.Enums.Where(static @enum => !@enum.GetMetadata<bool>(MetadataKeys.SuppressEmission) && !@enum.IsSilentlyExcluded()).AsEnumerable();
         var allFunctions = compilation.Functions.Where(static function => !function.IsSilentlyExcluded() &&
             (function.Parent is not RecordBinding parentRecord || !parentRecord.IsSilentlyExcluded())).AsEnumerable();
+        var allManagedClasses = compilation.ManagedClasses
+            .Where(static managedClass => managedClass.Parent is not ManagedClassBinding)
+            .AsEnumerable();
 
         if (memberFilter is not null)
         {
             allRecords = allRecords.Where(r => memberFilter(r));
             allEnums = allEnums.Where(e => memberFilter(e));
             allFunctions = allFunctions.Where(f => memberFilter(f));
+            allManagedClasses = allManagedClasses.Where(c => memberFilter(c));
         }
 
         var records = allRecords.OrderBy(static record => record.ManagedName, StringComparer.Ordinal).ToArray();
         var enums = allEnums.OrderBy(static item => item.ManagedName, StringComparer.Ordinal).ToArray();
         var functions = allFunctions.OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
+        var managedClasses = allManagedClasses.OrderBy(static item => item.ManagedName, StringComparer.Ordinal).ToArray();
         var interfaceRecordIds = compilation.Records
             .SelectMany(record => record.GetSecondaryBaseRecords(compilation))
             .Select(static record => record.SymbolId)
@@ -171,8 +177,10 @@ public static partial class BindingOutputRenderer
 
         var recordGroups = records.GroupBy(record => GetManagedNamespace(compilation, record)).ToArray();
         var enumGroups = enums.GroupBy(@enum => GetManagedNamespace(compilation, @enum)).ToArray();
+        var managedClassGroups = managedClasses.GroupBy(managedClass => GetManagedNamespace(compilation, managedClass)).ToArray();
         var allNamespaces = recordGroups.Select(group => group.Key)
             .Concat(enumGroups.Select(group => group.Key))
+            .Concat(managedClassGroups.Select(group => group.Key))
             .Distinct()
             .OrderBy(ns => ns, StringComparer.Ordinal);
 
@@ -181,6 +189,7 @@ public static partial class BindingOutputRenderer
             var nsRecords = records.Where(record => GetManagedNamespace(compilation, record) == ns).ToArray();
             var nsInterfaces = interfaceRecords.Where(record => GetManagedNamespace(compilation, record) == ns).ToArray();
             var nsEnums = enums.Where(@enum => GetManagedNamespace(compilation, @enum) == ns).ToArray();
+            var nsManagedClasses = managedClasses.Where(managedClass => GetManagedNamespace(compilation, managedClass) == ns).ToArray();
 
             writer.WriteLine();
             writer.Write(
@@ -224,6 +233,12 @@ public static partial class BindingOutputRenderer
                 {
                     writer.Write(RenderEnum(@enum));
                 }
+            }
+
+            foreach (var managedClass in nsManagedClasses)
+            {
+                writer.WriteLine();
+                writer.Write(RenderManagedClass(managedClass));
             }
 
             writer.Write(
@@ -350,6 +365,101 @@ public static partial class BindingOutputRenderer
         }
 
         return writer.ToString();
+    }
+
+    private static string GetManagedNamespace(BindingCompilation compilation, ManagedClassBinding managedClass)
+    {
+        return string.IsNullOrWhiteSpace(managedClass.ManagedNamespace)
+            ? compilation.ManagedNamespace
+            : managedClass.ManagedNamespace;
+    }
+
+    private static string RenderManagedClass(ManagedClassBinding managedClass)
+    {
+        var writer = new CodeWriter();
+        var modifiers = new List<string>
+        {
+            GetManagedVisibility(managedClass.AccessModifier)
+        };
+
+        if (managedClass.IsStatic)
+        {
+            modifiers.Add("static");
+        }
+        else if (managedClass.IsSealed)
+        {
+            modifiers.Add("sealed");
+        }
+
+        if (managedClass.IsPartial)
+        {
+            modifiers.Add("partial");
+        }
+
+        var baseClause = !managedClass.IsStatic && !string.IsNullOrWhiteSpace(managedClass.BaseTypeName)
+            ? $" : {managedClass.BaseTypeName}"
+            : string.Empty;
+
+        writer.Write(
+            $$"""
+            {{string.Join(' ', modifiers)}} class {{managedClass.ManagedName}}{{baseClause}}
+            {
+            """);
+
+        foreach (var field in managedClass.Members.OfType<ManagedFieldBinding>().OrderBy(static field => field.ManagedName, StringComparer.Ordinal))
+        {
+            writer.WriteLine();
+            writer.Write(RenderManagedField(field));
+        }
+
+        foreach (var codeBlock in managedClass.BodyCodeBlocks)
+        {
+            writer.WriteLine();
+            writer.Write(codeBlock);
+        }
+
+        foreach (var nestedClass in managedClass.Members.OfType<ManagedClassBinding>().OrderBy(static nestedClass => nestedClass.ManagedName, StringComparer.Ordinal))
+        {
+            writer.WriteLine();
+            writer.Write(RenderManagedClass(nestedClass));
+        }
+
+        writer.WriteLine();
+        writer.Write(
+            """
+            }
+            """);
+        return writer.ToString();
+    }
+
+    private static string RenderManagedField(ManagedFieldBinding field)
+    {
+        var modifiers = new List<string>
+        {
+            GetManagedVisibility(field.AccessModifier)
+        };
+
+        if (field.IsConst)
+        {
+            modifiers.Add("const");
+        }
+        else
+        {
+            if (field.IsStatic)
+            {
+                modifiers.Add("static");
+            }
+
+            if (field.IsReadOnly)
+            {
+                modifiers.Add("readonly");
+            }
+        }
+
+        var initializer = string.IsNullOrWhiteSpace(field.InitializerExpression)
+            ? string.Empty
+            : $" = {field.InitializerExpression}";
+        return $"{string.Join(' ', modifiers)} {field.ManagedTypeName} {field.ManagedName}{initializer};";
     }
 
 
@@ -4875,7 +4985,12 @@ public static partial class BindingOutputRenderer
 
     private static string GetManagedVisibility(BindingAccessModifier accessModifier)
     {
-        return accessModifier == BindingAccessModifier.Protected ? "protected" : "public";
+        return accessModifier switch
+        {
+            BindingAccessModifier.Protected => "protected",
+            BindingAccessModifier.Private => "private",
+            _ => "public"
+        };
     }
 
     private static string GetManagedVisibilityNormalized(BindingCompilation compilation, RecordBinding record, FunctionBinding function)

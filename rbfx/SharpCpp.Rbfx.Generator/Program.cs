@@ -193,6 +193,9 @@ internal static class Program
             var managedProjection = RbfxManagedNamespaceProjectionPass.Apply(compilation);
             Logger.LogInformation("Managed namespace projection complete: {NamespaceCount} namespace node(s).", managedProjection.Namespaces.Count);
 
+            var macroSurfaceCount = RbfxNamespaceMacroSurfacePass.Apply(compilation, includeRoot);
+            Logger.LogInformation("Applied rbfx macro surface shaping to {Count} header class(es).", macroSurfaceCount);
+
             Logger.LogInformation("Rendering...");
             var renderSw = Stopwatch.StartNew();
             var renderedBindings = BindingOutputRenderer.Render(compilation, GeneratedFileStem, DeriveGroupStem);

@@ -79,6 +79,7 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         Assert.Equal("String", record.ManagedName);
         Assert.Equal("Ea", record.ManagedNamespace);
         Assert.Equal("global::SharpCpp.Support.StringBase", record.ManagedBaseTypeName);
+        Assert.Contains(record.Members.OfType<FunctionBinding>(), static member => member.IsConstructor && member.Parameters.Count == 0);
         Assert.Contains(record.Members.OfType<FunctionBinding>(), static member => member.ManagedName == "GetCountCore");
         Assert.Contains(record.Members.OfType<FunctionBinding>(), static member => member.ManagedName == "GetDataCore");
         Assert.Contains(record.Members.OfType<FunctionBinding>(), static member => member.ManagedName == "AddCore");

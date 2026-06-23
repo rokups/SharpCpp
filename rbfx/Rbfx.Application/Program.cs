@@ -199,6 +199,7 @@ partial class DemoApplication : Application
     private Rml.DataModelConstructor _dataModelConstructor;
     private Rml.DataModelHandle _dataModelHandle;
     private Rml.ElementDocument _document;
+    private Urho3D.Core.EventHandler _updateHandler;
     private float _elapsedTime;
     private float _cubeRotation;
     private string _elapsedText = "0.0 s";
@@ -228,6 +229,7 @@ partial class DemoApplication : Application
         {
             _document?.Close();
             _document?.Dispose();
+            _updateHandler?.Dispose();
             _dataModelHandle?.Dispose();
             _dataModelConstructor?.Dispose();
             _viewport?.Dispose();
@@ -293,7 +295,16 @@ partial class DemoApplication : Application
 
         InitializeRmlUi();
 
-        SubscribeToUpdate(UpdateDashboard);
+        _updateHandler = new Urho3D.Core.EventHandler(this, OnUpdate);
+        SubscribeToEventManual(CoreEvents.Update, _updateHandler);
+    }
+
+    private void OnUpdate(Urho3D.Core.Object sender, StringHash eventType, Ea.UnorderedMap<StringHash, Variant> eventData)
+    {
+        var timeStep = eventData.TryGetValue(CoreEvents.Update.TimeStep, out var value)
+            ? value.GetFloat()
+            : 0.0f;
+        UpdateDashboard(timeStep);
     }
 
     private void InitializeRmlUi()
