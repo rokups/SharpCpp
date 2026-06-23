@@ -2,6 +2,24 @@ namespace Urho3D.Scene;
 
 public partial class Node
 {
+    public global::Urho3D.Math.Vector3 Position
+    {
+        get => GetPosition();
+        set => SetPosition(value);
+    }
+
+    public Node? CreateChild(string? name = null)
+    {
+        using var nativeName = new global::Ea.String(name ?? string.Empty);
+        return CreateChild(nativeName);
+    }
+
+    public T? CreateComponent<T>(uint id = 0)
+        where T : Component, global::SharpCpp.Rbfx.Bindings.Interop.IStaticTypeInfo<T>
+    {
+        return CreateComponent(T.GetTypeStatic(), id) as T;
+    }
+
     public T? GetOrCreateComponent<T>(uint id = 0)
         where T : Component, global::SharpCpp.Rbfx.Bindings.Interop.IStaticTypeInfo<T>
     {

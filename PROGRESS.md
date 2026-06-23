@@ -126,6 +126,14 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E). The full pip
 
 ## Recently Fixed
 
+- **rbfx handwritten helper layout now mirrors generated ownership instead of dumping domain helpers into `Interop`**:
+  - Moved additive helpers from `Interop` into their owning domains: `Core` (`Context`, `Object`, `ObjectReflection`, `WorkQueue`), `Container` (`Ea.String` construction/formatting), `Engine` (`Application` update/engine-parameter helpers), and `Graphics` (`Renderer`/`Viewport` conveniences).
+  - Kept `Interop` focused on true runtime bridge pieces: managed type-info registry, ref-counted instance cache/lifetime glue, and static type-info contract.
+  - Ported useful old `Core` helpers that v3 can support today, including `Context.Instance`, `Context.SetRuntimeApi`, typed subsystem helpers, and `WorkQueue` managed task callbacks.
+  - Deliberately did not port old `ScriptRuntimeApiImpl`: the generated v3 `ScriptRuntimeApi` surface is not constructible as a handwritten managed implementation yet. The `WorkQueue` helper remains necessary despite general callback support because the relevant SDK APIs are still excluded as `TaskFunction&&`/template shapes.
+  - Added rbfx E2E surface coverage for the ported handwritten helper APIs.
+  - Verification: `cmake --build --preset Debug` and `ctest --preset Debug --output-on-failure` pass.
+
 - **`Rbfx.Application` launch path uses the generated `EngineParameters` map directly**:
   - Removed the associative-collection-specific recovery rule; core no longer needs to know about `EngineParameters`, `VariantMap`, or any concrete collection/type pair.
   - `MarshallerMetadataPhase2` now resolves recovered template arguments by normalized C++ record identity, preventing same-managed-name collisions such as `Rml::Variant` rebinding to `Urho3D::Variant`.

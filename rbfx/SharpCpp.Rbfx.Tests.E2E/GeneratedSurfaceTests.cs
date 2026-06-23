@@ -83,6 +83,19 @@ public sealed class GeneratedSurfaceTests
         Assert.Equal(global::Urho3D.Core.VariantType.VarNone, global::Urho3D.Core.Variant.GetVariantType(typeof(GeneratedSurfaceTests)));
     }
 
+    [Fact]
+    public void Handwritten_helpers_keep_ported_core_surface_available()
+    {
+        Assert.NotNull(typeof(global::Ea.String).GetConstructor([typeof(string)]));
+        Assert.NotNull(typeof(global::Urho3D.Core.Context).GetProperty(nameof(global::Urho3D.Core.Context.Instance)));
+        Assert.NotNull(typeof(global::Urho3D.Core.Context).GetMethod(nameof(global::Urho3D.Core.Context.SetRuntimeApi), [typeof(global::Urho3D.Script.ScriptRuntimeApi)]));
+        Assert.NotNull(typeof(global::Urho3D.Core.Context).GetMethod(nameof(global::Urho3D.Core.Context.GetSubsystem), Type.EmptyTypes));
+        Assert.NotNull(typeof(global::Urho3D.Core.Object).GetMethod(nameof(global::Urho3D.Core.Object.GetSubsystem), Type.EmptyTypes));
+        Assert.NotNull(typeof(global::Urho3D.Core.WorkQueue).GetMethod(
+            nameof(global::Urho3D.Core.WorkQueue.PostTaskForMainThread),
+            [typeof(Action<uint, global::Urho3D.Core.WorkQueue>), typeof(global::Urho3D.Core.TaskPriority)]));
+    }
+
     private static string GetGeneratedDir()
     {
         var dir = Environment.GetEnvironmentVariable("SharpCppGeneratedDir");

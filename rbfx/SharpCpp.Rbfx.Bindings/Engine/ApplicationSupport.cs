@@ -55,18 +55,6 @@ public unsafe partial class Application
         __RbfxApplicationPInvoke.SetEngineParameterString(NativeObject.GetHandle(this), name, value);
     }
 
-    private void ConnectRbfxDirector()
-    {
-        var runtimeType = ((object)this).GetType();
-        __RbfxApplicationPInvoke.ConnectApplicationDirector(
-            DangerousGetHandle(),
-            __GetApplication_GetTypePointer(runtimeType),
-            __GetApplication_IsInstanceOfPointer(runtimeType),
-            __GetApplication_SetupPointer(runtimeType),
-            __GetApplication_StartPointer(runtimeType),
-            __GetApplication_StopPointer(runtimeType));
-    }
-
     [UnmanagedCallersOnly]
     private static void InvokeUpdateCallback(nint context, float timeStep)
     {
@@ -77,10 +65,6 @@ public unsafe partial class Application
 
 internal static partial class __RbfxApplicationPInvoke
 {
-    [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_Application_ConnectDirector", StringMarshalling = StringMarshalling.Utf8)]
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static partial void ConnectApplicationDirector(nint self, nint getType, nint isInstanceOf, nint setup, nint start, nint stop);
-
     [LibraryImport("SharpCpp.Rbfx.Native", EntryPoint = "sharpcpp_rbfx_Application_SubscribeToUpdate", StringMarshalling = StringMarshalling.Utf8)]
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static partial void SubscribeToUpdate(nint self, nint callback, nint context);
