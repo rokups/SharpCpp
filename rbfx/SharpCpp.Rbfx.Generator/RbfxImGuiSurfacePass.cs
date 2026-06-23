@@ -47,13 +47,13 @@ public static class RbfxImGuiSurfacePass
 
         foreach (var record in compilation.Records)
         {
-            if (PublicGlobalRecordNames.Contains(record.CppQualifiedName))
+            if (IsDearImGuiHeader(record.HeaderIncludePath) && PublicGlobalRecordNames.Contains(record.CppQualifiedName))
             {
                 record.ManagedNamespace = "ImGuiNet";
                 record.ClearIgnoreReason();
                 changed++;
             }
-            else if (IsDearImGuiGlobal(record.CppQualifiedName))
+            else if (IsDearImGuiHeader(record.HeaderIncludePath))
             {
                 record.SetSilentExclusionReason("Dear ImGui declaration is outside the conservative bootstrap surface", overwriteExisting: false);
             }
@@ -61,7 +61,7 @@ public static class RbfxImGuiSurfacePass
 
         foreach (var enumBinding in compilation.Enums)
         {
-            if (!IsDearImGuiGlobal(enumBinding.CppQualifiedName))
+            if (!IsDearImGuiHeader(enumBinding.HeaderIncludePath))
             {
                 continue;
             }
@@ -74,11 +74,13 @@ public static class RbfxImGuiSurfacePass
             changed++;
         }
 
-        foreach (var function in compilation.Functions.Where(static function => function.CppQualifiedName.StartsWith("ImGui::", StringComparison.Ordinal)))
+        foreach (var function in compilation.Functions.Where(static function => IsDearImGuiHeader(function.HeaderIncludePath)))
         {
             function.ManagedNamespace = "ImGuiNet";
             function.ManagedClassName = "ImGui";
-            if (IsPublicImGuiHeader(function.HeaderIncludePath) && PublicFreeFunctionNames.Contains(function.NativeName))
+            if (IsPublicImGuiHeader(function.HeaderIncludePath) &&
+                function.CppQualifiedName.StartsWith("ImGui::", StringComparison.Ordinal) &&
+                PublicFreeFunctionNames.Contains(function.NativeName))
                 function.ClearIgnoreReason();
             else
                 function.SetSilentExclusionReason("Dear ImGui callable is outside the conservative public imgui.h surface", overwriteExisting: true);
@@ -99,7 +101,7 @@ public static class RbfxImGuiSurfacePass
 
         foreach (var field in compilation.Records.SelectMany(static record => record.Members.OfType<FieldBinding>()).Where(static field => !field.IsIgnored()))
         {
-            var parentIsDearImGui = field.Parent is RecordBinding parentRecord && IsDearImGuiRecord(parentRecord.CppQualifiedName);
+            var parentIsDearImGui = field.Parent is RecordBinding parentRecord && IsDearImGuiRecord(parentRecord);
             if (TypeUsesUnsupportedImGuiType(field.Type, field.CppTypeName, recordsBySymbolId) ||
                 (parentIsDearImGui && IsUnsupportedImGuiFieldType(field.CppTypeName, field.Type.CppTypeName)))
             {
@@ -126,6 +128,20 @@ public static class RbfxImGuiSurfacePass
     private static bool IsDearImGuiGlobal(string cppQualifiedName)
         => cppQualifiedName.StartsWith("Im", StringComparison.Ordinal) && !cppQualifiedName.Contains("::", StringComparison.Ordinal);
 
+    private static bool IsDearImGuiHeader(string? headerIncludePath)
+    {
+        if (string.IsNullOrWhiteSpace(headerIncludePath))
+            return false;
+
+        var normalized = headerIncludePath.Replace('\\', '/');
+        return string.Equals(normalized, "imgui.h", StringComparison.Ordinal) ||
+            string.Equals(normalized, "ImGui/imgui.h", StringComparison.Ordinal) ||
+            string.Equals(normalized, "imgui_internal.h", StringComparison.Ordinal) ||
+            string.Equals(normalized, "ImGui/imgui_internal.h", StringComparison.Ordinal) ||
+            normalized.EndsWith("/ImGui/imgui.h", StringComparison.Ordinal) ||
+            normalized.EndsWith("/ImGui/imgui_internal.h", StringComparison.Ordinal);
+    }
+
     private static bool IsPublicImGuiHeader(string? headerIncludePath)
     {
         if (string.IsNullOrWhiteSpace(headerIncludePath))
@@ -149,7 +165,7 @@ public static class RbfxImGuiSurfacePass
     private static bool IsDearImGuiCallable(FunctionBinding function)
     {
         return function.CppQualifiedName.StartsWith("ImGui::", StringComparison.Ordinal) ||
-            (function.Parent is RecordBinding parentRecord && IsDearImGuiRecord(parentRecord.CppQualifiedName));
+            (function.Parent is RecordBinding parentRecord && IsDearImGuiRecord(parentRecord));
     }
 
     private static bool IsUnsupportedImGuiFunction(FunctionBinding function)
@@ -172,7 +188,7 @@ public static class RbfxImGuiSurfacePass
 
         if (type.RecordId is not null &&
             recordsBySymbolId.TryGetValue(type.RecordId, out var record) &&
-            IsDearImGuiRecord(record.CppQualifiedName) &&
+            IsDearImGuiRecord(record) &&
             !PublicGlobalRecordNames.Contains(record.CppQualifiedName) &&
             !ConfiguredValueRecordNames.Contains(record.CppQualifiedName))
         {
@@ -240,9 +256,8 @@ public static class RbfxImGuiSurfacePass
             cppTypeName.Contains("**", StringComparison.Ordinal) ||
             IsConfiguredValueFixedArrayType(cppTypeName);
 
-    private static bool IsDearImGuiRecord(string cppQualifiedName)
-        => IsDearImGuiGlobal(cppQualifiedName) ||
-            cppQualifiedName.StartsWith("ImGui::", StringComparison.Ordinal);
+    private static bool IsDearImGuiRecord(RecordBinding record)
+        => IsDearImGuiHeader(record.HeaderIncludePath);
 
     private static bool IsUnsupportedImGuiFieldType(string cppTypeName, string modelCppTypeName)
         => IsCharPointer(cppTypeName) || IsCharPointer(modelCppTypeName);

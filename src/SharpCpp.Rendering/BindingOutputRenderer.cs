@@ -213,10 +213,9 @@ public static partial class BindingOutputRenderer
                 }
                 else
                 {
-                    if (record.IsGeneric)
-                    {
-                        genericImportDeclarations.AddRange(CollectGenericImportDeclarations(compilation, record));
-                    }
+                    genericImportDeclarations.AddRange(record.IsGeneric
+                        ? CollectGenericImportDeclarations(compilation, record)
+                        : CollectNonGenericRecordGenericMethodImportDeclarations(compilation, record));
 
                     writer.Write(RenderRecord(compilation, record));
                 }
@@ -2205,7 +2204,7 @@ public static partial class BindingOutputRenderer
             }
         }
 
-        foreach (var method in record.Members.OfType<FunctionBinding>().Where(function => !function.IsConstructor && !function.IsStatic && !function.IsConversionOperator && function.OperatorToken is null && !function.IsSilentlyExcluded() && !accessorMethodIds.Contains(function.SymbolId)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        foreach (var method in record.Members.OfType<FunctionBinding>().Where(function => !function.IsConstructor && !function.IsStatic && !function.IsGeneric && !function.IsConversionOperator && function.OperatorToken is null && !function.IsSilentlyExcluded() && !accessorMethodIds.Contains(function.SymbolId)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             var isIgnoredStub = method.HasMetadata(MetadataKeys.IgnoreReason);
             WriteRecordMemberSeparator(isIgnoredStub);
@@ -2236,6 +2235,20 @@ public static partial class BindingOutputRenderer
                         }
                     }
                 }
+            }
+        }
+
+        foreach (var method in record.Members.OfType<FunctionBinding>().Where(function => !function.IsConstructor && !function.IsStatic && function.IsGeneric && function.OperatorToken is null && !function.IsConversionOperator && !function.IsSilentlyExcluded() && !accessorMethodIds.Contains(function.SymbolId)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        {
+            var isIgnoredStub = method.HasMetadata(MetadataKeys.IgnoreReason);
+            WriteRecordMemberSeparator(isIgnoredStub);
+            if (isIgnoredStub)
+            {
+                writer.Write(RenderIgnoredStub(method));
+            }
+            else
+            {
+                writer.Write(RenderGenericManagedGenericMethod(compilation, record, method));
             }
         }
 
@@ -3876,7 +3889,7 @@ public static partial class BindingOutputRenderer
             }
         }
 
-        foreach (var method in records.Where(static record => !record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => !function.IsConstructor && !function.IsStatic && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        foreach (var method in records.Where(static record => !record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).SelectMany(static record => record.Members.OfType<FunctionBinding>()).Where(static function => !function.IsConstructor && !function.IsStatic && !function.IsGeneric && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             var parameterList = string.Join(", ", new[] { $"arg_t<{method.OwningRecordCppTypeName}*> self" }.Concat(method.Parameters.Select(RenderNativeParameter)));
             var abiArguments = string.Join(", ", method.Parameters.Select(static p => p.NativeName));
@@ -3914,6 +3927,18 @@ public static partial class BindingOutputRenderer
             {
                 writer.WriteLine();
                 writer.Write(RenderNativeUnexpressibleDefaultInstanceMethod(method));
+            }
+        }
+
+        foreach (var record in records.Where(static record => !record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static record => record.ManagedName, StringComparer.Ordinal))
+        {
+            foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && !function.IsStatic && function.IsGeneric && function.OperatorToken is null && !function.IsConversionOperator && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+            {
+                foreach (var methodInstantiation in method.SupportedGenericInstantiations)
+                {
+                    writer.WriteLine();
+                    writer.Write(RenderNativeGenericMethodInstanceMethod(record, method, EmptyRecordGenericInstantiation(), methodInstantiation));
+                }
             }
         }
 

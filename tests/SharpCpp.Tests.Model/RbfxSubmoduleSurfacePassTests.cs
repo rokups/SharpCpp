@@ -11,7 +11,10 @@ public sealed class RbfxSubmoduleSurfacePassTests
     public void Rml_pass_prunes_public_record_methods_with_non_public_rml_types()
     {
         var compilation = CreateCompilation();
-        var element = new RecordBinding("record:Rml::Element", "Element", "Element", "Rml::Element");
+        var element = new RecordBinding("record:Rml::Element", "Element", "Element", "Rml::Element")
+        {
+            HeaderIncludePath = "RmlUi/Core/Element.h"
+        };
         var method = new FunctionBinding(
             "method:Rml::Element::GetDisplay",
             "GetDisplay",
@@ -54,6 +57,7 @@ public sealed class RbfxSubmoduleSurfacePassTests
         var compilation = CreateCompilation();
         var element = new RecordBinding("record:Rml::Element", "Element", "Element", "Rml::Element")
         {
+            HeaderIncludePath = "RmlUi/Core/Element.h",
             ManagedBaseTypeName = "ScriptInterface"
         };
         element.Bases.Add(new RecordBaseBinding("record:Rml::ScriptInterface", "ScriptInterface", "ScriptInterface", "Rml::ScriptInterface", isVirtual: false));
@@ -83,7 +87,10 @@ public sealed class RbfxSubmoduleSurfacePassTests
             "Rml::Event",
             "Rml::Variant",
             "Rml::VariantList"
-        }.Select(name => new RecordBinding($"record:{name}", name.Split("::")[1], name.Split("::")[1], name)).ToArray();
+        }.Select(name => new RecordBinding($"record:{name}", name.Split("::")[1], name.Split("::")[1], name)
+        {
+            HeaderIncludePath = $"RmlUi/Core/{name.Split("::")[1]}.h"
+        }).ToArray();
 
         foreach (var record in records)
         {
@@ -105,9 +112,18 @@ public sealed class RbfxSubmoduleSurfacePassTests
     public void Rml_pass_keeps_document_show_flags_for_generated_show_surface()
     {
         var compilation = CreateCompilation();
-        var document = new RecordBinding("record:Rml::ElementDocument", "ElementDocument", "ElementDocument", "Rml::ElementDocument");
-        var modalFlag = new EnumBinding("enum:Rml::ModalFlag", "ModalFlag", "ModalFlag", cppQualifiedName: "Rml::ModalFlag");
-        var focusFlag = new EnumBinding("enum:Rml::FocusFlag", "FocusFlag", "FocusFlag", cppQualifiedName: "Rml::FocusFlag");
+        var document = new RecordBinding("record:Rml::ElementDocument", "ElementDocument", "ElementDocument", "Rml::ElementDocument")
+        {
+            HeaderIncludePath = "RmlUi/Core/ElementDocument.h"
+        };
+        var modalFlag = new EnumBinding("enum:Rml::ModalFlag", "ModalFlag", "ModalFlag", cppQualifiedName: "Rml::ModalFlag")
+        {
+            HeaderIncludePath = "RmlUi/Core/ElementDocument.h"
+        };
+        var focusFlag = new EnumBinding("enum:Rml::FocusFlag", "FocusFlag", "FocusFlag", cppQualifiedName: "Rml::FocusFlag")
+        {
+            HeaderIncludePath = "RmlUi/Core/ElementDocument.h"
+        };
         var show = new FunctionBinding(
             "method:Rml::ElementDocument::Show",
             "Show",
@@ -145,11 +161,11 @@ public sealed class RbfxSubmoduleSurfacePassTests
     public void Rml_pass_keeps_data_model_callback_aliases_for_generated_binding_surface()
     {
         var compilation = CreateCompilation();
-        var constructor = new RecordBinding("record:Rml::DataModelConstructor", "DataModelConstructor", "DataModelConstructor", "Rml::DataModelConstructor");
-        var handle = new RecordBinding("record:Rml::DataModelHandle", "DataModelHandle", "DataModelHandle", "Rml::DataModelHandle");
-        var @event = new RecordBinding("record:Rml::Event", "Event", "Event", "Rml::Event");
-        var variant = new RecordBinding("record:Rml::Variant", "Variant", "Variant", "Rml::Variant");
-        var variantList = new RecordBinding("record:Rml::VariantList", "VariantList", "VariantList", "Rml::VariantList");
+        var constructor = new RecordBinding("record:Rml::DataModelConstructor", "DataModelConstructor", "DataModelConstructor", "Rml::DataModelConstructor") { HeaderIncludePath = "RmlUi/Core/DataModelHandle.h" };
+        var handle = new RecordBinding("record:Rml::DataModelHandle", "DataModelHandle", "DataModelHandle", "Rml::DataModelHandle") { HeaderIncludePath = "RmlUi/Core/DataModelHandle.h" };
+        var @event = new RecordBinding("record:Rml::Event", "Event", "Event", "Rml::Event") { HeaderIncludePath = "RmlUi/Core/Event.h" };
+        var variant = new RecordBinding("record:Rml::Variant", "Variant", "Variant", "Rml::Variant") { HeaderIncludePath = "RmlUi/Core/Variant.h" };
+        var variantList = new RecordBinding("record:Rml::VariantList", "VariantList", "VariantList", "Rml::VariantList") { HeaderIncludePath = "RmlUi/Core/Types.h" };
         var bindFunc = new FunctionBinding(
             "method:Rml::DataModelConstructor::BindFunc",
             "BindFunc",
@@ -234,10 +250,69 @@ public sealed class RbfxSubmoduleSurfacePassTests
     }
 
     [Fact]
+    public void Rml_pass_uses_header_path_for_ownership()
+    {
+        var compilation = CreateCompilation();
+        var variant = new RecordBinding("record:Rml::Variant", "Variant", "Variant", "Rml::Variant")
+        {
+            HeaderIncludePath = "NotRml/Variant.h"
+        };
+        variant.SetSilentExclusionReason("outside default rbfx surface");
+        compilation.Members.Add(variant);
+
+        RbfxRmlUiSurfacePass.Apply(compilation);
+
+        Assert.Null(variant.ManagedNamespace);
+        Assert.True(variant.IsSilentlyExcluded());
+    }
+
+    [Fact]
+    public void Rml_pass_adds_variant_string_template_instantiations()
+    {
+        var compilation = CreateCompilation();
+        var variant = new RecordBinding("record:Rml::Variant", "Variant", "Variant", "Rml::Variant")
+        {
+            HeaderIncludePath = "RmlUi/Core/Variant.h"
+        };
+        var get = new FunctionBinding(
+            "method:Rml::Variant::Get",
+            "Get",
+            "Get",
+            BindingType.CreateGenericParameter("T"),
+            cppReturnTypeName: "T",
+            cppQualifiedName: "Rml::Variant::Get")
+        {
+            HeaderIncludePath = "RmlUi/Core/Variant.h",
+            IsStatic = false,
+            IsConstMethod = true,
+            OwningRecordCppTypeName = "Rml::Variant"
+        };
+        get.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        get.SetSilentExclusionReason("generic function has no known concrete instantiations");
+        get.Parameters.Add(new ParameterBinding(
+            "parameter:Rml::Variant::Get:default_value",
+            "default_value",
+            "defaultValue",
+            BindingType.CreateGenericParameter("T"),
+            cppTypeName: "T"));
+        variant.Members.Add(get);
+        compilation.Members.Add(variant);
+
+        RbfxRmlUiSurfacePass.Apply(compilation);
+
+        Assert.False(get.IsIgnored(), get.GetIgnoreReason());
+        Assert.Contains(get.SupportedGenericInstantiations, instantiation =>
+            instantiation.TypeArguments.Single().CppTypeName == "Rml::String");
+        var assign = Assert.Single(variant.Members.OfType<FunctionBinding>().Where(static function => function.ManagedName == "Assign"));
+        Assert.Contains(assign.SupportedGenericInstantiations, instantiation =>
+            instantiation.TypeArguments.Single().CppTypeName == "const Rml::String&");
+    }
+
+    [Fact]
     public void ImGui_pass_prunes_texture_id_fields()
     {
         var compilation = CreateCompilation();
-        var command = new RecordBinding("record:ImDrawCmd", "ImDrawCmd", "ImDrawCmd", "ImDrawCmd");
+        var command = new RecordBinding("record:ImDrawCmd", "ImDrawCmd", "ImDrawCmd", "ImDrawCmd") { HeaderIncludePath = "ImGui/imgui.h" };
         var field = new FieldBinding(
             "field:ImDrawCmd::TextureId",
             "TextureId",
@@ -312,7 +387,7 @@ public sealed class RbfxSubmoduleSurfacePassTests
     public void ImGui_pass_restores_public_records_after_prior_silent_exclusion()
     {
         var compilation = CreateCompilation();
-        var drawList = new RecordBinding("record:ImDrawList", "ImDrawList", "ImDrawList", "ImDrawList");
+        var drawList = new RecordBinding("record:ImDrawList", "ImDrawList", "ImDrawList", "ImDrawList") { HeaderIncludePath = "ImGui/imgui.h" };
         drawList.SetSilentExclusionReason("outside default rbfx surface");
         compilation.Members.Add(drawList);
 
@@ -321,6 +396,23 @@ public sealed class RbfxSubmoduleSurfacePassTests
         Assert.Equal("ImGuiNet", drawList.ManagedNamespace);
         Assert.False(drawList.IsIgnored());
         Assert.False(drawList.IsSilentlyExcluded());
+    }
+
+    [Fact]
+    public void ImGui_pass_uses_header_path_for_record_ownership()
+    {
+        var compilation = CreateCompilation();
+        var drawList = new RecordBinding("record:ImDrawList", "ImDrawList", "ImDrawList", "ImDrawList")
+        {
+            HeaderIncludePath = "Other/imgui.h"
+        };
+        drawList.SetSilentExclusionReason("outside default rbfx surface");
+        compilation.Members.Add(drawList);
+
+        RbfxImGuiSurfacePass.Apply(compilation);
+
+        Assert.Null(drawList.ManagedNamespace);
+        Assert.True(drawList.IsSilentlyExcluded());
     }
 
     [Fact]
@@ -427,7 +519,7 @@ public sealed class RbfxSubmoduleSurfacePassTests
     public void ImGui_pass_prunes_char_pointer_fields()
     {
         var compilation = CreateCompilation();
-        var io = new RecordBinding("record:ImGuiIO", "ImGuiIO", "ImGuiIO", "ImGuiIO");
+        var io = new RecordBinding("record:ImGuiIO", "ImGuiIO", "ImGuiIO", "ImGuiIO") { HeaderIncludePath = "ImGui/imgui.h" };
         var field = new FieldBinding(
             "field:ImGuiIO::IniFilename",
             "IniFilename",
@@ -448,7 +540,7 @@ public sealed class RbfxSubmoduleSurfacePassTests
     public void ImGui_pass_prunes_const_imvec4_pointer_methods()
     {
         var compilation = CreateCompilation();
-        var drawList = new RecordBinding("record:ImDrawList", "ImDrawList", "ImDrawList", "ImDrawList");
+        var drawList = new RecordBinding("record:ImDrawList", "ImDrawList", "ImDrawList", "ImDrawList") { HeaderIncludePath = "ImGui/imgui.h" };
         var method = new FunctionBinding(
             "method:ImDrawList::AddText",
             "AddText",
@@ -482,7 +574,10 @@ public sealed class RbfxSubmoduleSurfacePassTests
             "Text",
             "Text",
             BindingType.Void,
-            cppQualifiedName: "ImGui::Text");
+            cppQualifiedName: "ImGui::Text")
+        {
+            HeaderIncludePath = "ImGui/imgui.h"
+        };
         text.SetMetadata(MetadataKeys.DeclarationDisplayText, "IMGUI_API void Text(const char* fmt, ...)");
         compilation.Members.Add(text);
 
@@ -501,7 +596,10 @@ public sealed class RbfxSubmoduleSurfacePassTests
             "InputText",
             "InputText",
             BindingType.Boolean,
-            cppQualifiedName: "ImGui::InputText");
+            cppQualifiedName: "ImGui::InputText")
+        {
+            HeaderIncludePath = "ImGui/imgui.h"
+        };
         inputText.Parameters.Add(new ParameterBinding(
             "parameter:ImGui::InputText:callback",
             "callback",
@@ -525,7 +623,10 @@ public sealed class RbfxSubmoduleSurfacePassTests
             "Combo",
             "Combo",
             BindingType.Boolean,
-            cppQualifiedName: "ImGui::Combo");
+            cppQualifiedName: "ImGui::Combo")
+        {
+            HeaderIncludePath = "ImGui/imgui.h"
+        };
         combo.Parameters.Add(new ParameterBinding(
             "parameter:ImGui::Combo:items",
             "items",
@@ -549,7 +650,10 @@ public sealed class RbfxSubmoduleSurfacePassTests
             "operator\"\"_pt",
             "operator\"\"_pt",
             BindingType.Single,
-            cppQualifiedName: "ImGui::Literals::operator\"\"_pt");
+            cppQualifiedName: "ImGui::Literals::operator\"\"_pt")
+        {
+            HeaderIncludePath = "ImGui/imgui.h"
+        };
         compilation.Members.Add(literal);
 
         RbfxImGuiSurfacePass.Apply(compilation);
@@ -562,7 +666,7 @@ public sealed class RbfxSubmoduleSurfacePassTests
     public void ImGui_pass_prunes_fixed_array_methods()
     {
         var compilation = CreateCompilation();
-        var atlas = new RecordBinding("record:ImFontAtlas", "ImFontAtlas", "ImFontAtlas", "ImFontAtlas");
+        var atlas = new RecordBinding("record:ImFontAtlas", "ImFontAtlas", "ImFontAtlas", "ImFontAtlas") { HeaderIncludePath = "ImGui/imgui.h" };
         var method = new FunctionBinding(
             "method:ImFontAtlas::GetMouseCursorTexData",
             "GetMouseCursorTexData",

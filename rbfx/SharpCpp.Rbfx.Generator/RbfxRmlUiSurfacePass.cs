@@ -47,7 +47,7 @@ public static class RbfxRmlUiSurfacePass
         ArgumentNullException.ThrowIfNull(compilation);
         var changed = 0;
 
-        foreach (var record in compilation.Records.Where(static record => IsRml(record.CppQualifiedName)))
+        foreach (var record in compilation.Records.Where(static record => IsRmlHeader(record.HeaderIncludePath)))
         {
             record.ManagedNamespace = "Rml";
             if (!PublicRecordNames.Contains(record.CppQualifiedName) || ShouldIgnoreRecord(record))
@@ -64,7 +64,9 @@ public static class RbfxRmlUiSurfacePass
             changed++;
         }
 
-        foreach (var enumBinding in compilation.Enums.Where(static enumBinding => IsRml(enumBinding.CppQualifiedName)))
+        changed += EnsureVariantStringTemplateInstantiations(compilation);
+
+        foreach (var enumBinding in compilation.Enums.Where(static enumBinding => IsRmlHeader(enumBinding.HeaderIncludePath)))
         {
             enumBinding.ManagedNamespace = "Rml";
             if (PublicEnumNames.Contains(enumBinding.CppQualifiedName))
@@ -80,7 +82,7 @@ public static class RbfxRmlUiSurfacePass
             changed++;
         }
 
-        foreach (var function in compilation.Functions.Where(static function => IsRml(function.CppQualifiedName)))
+        foreach (var function in compilation.Functions.Where(static function => IsRmlHeader(function.HeaderIncludePath)))
         {
             var owner = function.Parent as RecordBinding;
             if (owner is null || !PublicRecordNames.Contains(owner.CppQualifiedName))
@@ -130,8 +132,89 @@ public static class RbfxRmlUiSurfacePass
         return changed;
     }
 
-    private static bool IsRml(string cppQualifiedName)
-        => cppQualifiedName.StartsWith("Rml::", StringComparison.Ordinal);
+    private static bool IsRmlHeader(string? headerIncludePath)
+    {
+        if (string.IsNullOrWhiteSpace(headerIncludePath))
+        {
+            return false;
+        }
+
+        var normalized = headerIncludePath.Replace('\\', '/');
+        return normalized.StartsWith("RmlUi/", StringComparison.Ordinal) ||
+            normalized.Contains("/RmlUi/", StringComparison.Ordinal);
+    }
+
+    private static int EnsureVariantStringTemplateInstantiations(BindingCompilation compilation)
+    {
+        var variant = compilation.Records.FirstOrDefault(static record =>
+            IsRmlHeader(record.HeaderIncludePath) &&
+            string.Equals(record.CppQualifiedName, "Rml::Variant", StringComparison.Ordinal));
+        if (variant is null)
+        {
+            return 0;
+        }
+
+        var changed = 0;
+        var stringType = CreateRmlStringType("Rml::String");
+        var stringConstRefType = CreateRmlStringType("const Rml::String&");
+        var get = variant.Members.OfType<FunctionBinding>().FirstOrDefault(static function =>
+            string.Equals(function.NativeName, "Get", StringComparison.Ordinal) && function.IsGeneric);
+        if (get is not null)
+        {
+            get.ClearIgnoreReason();
+            changed += AddInstantiation(get.SupportedGenericInstantiations, stringType);
+        }
+
+        if (!variant.Members.OfType<FunctionBinding>().Any(static function =>
+                string.Equals(function.ManagedName, "Assign", StringComparison.Ordinal) && function.IsGeneric))
+        {
+            var assign = new FunctionBinding(
+                "method:Rml::Variant::operator_assign:T",
+                "operator=",
+                "Assign",
+                BindingType.CreateHandle("Rml::Variant&", "Variant", variant.SymbolId),
+                entryPointName: "scrbfx_Rml_Variant_operator_assign_generic",
+                cppReturnTypeName: "Rml::Variant&",
+                cppQualifiedName: "Rml::Variant::operator=")
+            {
+                HeaderIncludePath = variant.HeaderIncludePath,
+                IsStatic = false,
+                IsConstMethod = false,
+                OwningRecordCppTypeName = "Rml::Variant"
+            };
+            assign.GenericParameters.Add(new BindingGenericParameter("T", 0));
+            assign.Parameters.Add(new ParameterBinding(
+                "parameter:Rml::Variant::operator_assign:T:value",
+                "value",
+                "value",
+                BindingType.CreateGenericParameter("T"),
+                cppTypeName: "T&&"));
+            assign.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding([stringConstRefType]));
+            variant.Members.Add(assign);
+            changed++;
+        }
+
+        return changed;
+    }
+
+    private static BindingType CreateRmlStringType(string cppTypeName)
+        => BindingType.CreateConfigured(
+            cppTypeName,
+            "global::Ea.String",
+            marshallerTypeName: null,
+            managedMarshaller: "global::Ea.__StringMarshaller<global::SharpCpp.Support.BorrowedNativeHandle>");
+
+    private static int AddInstantiation(IList<RecordGenericInstantiationBinding> instantiations, BindingType type)
+    {
+        if (instantiations.Any(instantiation => instantiation.TypeArguments.Count == 1 &&
+                string.Equals(instantiation.TypeArguments[0].CppTypeName, type.CppTypeName, StringComparison.Ordinal)))
+        {
+            return 0;
+        }
+
+        instantiations.Add(new RecordGenericInstantiationBinding([type]));
+        return 1;
+    }
 
     private static bool ShouldIgnoreRecord(RecordBinding record)
         => record.IsGeneric ||

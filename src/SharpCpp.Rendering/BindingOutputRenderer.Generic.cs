@@ -267,12 +267,11 @@ public static partial class BindingOutputRenderer
                 continue;
             }
 
-            var methodParams = (IReadOnlyList<BindingGenericParameter>)method.GenericParameters.ToList();
             foreach (var recordInstantiation in instantiations)
             {
-                foreach (var methodInstantiation in methodInstantiations)
+                foreach (var declaration in CollectGenericMethodImportDeclarations(compilation, record, method, [recordInstantiation]))
                 {
-                    yield return RenderGenericMethodImportDeclaration(compilation, record, method, methodParams, recordInstantiation, methodInstantiation);
+                    yield return declaration;
                 }
             }
         }
@@ -1395,7 +1394,7 @@ public static partial class BindingOutputRenderer
         var returnTypeName = GetGenericManagedReturnType(function.ReturnType, compilation);
         var parameterList = string.Join(", ", function.Parameters.Select(p => RenderManagedPublicParameter(p, compilation)));
         var methodInstantiations = function.SupportedGenericInstantiations.ToArray();
-        var recordInstantiations = GetCanonicalManagedGenericInstantiations(compilation, record);
+        var recordInstantiations = GetMethodRecordInstantiations(compilation, record);
 
         if (methodInstantiations.Length == 0 || recordInstantiations.Count == 0)
         {
@@ -1510,8 +1509,58 @@ public static partial class BindingOutputRenderer
             parts.Add($"typeof({function.GenericParameters[index].Name}) == typeof({GetManagedWrapperTypeName(methodInstantiation.TypeArguments[index], compilation)})");
         }
 
-        return string.Join(" && ", parts);
+        return parts.Count == 0 ? "true" : string.Join(" && ", parts);
     }
+
+    private static IEnumerable<string> CollectGenericMethodImportDeclarations(BindingCompilation compilation, RecordBinding record, FunctionBinding method)
+    {
+        return CollectGenericMethodImportDeclarations(compilation, record, method, GetMethodRecordInstantiations(compilation, record));
+    }
+
+    private static IEnumerable<string> CollectNonGenericRecordGenericMethodImportDeclarations(BindingCompilation compilation, RecordBinding record)
+    {
+        foreach (var method in record.Members.OfType<FunctionBinding>()
+                     .Where(static function => !function.IsConstructor && !function.IsStatic && function.IsGeneric && function.OperatorToken is null && !function.IsConversionOperator && !function.HasMetadata(MetadataKeys.IgnoreReason))
+                     .OrderBy(static function => function.ManagedName, StringComparer.Ordinal))
+        {
+            foreach (var declaration in CollectGenericMethodImportDeclarations(compilation, record, method))
+            {
+                yield return declaration;
+            }
+        }
+    }
+
+    private static IEnumerable<string> CollectGenericMethodImportDeclarations(
+        BindingCompilation compilation,
+        RecordBinding record,
+        FunctionBinding method,
+        IReadOnlyList<RecordGenericInstantiationBinding> recordInstantiations)
+    {
+        var methodInstantiations = method.SupportedGenericInstantiations.ToArray();
+        if (methodInstantiations.Length == 0)
+        {
+            yield break;
+        }
+
+        var methodParams = (IReadOnlyList<BindingGenericParameter>)method.GenericParameters.ToList();
+        foreach (var recordInstantiation in recordInstantiations)
+        {
+            foreach (var methodInstantiation in methodInstantiations)
+            {
+                yield return RenderGenericMethodImportDeclaration(compilation, record, method, methodParams, recordInstantiation, methodInstantiation);
+            }
+        }
+    }
+
+    private static IReadOnlyList<RecordGenericInstantiationBinding> GetMethodRecordInstantiations(BindingCompilation compilation, RecordBinding record)
+    {
+        return record.IsGeneric
+            ? GetCanonicalManagedGenericInstantiations(compilation, record)
+            : [EmptyRecordGenericInstantiation()];
+    }
+
+    private static RecordGenericInstantiationBinding EmptyRecordGenericInstantiation()
+        => new([]);
 
     private static string GetGenericMethodEntryPointName(FunctionBinding function, RecordGenericInstantiationBinding recordInstantiation, RecordGenericInstantiationBinding methodInstantiation)
     {
@@ -2270,7 +2319,7 @@ public static partial class BindingOutputRenderer
         var concreteReturnType = SubstituteGenericType(record, method.ReturnType, recordInstantiation, methodParams, methodInstantiation);
         var parameterList = string.Join(", ", new[] { $"arg_t<{concreteRecordType}*> self" }.Concat(method.Parameters.Select((parameter, index) => $"arg_t<{concreteParameters[index].CppTypeName}> {parameter.NativeName}")));
         var abiArguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
-        var memberSignature = $"{concreteReturnType.CppTypeName}({concreteRecordType}::*)({string.Join(", ", concreteParameters.Select(static parameter => parameter.CppTypeName))}){(method.IsConstMethod ? " const" : string.Empty)}";
+        var memberSignature = $"{concreteReturnType.CppTypeName}({concreteRecordType}::*)({string.Join(", ", method.Parameters.Select((parameter, index) => FormatConcreteGenericParameterCppType(parameter, concreteParameters[index])))}){(method.IsConstMethod ? " const" : string.Empty)}";
         var methodCppTypeArgs = string.Join(", ", methodInstantiation.TypeArguments.Select(static argument => argument.CppTypeName));
 
         return $$"""
@@ -2282,6 +2331,23 @@ public static partial class BindingOutputRenderer
                 : $"return MarshallerInvoker::invoke<FT>(&{concreteRecordType}::{method.NativeName}<{methodCppTypeArgs}>, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
             }
             """;
+    }
+
+    private static string FormatConcreteGenericParameterCppType(ParameterBinding parameter, BindingType concreteType)
+    {
+        if (!parameter.Type.IsGenericParameter || string.IsNullOrWhiteSpace(parameter.Type.GenericParameterName))
+        {
+            return concreteType.CppTypeName;
+        }
+
+        var genericName = parameter.Type.GenericParameterName;
+        if (string.Equals(parameter.CppTypeName, genericName + "&&", StringComparison.Ordinal) &&
+            concreteType.CppTypeName.Contains('&', StringComparison.Ordinal))
+        {
+            return concreteType.CppTypeName;
+        }
+
+        return parameter.CppTypeName.Replace(genericName, concreteType.CppTypeName, StringComparison.Ordinal);
     }
 
     private static string RenderNativeGenericMarshallerExposedInvocation(

@@ -574,12 +574,13 @@ partial class DemoApplication : Application
     private static void SetVariantString(Rml.Variant value, string text)
     {
         using var nativeText = new Ea.String(text);
-        value.SetString(nativeText);
+        _ = value.Assign<Ea.String>(nativeText);
     }
 
     private static string GetVariantString(Rml.Variant value)
     {
-        using var nativeText = value.GetString();
+        using var fallback = new Ea.String();
+        using var nativeText = value.Get<Ea.String>(fallback);
         return nativeText.ToString() ?? string.Empty;
     }
 

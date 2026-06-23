@@ -8,7 +8,7 @@ Bootstrap an independent SharpCpp line from `doc/`, selectively adapting small b
 
 All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E) on the last clean verified baseline. The full pipeline — C++ headers → generated C# wrappers + native thunks — runs end-to-end for both synthetic fixtures and the real rbfx SDK.
 
-Current worktree verification passes with rbfx accessor-style `Get*` / `Set*` / `Is*` pairs promoted to generated C# properties and generated RmlUI data-model/document/callback APIs replacing stale manual P/Invoke conveniences. Thin managed convenience wrappers remain acceptable when they delegate to generated APIs without handwritten native entrypoints.
+Current worktree verification passes with rbfx accessor-style `Get*` / `Set*` / `Is*` pairs promoted to generated C# properties and generated RmlUI data-model/document/callback/variant APIs replacing stale manual P/Invoke conveniences. Thin managed convenience wrappers remain acceptable when they delegate to generated APIs without handwritten native entrypoints.
 
 ### Model & Metadata
 - Binding model: records, enums, free functions, methods, constructors, fields, operators, templates/generics
@@ -52,6 +52,7 @@ Current worktree verification passes with rbfx accessor-style `Get*` / `Set*` / 
 ### Generics / Templates
 - Generic records (`BoxOf<T>`) and free functions
 - Template member methods inside generic records
+- Explicit template member methods on non-generic records when concrete instantiations are known
 - Explicit instantiation metadata (`[[sharpcpp::instantiate]]`)
 - Handle-typed generic arguments
 
@@ -75,6 +76,7 @@ Current worktree verification passes with rbfx accessor-style `Get*` / `Set*` / 
 - rbfx macro headers are molded into managed-only AST nodes and rendered by the normal grouped renderer, generating surfaces like `EngineDefs` and `EngineEvents`
 - rbfx accessor pairs are promoted to generated C# properties through configured marshaller patterns, with reserved SDK getters and projected secondary-base methods kept as ordinary methods
 - RmlUI bootstrap generation keeps the narrow data-model/document surface needed by the sample, including generated `Context.CreateDataModel(...)` and `ElementDocument.Show(...)`
+- RmlUI `Variant` string access now uses generated explicit template instantiations (`Assign<Ea.String>` / `Get<Ea.String>`) instead of custom `SetString` / `GetString` bridge exports
 
 ### Infrastructure
 - Structured logging (`ILogger` with elapsed timestamps)
@@ -131,10 +133,18 @@ Current worktree verification passes with rbfx accessor-style `Get*` / `Set*` / 
 
 ## Recently Fixed
 
+- **RmlUI/ImGui ownership is header-path based and Rml Variant string APIs now use generated template instantiations**:
+  - `RbfxRmlUiSurfacePass` and `RbfxImGuiSurfacePass` classify third-party declarations by parsed `HeaderIncludePath`; name allowlists now remain conservative exposure policy, not ownership detection.
+  - Added generated explicit `Rml::Variant` string template instantiations for public `Variant::operator=<T>` and `Variant::Get<T>`, yielding `Variant.Assign<Ea.String>(...)` and `Variant.Get<Ea.String>(...)` without a custom Rml value marshaller header.
+  - Extended generic method rendering so non-generic records can emit explicit generic member method instantiations, including forwarding-reference signature collapse for `T&&` with reference type arguments.
+  - Removed `rbfx/include/SharpCpp/detail/RbfxRmlValueMarshallers.hpp` from the rbfx generator inputs and deleted the file.
+  - Updated `Rbfx.Application` to consume generated `Rml.Variant.Assign<Ea.String>` / `Get<Ea.String>` instead of `SetString` / `GetString`.
+  - Verification: focused `RbfxSubmoduleSurfacePassTests`, focused renderer regression, `cmake --build --preset Debug`, and `ctest --preset Debug --output-on-failure` all pass.
+
 - **Generated RmlUI document/data-model APIs replaced stale manual P/Invoke conveniences**:
   - Narrowed `RbfxRmlUiSurfacePass` to keep `Rml::DataTypeRegister`, `Rml::ModalFlag`, and `Rml::FocusFlag`, allowing the normal generator to emit `Rml.Context.CreateDataModel(...)` and `Rml.ElementDocument.Show(...)` from SDK headers.
   - Allowed the public Rml callback aliases `Rml::DataGetFunc`, `Rml::DataSetFunc`, and `Rml::DataEventFunc` through the Rml bootstrap surface, so `DataModelConstructor.BindFunc(...)` and `BindEventCallback(...)` now generate through the normal callback marshaller path.
-  - Added an Rml-specific marshaller configuration for `Rml::Variant` that exposes generated `Variant.SetString(Ea.String)` and `Variant.GetString()` helpers for the public templated variant string operations, without adding Rml-specific renderer logic.
+  - Earlier transitional `Variant.SetString(Ea.String)` / `Variant.GetString()` helpers were removed; the canonical surface is now generated from explicit public template instantiations.
   - Deleted the stale `RmlUiConvenience.cs` manual P/Invoke file; its two imports either lacked a native implementation or are now generated.
   - Removed generated-covered handwritten Rml data-model dirty-variable P/Invokes/native exports and kept only generated `Ea.String` APIs.
   - Removed the unused handwritten `DataModelConstructor_GetModelHandle` native export because generated `GetModelHandle()` is now the canonical surface.

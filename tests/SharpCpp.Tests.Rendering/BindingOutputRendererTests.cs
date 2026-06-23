@@ -1570,6 +1570,83 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Output_renders_generic_methods_on_non_generic_records()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/Variant.hpp" });
+        var variant = new RecordBinding("record:variant", "Variant", "Variant", "Rml::Variant");
+        var stringType = BindingType.CreateConfigured(
+            "Rml::String",
+            "global::Ea.String",
+            marshallerTypeName: null,
+            managedMarshaller: "global::Ea.__StringMarshaller<global::SharpCpp.Support.BorrowedNativeHandle>");
+        var constStringRefType = BindingType.CreateConfigured(
+            "const Rml::String&",
+            "global::Ea.String",
+            marshallerTypeName: null,
+            managedMarshaller: "global::Ea.__StringMarshaller<global::SharpCpp.Support.BorrowedNativeHandle>");
+        var get = new FunctionBinding(
+            "method:variant:get",
+            "Get",
+            "Get",
+            BindingType.CreateGenericParameter("T"),
+            entryPointName: "sample_variant_get",
+            cppReturnTypeName: "T",
+            cppQualifiedName: "Rml::Variant::Get")
+        {
+            IsStatic = false,
+            IsConstMethod = true,
+            OwningRecordCppTypeName = "Rml::Variant"
+        };
+        get.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        get.Parameters.Add(new ParameterBinding(
+            "parameter:variant:get:default_value",
+            "default_value",
+            "defaultValue",
+            BindingType.CreateGenericParameter("T"),
+            cppTypeName: "T"));
+        get.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding([stringType]));
+        var assign = new FunctionBinding(
+            "method:variant:assign",
+            "operator=",
+            "Assign",
+            BindingType.CreateHandle("Rml::Variant&", "Variant", variant.SymbolId),
+            entryPointName: "sample_variant_assign",
+            cppReturnTypeName: "Rml::Variant&",
+            cppQualifiedName: "Rml::Variant::operator=")
+        {
+            IsStatic = false,
+            OwningRecordCppTypeName = "Rml::Variant"
+        };
+        assign.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        assign.Parameters.Add(new ParameterBinding(
+            "parameter:variant:assign:value",
+            "value",
+            "value",
+            BindingType.CreateGenericParameter("T"),
+            cppTypeName: "T&&"));
+        assign.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding([constStringRefType]));
+        variant.Members.Add(get);
+        variant.Members.Add(assign);
+        compilation.Members.Add(variant);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public global::SharpCpp.Sample.Variant Assign<T>(T value)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public T Get<T>(T defaultValue)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("typeof(T) == typeof(global::Ea.String)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("using FT = Rml::String(Rml::Variant::*)(Rml::String) const;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("using FT = Rml::Variant&(Rml::Variant::*)(const Rml::String&);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("&Rml::Variant::operator=<const Rml::String&>", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Managed_output_honors_custom_cache_policy_and_base_release_strategy()
     {
         var compilation = new BindingCompilation(
