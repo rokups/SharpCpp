@@ -410,7 +410,7 @@ public static class DegradeUnsupportedSurfacePass
             return true;
         }
 
-        if (field.CppTypeName.Contains('&', StringComparison.Ordinal))
+        if (field.IsReference)
         {
             reason = "reference fields are not yet supported coherently";
             return true;

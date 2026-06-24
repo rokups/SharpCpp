@@ -86,6 +86,28 @@ public sealed class DegradeUnsupportedSurfacePassTests
         Assert.False(field.IsIgnored(), field.GetIgnoreReason());
     }
 
+    [Fact]
+    public void Apply_ignores_reference_fields_from_ast_fact()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["ReferenceFields.h"]);
+        var record = new RecordBinding("record:Test::Owner", "Owner", "Owner", "Test::Owner");
+        var field = new FieldBinding(
+            "field:Test::Owner::value_",
+            "value_",
+            "Value",
+            BindingType.Int32,
+            "int",
+            record.CppQualifiedName,
+            isReference: true);
+        record.Members.Add(field);
+        compilation.Members.Add(record);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.True(field.IsIgnored());
+        Assert.Contains("reference fields", field.GetIgnoreReason(), StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("Urho3D::ResourceRef", "ResourceRef", "Material", "GetMaterialAttr")]
     [InlineData("Urho3D::Variant", "Variant", "Spline", "GetPoint")]

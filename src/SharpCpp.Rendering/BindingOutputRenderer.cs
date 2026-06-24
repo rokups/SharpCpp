@@ -4790,21 +4790,6 @@ public static partial class BindingOutputRenderer
 
     private static string GetNativeFieldCppType(BindingCompilation compilation, FieldBinding field)
     {
-        if (field.Type.Kind != BindingTypeKind.Handle)
-        {
-            return field.CppTypeName;
-        }
-
-        if (field.CppTypeName.Contains('*', StringComparison.Ordinal) || field.CppTypeName.Contains('&', StringComparison.Ordinal))
-        {
-            return field.CppTypeName;
-        }
-
-        if (IsMarshallerBackedStorageWrapper(compilation, field.Type))
-        {
-            return field.Type.CppTypeName[..^1];
-        }
-
         return field.CppTypeName;
     }
 
@@ -5564,7 +5549,7 @@ public static partial class BindingOutputRenderer
 
     private static bool ShouldBorrowFieldStorage(BindingCompilation compilation, FieldBinding field)
     {
-        if (field.Type.Kind != BindingTypeKind.Handle || field.CppTypeName.EndsWith('*'))
+        if (field.Type.Kind != BindingTypeKind.Handle || !field.Type.Marshaller.CppIsRecordValue)
         {
             return false;
         }
@@ -5574,11 +5559,6 @@ public static partial class BindingOutputRenderer
 
     private static bool IsMarshallerBackedStorageWrapper(BindingCompilation compilation, BindingType type)
     {
-        if (!type.CppTypeName.EndsWith("*", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
         var record = ResolveRecord(compilation, type);
         return record is not null &&
             record.Members.OfType<FunctionBinding>().Any(static method => method.HasMetadata(MetadataKeys.MarshallerExposedMethod));

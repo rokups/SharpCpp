@@ -1613,7 +1613,8 @@ public sealed class BindingOutputRendererTests
             "const Rml::String&",
             "global::Ea.String",
             marshallerTypeName: null,
-            managedMarshaller: "global::Ea.__StringMarshaller<global::SharpCpp.Support.BorrowedNativeHandle>");
+            managedMarshaller: "global::Ea.__StringMarshaller<global::SharpCpp.Support.BorrowedNativeHandle>",
+            cppIsReference: true);
         var get = new FunctionBinding(
             "method:variant:get",
             "Get",
@@ -2176,7 +2177,7 @@ public sealed class BindingOutputRendererTests
     public void Director_records_render_borrowed_container_protected_field_with_address_return_and_null_clear()
     {
         var compilation = CreateProtectedHandleFieldCompilation(
-            BindingType.CreateHandle("std::unordered_map<int, int>*", "VariantMap", "record:payload", marshallerTypeName: "Marshaller<std::unordered_map<int, int>>"),
+            BindingType.CreateHandle("std::unordered_map<int, int>*", "VariantMap", "record:payload", marshallerTypeName: "Marshaller<std::unordered_map<int, int>>", cppIsRecordValue: true),
             "std::unordered_map<int, int>",
             payloadHasMarshallerExposedMethod: true);
 
@@ -2191,6 +2192,26 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("this->payload_.clear();", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("auto* source = static_cast<std::unordered_map<int, int>*>(value);", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("this->payload_ = std::move(*source);", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Director_records_do_not_borrow_pointer_fields_even_for_marshaller_backed_wrappers()
+    {
+        var compilation = CreateProtectedHandleFieldCompilation(
+            BindingType.CreateHandle("std::unordered_map<int, int>*", "VariantMap", "record:payload", marshallerTypeName: "Marshaller<std::unordered_map<int, int>>"),
+            "std::unordered_map<int, int>*",
+            payloadHasMarshallerExposedMethod: true);
+
+        var nativeOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("ret_t<std::unordered_map<int, int>*> __get_Payload()", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("ReturnMarshaller<std::unordered_map<int, int>*> __return_marshaller;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return __return_marshaller.ConvertToAbi(this->payload_);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("void __set_Payload(arg_t<std::unordered_map<int, int>*> value)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("ParameterMarshaller<std::unordered_map<int, int>*> __value_marshaller;", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("return &this->payload_;", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("field_t<std::unordered_map<int, int>*>", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]

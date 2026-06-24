@@ -37,6 +37,8 @@ public sealed record MarshallerDescriptor(
 {
     public bool CppIsRecordValue { get; init; }
 
+    public bool CppIsReference { get; init; }
+
     public bool IsRefStruct => PublicTypeName is "global::System.ReadOnlySpan<byte>";
 }
 
@@ -376,12 +378,16 @@ public sealed class BindingType
         string? marshallerTypeName,
         string? managedMarshaller,
         BindingPrimitiveKind primitiveKind = BindingPrimitiveKind.Unsupported,
-        IEnumerable<BindingType>? genericArguments = null)
+        IEnumerable<BindingType>? genericArguments = null,
+        bool cppIsReference = false)
     {
         return new BindingType(
             BindingTypeKind.Primitive,
             primitiveKind,
-            new MarshallerDescriptor(cppTypeName, publicTypeName, marshallerTypeName, managedMarshaller),
+            new MarshallerDescriptor(cppTypeName, publicTypeName, marshallerTypeName, managedMarshaller)
+            {
+                CppIsReference = cppIsReference
+            },
             genericArguments: genericArguments);
     }
 
@@ -446,6 +452,26 @@ public sealed class BindingType
             Kind,
             PrimitiveKind,
             Marshaller with { CppIsRecordValue = value },
+            RecordId,
+            EnumId,
+            GenericParameterName,
+            GenericArguments,
+            IsCallback,
+            CallbackReturnType,
+            CallbackParameterTypes,
+            FixedArrayElementType,
+            FixedArrayLength,
+            DynamicArrayElementType);
+    }
+
+    public BindingType WithCppIsReference(bool value)
+    {
+        if (Marshaller.CppIsReference == value)
+            return this;
+        return new BindingType(
+            Kind,
+            PrimitiveKind,
+            Marshaller with { CppIsReference = value },
             RecordId,
             EnumId,
             GenericParameterName,

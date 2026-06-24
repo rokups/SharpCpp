@@ -1246,7 +1246,8 @@ public sealed partial class ClangSharpHeaderParser
             fieldType,
             ResolveQualifiedTypeName(fieldDecl.Type.Handle, recordsByName),
             record.CppQualifiedName,
-            isReadOnly: fieldDecl.Type.Handle.IsConstQualified)
+            isReadOnly: fieldDecl.Type.Handle.IsConstQualified,
+            isReference: TypeIsAnyReference(fieldDecl.Type.Handle))
         {
             AccessModifier = MapAccessModifier(fieldDecl.Access)
         };
@@ -2028,7 +2029,8 @@ public sealed partial class ClangSharpHeaderParser
             TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, qualifiedSpelledTypeName, managedTypeOverrides, isReturn: true, out var returnOverride) &&
             returnOverride!.HasPublicTypeMapping)
         {
-            var mapped = CreateConfiguredOrWrapperType(returnOverride!, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName);
+            var mapped = CreateConfiguredOrWrapperType(returnOverride!, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName)
+                .WithCppIsReference(TypeIsAnyReference(normalizedType));
             // Alias surface stamping is deferred to the pipeline post-pruning.
             return preserveAliasSurface
                 ? TryApplyManagedAliasSurface(type, mapped, preserveAliasSurface)
@@ -2039,7 +2041,8 @@ public sealed partial class ClangSharpHeaderParser
 
         if (managedTypeOverride is { HasPublicTypeMapping: true })
         {
-            var mapped = CreateConfiguredOrWrapperType(managedTypeOverride, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName);
+            var mapped = CreateConfiguredOrWrapperType(managedTypeOverride, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName)
+                .WithCppIsReference(TypeIsAnyReference(normalizedType));
             return preserveAliasSurface
                 ? TryApplyManagedAliasSurface(type, mapped, preserveAliasSurface)
                 : mapped;
@@ -2051,7 +2054,8 @@ public sealed partial class ClangSharpHeaderParser
             return TryApplyManagedAliasSurface(
                 type,
                 ParseTypeToken(aliasTargetTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters)
-                    .WithCppIsRecordValue(false),
+                    .WithCppIsRecordValue(false)
+                    .WithCppIsReference(true),
                 preserveAliasSurface);
         }
 
@@ -2061,7 +2065,8 @@ public sealed partial class ClangSharpHeaderParser
             return TryApplyManagedAliasSurface(
                 type,
                 MapType(sourcePointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters, preserveAliasSurface: false)
-                    .WithCppIsRecordValue(false),
+                    .WithCppIsRecordValue(false)
+                    .WithCppIsReference(true),
                 preserveAliasSurface);
         }
 
@@ -2364,7 +2369,7 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         var elementType = MapType(arrayType.ArrayElementType, recordsByName, enumsByName, managedTypeOverrides, genericParameters, preserveAliasSurface: false);
-        if (elementType.CppTypeName.EndsWith("*", StringComparison.Ordinal))
+        if (elementType.Kind == BindingTypeKind.Handle)
         {
             throw new NotSupportedException("fixed-size array fields with handle-backed elements are not yet supported in this bootstrap surface.");
         }

@@ -313,7 +313,7 @@ public static partial class BindingOutputRenderer
 
     private static int CountPointerLikeGenericArguments(IReadOnlyList<BindingType> arguments)
         => arguments.Sum(static argument =>
-            (argument.CppTypeName.Contains('*', StringComparison.Ordinal) ? 1 : 0) +
+            (argument.Kind == BindingTypeKind.Handle && !argument.Marshaller.CppIsRecordValue ? 1 : 0) +
             CountPointerLikeGenericArguments(argument.GenericArguments));
 
     private static int CountRecordValueGenericArguments(IReadOnlyList<BindingType> arguments)
@@ -2325,7 +2325,7 @@ public static partial class BindingOutputRenderer
 
         var genericName = parameter.Type.GenericParameterName;
         if (string.Equals(parameter.CppTypeName, genericName + "&&", StringComparison.Ordinal) &&
-            concreteType.CppTypeName.Contains('&', StringComparison.Ordinal))
+            concreteType.Marshaller.CppIsReference)
         {
             return concreteType.CppTypeName;
         }

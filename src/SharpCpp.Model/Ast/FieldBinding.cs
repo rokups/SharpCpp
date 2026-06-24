@@ -9,7 +9,8 @@ public sealed class FieldBinding : BindingNamedNode
         BindingType type,
         string cppTypeName,
         string owningRecordCppTypeName,
-        bool isReadOnly = false)
+        bool isReadOnly = false,
+        bool isReference = false)
         : base(symbolId, nativeName, managedName)
     {
         ArgumentNullException.ThrowIfNull(type);
@@ -20,6 +21,7 @@ public sealed class FieldBinding : BindingNamedNode
         CppTypeName = cppTypeName;
         OwningRecordCppTypeName = owningRecordCppTypeName;
         IsReadOnly = isReadOnly;
+        IsReference = isReference;
     }
 
     public override BindingNodeKind Kind => BindingNodeKind.Field;
@@ -33,6 +35,8 @@ public sealed class FieldBinding : BindingNamedNode
     public string OwningRecordCppTypeName { get; set; }
 
     public bool IsReadOnly { get; set; }
+
+    public bool IsReference { get; set; }
 
     public BindingAccessModifier AccessModifier { get; set; } = BindingAccessModifier.Public;
 
