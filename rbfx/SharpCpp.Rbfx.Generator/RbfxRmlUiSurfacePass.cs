@@ -156,7 +156,7 @@ public static class RbfxRmlUiSurfacePass
 
         var changed = 0;
         var stringType = CreateRmlStringType("Rml::String");
-        var stringConstRefType = CreateRmlStringType("const Rml::String&");
+        var stringConstRefType = CreateRmlStringType("const Rml::String&", cppIsReference: true);
         var get = variant.Members.OfType<FunctionBinding>().FirstOrDefault(static function =>
             string.Equals(function.NativeName, "Get", StringComparison.Ordinal) && function.IsGeneric);
         if (get is not null)
@@ -197,12 +197,13 @@ public static class RbfxRmlUiSurfacePass
         return changed;
     }
 
-    private static BindingType CreateRmlStringType(string cppTypeName)
+    private static BindingType CreateRmlStringType(string cppTypeName, bool cppIsReference = false)
         => BindingType.CreateConfigured(
             cppTypeName,
             "global::Ea.String",
             marshallerTypeName: null,
-            managedMarshaller: "global::Ea.__StringMarshaller<global::SharpCpp.Support.BorrowedNativeHandle>");
+            managedMarshaller: "global::Ea.__StringMarshaller<global::SharpCpp.Support.BorrowedNativeHandle>",
+            cppIsReference: cppIsReference);
 
     private static int AddInstantiation(IList<RecordGenericInstantiationBinding> instantiations, BindingType type)
     {

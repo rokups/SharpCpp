@@ -5549,7 +5549,7 @@ public static partial class BindingOutputRenderer
 
     private static bool ShouldBorrowFieldStorage(BindingCompilation compilation, FieldBinding field)
     {
-        if (field.Type.Kind != BindingTypeKind.Handle || !field.Type.Marshaller.CppIsRecordValue)
+        if (field.Type.Kind != BindingTypeKind.Handle || field.IsPointer)
         {
             return false;
         }

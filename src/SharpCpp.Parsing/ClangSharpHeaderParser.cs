@@ -1247,7 +1247,8 @@ public sealed partial class ClangSharpHeaderParser
             ResolveQualifiedTypeName(fieldDecl.Type.Handle, recordsByName),
             record.CppQualifiedName,
             isReadOnly: fieldDecl.Type.Handle.IsConstQualified,
-            isReference: TypeIsAnyReference(fieldDecl.Type.Handle))
+            isReference: TypeIsAnyReference(fieldDecl.Type.Handle),
+            isPointer: TypeIsPointer(fieldDecl.Type.Handle))
         {
             AccessModifier = MapAccessModifier(fieldDecl.Access)
         };

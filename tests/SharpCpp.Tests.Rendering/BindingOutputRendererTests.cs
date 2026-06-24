@@ -2177,7 +2177,7 @@ public sealed class BindingOutputRendererTests
     public void Director_records_render_borrowed_container_protected_field_with_address_return_and_null_clear()
     {
         var compilation = CreateProtectedHandleFieldCompilation(
-            BindingType.CreateHandle("std::unordered_map<int, int>*", "VariantMap", "record:payload", marshallerTypeName: "Marshaller<std::unordered_map<int, int>>", cppIsRecordValue: true),
+            BindingType.CreateHandle("std::unordered_map<int, int>*", "VariantMap", "record:payload", marshallerTypeName: "Marshaller<std::unordered_map<int, int>>"),
             "std::unordered_map<int, int>",
             payloadHasMarshallerExposedMethod: true);
 
@@ -2200,6 +2200,7 @@ public sealed class BindingOutputRendererTests
         var compilation = CreateProtectedHandleFieldCompilation(
             BindingType.CreateHandle("std::unordered_map<int, int>*", "VariantMap", "record:payload", marshallerTypeName: "Marshaller<std::unordered_map<int, int>>"),
             "std::unordered_map<int, int>*",
+            fieldIsPointer: true,
             payloadHasMarshallerExposedMethod: true);
 
         var nativeOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
@@ -2237,7 +2238,8 @@ public sealed class BindingOutputRendererTests
     private static BindingCompilation CreateProtectedHandleFieldCompilation(
         BindingType fieldType,
         string fieldCppTypeName,
-        bool payloadHasMarshallerExposedMethod = false)
+        bool payloadHasMarshallerExposedMethod = false,
+        bool fieldIsPointer = false)
     {
         var compilation = new BindingCompilation(
             "SharpCpp.Sample",
@@ -2269,7 +2271,8 @@ public sealed class BindingOutputRendererTests
         record.Members.Add(virtualMethod);
         record.Members.Add(new FieldBinding("field:protected_counter:payload_", "payload_", "Payload", fieldType, fieldCppTypeName, "protected_counter")
         {
-            AccessModifier = BindingAccessModifier.Protected
+            AccessModifier = BindingAccessModifier.Protected,
+            IsPointer = fieldIsPointer
         });
         compilation.Members.Add(payloadRecord);
         compilation.Members.Add(record);
