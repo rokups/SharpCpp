@@ -134,11 +134,11 @@ Current worktree verification passes with rbfx accessor-style `Get*` / `Set*` / 
 ## Recently Fixed
 
 - **Pointer/reference decisions no longer use C++ spelling checks in protected field and generic helper paths**:
-  - Removed protected-field pointer spelling checks; native protected field helper planning now uses the field storage type directly and borrows storage only for AST value-record wrapper fields with marshaller-backed wrapper facts.
-  - Added `FieldBinding.IsReference` and `MarshallerDescriptor.CppIsReference`, populated parser reference branches from ClangSharp type facts, and used those facts in degradation and forwarding-reference generic rendering.
+  - Removed protected-field pointer spelling checks; native protected field helper planning now uses the field storage type directly and borrows storage only for non-pointer handle fields with marshaller-backed wrapper facts.
+  - Added `FieldBinding.IsReference`, `FieldBinding.IsPointer`, and `MarshallerDescriptor.CppIsReference`, populated parser reference/pointer branches from ClangSharp type facts, and used those facts in degradation, protected field planning, and forwarding-reference generic rendering.
   - Replaced fixed-array handle-element detection with `BindingTypeKind.Handle` instead of `CppTypeName.EndsWith("*")`.
   - Added regression coverage for AST reference-field degradation and marshaller-backed pointer fields using normal ABI handling instead of borrowed storage.
-  - Verification: focused tests, full model tests, and full rendering tests pass.
+  - Verification: focused tests, full model/rendering tests, `cmake --build --preset Debug`, and `ctest --preset Debug` pass.
 
 - **Legacy UTF-8 pointer return fallback no longer has a core model predicate**:
   - Removed `MarshallerDescriptor.RequiresUtf8Conversion`, which inferred string conversion policy from `PublicTypeName == "string"` inside the core model.

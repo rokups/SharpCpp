@@ -9,6 +9,18 @@ public sealed class FieldBinding : BindingNamedNode
         BindingType type,
         string cppTypeName,
         string owningRecordCppTypeName,
+        bool isReadOnly)
+        : this(symbolId, nativeName, managedName, type, cppTypeName, owningRecordCppTypeName, isReadOnly, isReference: false, isPointer: false)
+    {
+    }
+
+    public FieldBinding(
+        string symbolId,
+        string nativeName,
+        string managedName,
+        BindingType type,
+        string cppTypeName,
+        string owningRecordCppTypeName,
         bool isReadOnly = false,
         bool isReference = false,
         bool isPointer = false)
