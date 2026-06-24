@@ -11,6 +11,9 @@ public static class ValidateBootstrapSurfacePass
         var recordsById = compilation.Records
             .GroupBy(static record => record.SymbolId, StringComparer.Ordinal)
             .ToDictionary(static group => group.Key, static group => group.Last(), StringComparer.Ordinal);
+        var configuredNativeNamespaces = compilation.NamespaceMappings.Keys
+            .Where(static key => !string.IsNullOrWhiteSpace(key))
+            .ToArray();
 
         foreach (var record in compilation.Records)
         {
@@ -27,7 +30,7 @@ public static class ValidateBootstrapSurfacePass
 
             if (record.IsGeneric)
             {
-                ValidateGenericRecord(record, recordsById);
+                ValidateGenericRecord(record, recordsById, configuredNativeNamespaces);
             }
         }
 
@@ -43,11 +46,14 @@ public static class ValidateBootstrapSurfacePass
                 continue;
             }
 
-            ValidateGenericFunction(function, recordsById);
+            ValidateGenericFunction(function, recordsById, configuredNativeNamespaces);
         }
     }
 
-    private static void ValidateGenericRecord(RecordBinding record, IReadOnlyDictionary<string, RecordBinding> recordsById)
+    private static void ValidateGenericRecord(
+        RecordBinding record,
+        IReadOnlyDictionary<string, RecordBinding> recordsById,
+        IReadOnlyCollection<string> configuredNativeNamespaces)
     {
         if (record.SupportedGenericInstantiations.Count == 0 && !record.HasMetadata(MetadataKeys.ExplicitGenericInstantiations))
         {
@@ -73,7 +79,7 @@ public static class ValidateBootstrapSurfacePass
             return;
         }
 
-        FilterUnsupportedInstantiations(record, record.SupportedGenericInstantiations, recordsById);
+        FilterUnsupportedInstantiations(record, record.SupportedGenericInstantiations, recordsById, configuredNativeNamespaces);
 
         if (record.SupportedGenericInstantiations.Count == 0 &&
             !record.HasMetadata(MetadataKeys.ExplicitGenericInstantiations))
@@ -82,7 +88,10 @@ public static class ValidateBootstrapSurfacePass
         }
     }
 
-    private static void ValidateGenericFunction(FunctionBinding function, IReadOnlyDictionary<string, RecordBinding> recordsById)
+    private static void ValidateGenericFunction(
+        FunctionBinding function,
+        IReadOnlyDictionary<string, RecordBinding> recordsById,
+        IReadOnlyCollection<string> configuredNativeNamespaces)
     {
         if (function.SupportedGenericInstantiations.Count == 0 && !function.HasMetadata(MetadataKeys.ExplicitGenericInstantiations))
         {
@@ -96,7 +105,7 @@ public static class ValidateBootstrapSurfacePass
             return;
         }
 
-        FilterUnsupportedInstantiations(function.SupportedGenericInstantiations, recordsById);
+        FilterUnsupportedInstantiations(function.SupportedGenericInstantiations, recordsById, configuredNativeNamespaces);
 
         if (function.SupportedGenericInstantiations.Count == 0 &&
             !function.HasMetadata(MetadataKeys.ExplicitGenericInstantiations))
@@ -105,11 +114,14 @@ public static class ValidateBootstrapSurfacePass
         }
     }
 
-    private static bool ValidateInstantiationKinds(RecordGenericInstantiationBinding instantiation, IReadOnlyDictionary<string, RecordBinding> recordsById)
+    private static bool ValidateInstantiationKinds(
+        RecordGenericInstantiationBinding instantiation,
+        IReadOnlyDictionary<string, RecordBinding> recordsById,
+        IReadOnlyCollection<string> configuredNativeNamespaces)
     {
         foreach (var argument in instantiation.TypeArguments)
         {
-            if (!ValidateInstantiationArgument(argument, recordsById))
+            if (!ValidateInstantiationArgument(argument, recordsById, configuredNativeNamespaces))
             {
                 return false;
             }
@@ -121,11 +133,12 @@ public static class ValidateBootstrapSurfacePass
     private static bool ValidateInstantiationKinds(
         RecordBinding record,
         RecordGenericInstantiationBinding instantiation,
-        IReadOnlyDictionary<string, RecordBinding> recordsById)
+        IReadOnlyDictionary<string, RecordBinding> recordsById,
+        IReadOnlyCollection<string> configuredNativeNamespaces)
     {
         foreach (var argument in SelectManagedVisibleTypeArguments(record, instantiation.TypeArguments))
         {
-            if (!ValidateInstantiationArgument(argument, recordsById))
+            if (!ValidateInstantiationArgument(argument, recordsById, configuredNativeNamespaces))
             {
                 return false;
             }
@@ -134,7 +147,10 @@ public static class ValidateBootstrapSurfacePass
         return true;
     }
 
-    private static bool ValidateInstantiationArgument(BindingType argument, IReadOnlyDictionary<string, RecordBinding> recordsById)
+    private static bool ValidateInstantiationArgument(
+        BindingType argument,
+        IReadOnlyDictionary<string, RecordBinding> recordsById,
+        IReadOnlyCollection<string> configuredNativeNamespaces)
     {
         if (argument.Kind is not (BindingTypeKind.Primitive or BindingTypeKind.Enum or BindingTypeKind.Handle))
         {
@@ -173,7 +189,7 @@ public static class ValidateBootstrapSurfacePass
             // produce broken native thunks — filter those instantiations.
             if (argRecord.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) &&
                 argRecord.GetMetadata<bool>(MetadataKeys.SuppressEmission) &&
-                HasUnresolvedNativeNamespaceColons(argRecord))
+                HasUnresolvedNativeNamespaceColons(argRecord, configuredNativeNamespaces))
             {
                 return false;
             }
@@ -181,7 +197,7 @@ public static class ValidateBootstrapSurfacePass
 
         foreach (var genericArgument in SelectManagedVisibleNestedTypeArguments(argument, recordsById))
         {
-            if (!ValidateInstantiationArgument(genericArgument, recordsById))
+            if (!ValidateInstantiationArgument(genericArgument, recordsById, configuredNativeNamespaces))
             {
                 return false;
             }
@@ -192,11 +208,12 @@ public static class ValidateBootstrapSurfacePass
 
     private static void FilterUnsupportedInstantiations(
         IList<RecordGenericInstantiationBinding> instantiations,
-        IReadOnlyDictionary<string, RecordBinding> recordsById)
+        IReadOnlyDictionary<string, RecordBinding> recordsById,
+        IReadOnlyCollection<string> configuredNativeNamespaces)
     {
         for (var i = instantiations.Count - 1; i >= 0; i--)
         {
-            if (!ValidateInstantiationKinds(instantiations[i], recordsById))
+            if (!ValidateInstantiationKinds(instantiations[i], recordsById, configuredNativeNamespaces))
                 instantiations.RemoveAt(i);
         }
     }
@@ -204,11 +221,12 @@ public static class ValidateBootstrapSurfacePass
     private static void FilterUnsupportedInstantiations(
         RecordBinding record,
         IList<RecordGenericInstantiationBinding> instantiations,
-        IReadOnlyDictionary<string, RecordBinding> recordsById)
+        IReadOnlyDictionary<string, RecordBinding> recordsById,
+        IReadOnlyCollection<string> configuredNativeNamespaces)
     {
         for (var i = instantiations.Count - 1; i >= 0; i--)
         {
-            if (!ValidateInstantiationKinds(record, instantiations[i], recordsById))
+            if (!ValidateInstantiationKinds(record, instantiations[i], recordsById, configuredNativeNamespaces))
                 instantiations.RemoveAt(i);
         }
     }
@@ -350,13 +368,23 @@ public static class ValidateBootstrapSurfacePass
         return false;
     }
 
-    private static bool HasUnresolvedNativeNamespaceColons(RecordBinding record)
+    private static bool HasUnresolvedNativeNamespaceColons(
+        RecordBinding record,
+        IReadOnlyCollection<string> configuredNativeNamespaces)
     {
         var cppName = record.CppQualifiedName;
         if (!cppName.Contains("::", StringComparison.Ordinal))
+        {
             return false;
+        }
 
-        var root = cppName[..cppName.IndexOf("::", StringComparison.Ordinal)];
-        return root is not ("Urho3D" or "ea" or "eastl" or "std" or "SharpCpp");
+        if (configuredNativeNamespaces.Count == 0)
+        {
+            return false;
+        }
+
+        return !configuredNativeNamespaces.Any(namespacePrefix =>
+            string.Equals(cppName, namespacePrefix, StringComparison.Ordinal) ||
+            cppName.StartsWith(namespacePrefix + "::", StringComparison.Ordinal));
     }
 }

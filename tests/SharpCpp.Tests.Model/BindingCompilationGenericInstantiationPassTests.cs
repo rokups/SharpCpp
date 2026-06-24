@@ -175,4 +175,84 @@ public sealed class BindingCompilationGenericInstantiationPassTests
         Assert.False(vector.IsIgnored(), vector.GetIgnoreReason());
         Assert.Single(vector.SupportedGenericInstantiations);
     }
+
+    [Fact]
+    public void ValidateBootstrapSurface_keeps_suppressed_placeholder_instantiations_under_configured_namespace()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Vector.h"])
+        {
+            NamespaceMappings = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["Test::External"] = "Test.External"
+            }
+        };
+        var element = new RecordBinding("record:Test::External::Payload", "Payload", "Payload", "Test::External::Payload");
+        element.SetMetadata(MetadataKeys.PlaceholderRecord, true);
+        element.SetMetadata(MetadataKeys.SuppressEmission, true);
+        var vector = CreateGenericVector(element.HandleType);
+        compilation.Members.Add(element);
+        compilation.Members.Add(vector);
+
+        ValidateBootstrapSurfacePass.Apply(compilation);
+
+        Assert.False(vector.IsIgnored(), vector.GetIgnoreReason());
+        Assert.Single(vector.SupportedGenericInstantiations);
+    }
+
+    [Fact]
+    public void ValidateBootstrapSurface_removes_suppressed_placeholder_instantiations_outside_configured_namespaces()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Vector.h"])
+        {
+            NamespaceMappings = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["Test"] = "Test"
+            }
+        };
+        var element = new RecordBinding("record:External::Payload", "Payload", "Payload", "External::Payload");
+        element.SetMetadata(MetadataKeys.PlaceholderRecord, true);
+        element.SetMetadata(MetadataKeys.SuppressEmission, true);
+        var vector = CreateGenericVector(element.HandleType);
+        compilation.Members.Add(element);
+        compilation.Members.Add(vector);
+
+        ValidateBootstrapSurfacePass.Apply(compilation);
+
+        Assert.Empty(vector.SupportedGenericInstantiations);
+        Assert.Equal("generic record 'Vector' has no supported concrete instantiations", vector.GetIgnoreReason());
+    }
+
+    [Fact]
+    public void ValidateBootstrapSurface_removes_non_suppressed_placeholder_instantiations_even_under_configured_namespace()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Vector.h"])
+        {
+            NamespaceMappings = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["Test"] = "Test"
+            }
+        };
+        var element = new RecordBinding("record:Test::Payload", "Payload", "Payload", "Test::Payload");
+        element.SetMetadata(MetadataKeys.PlaceholderRecord, true);
+        var vector = CreateGenericVector(element.HandleType);
+        compilation.Members.Add(element);
+        compilation.Members.Add(vector);
+
+        ValidateBootstrapSurfacePass.Apply(compilation);
+
+        Assert.Empty(vector.SupportedGenericInstantiations);
+        Assert.Equal("generic record 'Vector' has no supported concrete instantiations", vector.GetIgnoreReason());
+    }
+
+    private static RecordBinding CreateGenericVector(BindingType elementType)
+    {
+        var vector = new RecordBinding("record:vector", "vector", "Vector", "eastl::vector")
+        {
+            ManagedTypeFormat = "Vector<{0}>",
+            ManagedBaseTypeName = "global::SharpCpp.Support.VectorBase<{0}>"
+        };
+        vector.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        vector.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding([elementType]));
+        return vector;
+    }
 }

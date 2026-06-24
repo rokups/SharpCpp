@@ -133,6 +133,12 @@ Current worktree verification passes with rbfx accessor-style `Get*` / `Set*` / 
 
 ## Recently Fixed
 
+- **Generic validation no longer hardcodes rbfx/STL namespace roots in the core pipeline**:
+  - Replaced the `Urho3D` / `ea` / `eastl` / `std` / `SharpCpp` allowlist in `ValidateBootstrapSurfacePass` with namespace-prefix checks derived from `BindingCompilation.NamespaceMappings`.
+  - Preserved the validation boundary for suppress-emission placeholders: mapped native namespaces are allowed, unmapped namespaces are filtered, and non-suppressed placeholders still fail regardless of mappings.
+  - Added regression coverage for mapped nested namespaces, unmapped suppress-emission placeholders, and non-suppressed placeholders.
+  - Verification: focused validation tests and full model tests pass.
+
 - **Protected wrapper field storage no longer depends on C++ container-name substrings in the core model**:
   - Removed `MarshallerDescriptor.RequiresBorrowedFieldStorage`, which inferred storage policy from `vector` / `list` / `map` C++ spelling fragments.
   - Renderer field planning now uses explicit wrapper facts already present on resolved records (`MarshallerExposedMethod`) instead of asking the model to classify concrete C++ type families.
