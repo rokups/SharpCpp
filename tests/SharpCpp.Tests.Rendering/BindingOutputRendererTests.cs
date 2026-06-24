@@ -2151,8 +2151,9 @@ public sealed class BindingOutputRendererTests
     public void Director_records_render_borrowed_container_protected_field_with_address_return_and_null_clear()
     {
         var compilation = CreateProtectedHandleFieldCompilation(
-            BindingType.CreateHandle("std::unordered_map<int, int>", "VariantMap", "record:payload", marshallerTypeName: "Marshaller<std::unordered_map<int, int>>"),
-            "std::unordered_map<int, int>");
+            BindingType.CreateHandle("std::unordered_map<int, int>*", "VariantMap", "record:payload", marshallerTypeName: "Marshaller<std::unordered_map<int, int>>"),
+            "std::unordered_map<int, int>",
+            payloadHasMarshallerExposedMethod: true);
 
         var nativeOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
             .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
@@ -2167,7 +2168,30 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("this->payload_ = std::move(*source);", nativeOutput, StringComparison.Ordinal);
     }
 
-    private static BindingCompilation CreateProtectedHandleFieldCompilation(BindingType fieldType, string fieldCppTypeName)
+    [Fact]
+    public void Director_records_do_not_borrow_protected_field_storage_from_cpp_type_name_substrings()
+    {
+        var compilation = CreateProtectedHandleFieldCompilation(
+            BindingType.CreateHandle("custom_map_like<int>*", "Payload", "record:payload", marshallerTypeName: "Marshaller<custom_map_like<int>>"),
+            "custom_map_like<int>");
+
+        var nativeOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("ret_t<custom_map_like<int>> __get_Payload()", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("ReturnMarshaller<custom_map_like<int>> __return_marshaller;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return __return_marshaller.ConvertToAbi(this->payload_);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_protected_counter_payload__set(arg_t<protected_counter*> self, arg_t<custom_map_like<int>> value)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("void __set_Payload(arg_t<custom_map_like<int>> value)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("ParameterMarshaller<custom_map_like<int>> __value_marshaller;", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("return &this->payload_;", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("field_t<custom_map_like<int>>", nativeOutput, StringComparison.Ordinal);
+    }
+
+    private static BindingCompilation CreateProtectedHandleFieldCompilation(
+        BindingType fieldType,
+        string fieldCppTypeName,
+        bool payloadHasMarshallerExposedMethod = false)
     {
         var compilation = new BindingCompilation(
             "SharpCpp.Sample",
@@ -2176,6 +2200,15 @@ public sealed class BindingOutputRendererTests
             "SharpCpp.Sample.Native",
             new[] { "Records/Protected.hpp" });
         var payloadRecord = new RecordBinding("record:payload", "payload", "Payload");
+        if (payloadHasMarshallerExposedMethod)
+        {
+            var getCountCore = new FunctionBinding("method:payload:get_count_core", "GetCountCore", "GetCountCore", BindingType.UInt64, "entry_get_count_core")
+            {
+                OwningRecordCppTypeName = "payload"
+            };
+            getCountCore.SetMetadata(MetadataKeys.MarshallerExposedMethod, true);
+            payloadRecord.Members.Add(getCountCore);
+        }
         var record = new RecordBinding("record:protected_counter", "protected_counter", "ProtectedCounter")
         {
             IsDirector = true

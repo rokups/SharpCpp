@@ -133,6 +133,12 @@ Current worktree verification passes with rbfx accessor-style `Get*` / `Set*` / 
 
 ## Recently Fixed
 
+- **Protected wrapper field storage no longer depends on C++ container-name substrings in the core model**:
+  - Removed `MarshallerDescriptor.RequiresBorrowedFieldStorage`, which inferred storage policy from `vector` / `list` / `map` C++ spelling fragments.
+  - Renderer field planning now uses explicit wrapper facts already present on resolved records (`MarshallerExposedMethod`) instead of asking the model to classify concrete C++ type families.
+  - Added regression coverage that borrowed protected field storage requires wrapper metadata and that a `custom_map_like` C++ spelling does not trigger borrowed storage by substring.
+  - Verification: focused rendering regression tests pass.
+
 - **`Rbfx.Application` RmlUI text binding setup no longer uses one-line wrapper callbacks**:
   - Replaced the separate `Bind*Value` / `SetNoteValue` methods with direct text-buffer binding helpers in the data-model setup.
   - Verification: `cmake --build --preset Debug` and `ctest --preset Debug` pass.

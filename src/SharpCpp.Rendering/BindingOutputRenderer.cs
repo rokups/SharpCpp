@@ -4800,10 +4800,7 @@ public static partial class BindingOutputRenderer
             return field.CppTypeName;
         }
 
-        var record = ResolveRecord(compilation, field.Type);
-        if (record is not null &&
-            record.Members.OfType<FunctionBinding>().Any(static method => method.HasMetadata(MetadataKeys.MarshallerExposedMethod)) &&
-            field.Type.CppTypeName.EndsWith("*", StringComparison.Ordinal))
+        if (IsMarshallerBackedStorageWrapper(compilation, field.Type))
         {
             return field.Type.CppTypeName[..^1];
         }
@@ -5572,7 +5569,19 @@ public static partial class BindingOutputRenderer
             return false;
         }
 
-        return field.Type.Marshaller.RequiresBorrowedFieldStorage;
+        return IsMarshallerBackedStorageWrapper(compilation, field.Type);
+    }
+
+    private static bool IsMarshallerBackedStorageWrapper(BindingCompilation compilation, BindingType type)
+    {
+        if (!type.CppTypeName.EndsWith("*", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var record = ResolveRecord(compilation, type);
+        return record is not null &&
+            record.Members.OfType<FunctionBinding>().Any(static method => method.HasMetadata(MetadataKeys.MarshallerExposedMethod));
     }
 
     private static bool IsNativeFixedArrayType(BindingCompilation compilation, BindingType type)

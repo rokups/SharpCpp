@@ -39,12 +39,6 @@ public sealed record MarshallerDescriptor(
 
     public bool RequiresUtf8Conversion => PublicTypeName == "string";
 
-    public bool RequiresBorrowedFieldStorage =>
-        CppTypeName.Contains("vector<", StringComparison.Ordinal) ||
-        CppTypeName.Contains("list<", StringComparison.Ordinal) ||
-        CppTypeName.Contains("map<", StringComparison.Ordinal) ||
-        CppTypeName.Contains("unordered_map<", StringComparison.Ordinal);
-
     public bool IsRefStruct => PublicTypeName is "global::System.ReadOnlySpan<byte>";
 }
 
