@@ -1205,6 +1205,31 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Managed_output_keeps_legacy_utf8_pointer_return_conversion_local_to_renderer()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "String/String.hpp" });
+        var function = new FunctionBinding(
+            "function:get_name",
+            "get_name",
+            "GetName",
+            BindingType.CreateConfigured("const char*", "string", BindingType.IntPtr.ManagedTypeName),
+            "sharpcpp_sample_get_name",
+            "const char*");
+        compilation.Members.Add(function);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("var __result_raw = __PInvoke.GetName();", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__result_raw)!;", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Managed_output_uses_ast_direction_and_abi_kind_for_handle_parameters()
     {
         var compilation = new BindingCompilation(

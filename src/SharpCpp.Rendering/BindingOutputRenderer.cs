@@ -4206,7 +4206,7 @@ public static partial class BindingOutputRenderer
         }
 
         var conversionExpression = importTypeName == BindingType.IntPtr.ManagedTypeName &&
-                                   function.ReturnType.Marshaller.RequiresUtf8Conversion
+                                   string.Equals(function.ReturnType.Marshaller.PublicTypeName, "string", StringComparison.Ordinal)
             ? "global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__result_raw)!"
             : "__result_raw";
         writer.Write($$"""

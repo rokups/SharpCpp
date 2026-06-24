@@ -133,6 +133,12 @@ Current worktree verification passes with rbfx accessor-style `Get*` / `Set*` / 
 
 ## Recently Fixed
 
+- **Legacy UTF-8 pointer return fallback no longer has a core model predicate**:
+  - Removed `MarshallerDescriptor.RequiresUtf8Conversion`, which inferred string conversion policy from `PublicTypeName == "string"` inside the core model.
+  - Kept the existing `Marshal.PtrToStringUTF8` fallback localized in rendering for legacy `marshaller_type`-only return shapes until a support custom marshaller contract replaces it.
+  - Added renderer regression coverage for the legacy fallback so future marshaller work can intentionally remove it.
+  - Verification: focused UTF-8 renderer tests and full rendering tests pass.
+
 - **Unresolved managed C++ namespace detection is centralized on the binding type model**:
   - Added `BindingType.HasUnresolvedManagedNamespaceSeparators` as the single structural check for public managed type names that still contain C++ `::` separators outside the valid `global::` prefix.
   - Removed duplicate helpers from validation, degradation, and generic rendering code paths.

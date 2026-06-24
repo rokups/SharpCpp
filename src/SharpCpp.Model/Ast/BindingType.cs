@@ -37,8 +37,6 @@ public sealed record MarshallerDescriptor(
 {
     public bool CppIsRecordValue { get; init; }
 
-    public bool RequiresUtf8Conversion => PublicTypeName == "string";
-
     public bool IsRefStruct => PublicTypeName is "global::System.ReadOnlySpan<byte>";
 }
 
