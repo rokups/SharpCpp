@@ -539,7 +539,7 @@ public static class DegradeUnsupportedSurfacePass
             }
         }
 
-        if (HasUnresolvedNamespaceColons(type))
+        if (type.HasUnresolvedManagedNamespaceSeparators)
         {
             reason = $"managed type name '{type.ManagedTypeName}' is not yet renderer-ready C#";
             return true;
@@ -889,46 +889,6 @@ public static class DegradeUnsupportedSurfacePass
         return string.Join(
             ",",
             function.GenericParameters.Select(static parameter => $"{parameter.Position}:{parameter.Name}"));
-    }
-
-    /// <summary>
-    /// Checks whether a <see cref="BindingType"/>'s managed type name contains
-    /// C++ namespace separators ("::") that are not valid in C#.  Works with
-    /// the structural type tree rather than the flat formatted string:
-    /// examines each type's own <see cref="MarshallerDescriptor.PublicTypeName"/>
-    /// (without generic argument expansion) and recurses into generic arguments.
-    /// This correctly accepts types like
-    /// <c>Ea.Vector&lt;global::Urho3D.Math.StringHash&gt;</c> where the only
-    /// "::" is the valid <c>global::</c> prefix on generic type arguments.
-    /// </summary>
-    private static bool HasUnresolvedNamespaceColons(BindingType type)
-    {
-        // Generic parameters are resolved at instantiation time — nothing to
-        // check at the generic-definition level.
-        if (type.Kind == BindingTypeKind.GenericParameter)
-        {
-            return false;
-        }
-
-        // Check this type's own public name (without generic arguments).
-        var publicName = type.Marshaller.PublicTypeName;
-        if (publicName.Contains("::", StringComparison.Ordinal) &&
-            !publicName.StartsWith("global::", StringComparison.Ordinal))
-        {
-            return true;
-        }
-
-        // Recurse into generic type arguments — each argument is individually
-        // a BindingType that must also have a renderer-ready managed name.
-        foreach (var argument in type.GenericArguments)
-        {
-            if (HasUnresolvedNamespaceColons(argument))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /// <summary>

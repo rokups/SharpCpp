@@ -157,7 +157,7 @@ public static class ValidateBootstrapSurfacePass
             return false;
         }
 
-        if (HasUnresolvedNamespaceColons(argument))
+        if (argument.HasUnresolvedManagedNamespaceSeparators)
         {
             return false;
         }
@@ -330,42 +330,6 @@ public static class ValidateBootstrapSurfacePass
 
             index = closeIndex;
         }
-    }
-
-    /// <summary>
-    /// Returns <c>true</c> when the type or any of its generic arguments
-    /// contains a C++ <c>::</c> namespace separator in its managed public
-    /// type name that is NOT the valid <c>global::</c> prefix, indicating
-    /// the type has not been mapped to a valid C# type.
-    /// </summary>
-    private static bool HasUnresolvedNamespaceColons(BindingType type)
-    {
-        // Generic parameters are resolved at instantiation time — nothing to
-        // check at the generic-definition level.
-        if (type.Kind == BindingTypeKind.GenericParameter)
-        {
-            return false;
-        }
-
-        // Check this type's own public name (without generic arguments).
-        var publicName = type.Marshaller.PublicTypeName;
-        if (publicName.Contains("::", StringComparison.Ordinal) &&
-            !publicName.StartsWith("global::", StringComparison.Ordinal))
-        {
-            return true;
-        }
-
-        // Recurse into generic type arguments — each argument is individually
-        // a BindingType that must also have a renderer-ready managed name.
-        foreach (var argument in type.GenericArguments)
-        {
-            if (HasUnresolvedNamespaceColons(argument))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private static bool HasUnresolvedNativeNamespaceColons(

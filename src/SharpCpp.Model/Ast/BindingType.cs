@@ -178,6 +178,8 @@ public sealed class BindingType
 
     public bool IsPointerType => Kind == BindingTypeKind.Handle && string.IsNullOrEmpty(Marshaller.MarshallerTypeName);
 
+    public bool HasUnresolvedManagedNamespaceSeparators => ContainsUnresolvedManagedNamespaceSeparators(this);
+
     public string? ManagedTypeFormatOverride => _managedTypeFormatOverride;
 
     public void SetManagedTypeFormatOverride(string? managedTypeFormatOverride)
@@ -456,6 +458,23 @@ public sealed class BindingType
             FixedArrayElementType,
             FixedArrayLength,
             DynamicArrayElementType);
+    }
+
+    private static bool ContainsUnresolvedManagedNamespaceSeparators(BindingType type)
+    {
+        if (type.Kind == BindingTypeKind.GenericParameter)
+        {
+            return false;
+        }
+
+        var publicName = type.Marshaller.PublicTypeName;
+        if (publicName.Contains("::", StringComparison.Ordinal) &&
+            !publicName.StartsWith("global::", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return type.GenericArguments.Any(ContainsUnresolvedManagedNamespaceSeparators);
     }
 
     private string FormatManagedTypeName(

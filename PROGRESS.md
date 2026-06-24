@@ -133,6 +133,12 @@ Current worktree verification passes with rbfx accessor-style `Get*` / `Set*` / 
 
 ## Recently Fixed
 
+- **Unresolved managed C++ namespace detection is centralized on the binding type model**:
+  - Added `BindingType.HasUnresolvedManagedNamespaceSeparators` as the single structural check for public managed type names that still contain C++ `::` separators outside the valid `global::` prefix.
+  - Removed duplicate helpers from validation, degradation, and generic rendering code paths.
+  - Added direct model coverage for nested generic arguments with valid `global::` type names and invalid unmapped C++ spellings.
+  - Verification: focused model tests, full model tests, and full rendering tests pass.
+
 - **Generic validation no longer hardcodes rbfx/STL namespace roots in the core pipeline**:
   - Replaced the `Urho3D` / `ea` / `eastl` / `std` / `SharpCpp` allowlist in `ValidateBootstrapSurfacePass` with namespace-prefix checks derived from `BindingCompilation.NamespaceMappings`.
   - Preserved the validation boundary for suppress-emission placeholders: mapped native namespaces are allowed, unmapped namespaces are filtered, and non-suppressed placeholders still fail regardless of mappings.

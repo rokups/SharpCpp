@@ -761,7 +761,7 @@ public static partial class BindingOutputRenderer
             return false;
         }
 
-        if (HasUnresolvedManagedNamespaceColons(type))
+        if (type.HasUnresolvedManagedNamespaceSeparators)
         {
             return false;
         }
@@ -795,23 +795,6 @@ public static partial class BindingOutputRenderer
         }
 
         return type.GenericArguments.All(argument => IsSupportedFixedArrayElementType(compilation, argument));
-    }
-
-    private static bool HasUnresolvedManagedNamespaceColons(BindingType type)
-    {
-        if (type.Kind == BindingTypeKind.GenericParameter)
-        {
-            return false;
-        }
-
-        var publicName = type.Marshaller.PublicTypeName;
-        if (publicName.Contains("::", StringComparison.Ordinal) &&
-            !publicName.StartsWith("global::", StringComparison.Ordinal))
-        {
-            return true;
-        }
-
-        return type.GenericArguments.Any(HasUnresolvedManagedNamespaceColons);
     }
 
     private static IEnumerable<RecordGenericInstantiationBinding> CollectFixedArrayInstantiations(BindingCompilation compilation, RecordBinding record)
