@@ -8,7 +8,7 @@ Bootstrap an independent SharpCpp line from `doc/`, selectively adapting small b
 
 All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E) on the last clean verified baseline. The full pipeline — C++ headers → generated C# wrappers + native thunks — runs end-to-end for both synthetic fixtures and the real rbfx SDK.
 
-Current worktree verification passes with rbfx accessor-style `Get*` / `Set*` / `Is*` pairs promoted to generated C# properties and generated RmlUI data-model/document/callback/variant APIs replacing stale manual P/Invoke conveniences. Thin managed convenience wrappers remain acceptable when they delegate to generated APIs without handwritten native entrypoints.
+Current worktree verification passes with generic complex C++ values crossing callback/native ABI as pointers by default, while explicitly configured value marshallers such as `StringHash`, math structs, and smart-pointer projections keep their configured ABI. Thin managed convenience wrappers remain acceptable when they delegate to generated APIs without handwritten native entrypoints.
 
 ### Model & Metadata
 - Binding model: records, enums, free functions, methods, constructors, fields, operators, templates/generics
@@ -132,6 +132,24 @@ Current worktree verification passes with rbfx accessor-style `Get*` / `Set*` / 
 - All type-specific behaviors configured through C++/C# marshallers, never hardcoded in core
 
 ## Recently Fixed
+
+- **Default native marshalling now uses pointer ABI for complex C++ values**:
+  - Replaced the temporary RmlUI-specific `DataModelHandle` callback fix with a generic default `Marshaller<T>` / `ReturnMarshaller<T>` rule: scalar, enum, and pointer types pass by value; unconfigured complex class/record values pass by pointer; unconfigured complex value returns allocate owned storage.
+  - Explicit marshaller configurations still win. `ReturnMarshaller<T>` now uses the generic owned-return rule only for the primary default marshaller; configured value types such as `Urho3D::StringHash` and projected families such as `Urho3D::SharedPtr<T>` / `WeakPtr<T>` keep their configured scalar/pointee-pointer ABI.
+  - Added compile-time ABI assertions for default complex values, `StringHash` returns, and rbfx smart-pointer projection returns.
+  - Verified generated Rml `DataEventFunc` callbacks now receive `DataModelHandle` as `nint arg0` and wrap it through `DataModelHandle.CreateManagedWrapper(arg0, ownsHandle: false)` without any Rml-specific native marshaller header.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj --logger "console;verbosity=minimal"`, focused rbfx E2E regressions, `cmake --build --preset Debug`, and `ctest --preset Debug` pass.
+
+- **Managed rbfx RTTI source generation no longer skips user subclasses with inherited native registration**:
+  - Tightened `ManagedObjectRttiGenerator` so inherited `INativeObjectRegistration<>` interfaces and inherited RTTI methods do not count as direct/manual implementations on user subclasses.
+  - Confirmed `GeneratedManagedApplication.ManagedObjectRtti.g.cs` is emitted with instance RTTI overrides and static managed type-info registration for managed `Application` subclasses.
+  - Verification: focused managed RTTI E2E, `cmake --build --preset Debug`, and `ctest --preset Debug` pass.
+
+- **Generic record-value returns now use the owned handle ABI after type substitution**:
+  - Generic rendering now decides return ownership from the substituted concrete return type, so `TValue` returns such as `Urho3D::Variant` in `Ea.UnorderedMap<TKey, TValue>.GetValueCore` emit the same owned managed return marshaller as non-generic record-value returns.
+  - Native generic thunks now export `arg_t<T*>` and dispatch through `MarshallerInvoker::invoke_owned*` for substituted record-value returns, matching the non-generic ABI and avoiding by-value/native-object P/Invoke mismatches.
+  - Added rbfx E2E coverage for reading `Ea.UnorderedMap<StringHash, Variant>` event data directly and through `EventHandler.Invoke`, reproducing and fixing the previous native crash.
+  - Verification: rendering tests, `cmake --build --preset Debug`, focused rbfx E2E regression, and `ctest --preset Debug` pass.
 
 - **Inherited protected field access now binds through derived director entrypoints**:
   - Derived director records now render protected field helpers for inherited protected fields and expose hidden managed protected properties that call derived-record native entrypoints.

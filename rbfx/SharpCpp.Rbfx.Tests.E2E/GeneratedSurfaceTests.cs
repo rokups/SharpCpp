@@ -14,6 +14,35 @@ public sealed class GeneratedSurfaceTests
     }
 
     [Fact]
+    public void EventHandler_callback_can_read_variant_map_event_data()
+    {
+        using var context = new global::Urho3D.Core.Context();
+        using var receiver = new global::Urho3D.Core.WorkQueue(context);
+        global::Urho3D.Math.StringHash eventType = "ManagedTestEvent";
+        global::Urho3D.Math.StringHash key = "TimeStep";
+        var wasCalled = false;
+
+        using var handler = new global::Urho3D.Core.EventHandler(receiver, (_, _, eventData) =>
+        {
+            wasCalled = true;
+            Assert.True(eventData.TryGetValue(key, out var value));
+            Assert.Equal(0.25f, value.Float);
+        });
+
+        using var eventData = new global::Ea.UnorderedMap<global::Urho3D.Math.StringHash, global::Urho3D.Core.Variant>
+        {
+            [key] = 0.25f
+        };
+        Assert.True(eventData.TryGetValue(key, out var directValue));
+        Assert.Equal(0.25f, directValue.Float);
+
+        handler.SetSenderAndEventType(receiver, eventType);
+        handler.Invoke(eventData);
+
+        Assert.True(wasCalled);
+    }
+
+    [Fact]
     public void Spline_keeps_current_supported_surface()
     {
         var content = File.ReadAllText(Path.Combine(GetGeneratedDir(), "Core", "SharpCpp.Rbfx.Spline.g.cs"));
@@ -63,6 +92,7 @@ public sealed class GeneratedSurfaceTests
 
         var documentContent = File.ReadAllText(Path.Combine(GetGeneratedDir(), "ThirdParty", "RmlUi", "SharpCpp.Rbfx.Core.ElementDocument.g.cs"));
         var contextContent = File.ReadAllText(Path.Combine(GetGeneratedDir(), "ThirdParty", "RmlUi", "SharpCpp.Rbfx.Core.Context.g.cs"));
+        var aliasContent = File.ReadAllText(Path.Combine(GetGeneratedDir(), "SharpCpp.Rbfx.Bindings.Aliases.g.cs"));
 
         Assert.Contains("namespace Rml", documentContent, StringComparison.Ordinal);
         Assert.Contains("public partial class ElementDocument", documentContent, StringComparison.Ordinal);
@@ -70,6 +100,8 @@ public sealed class GeneratedSurfaceTests
         Assert.Contains("public enum ModalFlag", documentContent, StringComparison.Ordinal);
         Assert.Contains("public enum FocusFlag", documentContent, StringComparison.Ordinal);
         Assert.Contains("public global::Rml.DataModelConstructor CreateDataModel(global::Ea.String name, global::Rml.DataTypeRegister? data_type_register = default)", contextContent, StringComparison.Ordinal);
+        Assert.Contains("private static void Invoke(nint state, nint arg0, nint arg1, nint arg2)", aliasContent, StringComparison.Ordinal);
+        Assert.Contains("callback(global::Rml.DataModelHandle.CreateManagedWrapper(arg0, ownsHandle: false)", aliasContent, StringComparison.Ordinal);
     }
 
     [Fact]

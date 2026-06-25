@@ -2461,6 +2461,10 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("typeof(T) == typeof(int)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("typeof(T) == typeof(float)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("public T GetValue()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial int BoxOf_GetValue", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("(nint self);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke.BoxOf_GetValue", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("global::SharpCpp.Support.NativeObject.GetHandle(this)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("(global::SharpCpp.Sample.BoxOf<T>)(object)__result!;", managedOutput, StringComparison.Ordinal);
         AssertAllLibraryImportsAreAggressivelyInlined(managedOutput);
         Assert.Contains($"entry_get{intInstantiation.Suffix}", nativeOutput, StringComparison.Ordinal);
@@ -2523,6 +2527,14 @@ public sealed class BindingOutputRendererTests
         setValue.Parameters.Add(new ParameterBinding("parameter:value", "value", "value", BindingType.CreateGenericParameter("TValue"), cppTypeName: "TValue"));
         mapRecord.Members.Add(setValue);
 
+        var getValue = new FunctionBinding("method:hash_map:get_value", "GetValueCore", "GetValueCore", BindingType.CreateGenericParameter("TValue"), "entry_get")
+        {
+            IsStatic = false,
+            OwningRecordCppTypeName = "eastl::hash_map"
+        };
+        getValue.Parameters.Add(new ParameterBinding("parameter:key", "key", "key", BindingType.CreateGenericParameter("TKey"), cppTypeName: "TKey"));
+        mapRecord.Members.Add(getValue);
+
         compilation.Members.Add(stringRecord);
         compilation.Members.Add(urhoVariantRecord);
         compilation.Members.Add(rmlVariantRecord);
@@ -2532,9 +2544,19 @@ public sealed class BindingOutputRendererTests
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
         Assert.Equal(1, CountOccurrences(managedOutput, "EntryPoint = \"entry_set"));
+        Assert.Contains("internal static partial void UnorderedMap_SetValueCore", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("(nint self, [MarshalUsing", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke.UnorderedMap_SetValueCore", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("global::SharpCpp.Support.NativeObject.GetHandle(this)", managedOutput, StringComparison.Ordinal);
         Assert.Contains($"EntryPoint = \"entry_set{valueInstantiation.Suffix}\"", managedOutput, StringComparison.Ordinal);
         Assert.DoesNotContain($"EntryPoint = \"entry_set{pointerKeyInstantiation.Suffix}\"", managedOutput, StringComparison.Ordinal);
         Assert.DoesNotContain($"EntryPoint = \"entry_set{rmlVariantInstantiation.Suffix}\"", managedOutput, StringComparison.Ordinal);
+        Assert.Equal(1, CountOccurrences(managedOutput, "EntryPoint = \"entry_get"));
+        Assert.Contains("[return: MarshalUsing(typeof(global::Urho3D.Core.__VariantMarshaller<global::SharpCpp.Support.OwnedNativeHandle>))]", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial global::Urho3D.Core.Variant UnorderedMap_GetValueCore", managedOutput, StringComparison.Ordinal);
+        Assert.Contains($"EntryPoint = \"entry_get{valueInstantiation.Suffix}\"", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain($"EntryPoint = \"entry_get{pointerKeyInstantiation.Suffix}\"", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain($"EntryPoint = \"entry_get{rmlVariantInstantiation.Suffix}\"", managedOutput, StringComparison.Ordinal);
     }
 
     [Fact]

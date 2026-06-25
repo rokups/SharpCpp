@@ -619,6 +619,8 @@ Marshaller<Urho3D::StringHash>
     cpp_type ConvertToCpp(abi_type v) const noexcept { return static_cast<cpp_type>(v); }
 };
 
+static_assert(std::is_same_v<ret_t<Urho3D::StringHash>, unsigned int>);
+
 template <>
 struct Marshaller<const Urho3D::StringHash&>
 {

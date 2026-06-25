@@ -143,9 +143,19 @@ public sealed class ManagedObjectRttiGenerator : IIncrementalGenerator
 
     private static bool ImplementsDirectNativeRegistration(INamedTypeSymbol typeSymbol, INamedTypeSymbol nativeObjectRegistrationSymbol)
     {
+        var inheritedInterfaces = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+        if (typeSymbol.BaseType is not null)
+        {
+            foreach (var interfaceSymbol in typeSymbol.BaseType.AllInterfaces)
+            {
+                inheritedInterfaces.Add(interfaceSymbol);
+            }
+        }
+
         foreach (var interfaceSymbol in typeSymbol.Interfaces)
         {
-            if (SymbolEqualityComparer.Default.Equals(interfaceSymbol.OriginalDefinition, nativeObjectRegistrationSymbol))
+            if (!inheritedInterfaces.Contains(interfaceSymbol) &&
+                SymbolEqualityComparer.Default.Equals(interfaceSymbol.OriginalDefinition, nativeObjectRegistrationSymbol))
             {
                 return true;
             }
@@ -170,6 +180,7 @@ public sealed class ManagedObjectRttiGenerator : IIncrementalGenerator
         foreach (var member in typeSymbol.GetMembers(methodName))
         {
             if (member is IMethodSymbol { MethodKind: MethodKind.Ordinary, IsStatic: false } method &&
+                SymbolEqualityComparer.Default.Equals(method.ContainingType, typeSymbol) &&
                 method.Parameters.Length == 0)
             {
                 return true;
@@ -184,6 +195,7 @@ public sealed class ManagedObjectRttiGenerator : IIncrementalGenerator
         foreach (var member in typeSymbol.GetMembers("IsInstanceOf"))
         {
             if (member is IMethodSymbol { MethodKind: MethodKind.Ordinary, IsStatic: false } method &&
+                SymbolEqualityComparer.Default.Equals(method.ContainingType, typeSymbol) &&
                 method.Parameters.Length == 1 &&
                 SymbolEqualityComparer.Default.Equals(method.Parameters[0].Type, stringHashSymbol))
             {
@@ -199,6 +211,7 @@ public sealed class ManagedObjectRttiGenerator : IIncrementalGenerator
         foreach (var member in typeSymbol.GetMembers(methodName))
         {
             if (member is IMethodSymbol { MethodKind: MethodKind.Ordinary, IsStatic: true } method &&
+                SymbolEqualityComparer.Default.Equals(method.ContainingType, typeSymbol) &&
                 method.Parameters.Length == 0)
             {
                 return true;

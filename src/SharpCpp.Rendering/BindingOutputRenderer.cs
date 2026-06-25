@@ -703,8 +703,13 @@ public static partial class BindingOutputRenderer
 
     private static bool RequiresOwnedRecordValueReturn(FunctionBinding function)
     {
-        return function.ReturnType.Kind == BindingTypeKind.Handle &&
-            function.ReturnType.Marshaller.CppIsRecordValue;
+        return RequiresOwnedRecordValueReturn(function.ReturnType);
+    }
+
+    private static bool RequiresOwnedRecordValueReturn(BindingType returnType)
+    {
+        return returnType.Kind == BindingTypeKind.Handle &&
+            returnType.Marshaller.CppIsRecordValue;
     }
 
     private static bool ReturnsOwnedHandle(FunctionBinding function)
@@ -712,11 +717,26 @@ public static partial class BindingOutputRenderer
         return function.ReturnsOwnedHandle || RequiresOwnedRecordValueReturn(function);
     }
 
+    private static bool ReturnsOwnedHandle(FunctionBinding function, BindingType returnType)
+    {
+        return function.ReturnsOwnedHandle || RequiresOwnedRecordValueReturn(returnType);
+    }
+
     private static string GetNativeEntrypointReturnType(FunctionBinding function)
     {
-        return RequiresOwnedRecordValueReturn(function)
-            ? $"arg_t<{function.CppReturnTypeName}*>"
-            : $"ret_t<{function.CppReturnTypeName}>";
+        return GetNativeEntrypointReturnType(function.ReturnType, function.CppReturnTypeName);
+    }
+
+    private static string GetNativeEntrypointReturnType(BindingType returnType)
+    {
+        return GetNativeEntrypointReturnType(returnType, returnType.CppTypeName);
+    }
+
+    private static string GetNativeEntrypointReturnType(BindingType returnType, string cppReturnTypeName)
+    {
+        return RequiresOwnedRecordValueReturn(returnType)
+            ? $"arg_t<{cppReturnTypeName}*>"
+            : $"ret_t<{cppReturnTypeName}>";
     }
 
     private static string GetNativeDirectorClassName(RecordBinding record)

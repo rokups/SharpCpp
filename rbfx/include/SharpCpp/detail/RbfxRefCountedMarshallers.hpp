@@ -109,6 +109,14 @@ struct [[sharpcpp::managed_type(
 };
 
 template <class TCpp, class TRefCounted>
+struct ReturnMarshaller<Urho3D::SharedPtr<TCpp, TRefCounted>>
+    : Marshaller<Urho3D::SharedPtr<TCpp, TRefCounted>>
+{
+};
+
+static_assert(std::is_same_v<ret_t<Urho3D::SharedPtr<Urho3D::RefCounted>>, Urho3D::RefCounted*>);
+
+template <class TCpp, class TRefCounted>
 struct Marshaller<const Urho3D::SharedPtr<TCpp, TRefCounted>&>
 {
     using cpp_type = const Urho3D::SharedPtr<TCpp, TRefCounted>&;
@@ -149,6 +157,14 @@ struct [[sharpcpp::managed_type(
         return rbfx::detail::MakeWeakPtrFromAbi<TCpp, TRefCounted>(value);
     }
 };
+
+template <class TCpp, class TRefCounted>
+struct ReturnMarshaller<Urho3D::WeakPtr<TCpp, TRefCounted>>
+    : Marshaller<Urho3D::WeakPtr<TCpp, TRefCounted>>
+{
+};
+
+static_assert(std::is_same_v<ret_t<Urho3D::WeakPtr<Urho3D::RefCounted>>, Urho3D::RefCounted*>);
 
 template <class TCpp, class TRefCounted>
 struct Marshaller<const Urho3D::WeakPtr<TCpp, TRefCounted>&>

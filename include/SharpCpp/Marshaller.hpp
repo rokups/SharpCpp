@@ -6,6 +6,7 @@
 #include <iterator>
 #include <list>
 #include <map>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -33,6 +34,111 @@ struct NativeArray {};
 
 namespace detail
 {
+template <class T>
+using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
+
+template <class T>
+inline constexpr bool DefaultPassesByValue =
+    !std::is_reference_v<T> &&
+    (std::is_scalar_v<remove_cvref_t<T>> || std::is_enum_v<remove_cvref_t<T>>);
+
+template <class T>
+using DefaultPointerAbi = std::conditional_t<
+    std::is_const_v<std::remove_reference_t<T>>,
+    std::add_pointer_t<std::add_const_t<remove_cvref_t<T>>>,
+    std::add_pointer_t<remove_cvref_t<T>>>;
+
+template <class T>
+using DefaultAbi = std::conditional_t<DefaultPassesByValue<T>, T, DefaultPointerAbi<T>>;
+
+template <class T, bool PassesByValue = DefaultPassesByValue<T>>
+struct DefaultMarshallerBase;
+
+template <class T>
+struct DefaultMarshallerBase<T, true>
+{
+    using is_default_marshaller = std::true_type;
+    using cpp_type = T;
+    using abi_type = T;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    {
+        return value;
+    }
+
+    constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
+    {
+        return value;
+    }
+};
+
+template <class T>
+struct DefaultMarshallerBase<T, false>
+{
+    using is_default_marshaller = std::true_type;
+    using cpp_type = T;
+    using abi_type = DefaultPointerAbi<T>;
+    using value_type = remove_cvref_t<T>;
+
+    constexpr abi_type ConvertToAbi(value_type& value) const noexcept
+    {
+        return std::addressof(value);
+    }
+
+    constexpr abi_type ConvertToAbi(const value_type& value) const noexcept
+    {
+        return const_cast<value_type*>(std::addressof(value));
+    }
+
+    cpp_type ConvertToCpp(abi_type value) const
+    {
+        if (value == nullptr)
+        {
+            throw std::runtime_error("SharpCpp complex value ABI cannot be null.");
+        }
+
+        return *value;
+    }
+};
+
+template <class T, bool PassesByValue = DefaultPassesByValue<T>>
+struct DefaultReturnMarshallerBase;
+
+template <class T>
+struct DefaultReturnMarshallerBase<T, true> : DefaultMarshallerBase<T, true>
+{
+};
+
+template <class T>
+struct DefaultReturnMarshallerBase<T, false>
+{
+    using cpp_type = T;
+    using value_type = remove_cvref_t<T>;
+    using abi_type = DefaultPointerAbi<T>;
+
+    abi_type ConvertToAbi(cpp_type value) const
+    {
+        if constexpr (std::is_lvalue_reference_v<T>)
+        {
+            return std::addressof(value);
+        }
+        else
+        {
+            return new value_type(std::move(value));
+        }
+    }
+
+    cpp_type ConvertToCpp(abi_type value) const
+    {
+        if (value == nullptr)
+        {
+            throw std::runtime_error("SharpCpp complex return ABI cannot be null.");
+        }
+
+        return *value;
+    }
+};
+
 template <typename TFunction, typename TSignature>
 TFunction CreateManagedCallbackWrapper(ManagedCallbackHandleAbi handle);
 }
@@ -694,21 +800,7 @@ struct NativeFixedArrayMarshallerBase
 };
 
 template <class T>
-struct Marshaller
-{
-    using cpp_type = T;
-    using abi_type = T;
-
-    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
-    {
-        return value;
-    }
-
-    constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
-    {
-        return value;
-    }
-};
+struct Marshaller : detail::DefaultMarshallerBase<T> {};
 
 template <class TResult, class... TArgs>
 struct Marshaller<TResult(TArgs...)>
@@ -1009,7 +1101,8 @@ template <class T>
 struct Marshaller<T&>
 {
     using cpp_type = T&;
-    using abi_type = typename Marshaller<T>::abi_type*;
+    using value_abi_type = typename Marshaller<T>::abi_type;
+    using abi_type = std::conditional_t<std::is_pointer_v<value_abi_type>, value_abi_type, value_abi_type*>;
 
     constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
     {
@@ -1018,7 +1111,7 @@ struct Marshaller<T&>
 
     constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
     {
-        return *reinterpret_cast<std::remove_reference_t<cpp_type>*>(value);
+        return *reinterpret_cast<T*>(value);
     }
 };
 
@@ -1026,7 +1119,11 @@ template <class T>
 struct Marshaller<const T&>
 {
     using cpp_type = const T&;
-    using abi_type = const typename Marshaller<T>::abi_type*;
+    using value_abi_type = typename Marshaller<T>::abi_type;
+    using abi_type = std::conditional_t<
+        std::is_pointer_v<value_abi_type>,
+        std::add_pointer_t<std::add_const_t<std::remove_pointer_t<value_abi_type>>>,
+        std::add_pointer_t<std::add_const_t<value_abi_type>>>;
 
     constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
     {
@@ -1035,7 +1132,26 @@ struct Marshaller<const T&>
 
     constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
     {
-        return *reinterpret_cast<std::remove_const_t<std::remove_reference_t<cpp_type>>*>(const_cast<typename Marshaller<T>::abi_type*>(value));
+        return *reinterpret_cast<const T*>(value);
+    }
+};
+
+template <class T>
+    requires (!std::is_fundamental_v<T> && !std::is_enum_v<T> && !std::is_pointer_v<T>)
+struct Marshaller<const T>
+{
+    using cpp_type = const T;
+    using reference_marshaller_type = Marshaller<const T&>;
+    using abi_type = typename reference_marshaller_type::abi_type;
+
+    abi_type ConvertToAbi(const cpp_type& value) const noexcept
+    {
+        return reference_marshaller_type{}.ConvertToAbi(value);
+    }
+
+    cpp_type ConvertToCpp(abi_type value) const
+    {
+        return reference_marshaller_type{}.ConvertToCpp(value);
     }
 };
 
@@ -1043,7 +1159,8 @@ template <class T>
 struct Marshaller<T*>
 {
     using cpp_type = T*;
-    using abi_type = typename Marshaller<T>::abi_type*;
+    using value_abi_type = typename Marshaller<T>::abi_type;
+    using abi_type = std::conditional_t<std::is_pointer_v<value_abi_type>, value_abi_type, value_abi_type*>;
 
     constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
     {
@@ -1055,17 +1172,17 @@ struct Marshaller<T*>
         return reinterpret_cast<cpp_type>(value);
     }
 
-    constexpr cpp_type ConvertToCpp(void* value) const noexcept
-    {
-        return static_cast<cpp_type>(value);
-    }
 };
 
 template <class T>
 struct Marshaller<const T*>
 {
     using cpp_type = const T*;
-    using abi_type = const typename Marshaller<T>::abi_type*;
+    using value_abi_type = typename Marshaller<T>::abi_type;
+    using abi_type = std::conditional_t<
+        std::is_pointer_v<value_abi_type>,
+        std::add_pointer_t<std::add_const_t<std::remove_pointer_t<value_abi_type>>>,
+        std::add_pointer_t<std::add_const_t<value_abi_type>>>;
 
     constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
     {
@@ -1074,7 +1191,7 @@ struct Marshaller<const T*>
 
     constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
     {
-        return reinterpret_cast<cpp_type>(const_cast<typename Marshaller<T>::abi_type*>(value));
+        return reinterpret_cast<cpp_type>(value);
     }
 };
 
@@ -1340,8 +1457,29 @@ using field_t = T*;
 template <class T>
 using ParameterMarshaller = Marshaller<T>;
 
+namespace detail
+{
+template <class T, class = void>
+struct IsDefaultMarshaller : std::false_type {};
+
 template <class T>
-struct ReturnMarshaller : Marshaller<T> {};
+struct IsDefaultMarshaller<T, std::void_t<typename Marshaller<T>::is_default_marshaller>> : std::true_type {};
+
+template <class T>
+using ConfiguredReturnMarshallerBase = std::conditional_t<
+    IsDefaultMarshaller<remove_cvref_t<T>>::value,
+    DefaultReturnMarshallerBase<T>,
+    std::conditional_t<
+        std::is_lvalue_reference_v<T>,
+        Marshaller<T>,
+        Marshaller<std::remove_cv_t<T>>>>;
+}
+
+template <class T>
+struct ReturnMarshaller : detail::ConfiguredReturnMarshallerBase<T> {};
+
+template <>
+struct ReturnMarshaller<void> : Marshaller<void> {};
 
 template <>
 struct ReturnMarshaller<std::basic_string<char> > : OwnedStringReturnMarshallerBase<std::basic_string<char>> {};
@@ -1378,6 +1516,14 @@ struct [[sharpcpp::managed_type(
 
 namespace detail
 {
+struct DefaultMarshallerComplexSmoke
+{
+    int Value{};
+};
+}
+
+namespace detail
+{
 template <typename T>
 auto TryClone(T* instance, int) -> decltype(new T(*instance), (T*)nullptr)
 {
@@ -1393,4 +1539,11 @@ T* TryClone(T*, long)
 
 template <class T>
 using ret_t = typename ReturnMarshaller<T>::abi_type;
+
+static_assert(std::is_same_v<arg_t<int>, int>);
+static_assert(std::is_same_v<arg_t<int*>, int*>);
+static_assert(std::is_same_v<arg_t<detail::DefaultMarshallerComplexSmoke>, detail::DefaultMarshallerComplexSmoke*>);
+static_assert(std::is_same_v<arg_t<const detail::DefaultMarshallerComplexSmoke&>, const detail::DefaultMarshallerComplexSmoke*>);
+static_assert(std::is_same_v<ret_t<int>, int>);
+static_assert(std::is_same_v<ret_t<detail::DefaultMarshallerComplexSmoke>, detail::DefaultMarshallerComplexSmoke*>);
 }
