@@ -498,13 +498,13 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
-        foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && function.AccessModifier == BindingAccessModifier.Protected && !function.HasMetadata(MetadataKeys.IgnoreReason)))
+        foreach (var method in GetAccessibleProtectedMethods(compilation, record))
         {
             writer.WriteLine();
             writer.Write(RenderNativeProtectedMethodHelper(record, method));
         }
 
-        foreach (var field in record.Members.OfType<FieldBinding>().Where(static field => field.AccessModifier == BindingAccessModifier.Protected && !field.HasMetadata(MetadataKeys.IgnoreReason)))
+        foreach (var field in GetAccessibleProtectedFields(compilation, record))
         {
             writer.WriteLine();
             writer.Write(RenderNativeProtectedFieldHelpers(compilation, field));
@@ -836,44 +836,111 @@ public static partial class BindingOutputRenderer
 
     private static string RenderNativeProtectedMethodInvocation(BindingCompilation compilation, FunctionBinding method, string abiArguments, string memberSignature)
     {
+        var helperName = GetNativeProtectedMethodHelperName(method);
         var record = compilation.Records.First(candidate => string.Equals(candidate.CppQualifiedName, method.OwningRecordCppTypeName, StringComparison.Ordinal));
-        return $$"""
-                if (auto* director = dynamic_cast<{{GetNativeDirectorClassName(record)}}*>(self))
-                {
-                {{(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
-                    ? $"director->{GetNativeProtectedMethodHelperName(method)}({abiArguments}); return;"
-                    : $"return director->{GetNativeProtectedMethodHelperName(method)}({abiArguments});")}}
-                }
-
-                throw std::runtime_error("SharpCpp protected member access requires a director-backed instance.");
-                """;
+        return RenderNativeProtectedAccessInvocation(record, method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
+            ? directorExpression => $"{directorExpression}->{helperName}({abiArguments}); return;"
+            : directorExpression => $"return {directorExpression}->{helperName}({abiArguments});", "SharpCpp protected member access requires a director-backed instance.");
     }
 
-    private static string RenderNativeProtectedFieldGetInvocation(BindingCompilation compilation, FieldBinding field)
+    private static string RenderNativeProtectedFieldGetInvocation(RecordBinding accessorRecord, FieldBinding field)
     {
-        var record = compilation.Records.First(candidate => string.Equals(candidate.CppQualifiedName, field.OwningRecordCppTypeName, StringComparison.Ordinal));
-        return $$"""
-                if (auto* director = dynamic_cast<{{GetNativeDirectorClassName(record)}}*>(self))
-                {
-                return director->{{GetNativeProtectedFieldGetterHelperName(field)}}();
-                }
-
-                throw std::runtime_error("SharpCpp protected field access requires a director-backed instance.");
-                """;
+        var helperName = GetNativeProtectedFieldGetterHelperName(field);
+        return RenderNativeProtectedAccessInvocation(accessorRecord, directorExpression => $"return {directorExpression}->{helperName}();", "SharpCpp protected field access requires a director-backed instance.");
     }
 
-    private static string RenderNativeProtectedFieldSetInvocation(BindingCompilation compilation, FieldBinding field)
+    private static string RenderNativeProtectedFieldSetInvocation(RecordBinding accessorRecord, FieldBinding field)
     {
-        var record = compilation.Records.First(candidate => string.Equals(candidate.CppQualifiedName, field.OwningRecordCppTypeName, StringComparison.Ordinal));
-        return $$"""
-                if (auto* director = dynamic_cast<{{GetNativeDirectorClassName(record)}}*>(self))
-                {
-                director->{{GetNativeProtectedFieldSetterHelperName(field)}}(value);
-                return;
-                }
+        var helperName = GetNativeProtectedFieldSetterHelperName(field);
+        return RenderNativeProtectedAccessInvocation(accessorRecord, directorExpression => $"{directorExpression}->{helperName}(value); return;", "SharpCpp protected field access requires a director-backed instance.");
+    }
 
-                throw std::runtime_error("SharpCpp protected field access requires a director-backed instance.");
-                """;
+    private static string RenderNativeProtectedAccessInvocation(
+        RecordBinding accessorRecord,
+        Func<string, string> renderDirectorBody,
+        string errorMessage)
+    {
+        var writer = new CodeWriter();
+        var directorName = GetNativeDirectorClassName(accessorRecord);
+        var variableName = $"director_{SanitizeNativeEntrypointName(accessorRecord.CppQualifiedName)}";
+        writer.Write($$"""
+            if (auto* {{variableName}} = dynamic_cast<{{directorName}}*>(self))
+            {
+            {{renderDirectorBody(variableName)}}
+            }
+
+            """);
+
+        writer.Write($"throw std::runtime_error(\"{errorMessage}\");");
+        return writer.ToString();
+    }
+
+    private static IReadOnlyList<FunctionBinding> GetAccessibleProtectedMethods(BindingCompilation compilation, RecordBinding record)
+    {
+        return record.EnumerateAllBaseRecords(compilation)
+            .Reverse()
+            .Append(record)
+            .SelectMany(static candidate => candidate.Members.OfType<FunctionBinding>())
+            .Where(static function => !function.IsConstructor && function.AccessModifier == BindingAccessModifier.Protected && !function.HasMetadata(MetadataKeys.IgnoreReason))
+            .GroupBy(GetNativeProtectedMethodHelperName, StringComparer.Ordinal)
+            .Select(static group => group.Last())
+            .ToArray();
+    }
+
+    private static IReadOnlyList<FieldBinding> GetAccessibleProtectedFields(BindingCompilation compilation, RecordBinding record)
+    {
+        return record.EnumerateAllBaseRecords(compilation)
+            .Reverse()
+            .Append(record)
+            .SelectMany(static candidate => candidate.Members.OfType<FieldBinding>())
+            .Where(static field => field.AccessModifier == BindingAccessModifier.Protected && !field.HasMetadata(MetadataKeys.IgnoreReason))
+            .GroupBy(GetNativeProtectedFieldGetterHelperName, StringComparer.Ordinal)
+            .Select(static group => group.Last())
+            .ToArray();
+    }
+
+    private static IReadOnlyList<FieldBinding> GetInheritedProtectedFields(BindingCompilation compilation, RecordBinding record)
+    {
+        if (!record.RequiresDirector(compilation))
+        {
+            return Array.Empty<FieldBinding>();
+        }
+
+        return record.EnumerateAllBaseRecords(compilation)
+            .Reverse()
+            .SelectMany(static candidate => candidate.Members.OfType<FieldBinding>())
+            .Where(static field => field.AccessModifier == BindingAccessModifier.Protected && !field.HasMetadata(MetadataKeys.IgnoreReason))
+            .GroupBy(GetNativeProtectedFieldGetterHelperName, StringComparer.Ordinal)
+            .Select(static group => group.Last())
+            .ToArray();
+    }
+
+    private static IEnumerable<(RecordBinding AccessorRecord, FieldBinding Field)> GetNativeFieldEntries(BindingCompilation compilation, RecordBinding record)
+    {
+        foreach (var field in record.Members.OfType<FieldBinding>())
+        {
+            yield return (record, field);
+        }
+
+        foreach (var field in GetInheritedProtectedFields(compilation, record))
+        {
+            if (record.Members.OfType<FieldBinding>().Any(ownField => string.Equals(GetNativeProtectedFieldGetterHelperName(ownField), GetNativeProtectedFieldGetterHelperName(field), StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            yield return (record, field);
+        }
+    }
+
+    private static string GetNativeFieldGetterEntrypointName(string recordCppTypeName, FieldBinding field)
+    {
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(recordCppTypeName)}_{field.NativeName}_get";
+    }
+
+    private static string GetNativeFieldSetterEntrypointName(string recordCppTypeName, FieldBinding field)
+    {
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(recordCppTypeName)}_{field.NativeName}_set";
     }
 
     private enum FieldSetterMode
@@ -2302,12 +2369,29 @@ public static partial class BindingOutputRenderer
             else
             {
                 writer.Write(RenderManagedProperty(compilation, field));
-                pinvokeDeclarations.Add(RenderManagedFieldGetterImportDeclaration(compilation, field, record.ManagedName));
+                pinvokeDeclarations.Add(RenderManagedFieldGetterImportDeclaration(compilation, field, record.ManagedName, record.CppQualifiedName));
 
                 if (!field.IsReadOnly)
                 {
-                    pinvokeDeclarations.Add(RenderManagedFieldSetterImportDeclaration(compilation, field, record.ManagedName));
+                    pinvokeDeclarations.Add(RenderManagedFieldSetterImportDeclaration(compilation, field, record.ManagedName, record.CppQualifiedName));
                 }
+            }
+        }
+
+        foreach (var field in GetInheritedProtectedFields(compilation, record).OrderBy(static field => field.ManagedName, StringComparer.Ordinal))
+        {
+            if (record.HasOwnManagedMemberNamed(field.ManagedName))
+            {
+                continue;
+            }
+
+            WriteRecordMemberSeparator(false);
+            writer.Write(RenderManagedProperty(compilation, field, hidesInheritedMember: true));
+            pinvokeDeclarations.Add(RenderManagedFieldGetterImportDeclaration(compilation, field, record.ManagedName, record.CppQualifiedName));
+
+            if (!field.IsReadOnly)
+            {
+                pinvokeDeclarations.Add(RenderManagedFieldSetterImportDeclaration(compilation, field, record.ManagedName, record.CppQualifiedName));
             }
         }
 
@@ -3548,13 +3632,13 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string RenderManagedProperty(BindingCompilation compilation, FieldBinding field)
+    private static string RenderManagedProperty(BindingCompilation compilation, FieldBinding field, bool hidesInheritedMember = false)
     {
         var writer = new CodeWriter();
         WriteDocumentationComment(writer, field);
         var propertyTypeName = GetManagedPublicReturnTypeName(field.Type, compilation);
         writer.Write($$"""
-            {{GetManagedVisibility(field.AccessModifier)}} {{propertyTypeName}} {{field.ManagedName}}
+            {{GetManagedVisibility(field.AccessModifier)}} {{(hidesInheritedMember ? "new " : string.Empty)}}{{propertyTypeName}} {{field.ManagedName}}
             {
             get
             {
@@ -3623,7 +3707,7 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string RenderManagedFieldGetterImportDeclaration(BindingCompilation compilation, FieldBinding field, string recordManagedName)
+    private static string RenderManagedFieldGetterImportDeclaration(BindingCompilation compilation, FieldBinding field, string recordManagedName, string entryPointRecordCppTypeName)
     {
         var writer = new CodeWriter();
         var returnTypeName = GetManagedImportReturnTypeName(compilation, field.Type);
@@ -3633,14 +3717,14 @@ public static partial class BindingOutputRenderer
             : $"{returnAttribute}\ninternal static partial {returnTypeName} Get_{field.ManagedName}({recordManagedName} self);";
 
         writer.Write($$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_get", StringMarshalling = StringMarshalling.Utf8)]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetNativeFieldGetterEntrypointName(entryPointRecordCppTypeName, field)}}", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             {{importMethodLine}}
             """);
         return writer.ToString();
     }
 
-    private static string RenderManagedFieldSetterImportDeclaration(BindingCompilation compilation, FieldBinding field, string recordManagedName)
+    private static string RenderManagedFieldSetterImportDeclaration(BindingCompilation compilation, FieldBinding field, string recordManagedName, string entryPointRecordCppTypeName)
     {
         var writer = new CodeWriter();
         var parameter = RenderManagedImportParameter(
@@ -3655,7 +3739,7 @@ public static partial class BindingOutputRenderer
             compilation);
 
         writer.Write($$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_set", StringMarshalling = StringMarshalling.Utf8)]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetNativeFieldSetterEntrypointName(entryPointRecordCppTypeName, field)}}", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             internal static partial void Set_{{field.ManagedName}}({{recordManagedName}} self, {{parameter}});
             """);
@@ -4005,7 +4089,11 @@ public static partial class BindingOutputRenderer
             }
         }
 
-        foreach (var field in records.Where(static record => !record.HasMetadata(MetadataKeys.IgnoreReason)).SelectMany(static record => record.Members.OfType<FieldBinding>()).Where(static field => !field.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static field => field.ManagedName, StringComparer.Ordinal))
+        foreach (var (accessorRecord, field) in records
+                     .Where(static record => !record.HasMetadata(MetadataKeys.IgnoreReason))
+                     .SelectMany(record => GetNativeFieldEntries(compilation, record))
+                     .Where(static entry => !entry.Field.HasMetadata(MetadataKeys.IgnoreReason))
+                     .OrderBy(static entry => entry.Field.ManagedName, StringComparer.Ordinal))
         {
             var plan = CreateNativeFieldInteropPlan(compilation, field);
             var nativeFieldCppType = plan.StorageCppType;
@@ -4013,10 +4101,10 @@ public static partial class BindingOutputRenderer
             var getterReturnType = isNativeFixedArrayField ? "NativeArrayAbi" : $"ret_t<{nativeFieldCppType}>";
             writer.WriteLine();
             writer.Write($$"""
-                SHARPCPP_EXPORT {{getterReturnType}} sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_get(arg_t<{{field.OwningRecordCppTypeName}}*> self)
+                SHARPCPP_EXPORT {{getterReturnType}} {{GetNativeFieldGetterEntrypointName(accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self)
                 {
                 {{(field.AccessModifier == BindingAccessModifier.Protected
-                    ? RenderNativeProtectedFieldGetInvocation(compilation, field)
+                    ? RenderNativeProtectedFieldGetInvocation(accessorRecord, field)
                     : isNativeFixedArrayField
                         ? RenderNativeFixedArrayFieldGetInvocation(field)
                     : plan.BorrowsStorage
@@ -4030,10 +4118,10 @@ public static partial class BindingOutputRenderer
                 var setterParameterType = isNativeFixedArrayField ? "NativeArrayAbi" : plan.SetterParameterCppType;
                 writer.WriteLine();
                 writer.Write($$"""
-                    SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(field.OwningRecordCppTypeName)}}_{{field.NativeName}}_set(arg_t<{{field.OwningRecordCppTypeName}}*> self, {{setterParameterType}} value)
+                    SHARPCPP_EXPORT ret_t<void> {{GetNativeFieldSetterEntrypointName(accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self, {{setterParameterType}} value)
                     {
                     {{(field.AccessModifier == BindingAccessModifier.Protected
-                        ? RenderNativeProtectedFieldSetInvocation(compilation, field)
+                        ? RenderNativeProtectedFieldSetInvocation(accessorRecord, field)
                         : isNativeFixedArrayField
                             ? RenderNativeFixedArrayFieldSetInvocation(field)
                         : plan.BorrowsStorage

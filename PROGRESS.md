@@ -133,6 +133,12 @@ Current worktree verification passes with rbfx accessor-style `Get*` / `Set*` / 
 
 ## Recently Fixed
 
+- **Inherited protected field access now binds through derived director entrypoints**:
+  - Derived director records now render protected field helpers for inherited protected fields and expose hidden managed protected properties that call derived-record native entrypoints.
+  - Protected field access remains high-performance: each native thunk performs one director cast to the accessor record instead of scanning possible derived directors or referencing director classes across generated C++ groups.
+  - Fixed the `DemoApplication : Application : Object` case where accessing inherited `Object.Context` from a managed subclass could hit the director-backed-instance safeguard despite the native instance being an `Application` director.
+  - Verification: focused rendering tests, `cmake --build --preset Debug`, and `ctest --preset Debug` pass.
+
 - **Pointer/reference decisions no longer use C++ spelling checks in protected field and generic helper paths**:
   - Removed protected-field pointer spelling checks; native protected field helper planning now uses the field storage type directly and borrows storage only for non-pointer handle fields with marshaller-backed wrapper facts.
   - Added `FieldBinding.IsReference`, `FieldBinding.IsPointer`, and `MarshallerDescriptor.CppIsReference`, populated parser reference/pointer branches from ClangSharp type facts, and used those facts in degradation, protected field planning, and forwarding-reference generic rendering.

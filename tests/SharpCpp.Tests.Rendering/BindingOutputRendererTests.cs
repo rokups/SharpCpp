@@ -2195,6 +2195,59 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Protected_base_field_access_accepts_derived_director_instances()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/Application.hpp" });
+        var contextRecord = new RecordBinding("record:context", "context", "Context");
+        var objectRecord = new RecordBinding("record:object", "object", "Object");
+        objectRecord.Members.Add(new FieldBinding(
+            "field:object:context_",
+            "context_",
+            "Context",
+            BindingType.CreateHandle("context*", "Context", contextRecord.SymbolId),
+            "context*",
+            objectRecord.CppQualifiedName)
+        {
+            AccessModifier = BindingAccessModifier.Protected
+        });
+
+        var applicationRecord = new RecordBinding("record:application", "application", "Application")
+        {
+            ManagedBaseTypeName = objectRecord.ManagedName,
+            IsDirector = true
+        };
+        applicationRecord.Bases.Add(new RecordBaseBinding(objectRecord.SymbolId, objectRecord.NativeName, objectRecord.ManagedName, objectRecord.CppQualifiedName, isVirtual: false));
+        applicationRecord.Members.Add(new FunctionBinding("method:application:start", "start", "Start", BindingType.Void, "entry_start")
+        {
+            IsStatic = false,
+            IsVirtual = true,
+            OwningRecordCppTypeName = applicationRecord.CppQualifiedName
+        });
+
+        compilation.Members.Add(contextRecord);
+        compilation.Members.Add(objectRecord);
+        compilation.Members.Add(applicationRecord);
+
+        BindingCompilationPolymorphismPass.Apply(compilation);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("protected new global::SharpCpp.Sample.Context Context", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("EntryPoint = \"sharpcpp_e2e_application_context__get\"", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("ret_t<context*> __get_Context()", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT ret_t<context*> sharpcpp_e2e_application_context__get(arg_t<application*> self)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("if (auto* director_application = dynamic_cast<__application_director*>(self))", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return director_application->__get_Context();", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Director_records_do_not_borrow_pointer_fields_even_for_marshaller_backed_wrappers()
     {
         var compilation = CreateProtectedHandleFieldCompilation(
