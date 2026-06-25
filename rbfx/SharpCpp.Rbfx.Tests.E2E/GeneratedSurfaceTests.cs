@@ -43,6 +43,32 @@ public sealed class GeneratedSurfaceTests
     }
 
     [Fact]
+    public void SubscribeToEvent_helper_transfers_event_handler_to_native_owner()
+    {
+        using var context = new global::Urho3D.Core.Context();
+        using var receiver = new global::Urho3D.Core.WorkQueue(context);
+        global::Urho3D.Math.StringHash eventType = "ManagedOwnedEventHandler";
+        global::Urho3D.Math.StringHash key = "TimeStep";
+        var wasCalled = false;
+
+        receiver.SubscribeToEvent(eventType, (_, _, eventData) =>
+        {
+            wasCalled = true;
+            Assert.True(eventData.TryGetValue(key, out var value));
+            Assert.Equal(0.5f, value.Float);
+        });
+
+        using var eventData = new global::Ea.UnorderedMap<global::Urho3D.Math.StringHash, global::Urho3D.Core.Variant>
+        {
+            [key] = 0.5f
+        };
+
+        receiver.SendEvent(eventType, eventData);
+
+        Assert.True(wasCalled);
+    }
+
+    [Fact]
     public void Spline_keeps_current_supported_surface()
     {
         var content = File.ReadAllText(Path.Combine(GetGeneratedDir(), "Core", "SharpCpp.Rbfx.Spline.g.cs"));

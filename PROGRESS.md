@@ -8,7 +8,7 @@ Bootstrap an independent SharpCpp line from `doc/`, selectively adapting small b
 
 All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E) on the last clean verified baseline. The full pipeline — C++ headers → generated C# wrappers + native thunks — runs end-to-end for both synthetic fixtures and the real rbfx SDK.
 
-Current worktree verification passes with generic complex C++ values crossing callback/native ABI as pointers by default, while explicitly configured value marshallers such as `StringHash`, math structs, and smart-pointer projections keep their configured ABI. Thin managed convenience wrappers remain acceptable when they delegate to generated APIs without handwritten native entrypoints.
+Current worktree verification passes with generic complex C++ values crossing callback/native ABI as pointers by default, while explicitly configured value marshallers such as `StringHash`, math structs, and smart-pointer projections keep their configured ABI. Thin managed convenience wrappers remain acceptable when they delegate to generated APIs without handwritten native entrypoints; rbfx helpers may also encode native ownership-transfer semantics such as `Object::SubscribeToEvent` taking ownership of event handlers.
 
 ### Model & Metadata
 - Binding model: records, enums, free functions, methods, constructors, fields, operators, templates/generics
@@ -132,6 +132,13 @@ Current worktree verification passes with generic complex C++ values crossing ca
 - All type-specific behaviors configured through C++/C# marshallers, never hardcoded in core
 
 ## Recently Fixed
+
+- **`Rbfx.Application` no longer double-deletes subscribed update event handlers on shutdown**:
+  - Added additive rbfx `Object.SubscribeToEvent(...)` helpers that mirror the native template helpers: create an `EventHandler`, call generated `SubscribeToEventManual(...)`, then mark the managed wrapper as transferred to native ownership.
+  - Added an `EventHandler.TransferToNativeOwner()` partial that severs the managed SafeHandle without deleting the native handler, because `Urho3D::Object` owns and deletes subscribed handlers from its intrusive list.
+  - Updated the sample application to use `SubscribeToEvent(CoreEvents.Update, OnUpdate)` instead of storing and disposing an owning `EventHandler` wrapper.
+  - Added rbfx E2E coverage that subscribes, sends an event, and disposes the receiver without corrupting the native event-handler list.
+  - Verification: focused event-handler E2E, `cmake --build --preset Debug --target sharpcpp-rbfx-application sharpcpp-rbfx-tests-e2e-managed`, `git diff --check`, and `ctest --preset Debug` pass.
 
 - **Default native marshalling now uses pointer ABI for complex C++ values**:
   - Replaced the temporary RmlUI-specific `DataModelHandle` callback fix with a generic default `Marshaller<T>` / `ReturnMarshaller<T>` rule: scalar, enum, and pointer types pass by value; unconfigured complex class/record values pass by pointer; unconfigured complex value returns allocate owned storage.
