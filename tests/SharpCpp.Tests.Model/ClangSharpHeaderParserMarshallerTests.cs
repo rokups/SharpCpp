@@ -979,6 +979,65 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         }
     }
 
+    [Fact]
+    public void Parser_maps_function_template_instantiation_arguments_from_decl_qualified_ast_type()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), "sharpcpp-template-instantiation-qualified-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(fixtureDir);
+        try
+        {
+            var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+            File.WriteAllText(headerPath,
+                """
+                namespace Alpha
+                {
+                struct Payload {};
+                }
+
+                namespace Beta
+                {
+                struct Payload {};
+                }
+
+                namespace Alpha
+                {
+                struct Sample
+                {
+                    template <class T> void Set(T value) {}
+                };
+
+                template void Sample::Set<Payload>(Payload);
+                }
+                """);
+
+            var parser = new ClangSharpHeaderParser();
+            var compilation = parser.Parse(new ClangSharpParseRequest(
+                ProjectName: "TestProject",
+                ManagedNamespace: "Test.Namespace",
+                ManagedClassName: "Bindings",
+                NativeLibraryName: "Test.Native",
+                HeaderFilePath: headerPath,
+                HeaderIncludePath: "Sample.hpp",
+                ClangArguments: ["-x", "c++", "-std=c++20", $"-I{fixtureDir}"],
+                MarshallerConfigurationFiles: Array.Empty<string>(),
+                EntryPointPrefix: "Test_"));
+
+            BindingCompilationGenericInstantiationPass.Apply(compilation);
+
+            var sample = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "Alpha::Sample");
+            var set = Assert.Single(sample.Members.OfType<FunctionBinding>(), static function => function.ManagedName == "Set");
+            var instantiation = Assert.Single(set.SupportedGenericInstantiations);
+            var argument = Assert.Single(instantiation.TypeArguments);
+
+            Assert.Equal("record:Alpha::Payload", argument.RecordId);
+            Assert.Equal("Alpha::Payload", argument.CppTypeName);
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

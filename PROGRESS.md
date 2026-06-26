@@ -73,7 +73,7 @@ Current worktree verification passes with generic complex C++ values crossing ca
 - `ea::string` / `eastl::string` projected as `Ea.String`
 - Cross-module composition: `rbfx/Rbfx.UserCode` imports upstream metadata, extends wrappers
 - rbfx inheritable SDK classes are marked director-capable at parse time so abstract constructors can support managed subclasses without weakening the core abstract-constructor gate
-- rbfx macro headers are molded into managed-only AST nodes and rendered by the normal grouped renderer, generating surfaces like `EngineDefs` and `EngineEvents`
+- rbfx macro headers are molded into managed-only AST nodes by the rbfx generator and rendered by the normal grouped renderer, generating surfaces like `CoreEvents`, `EngineDefs`, and `EngineEvents`
 - rbfx accessor pairs are promoted to generated C# properties through configured marshaller patterns, with reserved SDK getters and projected secondary-base methods kept as ordinary methods
 - RmlUI bootstrap generation keeps the narrow data-model/document surface needed by the sample, including generated `Context.CreateDataModel(...)` and `ElementDocument.Show(...)`
 - RmlUI `Variant` string access now uses generated explicit template instantiations (`Assign<Ea.String>` / `Get<Ea.String>`) instead of custom `SetString` / `GetString` bridge exports
@@ -136,6 +136,8 @@ Current worktree verification passes with generic complex C++ values crossing ca
 - **Generated rbfx `Object.SubscribeToEvent(...)` overloads replaced the manual event-subscription ownership helper**:
   - Removed the handwritten `EventHandler.TransferToNativeOwner()` / `Object.SubscribeToEvent(...)` helper path; generated wrappers now call native `Urho3D::Object::SubscribeToEvent<T>`, which allocates and transfers `EventHandler` ownership to the native `Object` event list.
   - Added rbfx parse-umbrella explicit template instantiations for both native `SubscribeToEvent<Urho3D::EventHandler::HandlerFunction>` overloads, with parser discovery from ClangSharp `FunctionTemplateDecl.Specializations` AST facts rather than file prescans.
+  - Function-template specialization arguments now map through ClangSharp `CXType` facts and declaration-qualified record/enum identities, avoiding ambiguous text-spelling matches when multiple namespaces contain the same type name.
+  - Removed the parser's broad known-type text fallback that scanned previously parsed member type spellings; template argument identity now comes from AST type facts plus configured marshaller/type metadata.
   - Relaxed bootstrap validation and extended generic rendering so non-generic records can emit concrete overloads/imports for supported generic method instantiations.
   - Fixed concrete generic callback import helper naming to normalize through public alias-shaped callback signatures, so `EventHandler` construction and generated `SubscribeToEvent` imports share the same emitted callback marshaller.
   - Fixed pointer-qualified record-value generic returns so `Variant*` collection helpers use borrowed `ret_t<Urho3D::Variant*>` / `MarshallerInvoker::invoke_as` instead of owned `Variant**` ABI.

@@ -464,6 +464,31 @@ public sealed class BindingType
             DynamicArrayElementType);
     }
 
+    public BindingType WithCppTypeName(string cppTypeName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(cppTypeName);
+        if (string.Equals(Marshaller.CppTypeName, cppTypeName, StringComparison.Ordinal))
+            return this;
+        var copy = new BindingType(
+            Kind,
+            PrimitiveKind,
+            Marshaller with { CppTypeName = cppTypeName },
+            RecordId,
+            EnumId,
+            GenericParameterName,
+            GenericArguments,
+            IsCallback,
+            CallbackReturnType,
+            CallbackParameterTypes,
+            FixedArrayElementType,
+            FixedArrayLength,
+            DynamicArrayElementType)
+        {
+            _managedTypeFormatOverride = _managedTypeFormatOverride
+        };
+        return copy;
+    }
+
     public BindingType WithCppIsReference(bool value)
     {
         if (Marshaller.CppIsReference == value)

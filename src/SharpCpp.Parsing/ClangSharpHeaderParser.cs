@@ -4357,12 +4357,6 @@ public sealed partial class ClangSharpHeaderParser
             return CreateConfiguredOrWrapperType(managedTypeOverride!, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName);
         }
 
-        if (TryFindKnownTypeByCppName(qualifiedSpelledTypeName, recordsByName, out var knownType) ||
-            TryFindKnownTypeByCppName(normalized, recordsByName, out knownType))
-        {
-            return knownType;
-        }
-
         return normalized switch
         {
             "bool" => BindingType.Boolean,
@@ -4445,56 +4439,6 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         return false;
-    }
-
-    private static bool TryFindKnownTypeByCppName(
-        string cppTypeName,
-        IDictionary<string, RecordBinding> recordsByName,
-        out BindingType type)
-    {
-        var normalized = NormalizeTypeName(cppTypeName);
-        foreach (var candidate in recordsByName.Values.Distinct())
-        {
-            foreach (var member in candidate.Members)
-            {
-                switch (member)
-                {
-                    case FunctionBinding function:
-                        if (TypeMatches(function.ReturnType, function.CppReturnTypeName, normalized, out type))
-                        {
-                            return true;
-                        }
-
-                        foreach (var parameter in function.Parameters)
-                        {
-                            if (TypeMatches(parameter.Type, parameter.CppTypeName, normalized, out type))
-                            {
-                                return true;
-                            }
-                        }
-                        break;
-
-                    case FieldBinding field when TypeMatches(field.Type, field.CppTypeName, normalized, out type):
-                        return true;
-                }
-            }
-        }
-
-        type = default!;
-        return false;
-
-        static bool TypeMatches(BindingType candidateType, string cppTypeName, string normalized, out BindingType type)
-        {
-            if (!string.Equals(NormalizeTypeName(candidateType.CppTypeName), normalized, StringComparison.Ordinal) &&
-                !string.Equals(NormalizeTypeName(cppTypeName), normalized, StringComparison.Ordinal))
-            {
-                type = default!;
-                return false;
-            }
-
-            type = candidateType;
-            return true;
-        }
     }
 
     private static string StripTopLevelCvQualifier(string typeName)
@@ -5283,7 +5227,14 @@ public sealed partial class ClangSharpHeaderParser
 
         try
         {
-            argument = ParseTypeToken(templateArgument.AsType.AsString, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
+            argument = NormalizeTemplateArgumentType(MapType(
+                templateArgument.AsType.Handle,
+                recordsByName,
+                enumsByName,
+                managedTypeOverrides,
+                EmptyGenericParameters),
+                recordsByName,
+                enumsByName);
             return true;
         }
         catch (NotSupportedException)
@@ -5291,6 +5242,58 @@ public sealed partial class ClangSharpHeaderParser
             argument = default!;
             return false;
         }
+    }
+
+    private static BindingType NormalizeTemplateArgumentType(
+        BindingType type,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName)
+    {
+        if (type.IsCallback)
+        {
+            var returnType = type.CallbackReturnType is null
+                ? null
+                : NormalizeTemplateArgumentType(type.CallbackReturnType, recordsByName, enumsByName);
+            var parameterTypes = type.CallbackParameterTypes
+                .Select(parameterType => NormalizeTemplateArgumentType(parameterType, recordsByName, enumsByName))
+                .ToArray();
+            return returnType is null
+                ? type.WithCallbackSignature(BindingType.Void, parameterTypes)
+                : type.WithCallbackSignature(returnType, parameterTypes);
+        }
+
+        var genericArguments = type.GenericArguments
+            .Select(argument => NormalizeTemplateArgumentType(argument, recordsByName, enumsByName))
+            .ToArray();
+        var result = genericArguments.SequenceEqual(type.GenericArguments)
+            ? type
+            : type.WithGenericArguments(genericArguments);
+        if (result.Kind == BindingTypeKind.Handle &&
+            !string.IsNullOrWhiteSpace(result.RecordId) &&
+            recordsByName.Values.Distinct().FirstOrDefault(record => string.Equals(record.SymbolId, result.RecordId, StringComparison.Ordinal)) is { } record)
+        {
+            return result.WithCppTypeName(FormatRecordTemplateArgumentTypeName(result, record));
+        }
+
+        if (result.Kind == BindingTypeKind.Enum &&
+            !string.IsNullOrWhiteSpace(result.EnumId) &&
+            enumsByName.Values.Distinct().FirstOrDefault(@enum => string.Equals(@enum.SymbolId, result.EnumId, StringComparison.Ordinal)) is { } enumBinding)
+        {
+            return result.WithCppTypeName(enumBinding.CppQualifiedName);
+        }
+
+        return result;
+    }
+
+    private static string FormatRecordTemplateArgumentTypeName(BindingType type, RecordBinding record)
+    {
+        var baseTypeName = record.FormatCppTypeName(type.GenericArguments);
+        var currentTypeName = NormalizeTypeName(type.CppTypeName);
+        var isConst = currentTypeName.StartsWith("const ", StringComparison.Ordinal);
+        var isReference = type.Marshaller.CppIsReference || currentTypeName.EndsWith("&", StringComparison.Ordinal);
+        var isPointer = !type.Marshaller.CppIsRecordValue && !isReference && currentTypeName.EndsWith("*", StringComparison.Ordinal);
+
+        return $"{(isConst ? "const " : string.Empty)}{baseTypeName}{(isPointer ? "*" : string.Empty)}{(isReference ? "&" : string.Empty)}";
     }
 
     private static readonly Dictionary<string, List<InstantiateAnnotation>> s_instantiateAnnotations = new(StringComparer.Ordinal);
