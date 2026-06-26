@@ -1773,12 +1773,14 @@ public sealed class BindingOutputRendererTests
             OwningRecordCppTypeName = "Rml::Variant"
         };
         get.GenericParameters.Add(new BindingGenericParameter("T", 0));
-        get.Parameters.Add(new ParameterBinding(
+        var defaultValue = new ParameterBinding(
             "parameter:variant:get:default_value",
             "default_value",
             "defaultValue",
             BindingType.CreateGenericParameter("T"),
-            cppTypeName: "T"));
+            cppTypeName: "T");
+        defaultValue.SetMetadata(MetadataKeys.UnexpressibleDefault, true);
+        get.Parameters.Add(defaultValue);
         get.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding([stringType]));
         var assign = new FunctionBinding(
             "method:variant:assign",
@@ -1810,10 +1812,15 @@ public sealed class BindingOutputRendererTests
 
         Assert.Contains("public global::SharpCpp.Sample.Variant Assign<T>(T value)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("public global::SharpCpp.Sample.Variant Assign(global::Ea.String value)", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("public T Get<T>(T defaultValue)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public T Get<T>(T? defaultValue = default)", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("public T Get<T>()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("if (defaultValue is not null)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("if (defaultValue is null)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("public global::Ea.String Get(global::Ea.String defaultValue)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__Args0", managedOutput, StringComparison.Ordinal);
         Assert.Contains("typeof(T) == typeof(global::Ea.String)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("using FT = Rml::String(Rml::Variant::*)(Rml::String) const;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("->template Get<Rml::String>()", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("using FT = Rml::Variant&(Rml::Variant::*)(const Rml::String&);", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("&Rml::Variant::operator=<const Rml::String&>", nativeOutput, StringComparison.Ordinal);
     }

@@ -137,6 +137,13 @@ Current worktree verification passes with generic complex C++ values crossing ca
 
 ## Recently Fixed
 
+- **Generic method defaults now preserve native `T()` semantics through nullable sentinels**:
+  - Generic method wrappers now render unexpressible default parameters such as C++ `T default_value = T()` as nullable optional managed parameters, e.g. `T? defaultValue = default`.
+  - A `null` nullable sentinel on an `UnexpressibleDefault` generic parameter dispatches to generated `__ArgsN` P/Invoke/native thunks so the C++ template call omits the argument and applies the native `T()` default instead of passing a null configured value such as `Ea.String`.
+  - Explicit non-null values still dispatch through the full generic thunk; generated native default thunks use the required C++ `template` disambiguator for dependent member-template calls.
+  - Added rendering regression coverage for `Rml::Variant::Get<T>(T default_value = T())` on a non-generic record.
+  - Verification: focused rendering regression, `cmake --build --preset Debug`, and `ctest --preset Debug` pass.
+
 - **SDK-style NuGet packaging pipeline for rbfx bindings was added**:
   - Added `packaging/nuget/package.sh` with SDK download/extract, staging, package creation, and local-repository actions. Package creation uses SDK-style `.csproj` package projects and `dotnet pack`, not `.nuspec`.
   - Added packages for `SharpCpp.Rbfx.Bindings`, `SharpCpp.Rbfx.Bindings.runtime.<rid>`, `SharpCpp.Rbfx.CoreData`, `SharpCpp.Rbfx.Data`, and `SharpCpp.Rbfx.EditorData`.

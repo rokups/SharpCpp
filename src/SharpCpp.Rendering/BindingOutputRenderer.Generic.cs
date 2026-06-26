@@ -1383,7 +1383,7 @@ public static partial class BindingOutputRenderer
         WriteDocumentationComment(writer, function);
         var methodTypeParams = string.Join(", ", function.GenericParameters.Select(static param => param.Name));
         var returnTypeName = GetGenericManagedReturnType(function.ReturnType, compilation);
-        var parameterList = string.Join(", ", function.Parameters.Select(p => RenderManagedPublicParameter(p, compilation)));
+        var parameterList = RenderManagedPublicParameterList(function.Parameters, compilation);
         var methodInstantiations = function.SupportedGenericInstantiations.ToArray();
         var recordInstantiations = GetMethodRecordInstantiations(compilation, record);
 
@@ -1422,55 +1422,17 @@ public static partial class BindingOutputRenderer
                     invocationArguments.Add(BuildGenericInvocationArgument(compilation, function.Parameters[index], concreteParameters[index]));
                 }
 
-                writer.WriteLine($"    if ({condition})");
-                writer.WriteLine("    {");
-                var keepAliveStatements = BuildGenericKeepAliveStatements(function.Parameters, concreteParameters);
-
-                if (concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
-                {
-                    writer.WriteLine($"        {GetGenericImportAccessor(compilation)}.{importMethodName}({string.Join(", ", invocationArguments)});");
-                    foreach (var keepAlive in keepAliveStatements)
-                    {
-                        writer.WriteLine($"        {keepAlive}");
-                    }
-                    writer.WriteLine("        return;");
-                }
-                else if (function.ReturnType.IsGenericParameter)
-                {
-                    writer.WriteLine($"        var __result = {GetGenericImportAccessor(compilation)}.{importMethodName}({string.Join(", ", invocationArguments)});");
-                    foreach (var keepAlive in keepAliveStatements)
-                    {
-                        writer.WriteLine($"        {keepAlive}");
-                    }
-                    if (concreteReturnType.Kind == BindingTypeKind.Handle)
-                    {
-                        writer.WriteLine($"        return ({returnTypeName})(object){BuildManagedHandleReturnResultExpression(compilation, concreteReturnType, "__result", ReturnsOwnedHandle(function, concreteReturnType))}!;");
-                    }
-                    else
-                    {
-                        writer.WriteLine($"        return ({returnTypeName})(object)__result!;");
-                    }
-                }
-                else if (concreteReturnType.Kind == BindingTypeKind.Handle)
-                {
-                    writer.WriteLine($"        var __result = {GetGenericImportAccessor(compilation)}.{importMethodName}({string.Join(", ", invocationArguments)});");
-                    foreach (var keepAlive in keepAliveStatements)
-                    {
-                        writer.WriteLine($"        {keepAlive}");
-                    }
-                    writer.WriteLine($"        return {BuildManagedHandleReturnResultExpression(compilation, concreteReturnType, "__result", ReturnsOwnedHandle(function, concreteReturnType))};");
-                }
-                else
-                {
-                    writer.WriteLine($"        var __result = {GetGenericImportAccessor(compilation)}.{importMethodName}({string.Join(", ", invocationArguments)});");
-                    foreach (var keepAlive in keepAliveStatements)
-                    {
-                        writer.WriteLine($"        {keepAlive}");
-                    }
-                    writer.WriteLine("        return __result;");
-                }
-
-                writer.WriteLine("    }");
+                WriteGenericManagedMethodDispatchBranch(
+                    writer,
+                    compilation,
+                    function,
+                    returnTypeName,
+                    concreteReturnType,
+                    concreteParameters,
+                    condition,
+                    importMethodName,
+                    invocationArguments,
+                    indent: "    ");
             }
         }
 
@@ -1479,6 +1441,206 @@ public static partial class BindingOutputRenderer
             }
             """);
         return writer.ToString();
+    }
+
+    private static void WriteGenericManagedMethodDispatchBranch(
+        CodeWriter writer,
+        BindingCompilation compilation,
+        FunctionBinding function,
+        string returnTypeName,
+        BindingType concreteReturnType,
+        IReadOnlyList<BindingType> concreteParameters,
+        string condition,
+        string importMethodName,
+        IReadOnlyList<string> invocationArguments,
+        string indent)
+    {
+        writer.WriteLine($"{indent}if ({condition})");
+        writer.WriteLine($"{indent}{{");
+        var bodyIndent = indent + "    ";
+        if (HasNativeDefaultDispatchParams(function))
+        {
+            WriteGenericManagedMethodDefaultCascade(
+                writer,
+                compilation,
+                function,
+                returnTypeName,
+                concreteReturnType,
+                concreteParameters,
+                importMethodName,
+                bodyIndent);
+        }
+        else
+        {
+            WriteGenericManagedMethodInvocation(
+                writer,
+                compilation,
+                function,
+                returnTypeName,
+                concreteReturnType,
+                concreteParameters,
+                importMethodName,
+                invocationArguments,
+                bodyIndent);
+        }
+
+        writer.WriteLine($"{indent}}}");
+    }
+
+    private static void WriteGenericManagedMethodDefaultCascade(
+        CodeWriter writer,
+        BindingCompilation compilation,
+        FunctionBinding function,
+        string returnTypeName,
+        BindingType concreteReturnType,
+        IReadOnlyList<BindingType> concreteParameters,
+        string importMethodName,
+        string indent)
+    {
+        var defaultIndices = GetNativeDefaultDispatchParameterIndices(function);
+        WriteGenericManagedMethodDefaultBranch(
+            writer,
+            compilation,
+            function,
+            returnTypeName,
+            concreteReturnType,
+            concreteParameters,
+            importMethodName,
+            function.Parameters.Count,
+            defaultIndices,
+            defaultIndices.Count,
+            indent);
+
+        for (var providedDefaultCount = defaultIndices.Count - 1; providedDefaultCount >= 0; providedDefaultCount--)
+        {
+            var keepCount = defaultIndices[providedDefaultCount];
+            WriteGenericManagedMethodDefaultBranch(
+                writer,
+                compilation,
+                function,
+                returnTypeName,
+                concreteReturnType,
+                concreteParameters,
+                GetUnexpressibleVariantImportName(importMethodName, keepCount),
+                keepCount,
+                defaultIndices,
+                providedDefaultCount,
+                indent);
+        }
+
+        writer.WriteLine($"{indent}throw new global::System.ArgumentException(\"SharpCpp optional arguments that depend on native defaults must be supplied as a trailing contiguous suffix.\");");
+    }
+
+    private static void WriteGenericManagedMethodDefaultBranch(
+        CodeWriter writer,
+        BindingCompilation compilation,
+        FunctionBinding function,
+        string returnTypeName,
+        BindingType concreteReturnType,
+        IReadOnlyList<BindingType> concreteParameters,
+        string importMethodName,
+        int keepCount,
+        IReadOnlyList<int> defaultIndices,
+        int providedDefaultCount,
+        string indent)
+    {
+        writer.WriteLine($"{indent}if ({BuildGenericMethodDefaultCondition(function, defaultIndices, providedDefaultCount)})");
+        writer.WriteLine($"{indent}{{");
+        var invocationArguments = new List<string> { "global::SharpCpp.Support.NativeObject.GetHandle(this)" };
+        for (var index = 0; index < keepCount; index++)
+        {
+            invocationArguments.Add(BuildGenericInvocationArgument(compilation, function.Parameters[index], concreteParameters[index]));
+        }
+
+        WriteGenericManagedMethodInvocation(
+            writer,
+            compilation,
+            function,
+            returnTypeName,
+            concreteReturnType,
+            concreteParameters.Take(keepCount).ToArray(),
+            importMethodName,
+            invocationArguments,
+            indent + "    ");
+        writer.WriteLine($"{indent}}}");
+        writer.WriteLine();
+    }
+
+    private static string BuildGenericMethodDefaultCondition(FunctionBinding function, IReadOnlyList<int> defaultIndices, int providedDefaultCount)
+    {
+        var parts = new List<string>(defaultIndices.Count);
+        for (var index = 0; index < defaultIndices.Count; index++)
+        {
+            var parameter = function.Parameters[defaultIndices[index]];
+            if (parameter.Type.IsGenericParameter)
+            {
+                parts.Add($"{parameter.ManagedName} is {(index < providedDefaultCount ? "not null" : "null")}");
+            }
+            else
+            {
+                parts.Add(BuildUnexpressibleDefaultCondition(parameter, provided: index < providedDefaultCount));
+            }
+        }
+
+        return string.Join(" && ", parts);
+    }
+
+    private static void WriteGenericManagedMethodInvocation(
+        CodeWriter writer,
+        BindingCompilation compilation,
+        FunctionBinding function,
+        string returnTypeName,
+        BindingType concreteReturnType,
+        IReadOnlyList<BindingType> concreteParameters,
+        string importMethodName,
+        IReadOnlyList<string> invocationArguments,
+        string indent)
+    {
+        var keepAliveStatements = BuildGenericKeepAliveStatements(function.Parameters, concreteParameters);
+
+        if (concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+        {
+            writer.WriteLine($"{indent}{GetGenericImportAccessor(compilation)}.{importMethodName}({string.Join(", ", invocationArguments)});");
+            foreach (var keepAlive in keepAliveStatements)
+            {
+                writer.WriteLine($"{indent}{keepAlive}");
+            }
+            writer.WriteLine($"{indent}return;");
+        }
+        else if (function.ReturnType.IsGenericParameter)
+        {
+            writer.WriteLine($"{indent}var __result = {GetGenericImportAccessor(compilation)}.{importMethodName}({string.Join(", ", invocationArguments)});");
+            foreach (var keepAlive in keepAliveStatements)
+            {
+                writer.WriteLine($"{indent}{keepAlive}");
+            }
+            if (concreteReturnType.Kind == BindingTypeKind.Handle)
+            {
+                writer.WriteLine($"{indent}return ({returnTypeName})(object){BuildManagedHandleReturnResultExpression(compilation, concreteReturnType, "__result", ReturnsOwnedHandle(function, concreteReturnType))}!;");
+            }
+            else
+            {
+                writer.WriteLine($"{indent}return ({returnTypeName})(object)__result!;");
+            }
+        }
+        else if (concreteReturnType.Kind == BindingTypeKind.Handle)
+        {
+            writer.WriteLine($"{indent}var __result = {GetGenericImportAccessor(compilation)}.{importMethodName}({string.Join(", ", invocationArguments)});");
+            foreach (var keepAlive in keepAliveStatements)
+            {
+                writer.WriteLine($"{indent}{keepAlive}");
+            }
+            writer.WriteLine($"{indent}return {BuildManagedHandleReturnResultExpression(compilation, concreteReturnType, "__result", ReturnsOwnedHandle(function, concreteReturnType))};");
+        }
+        else
+        {
+            writer.WriteLine($"{indent}var __result = {GetGenericImportAccessor(compilation)}.{importMethodName}({string.Join(", ", invocationArguments)});");
+            foreach (var keepAlive in keepAliveStatements)
+            {
+                writer.WriteLine($"{indent}{keepAlive}");
+            }
+            writer.WriteLine($"{indent}return __result;");
+        }
     }
 
     private static string RenderConcreteGenericManagedMethodOverloads(BindingCompilation compilation, RecordBinding record, FunctionBinding function)
@@ -1629,6 +1791,13 @@ public static partial class BindingOutputRenderer
             foreach (var methodInstantiation in methodInstantiations)
             {
                 yield return RenderGenericMethodImportDeclaration(compilation, record, method, methodParams, recordInstantiation, methodInstantiation);
+                if (HasNativeDefaultDispatchParams(method))
+                {
+                    foreach (var keepCount in GetVariantParameterIndices(method))
+                    {
+                        yield return RenderGenericMethodImportDeclaration(compilation, record, method, methodParams, recordInstantiation, methodInstantiation, keepCount);
+                    }
+                }
             }
         }
     }
@@ -1828,17 +1997,27 @@ public static partial class BindingOutputRenderer
         FunctionBinding function,
         IReadOnlyList<BindingGenericParameter> methodParams,
         RecordGenericInstantiationBinding recordInstantiation,
-        RecordGenericInstantiationBinding methodInstantiation)
+        RecordGenericInstantiationBinding methodInstantiation,
+        int? keepCount = null)
     {
-        var concreteParameters = function.Parameters.Select((parameter, index) =>
+        var parameters = keepCount.HasValue
+            ? function.Parameters.Take(keepCount.Value)
+            : function.Parameters;
+        var concreteParameters = parameters.Select(parameter =>
             RenderConcreteManagedParameter(compilation, parameter,
                 SubstituteGenericType(record, parameter.Type, recordInstantiation, methodParams, methodInstantiation))).ToArray();
         var concreteReturnType = SubstituteGenericType(record, function.ReturnType, recordInstantiation, methodParams, methodInstantiation);
         var parameterList = string.Join(", ", new[] { "nint self" }.Concat(concreteParameters));
         var returnTypeName = GetManagedImportReturnTypeName(compilation, concreteReturnType);
         var returnAttribute = GetManagedImportReturnAttribute(compilation, concreteReturnType, ReturnsOwnedHandle(function, concreteReturnType));
-        var importMethodName = GetGenericMethodImportName(function, recordInstantiation, methodInstantiation);
-        var entryPointName = GetGenericMethodEntryPointName(function, recordInstantiation, methodInstantiation);
+        var baseImportMethodName = GetGenericMethodImportName(function, recordInstantiation, methodInstantiation);
+        var baseEntryPointName = GetGenericMethodEntryPointName(function, recordInstantiation, methodInstantiation);
+        var importMethodName = keepCount.HasValue
+            ? GetUnexpressibleVariantImportName(baseImportMethodName, keepCount.Value)
+            : baseImportMethodName;
+        var entryPointName = keepCount.HasValue
+            ? GetUnexpressibleVariantEntrypointName(baseEntryPointName, keepCount.Value)
+            : baseEntryPointName;
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static partial {returnTypeName} {importMethodName}({parameterList});"
             : $"{returnAttribute}\ninternal static partial {returnTypeName} {importMethodName}({parameterList});";
@@ -2090,7 +2269,8 @@ public static partial class BindingOutputRenderer
     private static IReadOnlyList<string> BuildGenericKeepAliveStatements(IList<ParameterBinding> parameters, IReadOnlyList<BindingType> concreteTypes)
     {
         var results = new List<string>();
-        for (var index = 0; index < parameters.Count; index++)
+        var count = Math.Min(parameters.Count, concreteTypes.Count);
+        for (var index = 0; index < count; index++)
         {
             if (concreteTypes[index].IsPointerType &&
                 parameters[index].Direction is not (BindingParameterDirection.Ref or BindingParameterDirection.Out))
@@ -2415,6 +2595,7 @@ public static partial class BindingOutputRenderer
         RecordGenericInstantiationBinding recordInstantiation,
         RecordGenericInstantiationBinding methodInstantiation)
     {
+        var writer = new CodeWriter();
         var methodParams = (IReadOnlyList<BindingGenericParameter>)method.GenericParameters.ToList();
         var concreteRecordType = record.FormatCppTypeName(recordInstantiation.TypeArguments);
         var concreteParameters = method.Parameters.Select(parameter =>
@@ -2425,7 +2606,7 @@ public static partial class BindingOutputRenderer
         var memberSignature = $"{concreteReturnType.CppTypeName}({concreteRecordType}::*)({string.Join(", ", method.Parameters.Select((parameter, index) => FormatConcreteGenericParameterCppType(parameter, concreteParameters[index])))}){(method.IsConstMethod ? " const" : string.Empty)}";
         var methodCppTypeArgs = string.Join(", ", methodInstantiation.TypeArguments.Select(static argument => argument.CppTypeName));
 
-        return $$"""
+        writer.Write($$"""
             SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(concreteReturnType)}} {{GetGenericMethodEntryPointName(method, recordInstantiation, methodInstantiation)}}({{parameterList}})
             {
             using FT = {{memberSignature}};
@@ -2434,6 +2615,69 @@ public static partial class BindingOutputRenderer
                 : RequiresOwnedRecordValueReturn(concreteReturnType)
                     ? $"return MarshallerInvoker::invoke_owned<FT>(&{concreteRecordType}::{method.NativeName}<{methodCppTypeArgs}>, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
                     : $"return MarshallerInvoker::invoke<FT>(&{concreteRecordType}::{method.NativeName}<{methodCppTypeArgs}>, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
+            }
+            """);
+
+        if (HasNativeDefaultDispatchParams(method))
+        {
+            foreach (var keepCount in GetVariantParameterIndices(method))
+            {
+                writer.WriteLine();
+                writer.Write(RenderNativeGenericMethodInstanceMethodDefaultVariant(
+                    record,
+                    method,
+                    recordInstantiation,
+                    methodInstantiation,
+                    concreteRecordType,
+                    concreteReturnType,
+                    concreteParameters,
+                    methodCppTypeArgs,
+                    keepCount));
+            }
+        }
+
+        return writer.ToString();
+    }
+
+    private static string RenderNativeGenericMethodInstanceMethodDefaultVariant(
+        RecordBinding record,
+        FunctionBinding method,
+        RecordGenericInstantiationBinding recordInstantiation,
+        RecordGenericInstantiationBinding methodInstantiation,
+        string concreteRecordType,
+        BindingType concreteReturnType,
+        IReadOnlyList<BindingType> concreteParameters,
+        string methodCppTypeArgs,
+        int keepCount)
+    {
+        var variantParams = method.Parameters.Take(keepCount).ToArray();
+        var parameterList = string.Join(", ", new[] { $"arg_t<{concreteRecordType}*> self" }
+            .Concat(variantParams.Select((parameter, index) => $"arg_t<{concreteParameters[index].CppTypeName}> {parameter.NativeName}")));
+        var signatureParameterList = string.Join(", ", new[] { $"{concreteRecordType}*" }
+            .Concat(variantParams.Select((parameter, index) => FormatConcreteGenericParameterCppType(parameter, concreteParameters[index]))));
+        var lambdaParameterList = string.Join(", ", new[] { "auto&& self" }
+            .Concat(variantParams.Select(static parameter => $"auto&& {parameter.NativeName}")));
+        var forwardedArgs = ForwardVariantArgs(variantParams);
+        var invokeArgs = string.Join(", ", new[] { "fn", "self" }.Concat(variantParams.Select(static parameter => parameter.NativeName)));
+        var entryPointName = GetUnexpressibleVariantEntrypointName(GetGenericMethodEntryPointName(method, recordInstantiation, methodInstantiation), keepCount);
+        var invocation = forwardedArgs.Length == 0
+            ? $"std::forward<decltype(self)>(self)->template {method.NativeName}<{methodCppTypeArgs}>()"
+            : $"std::forward<decltype(self)>(self)->template {method.NativeName}<{methodCppTypeArgs}>({forwardedArgs})";
+        var dispatch = concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void
+            ? $"MarshallerInvoker::invoke_as<FT>({invokeArgs});"
+            : RequiresOwnedRecordValueReturn(concreteReturnType)
+                ? $"return MarshallerInvoker::invoke_owned_as<FT>({invokeArgs});"
+                : $"return MarshallerInvoker::invoke_as<FT>({invokeArgs});";
+
+        return $$"""
+            SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(concreteReturnType)}} {{entryPointName}}({{parameterList}})
+            {
+            using FT = {{concreteReturnType.CppTypeName}}({{signatureParameterList}});
+            auto fn = []({{lambdaParameterList}}) -> decltype(auto)
+            {
+                {{(concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? invocation + ";" : "return " + invocation + ";")}}
+            };
+            {{dispatch}}
             }
             """;
     }
