@@ -137,6 +137,13 @@ Current worktree verification passes with generic complex C++ values crossing ca
 
 ## Recently Fixed
 
+- **Managed wrapper instance caches are now selected by actual native type**:
+  - `CreateManagedWrapper` is now a thin null-check plus `NativeObjectRegistry.Create<T>(...)`; polymorphic paths no longer probe the static/root wrapper cache before native metadata resolution.
+  - `NativeObjectRegistry.Create<T>` now owns cache lookup and registration for wrappers it creates, using native dynamic type metadata to select the resolved type cache before creating a wrapper.
+  - Generated handle constructors no longer register in instance caches, so generated base constructors cannot insert derived objects into base/root caches. Public managed constructors register through `NativeObjectRegistry.RegisterInstance<T>(this)` after native construction.
+  - Generated dynamic-type registration uses a module initializer instead of explicit `EnsureRegistered()` calls on the wrapper hot path.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj`, `cmake --build --preset Debug`, `dotnet test tests/SharpCpp.Tests.E2E/SharpCpp.Tests.E2E.csproj`, and `ctest --preset Debug` pass.
+
 - **Marshaller sync-back now belongs to the marshaller lifetime and field access goes through invoke helpers**:
   - `ConvertToCpp` / `ConvertToAbi` marshaller methods are non-`const` and `noexcept`; invalid ABI fail-fast paths now call `std::terminate()` with the previous diagnostic strings preserved as comments.
   - `ParameterMarshaller<T>` wraps configured marshallers in an RAII adapter that calls `Sync()` from the destructor when present, so generated thunks no longer emit explicit `detail::SyncMarshaller(...)` calls.

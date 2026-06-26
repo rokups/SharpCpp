@@ -2185,7 +2185,7 @@ public static partial class BindingOutputRenderer
         var baseClause = $" : {string.Join(", ", baseTypes)}";
         writer.Write(
             $$"""
-            public {{classModifier}}partial class {{record.ManagedName}}{{baseClause}}{{(record.IsPolymorphic ? $", global::SharpCpp.Support.INativeObjectRegistration<{record.ManagedName}>" : string.Empty)}}
+            public {{classModifier}}partial class {{record.ManagedName}}{{baseClause}}, global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>
             {
             {{cacheFieldModifier}}internal static readonly {{GetInstanceCacheFieldTypeName(record)}} s_instanceCache = {{GetInstanceCacheFactoryExpression(record)}};
 
@@ -2194,11 +2194,6 @@ public static partial class BindingOutputRenderer
             protected internal {{record.ManagedName}}(nint handle, bool ownsHandle = false)
                 : base(handle, ownsHandle)
             {
-            if (!IsInvalid)
-            {
-                PrepareForOwnedRegistration();
-                s_instanceCache.Register(this);
-            }
             }
 
             {{(string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) && !record.HasOwnManagedMemberNamed("Handle") ? "public nint Handle => DangerousGetHandle();" : string.Empty)}}
@@ -2210,15 +2205,7 @@ public static partial class BindingOutputRenderer
             if (handle == 0)
                 {{(isEffectivelyAbstract ? "return null!;" : $"return new {record.ManagedName}(0, ownsHandle);")}}
 
-            {{(record.IsPolymorphic ? $"{GetBindingClassAccessor(compilation)}.__NativeObjectRegistryInitializer.EnsureRegistered();" : string.Empty)}}
-            if (s_instanceCache.TryGetExisting(handle, ownsHandle, out var existing) && existing is {{record.ManagedName}} cached)
-                return cached;
-
-            {{(record.IsPolymorphic
-                ? $"return ({record.ManagedName})global::SharpCpp.Support.NativeObjectRegistry.Create<{record.ManagedName}>(handle, ownsHandle);"
-                : isEffectivelyAbstract
-                    ? "return null!;"
-                    : $"return new {record.ManagedName}(handle, ownsHandle);")}}
+            return ({{record.ManagedName}})global::SharpCpp.Support.NativeObjectRegistry.Create<{{record.ManagedName}}>(handle, ownsHandle);
             }
             """);
 
@@ -2438,31 +2425,30 @@ public static partial class BindingOutputRenderer
         CloseIgnoredStubCluster();
 
         writer.WriteLine();
-        if (record.IsPolymorphic)
-        {
-            writer.Write(
-                $$"""
-                {{staticHelperModifier}}internal static nuint GetManagedTypeId()
-                {
-                return __PInvoke.GetStaticTypeId();
-                }
+        writer.Write(
+            $$"""
+            {{(record.IsPolymorphic ? $$"""
+            {{staticHelperModifier}}internal static nuint GetManagedTypeId()
+            {
+            return __PInvoke.GetStaticTypeId();
+            }
 
-                static nuint global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationDynamicTypeId => GetManagedTypeId();
+            """ : string.Empty)}}static bool global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationIsPolymorphic => {{record.IsPolymorphic.ToString().ToLowerInvariant()}};
 
-                static global::System.Type global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationExpectedType => typeof({{record.ManagedName}});
+            static nuint global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationDynamicTypeId => {{(record.IsPolymorphic ? "GetManagedTypeId()" : "0")}};
 
-                static global::SharpCpp.Support.INativeInstanceCache global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationInstanceCache => s_instanceCache;
+            static global::System.Type global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationExpectedType => typeof({{record.ManagedName}});
 
-                static global::System.Func<nint, bool, global::SharpCpp.Support.NativeObject>? global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationCreateFactory => {{(isEffectivelyAbstract ? "null" : $"static (handle, ownsHandle) => new {record.ManagedName}(handle, ownsHandle)")}};
+            static global::SharpCpp.Support.INativeInstanceCache global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationInstanceCache => s_instanceCache;
 
-                static global::SharpCpp.Support.NativeObjectMetadata global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationGetMetadata(nint handle)
-                {
-                __PInvoke.GetNativeObjectMetadata(handle, out var resolvedHandle, out var dynamicTypeId);
-                return new global::SharpCpp.Support.NativeObjectMetadata(resolvedHandle, dynamicTypeId);
-                }
-                """);
-            writer.WriteLine();
-        }
+            static global::System.Func<nint, bool, global::SharpCpp.Support.NativeObject>? global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationCreateFactory => {{(isEffectivelyAbstract ? "null" : $"static (handle, ownsHandle) => new {record.ManagedName}(handle, ownsHandle)")}};
+
+            static global::SharpCpp.Support.NativeObjectMetadata global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationGetMetadata(nint handle)
+            {
+            {{(record.IsPolymorphic ? "__PInvoke.GetNativeObjectMetadata(handle, out var resolvedHandle, out var dynamicTypeId);\nreturn new global::SharpCpp.Support.NativeObjectMetadata(resolvedHandle, dynamicTypeId);" : "return new global::SharpCpp.Support.NativeObjectMetadata(handle, 0);")}}
+            }
+            """);
+        writer.WriteLine();
 
         if (requiresDirector)
         {
@@ -2930,6 +2916,7 @@ public static partial class BindingOutputRenderer
         var invokeArguments = string.Join(", ", function.Parameters.Select(parameter => RenderManagedInvocationArgument(compilation, parameter)));
         var hasHandleParams = function.Parameters.Any(static parameter => parameter.Type.Kind == BindingTypeKind.Handle);
         var hasNativeDefaultDispatch = HasNativeDefaultDispatchParams(function);
+        var postConstructStatements = RenderManagedConstructorPostConstruct(record, requiresDirector);
 
         if (hasHandleParams || hasNativeDefaultDispatch)
         {
@@ -2939,7 +2926,7 @@ public static partial class BindingOutputRenderer
                 {{GetManagedVisibility(function.AccessModifier)}} {{constructorName}}({{parameterList}})
                     : this({{factoryName}}({{string.Join(", ", function.Parameters.Select(RenderManagedForwardingArgument))}}), true)
                 {
-                {{(requiresDirector ? "ConnectDirector();" : string.Empty)}}
+                {{postConstructStatements}}
                 }
 
                 private static nint {{factoryName}}({{parameterList}})
@@ -2979,12 +2966,20 @@ public static partial class BindingOutputRenderer
                 {{GetManagedVisibility(function.AccessModifier)}} {{constructorName}}({{parameterList}})
                     : this(__PInvoke.{{importMethodName}}({{invokeArguments}}), true)
                 {
-                {{(requiresDirector ? "ConnectDirector();" : string.Empty)}}
+                {{postConstructStatements}}
                 }
                 """);
         }
 
         return writer.ToString();
+    }
+
+    private static string RenderManagedConstructorPostConstruct(RecordBinding record, bool requiresDirector)
+    {
+        var registerInstance = $"global::SharpCpp.Support.NativeObjectRegistry.RegisterInstance<{record.ManagedName}>(this);";
+        return requiresDirector
+            ? $"ConnectDirector();\n    {registerInstance}"
+            : registerInstance;
     }
 
     private static void WriteUndefaultableConstructorOverloads(
@@ -3002,6 +2997,8 @@ public static partial class BindingOutputRenderer
             return;
         }
 
+        var postConstructStatements = RenderManagedConstructorPostConstruct(record, requiresDirector);
+
         // =========================================================
         // Overload A: params before first undefaultable index
         // =========================================================
@@ -3017,7 +3014,7 @@ public static partial class BindingOutputRenderer
                 public {{constructorName}}({{aParamList}})
                     : this({{aFactoryName}}({{aArgNames}}), true)
                 {
-                {{(requiresDirector ? "ConnectDirector();" : string.Empty)}}
+                {{postConstructStatements}}
                 }
 
                 private static nint {{aFactoryName}}({{aParamList}})
@@ -3083,7 +3080,7 @@ public static partial class BindingOutputRenderer
                 public {{constructorName}}({{bParamList}})
                     : this({{bFactoryName}}({{bArgNames}}), true)
                 {
-                {{(requiresDirector ? "ConnectDirector();" : string.Empty)}}
+                {{postConstructStatements}}
                 }
 
                 private static nint {{bFactoryName}}({{bParamList}})
@@ -5368,14 +5365,8 @@ public static partial class BindingOutputRenderer
             """
             internal static class __NativeObjectRegistryInitializer
             {
-            private static readonly bool s_registered = RegisterAll();
-
-            internal static void EnsureRegistered()
-            {
-            _ = s_registered;
-            }
-
-            private static bool RegisterAll()
+            [global::System.Runtime.CompilerServices.ModuleInitializer]
+            internal static void RegisterAll()
             {
             """);
 
@@ -5389,7 +5380,6 @@ public static partial class BindingOutputRenderer
 
         writer.Write(
             """
-            return true;
             }
             }
             """);

@@ -1845,7 +1845,7 @@ public sealed class BindingOutputRendererTests
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
         Assert.Contains("internal static readonly global::SharpCpp.Support.INativeInstanceCache s_instanceCache = global::Urho3D.Interop.RefCountedInstanceCache.Shared;", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("PrepareForOwnedRegistration();", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("RegistrationInstanceCache => s_instanceCache;", managedOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("protected override bool ReleaseNativeHandle(nint handle)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("[return: MarshalUsing(typeof(global::SharpCpp.Sample.__PayloadMarshaller<global::SharpCpp.Support.OwnedNativeHandle>))]", managedOutput, StringComparison.Ordinal);
         Assert.Contains("internal static partial global::SharpCpp.Sample.Payload Get_Child(Payload self);", managedOutput, StringComparison.Ordinal);
@@ -1907,6 +1907,8 @@ public sealed class BindingOutputRendererTests
 
         Assert.Contains("internal static readonly global::SharpCpp.Support.DefaultNativeInstanceCache s_instanceCache = new global::SharpCpp.Support.DefaultNativeInstanceCache();", managedOutput, StringComparison.Ordinal);
         Assert.Contains("global::SharpCpp.Support.NativeObjectRegistry.Create<BaseCounter>(handle, ownsHandle)", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (s_instanceCache.TryGetExisting(handle, ownsHandle, out var existing)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("[global::System.Runtime.CompilerServices.ModuleInitializer]", managedOutput, StringComparison.Ordinal);
         Assert.Contains("global::SharpCpp.Support.NativeObjectRegistry.RegisterType<global::SharpCpp.Sample.BaseCounter>();", managedOutput, StringComparison.Ordinal);
         Assert.Contains("global::SharpCpp.Support.NativeObjectRegistry.RegisterType<global::SharpCpp.Sample.DerivedCounter>();", managedOutput, StringComparison.Ordinal);
         Assert.Contains("INativeObjectRegistration<BaseCounter>", managedOutput, StringComparison.Ordinal);
@@ -3388,7 +3390,8 @@ public sealed class BindingOutputRendererTests
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("global::SharpCpp.Sample.SampleBindings.__NativeObjectRegistryInitializer.EnsureRegistered();", managedOutput, StringComparison.Ordinal);
-        Assert.DoesNotContain("\n            SampleBindings.__NativeObjectRegistryInitializer.EnsureRegistered();", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("[global::System.Runtime.CompilerServices.ModuleInitializer]", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("EnsureRegistered", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("global::SharpCpp.Support.NativeObjectRegistry.Create<Widget>(handle, ownsHandle)", managedOutput, StringComparison.Ordinal);
     }
 }

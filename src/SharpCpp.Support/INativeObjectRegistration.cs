@@ -9,6 +9,11 @@ public interface INativeObjectRegistration<TSelf>
     where TSelf : NativeObject
 {
     /// <summary>
+    /// Gets whether this wrapper needs native runtime metadata to resolve derived wrapper types.
+    /// </summary>
+    static abstract bool RegistrationIsPolymorphic { get; }
+
+    /// <summary>
     /// Gets the C++ runtime type identifier (dynamic type ID) for this wrapper type.
     /// Used by <see cref="NativeObjectRegistry.Create{T}"/> to resolve the most derived registered wrapper.
     /// </summary>

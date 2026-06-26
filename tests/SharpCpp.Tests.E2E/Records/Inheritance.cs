@@ -1,4 +1,5 @@
 using SharpCpp.Tests.E2E.Generated;
+using SharpCpp.Support;
 
 using Xunit;
 
@@ -94,5 +95,30 @@ public sealed class InheritanceTests
         Assert.Same(first, second);
         Assert.Equal(30, first.GetValue());
         Assert.Equal(4, ((DerivedCounter)first).GetBonus());
+    }
+
+    [Fact]
+    public void Derived_constructor_registers_only_the_derived_type_cache()
+    {
+        using var counter = new DerivedCounter(10, 2);
+        var handle = NativeObject.GetHandle(counter);
+
+        Assert.False(BaseCounter.s_instanceCache.TryGetExisting(handle, ownsHandle: false, out _));
+        Assert.True(DerivedCounter.s_instanceCache.TryGetExisting(handle, ownsHandle: false, out var cached));
+        Assert.Same(counter, cached);
+    }
+
+    [Fact]
+    public void Polymorphic_create_resolves_native_type_before_cache_lookup()
+    {
+        using var counter = new DerivedCounter(10, 2);
+        var handle = NativeObject.GetHandle(counter);
+        using var baseView = new BaseCounter(handle, ownsHandle: false);
+        NativeObjectRegistry.RegisterInstance<BaseCounter>(baseView);
+
+        var resolved = BaseCounter.CreateManagedWrapper(handle, ownsHandle: false);
+
+        Assert.Same(counter, resolved);
+        Assert.IsType<DerivedCounter>(resolved);
     }
 }

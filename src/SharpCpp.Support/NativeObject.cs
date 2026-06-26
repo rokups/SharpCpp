@@ -227,6 +227,17 @@ public abstract class NativeObject : SafeHandle
     {
     }
 
+    internal void RegisterInInstanceCache(INativeInstanceCache instanceCache)
+    {
+        if (IsInvalid)
+        {
+            return;
+        }
+
+        PrepareForOwnedRegistration();
+        instanceCache.Register(this);
+    }
+
     /// <summary>
     /// Called by the native runtime when the native object is destroyed externally.
     /// Severs the wrapper connection without double-freeing native memory.

@@ -23,10 +23,23 @@ public abstract class NativeObjectRegistry
     public static void RegisterType<T>()
         where T : NativeObject, INativeObjectRegistration<T>
     {
+        if (!T.RegistrationIsPolymorphic)
+        {
+            return;
+        }
+
         var createFactory = T.RegistrationCreateFactory
             ?? throw new InvalidOperationException($"No managed wrapper factory is registered for '{typeof(T).FullName}'.");
 
         RegisterType(T.RegistrationDynamicTypeId, T.RegistrationExpectedType, createFactory, T.RegistrationInstanceCache);
+    }
+
+    public static void RegisterInstance<T>(T instance)
+        where T : NativeObject, INativeObjectRegistration<T>
+    {
+        ArgumentNullException.ThrowIfNull(instance);
+
+        instance.RegisterInInstanceCache(T.RegistrationInstanceCache);
     }
 
     /// <summary>
@@ -69,16 +82,12 @@ public abstract class NativeObjectRegistry
             return null!;
         }
 
+        var metadata = T.RegistrationIsPolymorphic
+            ? T.RegistrationGetMetadata(handle).Normalize(handle)
+            : new NativeObjectMetadata(handle, T.RegistrationDynamicTypeId);
         var instanceCache = T.RegistrationInstanceCache;
         var factory = T.RegistrationCreateFactory;
-
-        if (instanceCache.TryGetExisting(handle, ownsHandle, out var existing) && existing is not null)
-        {
-            return existing;
-        }
-
-        var metadata = T.RegistrationGetMetadata(handle).Normalize(handle);
-        if (s_types.TryGetValue(metadata.DynamicTypeId, out var registeredType))
+        if (T.RegistrationIsPolymorphic && s_types.TryGetValue(metadata.DynamicTypeId, out var registeredType))
         {
             instanceCache = registeredType.InstanceCache;
             factory = registeredType.CreateFactory;
@@ -86,7 +95,7 @@ public abstract class NativeObjectRegistry
 
         handle = metadata.Handle;
 
-        if (instanceCache.TryGetExisting(handle, ownsHandle, out existing) && existing is not null)
+        if (instanceCache.TryGetExisting(handle, ownsHandle, out var existing) && existing is not null)
         {
             return existing;
         }
@@ -96,6 +105,8 @@ public abstract class NativeObjectRegistry
             throw new InvalidOperationException($"No managed wrapper factory is available for '{typeof(T).FullName}'.");
         }
 
-        return factory(handle, ownsHandle);
+        var instance = factory(handle, ownsHandle);
+        instance.RegisterInInstanceCache(instanceCache);
+        return instance;
     }
 }

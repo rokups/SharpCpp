@@ -129,7 +129,7 @@ public static partial class BindingOutputRenderer
 
         WriteDocumentationComment(writer, record);
         writer.Write($$"""
-            public partial class {{GetGenericRecordDeclarationName(record)}} : {{baseTypeName}}{{(canEmitClone ? ", global::System.ICloneable" : string.Empty)}}{{additionalInterfaceClause}}{{genericConstraints}}
+            public partial class {{GetGenericRecordDeclarationName(record)}} : {{baseTypeName}}, global::SharpCpp.Support.INativeObjectRegistration<{{GetGenericRecordDeclarationName(record)}}>{{(canEmitClone ? ", global::System.ICloneable" : string.Empty)}}{{additionalInterfaceClause}}{{genericConstraints}}
             {
             internal static readonly {{GetInstanceCacheFieldTypeName(record)}} s_instanceCache = {{GetInstanceCacheFactoryExpression(record)}};
 
@@ -138,11 +138,6 @@ public static partial class BindingOutputRenderer
             internal {{record.ManagedName}}(nint handle, bool ownsHandle = false)
                 : base(handle, ownsHandle)
             {
-                if (!IsInvalid)
-                {
-                    PrepareForOwnedRegistration();
-                    s_instanceCache.Register(this);
-                }
             }
 
             public nint Handle => DangerousGetHandle();
@@ -154,10 +149,22 @@ public static partial class BindingOutputRenderer
             if (handle == 0)
                 return new {{GetGenericRecordDeclarationName(record)}}(0, ownsHandle);
 
-            if (s_instanceCache.TryGetExisting(handle, ownsHandle, out var existing) && existing is {{GetGenericRecordDeclarationName(record)}} cached)
-                return cached;
+            return ({{GetGenericRecordDeclarationName(record)}})global::SharpCpp.Support.NativeObjectRegistry.Create<{{GetGenericRecordDeclarationName(record)}}>(handle, ownsHandle);
+            }
 
-            return new {{GetGenericRecordDeclarationName(record)}}(handle, ownsHandle);
+            static bool global::SharpCpp.Support.INativeObjectRegistration<{{GetGenericRecordDeclarationName(record)}}>.RegistrationIsPolymorphic => false;
+
+            static nuint global::SharpCpp.Support.INativeObjectRegistration<{{GetGenericRecordDeclarationName(record)}}>.RegistrationDynamicTypeId => 0;
+
+            static global::System.Type global::SharpCpp.Support.INativeObjectRegistration<{{GetGenericRecordDeclarationName(record)}}>.RegistrationExpectedType => typeof({{GetGenericRecordDeclarationName(record)}});
+
+            static global::SharpCpp.Support.INativeInstanceCache global::SharpCpp.Support.INativeObjectRegistration<{{GetGenericRecordDeclarationName(record)}}>.RegistrationInstanceCache => s_instanceCache;
+
+            static global::System.Func<nint, bool, global::SharpCpp.Support.NativeObject>? global::SharpCpp.Support.INativeObjectRegistration<{{GetGenericRecordDeclarationName(record)}}>.RegistrationCreateFactory => static (handle, ownsHandle) => new {{GetGenericRecordDeclarationName(record)}}(handle, ownsHandle);
+
+            static global::SharpCpp.Support.NativeObjectMetadata global::SharpCpp.Support.INativeObjectRegistration<{{GetGenericRecordDeclarationName(record)}}>.RegistrationGetMetadata(nint handle)
+            {
+            return new global::SharpCpp.Support.NativeObjectMetadata(handle, 0);
             }
             """);
 
@@ -1271,6 +1278,7 @@ public static partial class BindingOutputRenderer
             public {{record.ManagedName}}({{parameterList}})
                 : this({{GetGenericConstructorFactoryName(function)}}({{string.Join(", ", function.Parameters.Select(static parameter => parameter.ManagedName))}}), true)
             {
+            global::SharpCpp.Support.NativeObjectRegistry.RegisterInstance<{{GetGenericRecordDeclarationName(record)}}>(this);
             }
 
             private static nint {{GetGenericConstructorFactoryName(function)}}({{parameterList}})
