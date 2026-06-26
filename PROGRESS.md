@@ -8,7 +8,7 @@ Bootstrap an independent SharpCpp line from `doc/`, selectively adapting small b
 
 All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E) on the last clean verified baseline. The full pipeline — C++ headers → generated C# wrappers + native thunks — runs end-to-end for both synthetic fixtures and the real rbfx SDK.
 
-Current worktree verification passes with generic complex C++ values crossing callback/native ABI as pointers by default, while explicitly configured value marshallers such as `StringHash`, math structs, and smart-pointer projections keep their configured ABI. Thin managed convenience wrappers remain acceptable when they delegate to generated APIs without handwritten native entrypoints; rbfx helpers may also encode native ownership-transfer semantics such as `Object::SubscribeToEvent` taking ownership of event handlers.
+Current worktree verification passes with generic complex C++ values crossing callback/native ABI as pointers by default, while explicitly configured value marshallers such as `StringHash`, math structs, and smart-pointer projections keep their configured ABI. Thin managed convenience wrappers remain acceptable when they delegate to generated APIs without handwritten native entrypoints; rbfx event subscription ownership is now covered by generated `Object::SubscribeToEvent<T>` wrappers discovered from C++ template instantiations.
 
 ### Model & Metadata
 - Binding model: records, enums, free functions, methods, constructors, fields, operators, templates/generics
@@ -132,6 +132,14 @@ Current worktree verification passes with generic complex C++ values crossing ca
 - All type-specific behaviors configured through C++/C# marshallers, never hardcoded in core
 
 ## Recently Fixed
+
+- **Generated rbfx `Object.SubscribeToEvent(...)` overloads replaced the manual event-subscription ownership helper**:
+  - Removed the handwritten `EventHandler.TransferToNativeOwner()` / `Object.SubscribeToEvent(...)` helper path; generated wrappers now call native `Urho3D::Object::SubscribeToEvent<T>`, which allocates and transfers `EventHandler` ownership to the native `Object` event list.
+  - Added rbfx parse-umbrella explicit template instantiations for both native `SubscribeToEvent<Urho3D::EventHandler::HandlerFunction>` overloads, with parser discovery from ClangSharp `FunctionTemplateDecl.Specializations` AST facts rather than file prescans.
+  - Relaxed bootstrap validation and extended generic rendering so non-generic records can emit concrete overloads/imports for supported generic method instantiations.
+  - Fixed concrete generic callback import helper naming to normalize through public alias-shaped callback signatures, so `EventHandler` construction and generated `SubscribeToEvent` imports share the same emitted callback marshaller.
+  - Fixed pointer-qualified record-value generic returns so `Variant*` collection helpers use borrowed `ret_t<Urho3D::Variant*>` / `MarshallerInvoker::invoke_as` instead of owned `Variant**` ABI.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj --logger "console;verbosity=minimal"`, `dotnet test tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj --logger "console;verbosity=minimal"`, `cmake --build --preset Debug --target sharpcpp-rbfx-application sharpcpp-rbfx-tests-e2e-managed`, and `ctest --preset Debug` pass.
 
 - **`Rbfx.Application` no longer double-deletes subscribed update event handlers on shutdown**:
   - Added additive rbfx `Object.SubscribeToEvent(...)` helpers that mirror the native template helpers: create an `EventHandler`, call generated `SubscribeToEventManual(...)`, then mark the managed wrapper as transferred to native ownership.

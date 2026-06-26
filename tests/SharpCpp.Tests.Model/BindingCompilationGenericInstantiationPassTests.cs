@@ -177,6 +177,37 @@ public sealed class BindingCompilationGenericInstantiationPassTests
     }
 
     [Fact]
+    public void ValidateBootstrapSurface_keeps_instantiated_generic_methods_on_non_generic_records()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Object.h"]);
+        var objectRecord = new RecordBinding("record:Object", "Object", "Object", "Test::Object");
+        var subscribe = new FunctionBinding(
+            "method:Object:Subscribe:T",
+            "Subscribe",
+            "Subscribe",
+            BindingType.Void,
+            cppQualifiedName: "Test::Object::Subscribe")
+        {
+            OwningRecordCppTypeName = objectRecord.CppQualifiedName
+        };
+        subscribe.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        subscribe.Parameters.Add(new ParameterBinding(
+            "parameter:Object:Subscribe:handler",
+            "handler",
+            "handler",
+            BindingType.CreateGenericParameter("T"),
+            cppTypeName: "T"));
+        subscribe.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding([BindingType.Int32]));
+        objectRecord.Members.Add(subscribe);
+        compilation.Members.Add(objectRecord);
+
+        ValidateBootstrapSurfacePass.Apply(compilation);
+
+        Assert.False(subscribe.IsIgnored(), subscribe.GetIgnoreReason());
+        Assert.Single(subscribe.SupportedGenericInstantiations);
+    }
+
+    [Fact]
     public void ValidateBootstrapSurface_keeps_suppressed_placeholder_instantiations_under_configured_namespace()
     {
         var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Vector.h"])

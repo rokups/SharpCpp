@@ -5,12 +5,16 @@ namespace SharpCpp.Rbfx.Tests.E2E;
 public sealed class GeneratedSurfaceTests
 {
     [Fact]
-    public void EventHandler_keeps_supported_surface_and_prunes_open_template_constructor()
+    public void EventHandler_keeps_supported_surface_and_instantiates_subscribe_templates()
     {
-        var content = File.ReadAllText(Path.Combine(GetGeneratedDir(), "Core", "SharpCpp.Rbfx.Object.g.cs"));
+        var managedContent = File.ReadAllText(Path.Combine(GetGeneratedDir(), "Core", "SharpCpp.Rbfx.Object.g.cs"));
+        var nativeContent = File.ReadAllText(Path.Combine(GetGeneratedDir(), "Core", "SharpCpp.Rbfx.Object.g.cpp"));
 
-        Assert.Contains("template <class T> EventHandler(Object *receiver, T handler) // excluded", content, StringComparison.Ordinal);
-        Assert.Contains("public global::Urho3D.Math.StringHash EventType", content, StringComparison.Ordinal);
+        Assert.Contains("template <class T> EventHandler(Object *receiver, T handler) // excluded", managedContent, StringComparison.Ordinal);
+        Assert.Contains("public global::Urho3D.Math.StringHash EventType", managedContent, StringComparison.Ordinal);
+        Assert.Contains("public void SubscribeToEvent(global::Urho3D.Math.StringHash eventType, global::System.Action<global::Urho3D.Core.Object, global::Urho3D.Math.StringHash, VariantMap> handler)", managedContent, StringComparison.Ordinal);
+        Assert.Contains("public void SubscribeToEvent(global::Urho3D.Core.Object sender, global::Urho3D.Math.StringHash eventType, global::System.Action<global::Urho3D.Core.Object, global::Urho3D.Math.StringHash, VariantMap> handler)", managedContent, StringComparison.Ordinal);
+        Assert.Contains("&Urho3D::Object::SubscribeToEvent<eastl::function<void (Urho3D::Object*, Urho3D::StringHash, eastl::hash_map<Urho3D::StringHash, Urho3D::Variant>&)>>", nativeContent, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -43,7 +47,7 @@ public sealed class GeneratedSurfaceTests
     }
 
     [Fact]
-    public void SubscribeToEvent_helper_transfers_event_handler_to_native_owner()
+    public void Generated_SubscribeToEvent_transfers_event_handler_to_native_owner()
     {
         using var context = new global::Urho3D.Core.Context();
         using var receiver = new global::Urho3D.Core.WorkQueue(context);

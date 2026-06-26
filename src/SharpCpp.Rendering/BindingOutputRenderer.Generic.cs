@@ -1473,6 +1473,96 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
+    private static string RenderConcreteGenericManagedMethodOverloads(BindingCompilation compilation, RecordBinding record, FunctionBinding function)
+    {
+        if (record.IsGeneric)
+        {
+            return string.Empty;
+        }
+
+        var writer = new CodeWriter();
+        var methodParams = (IReadOnlyList<BindingGenericParameter>)function.GenericParameters.ToList();
+        var recordInstantiation = EmptyRecordGenericInstantiation();
+        var instantiations = function.SupportedGenericInstantiations.OrderBy(
+            static instantiation => string.Join("|", instantiation.TypeArguments.Select(static argument => argument.CppTypeName)),
+            StringComparer.Ordinal).ToArray();
+
+        foreach (var methodInstantiation in instantiations)
+        {
+            var concreteParameters = function.Parameters.Select(parameter =>
+                SubstituteGenericType(record, parameter.Type, recordInstantiation, methodParams, methodInstantiation)).ToArray();
+            var concreteReturnType = SubstituteGenericType(record, function.ReturnType, recordInstantiation, methodParams, methodInstantiation);
+            var parameterList = string.Join(", ", function.Parameters.Select((parameter, index) =>
+                RenderConcreteManagedPublicParameter(compilation, parameter, concreteParameters[index])));
+            var returnTypeName = GetManagedPublicReturnTypeName(concreteReturnType, compilation);
+            var importMethodName = GetGenericMethodImportName(function, recordInstantiation, methodInstantiation);
+            var invocationArguments = new List<string> { "global::SharpCpp.Support.NativeObject.GetHandle(this)" };
+            for (var index = 0; index < function.Parameters.Count; index++)
+            {
+                invocationArguments.Add(BuildGenericInvocationArgument(compilation, function.Parameters[index], concreteParameters[index]));
+            }
+
+            writer.WriteLine();
+            WriteDocumentationComment(writer, function);
+            writer.WriteLine($"{GetManagedVisibilityNormalized(compilation, record, function)} {GetManagedInstanceMethodModifier(compilation, record, function)}{returnTypeName} {function.ManagedName}({parameterList})");
+            writer.WriteLine("{");
+            var keepAliveStatements = BuildGenericKeepAliveStatements(function.Parameters, concreteParameters);
+
+            if (concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+            {
+                writer.WriteLine($"    {GetGenericImportAccessor(compilation)}.{importMethodName}({string.Join(", ", invocationArguments)});");
+                foreach (var keepAlive in keepAliveStatements)
+                {
+                    writer.WriteLine($"    {keepAlive}");
+                }
+                writer.WriteLine("}");
+                continue;
+            }
+
+            writer.WriteLine($"    var __result = {GetGenericImportAccessor(compilation)}.{importMethodName}({string.Join(", ", invocationArguments)});");
+            foreach (var keepAlive in keepAliveStatements)
+            {
+                writer.WriteLine($"    {keepAlive}");
+            }
+
+            if (concreteReturnType.Kind == BindingTypeKind.Handle)
+            {
+                writer.WriteLine($"    return {BuildManagedHandleReturnResultExpression(compilation, concreteReturnType, "__result", ReturnsOwnedHandle(function, concreteReturnType))};");
+            }
+            else
+            {
+                writer.WriteLine("    return __result;");
+            }
+
+            writer.WriteLine("}");
+        }
+
+        return writer.ToString();
+    }
+
+    private static string RenderConcreteManagedPublicParameter(BindingCompilation compilation, ParameterBinding parameter, BindingType concreteType)
+    {
+        var concreteParameter = CreateConcreteParameter(parameter, concreteType);
+        return RenderManagedPublicParameter(concreteParameter, compilation);
+    }
+
+    private static ParameterBinding CreateConcreteParameter(ParameterBinding parameter, BindingType concreteType)
+    {
+        return new ParameterBinding(
+            parameter.SymbolId,
+            parameter.NativeName,
+            parameter.ManagedName,
+            concreteType,
+            parameter.Direction,
+            parameter.AbiKind,
+            concreteType.CppTypeName)
+        {
+            ManagedDefaultValueExpression = parameter.ManagedDefaultValueExpression,
+            UseCallbackDelegate = parameter.UseCallbackDelegate,
+            CallbackDelegateTypeName = parameter.CallbackDelegateTypeName
+        };
+    }
+
     private static string BuildCombinedGenericInstantiationCondition(
         BindingCompilation compilation,
         RecordBinding record,
@@ -1815,7 +1905,11 @@ public static partial class BindingOutputRenderer
 
     private static string RenderConcreteManagedParameter(BindingCompilation compilation, ParameterBinding parameter, BindingType concreteType)
     {
-        return RenderManagedImportParameter(parameter, concreteType, compilation);
+        var concreteParameter = CreateConcreteParameter(parameter, concreteType);
+        var callbackMarshallerParameter = parameter.Type.IsCallback && concreteType.IsCallback
+            ? parameter
+            : null;
+        return RenderManagedImportParameter(concreteParameter, concreteType, compilation, callbackMarshallerParameter);
     }
 
     private static BindingType SubstituteGenericType(RecordBinding record, BindingType type, RecordGenericInstantiationBinding instantiation, IReadOnlyList<BindingGenericParameter>? methodParameters = null, RecordGenericInstantiationBinding? methodInstantiation = null)

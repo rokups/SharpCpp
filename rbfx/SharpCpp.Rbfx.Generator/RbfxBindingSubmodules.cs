@@ -49,7 +49,10 @@ internal sealed record RbfxBindingSubmodules(bool HasRmlUi, bool HasSystemUi)
         var lines = new List<string>
         {
             "#pragma once",
-            "#include <Urho3D/Urho3DAll.h>"
+            "#include <Urho3D/Urho3DAll.h>",
+            "",
+            "template void Urho3D::Object::SubscribeToEvent<Urho3D::EventHandler::HandlerFunction>(Urho3D::StringHash, Urho3D::EventHandler::HandlerFunction);",
+            "template void Urho3D::Object::SubscribeToEvent<Urho3D::EventHandler::HandlerFunction>(Urho3D::Object*, Urho3D::StringHash, Urho3D::EventHandler::HandlerFunction);"
         };
         lines.AddRange(EnabledHeaderPaths.Select(static header => $"#include <{header}>"));
         File.WriteAllText(path, string.Join(Environment.NewLine, lines) + Environment.NewLine);

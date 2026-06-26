@@ -33,6 +33,28 @@
         "LD_PRELOAD": "${workspaceFolder}/out/build/dev/bin/Debug/libUrho3D.so",
         "URHO3D_PREFIX_PATH": "${workspaceFolder}/out/rbfx-sdk/bin"
       }
+    },
+    {
+      "name": "Rbfx.Application (C++ Debug)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "/usr/bin/dotnet",
+      "args": ["${workspaceFolder}/out/build/dev/bin/Debug/Rbfx.Application.dll"],
+      "cwd": "${workspaceFolder}/out/build/dev/bin/Debug",
+      "environment": [
+        {
+          "name": "LD_LIBRARY_PATH",
+          "value": "${workspaceFolder}/out/build/dev/bin/Debug"
+        },
+        {
+          "name": "LD_PRELOAD",
+          "value": "${workspaceFolder}/out/build/dev/bin/Debug/libUrho3D.so"
+        },
+        {
+          "name": "URHO3D_PREFIX_PATH",
+          "value": "${workspaceFolder}/out/rbfx-sdk/bin"
+        }
+      ],
     }
   ]
 }

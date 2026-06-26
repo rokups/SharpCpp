@@ -933,6 +933,52 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         Assert.Equal(["Outside", "Intersects", "Inside"], enumBinding.Values.Select(static value => value.ManagedName));
     }
 
+    [Fact]
+    public void Parser_collects_function_template_instantiations_from_ast_specializations()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), "sharpcpp-template-instantiations-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(fixtureDir);
+        try
+        {
+            var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+            File.WriteAllText(headerPath,
+                """
+                namespace Test
+                {
+                struct Sample
+                {
+                    template <class T> void Set(T value) {}
+                };
+
+                template void Sample::Set<int>(int);
+                }
+                """);
+
+            var parser = new ClangSharpHeaderParser();
+            var compilation = parser.Parse(new ClangSharpParseRequest(
+                ProjectName: "TestProject",
+                ManagedNamespace: "Test.Namespace",
+                ManagedClassName: "Bindings",
+                NativeLibraryName: "Test.Native",
+                HeaderFilePath: headerPath,
+                HeaderIncludePath: "Sample.hpp",
+                ClangArguments: ["-x", "c++", "-std=c++20", $"-I{fixtureDir}"],
+                MarshallerConfigurationFiles: Array.Empty<string>(),
+                EntryPointPrefix: "Test_"));
+
+            BindingCompilationGenericInstantiationPass.Apply(compilation);
+
+            var sample = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "Test::Sample");
+            var set = Assert.Single(sample.Members.OfType<FunctionBinding>(), static function => function.ManagedName == "Set");
+            var instantiation = Assert.Single(set.SupportedGenericInstantiations);
+            Assert.Equal(BindingPrimitiveKind.Int32, instantiation.TypeArguments[0].PrimitiveKind);
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

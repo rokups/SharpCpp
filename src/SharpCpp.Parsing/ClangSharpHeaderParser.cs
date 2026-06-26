@@ -667,7 +667,7 @@ public sealed partial class ClangSharpHeaderParser
             record.GenericParameters.Add(templateParameter);
         }
 
-        ApplyExplicitGenericInstantiations(classTemplate.Handle, record, recordsByName, enumsByName, managedTypeOverrides);
+        ApplyExplicitGenericInstantiations(classTemplate, record, recordsByName, enumsByName, managedTypeOverrides);
         CheckAndApplyIgnoreAttribute(classTemplate, record);
         TryApplyRename(classTemplate, record);
         ExtractAndApplyDocumentation(classTemplate, record);
@@ -1053,7 +1053,7 @@ public sealed partial class ClangSharpHeaderParser
             function.GenericParameters.Add(templateParameter);
         }
 
-        ApplyExplicitGenericInstantiations(templateDecl.Handle, function, recordsByName, enumsByName, managedTypeOverrides);
+        ApplyExplicitGenericInstantiations(templateDecl, function, recordsByName, enumsByName, managedTypeOverrides);
 
         // Use templatedFunction (FunctionDecl) for parameter access and cast for method-specific features
         for (int parameterIndex = 0; parameterIndex < templatedFunction.Parameters.Count; parameterIndex++)
@@ -1363,7 +1363,7 @@ public sealed partial class ClangSharpHeaderParser
             function.GenericParameters.Add(templateParameter);
         }
 
-        ApplyExplicitGenericInstantiations(templateDecl.Handle, function, recordsByName, enumsByName, managedTypeOverrides);
+        ApplyExplicitGenericInstantiations(templateDecl, function, recordsByName, enumsByName, managedTypeOverrides);
 
         for (int parameterIndex = 0; parameterIndex < templatedFunction.Parameters.Count; parameterIndex++)
         {
@@ -4357,6 +4357,12 @@ public sealed partial class ClangSharpHeaderParser
             return CreateConfiguredOrWrapperType(managedTypeOverride!, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName);
         }
 
+        if (TryFindKnownTypeByCppName(qualifiedSpelledTypeName, recordsByName, out var knownType) ||
+            TryFindKnownTypeByCppName(normalized, recordsByName, out knownType))
+        {
+            return knownType;
+        }
+
         return normalized switch
         {
             "bool" => BindingType.Boolean,
@@ -4439,6 +4445,56 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         return false;
+    }
+
+    private static bool TryFindKnownTypeByCppName(
+        string cppTypeName,
+        IDictionary<string, RecordBinding> recordsByName,
+        out BindingType type)
+    {
+        var normalized = NormalizeTypeName(cppTypeName);
+        foreach (var candidate in recordsByName.Values.Distinct())
+        {
+            foreach (var member in candidate.Members)
+            {
+                switch (member)
+                {
+                    case FunctionBinding function:
+                        if (TypeMatches(function.ReturnType, function.CppReturnTypeName, normalized, out type))
+                        {
+                            return true;
+                        }
+
+                        foreach (var parameter in function.Parameters)
+                        {
+                            if (TypeMatches(parameter.Type, parameter.CppTypeName, normalized, out type))
+                            {
+                                return true;
+                            }
+                        }
+                        break;
+
+                    case FieldBinding field when TypeMatches(field.Type, field.CppTypeName, normalized, out type):
+                        return true;
+                }
+            }
+        }
+
+        type = default!;
+        return false;
+
+        static bool TypeMatches(BindingType candidateType, string cppTypeName, string normalized, out BindingType type)
+        {
+            if (!string.Equals(NormalizeTypeName(candidateType.CppTypeName), normalized, StringComparison.Ordinal) &&
+                !string.Equals(NormalizeTypeName(cppTypeName), normalized, StringComparison.Ordinal))
+            {
+                type = default!;
+                return false;
+            }
+
+            type = candidateType;
+            return true;
+        }
     }
 
     private static string StripTopLevelCvQualifier(string typeName)
@@ -5090,7 +5146,7 @@ public sealed partial class ClangSharpHeaderParser
     }
 
     private static void ApplyExplicitGenericInstantiations(
-        CXCursor cursor,
+        Decl decl,
         BindingNode node,
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
@@ -5101,6 +5157,7 @@ public sealed partial class ClangSharpHeaderParser
             return;
         }
 
+        var cursor = decl.Handle;
         var sourceText = GetSourceText(cursor.TranslationUnit, cursor.Extent);
         if (node is RecordBinding)
         {
@@ -5133,9 +5190,106 @@ public sealed partial class ClangSharpHeaderParser
             }
         }
 
+        foreach (var instantiation in EnumerateAstGenericInstantiations(decl, recordsByName, enumsByName, managedTypeOverrides))
+        {
+            if (!instantiations.Any(existing => InstantiationsEqual(existing.TypeArguments, instantiation.TypeArguments)))
+            {
+                instantiations.Add(instantiation);
+            }
+        }
+
         if (instantiations.Count > 0)
         {
             node.SetMetadata(MetadataKeys.ExplicitGenericInstantiations, new GenericInstantiationMetadata(instantiations));
+        }
+    }
+
+    private static IEnumerable<RecordGenericInstantiationBinding> EnumerateAstGenericInstantiations(
+        Decl decl,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
+    {
+        switch (decl)
+        {
+            case FunctionTemplateDecl functionTemplateDecl:
+                foreach (var specialization in functionTemplateDecl.Specializations)
+                {
+                    if (TryCreateInstantiationFromTemplateArguments(specialization.TemplateSpecializationArgs, recordsByName, enumsByName, managedTypeOverrides, out var instantiation))
+                    {
+                        yield return instantiation;
+                    }
+                }
+                break;
+        }
+    }
+
+    private static bool TryCreateInstantiationFromTemplateArguments(
+        IReadOnlyList<TemplateArgument> templateArguments,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        out RecordGenericInstantiationBinding instantiation)
+    {
+        var arguments = new List<BindingType>();
+        foreach (var templateArgument in templateArguments)
+        {
+            if (templateArgument.Kind == CXTemplateArgumentKind.CXTemplateArgumentKind_Pack)
+            {
+                foreach (var packElement in templateArgument.PackElements)
+                {
+                    if (!TryMapTemplateArgument(packElement, recordsByName, enumsByName, managedTypeOverrides, out var packArgument))
+                    {
+                        instantiation = default!;
+                        return false;
+                    }
+
+                    arguments.Add(packArgument);
+                }
+                continue;
+            }
+
+            if (!TryMapTemplateArgument(templateArgument, recordsByName, enumsByName, managedTypeOverrides, out var argument))
+            {
+                instantiation = default!;
+                return false;
+            }
+
+            arguments.Add(argument);
+        }
+
+        if (arguments.Count == 0)
+        {
+            instantiation = default!;
+            return false;
+        }
+
+        instantiation = new RecordGenericInstantiationBinding(arguments);
+        return true;
+    }
+
+    private static bool TryMapTemplateArgument(
+        TemplateArgument templateArgument,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        out BindingType argument)
+    {
+        if (templateArgument.Kind != CXTemplateArgumentKind.CXTemplateArgumentKind_Type)
+        {
+            argument = default!;
+            return false;
+        }
+
+        try
+        {
+            argument = ParseTypeToken(templateArgument.AsType.AsString, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
+            return true;
+        }
+        catch (NotSupportedException)
+        {
+            argument = default!;
+            return false;
         }
     }
 

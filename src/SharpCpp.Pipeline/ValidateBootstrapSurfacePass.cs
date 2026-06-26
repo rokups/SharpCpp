@@ -99,12 +99,6 @@ public static class ValidateBootstrapSurfacePass
             return;
         }
 
-        if (function.FindOwningRecord() is { IsGeneric: false } ownerRecord)
-        {
-            function.SetIgnoreReason($"generic method '{ownerRecord.ManagedName}.{function.ManagedName}' is not supported on non-generic records in this bootstrap surface");
-            return;
-        }
-
         FilterUnsupportedInstantiations(function.SupportedGenericInstantiations, recordsById, configuredNativeNamespaces);
 
         if (function.SupportedGenericInstantiations.Count == 0 &&
