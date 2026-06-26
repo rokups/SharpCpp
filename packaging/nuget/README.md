@@ -25,6 +25,8 @@ does not use new `.nuspec` files.
 The script downloads the matching prebuilt rbfx DLL SDK archive from
 `https://github.com/rbfx/rbfx/releases/download/latest`, configures CMake with
 that SDK, builds the package inputs, stages files, and runs `dotnet pack`.
+Package target-framework paths are derived from the repository `TargetFramework`
+property. Use `--target-framework TFM` only when explicitly overriding it.
 
 Use `--skip-fetch` when `packaging/nuget/in/<sdk-name>/` already exists. Use
 `--skip-build` to package an already-built CMake output tree.

@@ -141,6 +141,7 @@ Current worktree verification passes with generic complex C++ values crossing ca
   - Added `packaging/nuget/package.sh` with SDK download/extract, staging, package creation, and local-repository actions. Package creation uses SDK-style `.csproj` package projects and `dotnet pack`, not `.nuspec`.
   - Added packages for `SharpCpp.Rbfx.Bindings`, `SharpCpp.Rbfx.Bindings.runtime.<rid>`, `SharpCpp.Rbfx.CoreData`, `SharpCpp.Rbfx.Data`, and `SharpCpp.Rbfx.EditorData`.
   - Runtime packages stage native files under `runtimes/<rid>/native/`, include the source generator analyzer directly, and depend on the matching managed bindings package version.
+  - Package target-framework paths are derived from the repository `TargetFramework` property and can be overridden with `--target-framework`, avoiding hardcoded `net8.0` package layout changes on runtime upgrades.
   - Added `sharpcpp-rbfx-sourcegenerator` and `sharpcpp-package-rbfx-inputs` CMake targets plus package-focused CMake build presets.
   - Hardened rbfx SDK packaging on non-Debian Linux hosts by normalizing the SDK's hardcoded DBus CMake export from `/usr/lib/x86_64-linux-gnu/libdbus-1.so` to `dbus-1` when `pkg-config` can resolve DBus.
   - Made alias pre-scans tolerate ClangSharp child declaration materialization failures, fixing parsing of the refreshed rbfx SDK release headers.

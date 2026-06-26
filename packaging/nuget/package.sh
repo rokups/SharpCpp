@@ -234,11 +234,28 @@ copy_native_glob() {
   return "$matched"
 }
 
+detect_target_framework() {
+  local package_project="$SCRIPT_DIR/packages/SharpCpp.Rbfx.Bindings/SharpCpp.Rbfx.Bindings.Package.csproj"
+  local target_framework
+
+  target_framework="$($DOTNET msbuild "$package_project" -getProperty:TargetFramework -nologo)"
+  target_framework="${target_framework//$'\r'/}"
+  target_framework="${target_framework//$'\n'/}"
+
+  if [ -z "$target_framework" ]; then
+    echo "Error: unable to detect package TargetFramework from $package_project" >&2
+    return 1
+  fi
+
+  echo "$target_framework"
+}
+
 stage_packages() {
   local rid="$1"
   local configuration="$2"
   local configure_preset="$3"
   local sdk_root="$4"
+  local target_framework="$5"
   local build_dir="$REPO_ROOT/out/build/$configure_preset"
   local bin_dir="$build_dir/bin/$configuration"
 
@@ -249,8 +266,8 @@ stage_packages() {
 
   rm -rf "$STAGE_DIR"
   mkdir -p \
-    "$STAGE_DIR/managed/ref/net8.0" \
-    "$STAGE_DIR/managed/lib/net8.0" \
+    "$STAGE_DIR/managed/ref/$target_framework" \
+    "$STAGE_DIR/managed/lib/$target_framework" \
     "$STAGE_DIR/managed/analyzers/dotnet/cs" \
     "$STAGE_DIR/runtime/$rid/native" \
     "$STAGE_DIR/data"
@@ -259,10 +276,10 @@ stage_packages() {
   require_file "$bin_dir/SharpCpp.Support.dll"
   require_file "$bin_dir/SharpCpp.Rbfx.SourceGenerator.dll"
 
-  copy_optional_related_files "$bin_dir" "SharpCpp.Rbfx.Bindings" "$STAGE_DIR/managed/lib/net8.0"
-  copy_optional_related_files "$bin_dir" "SharpCpp.Support" "$STAGE_DIR/managed/lib/net8.0"
-  copy_optional_related_files "$bin_dir" "SharpCpp.Rbfx.Bindings" "$STAGE_DIR/managed/ref/net8.0"
-  copy_optional_related_files "$bin_dir" "SharpCpp.Support" "$STAGE_DIR/managed/ref/net8.0"
+  copy_optional_related_files "$bin_dir" "SharpCpp.Rbfx.Bindings" "$STAGE_DIR/managed/lib/$target_framework"
+  copy_optional_related_files "$bin_dir" "SharpCpp.Support" "$STAGE_DIR/managed/lib/$target_framework"
+  copy_optional_related_files "$bin_dir" "SharpCpp.Rbfx.Bindings" "$STAGE_DIR/managed/ref/$target_framework"
+  copy_optional_related_files "$bin_dir" "SharpCpp.Support" "$STAGE_DIR/managed/ref/$target_framework"
   copy_optional_related_files "$bin_dir" "SharpCpp.Rbfx.SourceGenerator" "$STAGE_DIR/managed/analyzers/dotnet/cs"
 
   case "$rid" in
@@ -300,6 +317,7 @@ pack_project() {
   local project="$1"
   local version="$2"
   local rid="$3"
+  local target_framework="$4"
 
   "$DOTNET" pack "$project" \
     --configuration Release \
@@ -309,7 +327,8 @@ pack_project() {
     --source "$OUT_DIR" \
     -p:PackageVersion="$version" \
     -p:SharpCppNuGetStageRoot="$STAGE_DIR" \
-    -p:SharpCppRuntimeIdentifier="$rid"
+    -p:SharpCppRuntimeIdentifier="$rid" \
+    -p:SharpCppPackageTargetFramework="$target_framework"
 }
 
 create_packages() {
@@ -319,6 +338,7 @@ create_packages() {
   local configure_preset="dev"
   local sdk_root=""
   local sdk_asset=""
+  local target_framework=""
   local skip_fetch=0
   local skip_build=0
 
@@ -348,6 +368,10 @@ create_packages() {
         sdk_asset="$2"
         shift 2
         ;;
+      --target-framework)
+        target_framework="$2"
+        shift 2
+        ;;
       --skip-fetch)
         skip_fetch=1
         shift
@@ -367,6 +391,7 @@ Options:
   --configure-preset NAME    CMake configure preset. Defaults to dev.
   --sdk-root PATH            Existing extracted rbfx SDK root.
   --sdk-asset NAME           Override rbfx SDK release asset name.
+  --target-framework TFM     Override package target framework. Defaults to repo TargetFramework.
   --skip-fetch               Do not download/extract the SDK.
   --skip-build               Do not configure/build CMake package inputs.
 EOF
@@ -421,23 +446,27 @@ EOF
     cmake --build --preset "$configuration" --target sharpcpp-package-rbfx-inputs
   fi
 
-  echo "Staging packages for $version ($rid, $configuration)"
-  stage_packages "$rid" "$configuration" "$configure_preset" "$sdk_root"
+  if [ -z "$target_framework" ]; then
+    target_framework="$(detect_target_framework)"
+  fi
+
+  echo "Staging packages for $version ($rid, $configuration, $target_framework)"
+  stage_packages "$rid" "$configuration" "$configure_preset" "$sdk_root" "$target_framework"
 
   rm -rf "$OUT_DIR"
   mkdir -p "$OUT_DIR"
 
-  pack_project "$SCRIPT_DIR/packages/SharpCpp.Rbfx.Bindings/SharpCpp.Rbfx.Bindings.Package.csproj" "$version" "$rid"
-  pack_project "$SCRIPT_DIR/packages/SharpCpp.Rbfx.Bindings.Runtime/SharpCpp.Rbfx.Bindings.Runtime.Package.csproj" "$version" "$rid"
+  pack_project "$SCRIPT_DIR/packages/SharpCpp.Rbfx.Bindings/SharpCpp.Rbfx.Bindings.Package.csproj" "$version" "$rid" "$target_framework"
+  pack_project "$SCRIPT_DIR/packages/SharpCpp.Rbfx.Bindings.Runtime/SharpCpp.Rbfx.Bindings.Runtime.Package.csproj" "$version" "$rid" "$target_framework"
 
   if [ -d "$STAGE_DIR/data/CoreData" ]; then
-    pack_project "$SCRIPT_DIR/packages/SharpCpp.Rbfx.CoreData/SharpCpp.Rbfx.CoreData.Package.csproj" "$version" "$rid"
+    pack_project "$SCRIPT_DIR/packages/SharpCpp.Rbfx.CoreData/SharpCpp.Rbfx.CoreData.Package.csproj" "$version" "$rid" "$target_framework"
   fi
   if [ -d "$STAGE_DIR/data/Data" ]; then
-    pack_project "$SCRIPT_DIR/packages/SharpCpp.Rbfx.Data/SharpCpp.Rbfx.Data.Package.csproj" "$version" "$rid"
+    pack_project "$SCRIPT_DIR/packages/SharpCpp.Rbfx.Data/SharpCpp.Rbfx.Data.Package.csproj" "$version" "$rid" "$target_framework"
   fi
   if [ -d "$STAGE_DIR/data/EditorData" ]; then
-    pack_project "$SCRIPT_DIR/packages/SharpCpp.Rbfx.EditorData/SharpCpp.Rbfx.EditorData.Package.csproj" "$version" "$rid"
+    pack_project "$SCRIPT_DIR/packages/SharpCpp.Rbfx.EditorData/SharpCpp.Rbfx.EditorData.Package.csproj" "$version" "$rid" "$target_framework"
   fi
 
   echo "Packages created in $OUT_DIR"
