@@ -15,66 +15,16 @@ namespace SharpCpp
 namespace detail
 {
 template <typename T, typename = void>
-struct has_sync : std::false_type {};
+struct has_clear : std::false_type {};
 
 template <typename T>
-struct has_sync<T, std::void_t<decltype(std::declval<T&>().Sync())>> : std::true_type {};
+struct has_clear<T, std::void_t<decltype(std::declval<T&>().clear())>> : std::true_type {};
 
 template <typename T>
-inline constexpr bool has_sync_v = has_sync<T>::value;
+inline constexpr bool has_clear_v = has_clear<T>::value;
 
 template <typename T>
 using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
-
-template <typename TMarshaller>
-constexpr void SyncMarshaller(TMarshaller& marshaller)
-{
-    if constexpr (has_sync_v<TMarshaller>)
-    {
-        marshaller.Sync();
-    }
-}
-
-template <typename TMarshallerTuple, std::size_t... TIndices>
-constexpr void SyncMarshallersImpl(TMarshallerTuple& marshallers, std::index_sequence<TIndices...>)
-{
-    (SyncMarshaller(std::get<TIndices>(marshallers)), ...);
-}
-
-template <typename TMarshallerTuple>
-constexpr void SyncMarshallers(TMarshallerTuple& marshallers)
-{
-    using tuple_type = remove_cvref_t<TMarshallerTuple>;
-    SyncMarshallersImpl(marshallers, std::make_index_sequence<std::tuple_size_v<tuple_type>>{});
-}
-
-template <typename TInvoker, typename TMarshallerTuple>
-constexpr decltype(auto) InvokeAndSyncMarshallers(TInvoker&& invoker, TMarshallerTuple& marshallers)
-{
-    if constexpr (std::is_void_v<std::invoke_result_t<TInvoker>>)
-    {
-        std::invoke(std::forward<TInvoker>(invoker));
-        SyncMarshallers(marshallers);
-        return;
-    }
-    else
-    {
-        using result_type = std::invoke_result_t<TInvoker>;
-
-        if constexpr (std::is_lvalue_reference_v<result_type>)
-        {
-            auto* result = std::addressof(std::invoke(std::forward<TInvoker>(invoker)));
-            SyncMarshallers(marshallers);
-            return static_cast<result_type>(*result);
-        }
-        else
-        {
-            auto result = std::invoke(std::forward<TInvoker>(invoker));
-            SyncMarshallers(marshallers);
-            return result;
-        }
-    }
-}
 
 template <typename TTuple>
 struct MarshallerTupleForTuple;
@@ -149,7 +99,7 @@ decltype(auto) InvokeCallbackWithExplicitSignatureImpl(
             std::get<TIndices>(marshallers).ConvertToAbi(cppArguments)...);
     };
 
-    return InvokeAndSyncMarshallers(invoke, marshallers);
+    return invoke();
 }
 
 template <typename TCppArgumentTuple, typename TCallable, typename... TCppArgs>
@@ -237,13 +187,13 @@ constexpr decltype(auto) InvokeWithMarshallersImpl(
 
     if constexpr (std::is_void_v<TResult>)
     {
-        InvokeAndSyncMarshallers(invoke_fn, marshallers);
+        invoke_fn();
         return;
     }
     else
     {
         ReturnMarshaller<TResult> ret_marshaller;
-        decltype(auto) result = InvokeAndSyncMarshallers(invoke_fn, marshallers);
+        decltype(auto) result = invoke_fn();
         return ret_marshaller.ConvertToAbi(result);
     }
 }
@@ -265,12 +215,12 @@ auto InvokeWithMarshallersOwnedImpl(
 
     if constexpr (std::is_lvalue_reference_v<TResult>)
     {
-        auto* result = std::addressof(InvokeAndSyncMarshallers(invoke_fn, marshallers));
+        auto* result = std::addressof(invoke_fn());
         return new owned_type(*result);
     }
     else
     {
-        auto result = InvokeAndSyncMarshallers(invoke_fn, marshallers);
+        auto result = invoke_fn();
         return new owned_type(std::move(result));
     }
 }
@@ -295,7 +245,6 @@ constexpr decltype(auto) InvokeMemberWithMarshallersImpl(
     {
         (std::forward<TObject>(instance).*m)(
             std::get<TIndices>(marshallers).ConvertToCpp(std::forward<TAbiArgs>(abiArguments))...);
-        SyncMarshallers(marshallers);
         return;
     }
     else
@@ -306,7 +255,6 @@ constexpr decltype(auto) InvokeMemberWithMarshallersImpl(
             auto* result = std::addressof(
                 (std::forward<TObject>(instance).*m)(
                     std::get<TIndices>(marshallers).ConvertToCpp(std::forward<TAbiArgs>(abiArguments))...));
-            SyncMarshallers(marshallers);
             return ret_marshaller.ConvertToAbi(static_cast<TResult>(*result));
         }
         else
@@ -314,7 +262,6 @@ constexpr decltype(auto) InvokeMemberWithMarshallersImpl(
             auto result =
                 (std::forward<TObject>(instance).*m)(
                     std::get<TIndices>(marshallers).ConvertToCpp(std::forward<TAbiArgs>(abiArguments))...);
-            SyncMarshallers(marshallers);
             return ret_marshaller.ConvertToAbi(result);
         }
     }
@@ -336,7 +283,6 @@ auto InvokeMemberWithMarshallersOwnedImpl(
         auto* result = std::addressof(
             (std::forward<TObject>(instance).*m)(
                 std::get<TIndices>(marshallers).ConvertToCpp(std::forward<TAbiArgs>(abiArguments))...));
-        SyncMarshallers(marshallers);
         return new owned_type(*result);
     }
     else
@@ -344,7 +290,6 @@ auto InvokeMemberWithMarshallersOwnedImpl(
         auto result =
             (std::forward<TObject>(instance).*m)(
                 std::get<TIndices>(marshallers).ConvertToCpp(std::forward<TAbiArgs>(abiArguments))...);
-        SyncMarshallers(marshallers);
         return new owned_type(std::move(result));
     }
 }
@@ -641,6 +586,13 @@ struct MarshallerInvoker
         return marshaller.ConvertToAbi(std::invoke(field, self_marshaller.ConvertToCpp(self)));
     }
 
+    template <typename TResult, typename TClass>
+    static auto get_field(TResult TClass::*field, arg_t<TClass*> self, std::true_type) -> field_t<TResult>
+    {
+        Marshaller<TClass*> self_marshaller;
+        return std::addressof(std::invoke(field, self_marshaller.ConvertToCpp(self)));
+    }
+
     template <typename TValue, typename TClass>
     static void set_field(TValue TClass::*field, arg_t<TClass*> self, arg_t<TValue> value)
     {
@@ -666,6 +618,27 @@ struct MarshallerInvoker
     {
         Marshaller<TClass*> self_marshaller;
         std::invoke(field, self_marshaller.ConvertToCpp(self)) = *value;
+    }
+
+    template <typename TValue, typename TClass>
+    static void set_field(TValue TClass::*field, arg_t<TClass*> self, SharpCpp::field_t<TValue> value, std::true_type)
+    {
+        Marshaller<TClass*> self_marshaller;
+        auto& target = std::invoke(field, self_marshaller.ConvertToCpp(self));
+        if (value == nullptr)
+        {
+            if constexpr (detail::has_clear_v<TValue>)
+            {
+                target.clear();
+                return;
+            }
+            else
+            {
+                throw std::runtime_error("SharpCpp borrowed field setter cannot clear this field type.");
+            }
+        }
+
+        target = std::move(*value);
     }
 };
 }

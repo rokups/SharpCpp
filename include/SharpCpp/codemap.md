@@ -56,16 +56,11 @@ A static-polymorphic invocation hub that **generated `.g.cpp` wrapper functions*
 - **`invoke_instance<FT>(method, instance*, abiArgs...)`** — member function via known C++ pointer (skips self marshalling).
 - **`construct<T, Args...>(abiArgs...)`** — heap-allocate a new object, return an ABI pointer.
 - **`destroy<T>(self)`** — `delete` an object from an ABI pointer.
-- **`get_field<TResult TClass::*, self>` / `set_field<...>`** — field read/write through marshaller conversions.
+- **`get_field<TResult TClass::*, self>` / `set_field<...>`** — field read/write through marshaller conversions, including borrowed-storage and fixed-array helper shapes.
 
-### 4. Sync Pattern — `SyncMarshaller` / `InvokeAndSyncMarshallers`
+### 4. Sync Pattern — Destructor-Based `ParameterMarshaller<T>`
 
-After every invocation, marshallers that carry a `Sync()` method (detected via the `has_sync` trait) are synchronised. This enables **two-way marshalling scenarios** where the managed side may have mutated data (e.g. a `std::string` buffer) that needs to be reflected back to the C++ object before the call frame ends.
-
-The `InvokeAndSyncMarshallers` helper handles three return categories:
-- **`void`**: invoke, sync, return void.
-- **lvalue reference**: capture address, sync, return dereferenced address (avoids dangling).
-- **by-value**: invoke, capture result, sync, return result.
+`ParameterMarshaller<T>` wraps `Marshaller<T>` in an RAII adapter. If the configured marshaller exposes `Sync()`, the adapter calls it from its destructor. This keeps two-way marshalling scenarios scoped to the marshaller lifetime and avoids generated per-call `SyncMarshaller(...)` statements.
 
 ### 5. Optional Support — `OptionalValue<T>`
 

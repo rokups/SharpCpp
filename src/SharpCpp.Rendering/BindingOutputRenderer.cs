@@ -507,7 +507,7 @@ public static partial class BindingOutputRenderer
         foreach (var field in GetAccessibleProtectedFields(compilation, record))
         {
             writer.WriteLine();
-            writer.Write(RenderNativeProtectedFieldHelpers(compilation, field));
+            writer.Write(RenderNativeProtectedFieldHelpers(compilation, record, field));
         }
 
         var callbaseSlots = record.GetEffectiveVirtualMethodSlots(compilation)
@@ -778,51 +778,34 @@ public static partial class BindingOutputRenderer
         ValidateProtectedMemberSupport(method);
 
         var parameterList = string.Join(", ", method.Parameters.Select(RenderNativeParameter));
-        var arguments = string.Join(", ", method.Parameters.Select((_, parameterIndex) => $"__arg{parameterIndex}"));
+        var abiArguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
+        var argumentsSuffix = abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty;
         var writer = new CodeWriter();
         var helperName = GetNativeProtectedMethodHelperName(method);
+        var directorName = GetNativeDirectorClassName(record);
+        var signature = method.IsStatic
+            ? BuildNativeFunctionSignature(method)
+            : BuildNativeMethodSignature(method).Replace(method.OwningRecordCppTypeName + "::*", directorName + "::*", StringComparison.Ordinal);
+        var callable = method.IsStatic
+            ? $"static_cast<std::add_pointer_t<FT>>(&{directorName}::{method.NativeName})"
+            : $"static_cast<FT>(&{directorName}::{method.NativeName})";
+        var invocation = method.IsStatic
+            ? $"MarshallerInvoker::{(RequiresOwnedRecordValueReturn(method) ? "invoke_owned_as" : "invoke_as")}<FT>({callable}{argumentsSuffix})"
+            : $"MarshallerInvoker::{(RequiresOwnedRecordValueReturn(method) ? "invoke_owned_instance" : "invoke_instance")}<FT>({callable}, this{argumentsSuffix})";
 
         writer.Write($$"""
             {{(method.IsStatic ? "static " : string.Empty)}}{{GetNativeEntrypointReturnType(method)}} {{helperName}}({{parameterList}})
             {
+            using FT = {{signature}};
             """);
-
-        foreach (var (parameter, parameterIndex) in method.Parameters.Select((parameter, parameterIndex) => (parameter, parameterIndex)))
-        {
-            writer.WriteLine($"ParameterMarshaller<{parameter.CppTypeName}> __arg{parameterIndex}_marshaller;");
-            writer.WriteLine($"auto&& __arg{parameterIndex} = __arg{parameterIndex}_marshaller.ConvertToCpp({parameter.NativeName});");
-        }
-
-        var invocation = method.IsStatic
-            ? $"{record.CppQualifiedName}::{method.NativeName}({arguments})"
-            : $"this->{method.NativeName}({arguments})";
 
         if (method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
         {
             writer.WriteLine($"{invocation};");
-            foreach (var parameterIndex in Enumerable.Range(0, method.Parameters.Count))
-            {
-                writer.WriteLine($"detail::SyncMarshaller(__arg{parameterIndex}_marshaller);");
-            }
         }
         else
         {
-            if (RequiresOwnedRecordValueReturn(method))
-            {
-                writer.WriteLine($"auto __result = {invocation};");
-            }
-            else
-            {
-                writer.WriteLine($"ReturnMarshaller<{method.CppReturnTypeName}> __return_marshaller;");
-                writer.WriteLine($"decltype(auto) __result = {invocation};");
-            }
-            foreach (var parameterIndex in Enumerable.Range(0, method.Parameters.Count))
-            {
-                writer.WriteLine($"detail::SyncMarshaller(__arg{parameterIndex}_marshaller);");
-            }
-            writer.WriteLine(RequiresOwnedRecordValueReturn(method)
-                ? "return new std::remove_cv_t<std::remove_reference_t<decltype(__result)>>(std::move(__result));"
-                : "return __return_marshaller.ConvertToAbi(__result);");
+            writer.WriteLine($"return {invocation};");
         }
 
         writer.Write(
@@ -832,16 +815,13 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string RenderNativeProtectedFieldHelpers(BindingCompilation compilation, FieldBinding field)
+    private static string RenderNativeProtectedFieldHelpers(BindingCompilation compilation, RecordBinding accessorRecord, FieldBinding field)
     {
         var plan = CreateNativeFieldInteropPlan(compilation, field);
         var isNativeFixedArrayField = IsNativeFixedArrayType(compilation, field.Type);
         var getterReturnType = isNativeFixedArrayField ? "NativeArrayAbi" : $"ret_t<{plan.StorageCppType}>";
-        var getterBody = isNativeFixedArrayField
-            ? $"return {{ this->{field.NativeName}, {field.Type.FixedArrayLength ?? 0} }};"
-            : plan.BorrowsStorage
-                ? $"return &this->{field.NativeName};"
-                : $"ReturnMarshaller<{plan.StorageCppType}> __return_marshaller;\nreturn __return_marshaller.ConvertToAbi(this->{field.NativeName});";
+        var directorName = GetNativeDirectorClassName(accessorRecord);
+        var getterBody = RenderNativeFieldGetInvocation(field, plan, "this", directorName);
 
         var writer = new CodeWriter();
         writer.Write($$"""
@@ -854,7 +834,7 @@ public static partial class BindingOutputRenderer
         if (!field.IsReadOnly)
         {
             var setterParameterType = isNativeFixedArrayField ? "NativeArrayAbi" : plan.SetterParameterCppType;
-            var setterBody = isNativeFixedArrayField ? RenderNativeFixedArrayFieldCopy($"this->{field.NativeName}", field) : RenderNativeProtectedFieldSetterBody(field, plan);
+            var setterBody = RenderNativeFieldSetInvocation(field, plan, "this", directorName);
             writer.WriteLine();
             writer.Write($$"""
                 void {{GetNativeProtectedFieldSetterHelperName(field)}}({{setterParameterType}} value)
@@ -1006,28 +986,18 @@ public static partial class BindingOutputRenderer
         return new NativeFieldInteropPlan(storageCppType, borrowsStorage, setterMode);
     }
 
-    private static string RenderNativeProtectedFieldSetterBody(FieldBinding field, NativeFieldInteropPlan plan)
+    private static string RenderNativeFieldGetInvocation(FieldBinding field, NativeFieldInteropPlan plan, string selfExpression, string? fieldOwnerCppTypeName = null)
     {
-        return plan.SetterMode switch
-        {
-            FieldSetterMode.ValuePointer => $"this->{field.NativeName} = *value;",
-            FieldSetterMode.HandleAbi => $$"""
-                ParameterMarshaller<{{plan.StorageCppType}}> __value_marshaller;
-                this->{{field.NativeName}} = __value_marshaller.ConvertToCpp(value);
-                detail::SyncMarshaller(__value_marshaller);
-                """,
-            FieldSetterMode.BorrowedStorage => $$"""
-                if (value == nullptr)
-                {
-                this->{{field.NativeName}}.clear();
-                return;
-                }
+        var fieldOwner = fieldOwnerCppTypeName ?? field.OwningRecordCppTypeName;
+        var borrowedStorageTag = plan.BorrowsStorage ? ", std::true_type{}" : string.Empty;
+        return $"return MarshallerInvoker::get_field<{plan.StorageCppType}>(&{fieldOwner}::{field.NativeName}, {selfExpression}{borrowedStorageTag});";
+    }
 
-                auto* source = static_cast<{{plan.StorageCppType}}*>(value);
-                this->{{field.NativeName}} = std::move(*source);
-                """,
-            _ => throw new ArgumentOutOfRangeException(nameof(plan), plan.SetterMode, "Unknown field setter mode.")
-        };
+    private static string RenderNativeFieldSetInvocation(FieldBinding field, NativeFieldInteropPlan plan, string selfExpression, string? fieldOwnerCppTypeName = null)
+    {
+        var fieldOwner = fieldOwnerCppTypeName ?? field.OwningRecordCppTypeName;
+        var borrowedStorageTag = plan.SetterMode == FieldSetterMode.BorrowedStorage ? ", std::true_type{}" : string.Empty;
+        return $"MarshallerInvoker::set_field<{plan.StorageCppType}>(&{fieldOwner}::{field.NativeName}, {selfExpression}, value{borrowedStorageTag});";
     }
 
     private static string GetNativeProtectedMethodHelperName(FunctionBinding method)
@@ -4175,11 +4145,7 @@ public static partial class BindingOutputRenderer
                 {
                 {{(field.AccessModifier == BindingAccessModifier.Protected
                     ? RenderNativeProtectedFieldGetInvocation(accessorRecord, field)
-                    : isNativeFixedArrayField
-                        ? RenderNativeFixedArrayFieldGetInvocation(field)
-                    : plan.BorrowsStorage
-                        ? RenderNativeBorrowedFieldGetInvocation(field)
-                        : $"return MarshallerInvoker::get_field<{nativeFieldCppType}>(&{field.OwningRecordCppTypeName}::{field.NativeName}, self);")}}
+                    : RenderNativeFieldGetInvocation(field, plan, "self"))}}
                 }
                 """);
 
@@ -4192,11 +4158,7 @@ public static partial class BindingOutputRenderer
                     {
                     {{(field.AccessModifier == BindingAccessModifier.Protected
                         ? RenderNativeProtectedFieldSetInvocation(accessorRecord, field)
-                        : isNativeFixedArrayField
-                            ? RenderNativeFixedArrayFieldSetInvocation(field)
-                        : plan.BorrowsStorage
-                            ? RenderNativeBorrowedFieldSetInvocation(field)
-                            : $"MarshallerInvoker::set_field<{nativeFieldCppType}>(&{field.OwningRecordCppTypeName}::{field.NativeName}, self, value);")}}
+                        : RenderNativeFieldSetInvocation(field, plan, "self"))}}
                     }
                     """);
             }
@@ -5735,68 +5697,6 @@ public static partial class BindingOutputRenderer
     {
         return type.IsFixedArray &&
             ResolveRecord(compilation, type)?.GetMetadata<bool>(MetadataKeys.NativeArrayRecord) == true;
-    }
-
-    private static string RenderNativeFixedArrayFieldCopy(string targetExpression, FieldBinding field)
-    {
-        var elementCppType = field.Type.FixedArrayElementType?.CppTypeName
-            ?? throw new InvalidOperationException($"Native fixed-array field '{field.ManagedName}' is missing an element type.");
-        var length = field.Type.FixedArrayLength ?? 0;
-        return $$"""
-                if (value.handle == nullptr || value.length != {{length}})
-                {
-                throw std::runtime_error("SharpCpp fixed array length mismatch.");
-                }
-
-                auto* source = static_cast<{{elementCppType}}*>(value.handle);
-                for (std::size_t index = 0; index < {{length}}; ++index)
-                {
-                {{targetExpression}}[index] = source[index];
-                }
-                """;
-    }
-
-    private static string RenderNativeFixedArrayFieldGetInvocation(FieldBinding field)
-    {
-        return $$"""
-                Marshaller<{{field.OwningRecordCppTypeName}}*> self_marshaller;
-                auto* instance = static_cast<{{field.OwningRecordCppTypeName}}*>(self_marshaller.ConvertToCpp(self));
-                return { instance->{{field.NativeName}}, {{field.Type.FixedArrayLength ?? 0}} };
-                """;
-    }
-
-    private static string RenderNativeFixedArrayFieldSetInvocation(FieldBinding field)
-    {
-        return $$"""
-                Marshaller<{{field.OwningRecordCppTypeName}}*> self_marshaller;
-                auto* instance = static_cast<{{field.OwningRecordCppTypeName}}*>(self_marshaller.ConvertToCpp(self));
-                {{RenderNativeFixedArrayFieldCopy($"instance->{field.NativeName}", field)}}
-                """;
-    }
-
-    private static string RenderNativeBorrowedFieldGetInvocation(FieldBinding field)
-    {
-        return $$"""
-                Marshaller<{{field.OwningRecordCppTypeName}}*> self_marshaller;
-                auto* instance = static_cast<{{field.OwningRecordCppTypeName}}*>(self_marshaller.ConvertToCpp(self));
-                return &(instance->{{field.NativeName}});
-                """;
-    }
-
-    private static string RenderNativeBorrowedFieldSetInvocation(FieldBinding field)
-    {
-        return $$"""
-                Marshaller<{{field.OwningRecordCppTypeName}}*> self_marshaller;
-                auto* instance = static_cast<{{field.OwningRecordCppTypeName}}*>(self_marshaller.ConvertToCpp(self));
-                if (value == nullptr)
-                {
-                instance->{{field.NativeName}}.clear();
-                return;
-                }
-
-                auto* source = static_cast<{{field.CppTypeName}}*>(value);
-                instance->{{field.NativeName}} = std::move(*source);
-                """;
     }
 
     private static string RenderNativeMarshallerExposedInvocation(FunctionBinding method, string marshallerCppType, string abiArguments)

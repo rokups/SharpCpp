@@ -23,8 +23,8 @@ Marshaller<ImVec2>
 {
     using cpp_type = ImVec2;
     using abi_type = ImVec2;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 template <>
@@ -32,8 +32,8 @@ struct Marshaller<const ImVec2&>
 {
     using cpp_type = const ImVec2&;
     using abi_type = const ImVec2*;
-    abi_type ConvertToAbi(cpp_type v) const noexcept { return &v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return *v; }
+    abi_type ConvertToAbi(cpp_type v) noexcept { return &v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return *v; }
 };
 
 template <>
@@ -41,8 +41,8 @@ struct ReturnMarshaller<ImVec2>
 {
     using cpp_type = ImVec2;
     using abi_type = Vector2Abi;
-    abi_type ConvertToAbi(const cpp_type& v) const { return ToAbiImVec2(v); }
-    cpp_type ConvertToCpp(const abi_type& v) const { return ToCppImVec2(v); }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return ToAbiImVec2(v); }
+    cpp_type ConvertToCpp(const abi_type& v) noexcept { return ToCppImVec2(v); }
 };
 
 template <>
@@ -55,8 +55,8 @@ Marshaller<ImVec4>
 {
     using cpp_type = ImVec4;
     using abi_type = ImVec4;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 template <>
@@ -64,8 +64,8 @@ struct Marshaller<const ImVec4&>
 {
     using cpp_type = const ImVec4&;
     using abi_type = const ImVec4*;
-    abi_type ConvertToAbi(cpp_type v) const noexcept { return &v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return *v; }
+    abi_type ConvertToAbi(cpp_type v) noexcept { return &v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return *v; }
 };
 
 template <>
@@ -73,8 +73,8 @@ struct ReturnMarshaller<ImVec4>
 {
     using cpp_type = ImVec4;
     using abi_type = Vector4Abi;
-    abi_type ConvertToAbi(const cpp_type& v) const { return ToAbiImVec4(v); }
-    cpp_type ConvertToCpp(const abi_type& v) const { return ToCppImVec4(v); }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return ToAbiImVec4(v); }
+    cpp_type ConvertToCpp(const abi_type& v) noexcept { return ToCppImVec4(v); }
 };
 
 } // namespace SharpCpp

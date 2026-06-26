@@ -2220,9 +2220,12 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("protected int Factor", managedOutput, StringComparison.Ordinal);
         Assert.Contains("__call_Increment", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("__call_Scale", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return MarshallerInvoker::invoke_instance<FT>(static_cast<FT>(&__protected_counter_director::increment), this, amount);", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("auto&& __arg0 = __arg0_marshaller.ConvertToCpp(amount);", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("__get_Factor", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("void __set_Factor(field_t<int> value)", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("this->factor_ = *value;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return MarshallerInvoker::get_field<int>(&__protected_counter_director::factor_, this);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("MarshallerInvoker::set_field<int>(&__protected_counter_director::factor_, this, value);", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("void __set_Factor(arg_t<int> value)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("protected member access requires a director-backed instance", nativeOutput, StringComparison.Ordinal);
     }
@@ -2291,9 +2294,9 @@ public sealed class BindingOutputRendererTests
         Assert.DoesNotContain("Set_Payload(ProtectedCounter self, [MarshalUsing(typeof(global::SharpCpp.Sample.__PayloadMarshaller<global::SharpCpp.Support.BorrowedNativeHandle>))] in global::SharpCpp.Sample.Payload? value);", managedOutput, StringComparison.Ordinal);
         Assert.Contains("__PInvoke.Set_Payload(this, value);", managedOutput, StringComparison.Ordinal);
         Assert.Contains("ret_t<payload*> __get_Payload()", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("ReturnMarshaller<payload*> __return_marshaller;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return MarshallerInvoker::get_field<payload*>(&__protected_counter_director::payload_, this);", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("void __set_Payload(arg_t<payload*> value)", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("ParameterMarshaller<payload*> __value_marshaller;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("MarshallerInvoker::set_field<payload*>(&__protected_counter_director::payload_, this, value);", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2307,14 +2310,11 @@ public sealed class BindingOutputRendererTests
             .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
 
         Assert.Contains("ret_t<SharedPtr<payload>> __get_Payload()", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("ReturnMarshaller<SharedPtr<payload>> __return_marshaller;", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("return __return_marshaller.ConvertToAbi(this->payload_);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return MarshallerInvoker::get_field<SharedPtr<payload>>(&__protected_counter_director::payload_, this);", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("return this->payload_;", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_protected_counter_payload__set(arg_t<protected_counter*> self, arg_t<SharedPtr<payload>> value)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("void __set_Payload(arg_t<SharedPtr<payload>> value)", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("ParameterMarshaller<SharedPtr<payload>> __value_marshaller;", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("this->payload_ = __value_marshaller.ConvertToCpp(value);", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("detail::SyncMarshaller(__value_marshaller);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("MarshallerInvoker::set_field<SharedPtr<payload>>(&__protected_counter_director::payload_, this, value);", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("void __set_Payload(field_t<SharedPtr<payload>> value)", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("this->payload_ = *value;", nativeOutput, StringComparison.Ordinal);
     }
@@ -2331,13 +2331,10 @@ public sealed class BindingOutputRendererTests
             .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
 
         Assert.Contains("ret_t<std::unordered_map<int, int>> __get_Payload()", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("return &this->payload_;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return MarshallerInvoker::get_field<std::unordered_map<int, int>>(&__protected_counter_director::payload_, this, std::true_type{});", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_protected_counter_payload__set(arg_t<protected_counter*> self, field_t<std::unordered_map<int, int>> value)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("void __set_Payload(field_t<std::unordered_map<int, int>> value)", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("if (value == nullptr)", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("this->payload_.clear();", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("auto* source = static_cast<std::unordered_map<int, int>*>(value);", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("this->payload_ = std::move(*source);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("MarshallerInvoker::set_field<std::unordered_map<int, int>>(&__protected_counter_director::payload_, this, value, std::true_type{});", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2406,10 +2403,9 @@ public sealed class BindingOutputRendererTests
             .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
 
         Assert.Contains("ret_t<std::unordered_map<int, int>*> __get_Payload()", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("ReturnMarshaller<std::unordered_map<int, int>*> __return_marshaller;", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("return __return_marshaller.ConvertToAbi(this->payload_);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return MarshallerInvoker::get_field<std::unordered_map<int, int>*>(&__protected_counter_director::payload_, this);", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("void __set_Payload(arg_t<std::unordered_map<int, int>*> value)", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("ParameterMarshaller<std::unordered_map<int, int>*> __value_marshaller;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("MarshallerInvoker::set_field<std::unordered_map<int, int>*>(&__protected_counter_director::payload_, this, value);", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("return &this->payload_;", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("field_t<std::unordered_map<int, int>*>", nativeOutput, StringComparison.Ordinal);
     }
@@ -2425,11 +2421,10 @@ public sealed class BindingOutputRendererTests
             .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
 
         Assert.Contains("ret_t<custom_map_like<int>> __get_Payload()", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("ReturnMarshaller<custom_map_like<int>> __return_marshaller;", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("return __return_marshaller.ConvertToAbi(this->payload_);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return MarshallerInvoker::get_field<custom_map_like<int>>(&__protected_counter_director::payload_, this);", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_protected_counter_payload__set(arg_t<protected_counter*> self, arg_t<custom_map_like<int>> value)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("void __set_Payload(arg_t<custom_map_like<int>> value)", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("ParameterMarshaller<custom_map_like<int>> __value_marshaller;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("MarshallerInvoker::set_field<custom_map_like<int>>(&__protected_counter_director::payload_, this, value);", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("return &this->payload_;", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("field_t<custom_map_like<int>>", nativeOutput, StringComparison.Ordinal);
     }

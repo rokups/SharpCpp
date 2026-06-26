@@ -24,12 +24,12 @@ struct SharedArrayMarshallerBase
     using cpp_type = TArray;
     using abi_type = TArray*;
 
-    abi_type ConvertToAbi(const cpp_type& value) const
+    abi_type ConvertToAbi(const cpp_type& value) noexcept
     {
         return new TArray(value);
     }
 
-    cpp_type ConvertToCpp(abi_type value) const
+    cpp_type ConvertToCpp(abi_type value) noexcept
     {
         return value == nullptr ? cpp_type{} : *value;
     }
@@ -41,16 +41,17 @@ struct SharedArrayReferenceMarshallerBase
     using cpp_type = TArray&;
     using abi_type = TArray*;
 
-    abi_type ConvertToAbi(cpp_type value) const
+    abi_type ConvertToAbi(cpp_type value) noexcept
     {
         return new TArray(value);
     }
 
-    cpp_type ConvertToCpp(abi_type value) const
+    cpp_type ConvertToCpp(abi_type value) noexcept
     {
         if (value == nullptr)
         {
-            throw std::runtime_error("SharpCpp shared array reference cannot be null.");
+            // SharpCpp shared array reference cannot be null.
+            std::terminate();
         }
 
         return *value;
@@ -63,16 +64,17 @@ struct SharedArrayConstReferenceMarshallerBase
     using cpp_type = const TArray&;
     using abi_type = TArray*;
 
-    abi_type ConvertToAbi(cpp_type value) const
+    abi_type ConvertToAbi(cpp_type value) noexcept
     {
         return new TArray(value);
     }
 
-    cpp_type ConvertToCpp(abi_type value) const
+    cpp_type ConvertToCpp(abi_type value) noexcept
     {
         if (value == nullptr)
         {
-            throw std::runtime_error("SharpCpp shared array reference cannot be null.");
+            // SharpCpp shared array reference cannot be null.
+            std::terminate();
         }
 
         return *value;
@@ -85,12 +87,12 @@ struct SharedArrayPointerMarshallerBase
     using cpp_type = TArray*;
     using abi_type = TArray*;
 
-    abi_type ConvertToAbi(cpp_type value) const
+    abi_type ConvertToAbi(cpp_type value) noexcept
     {
         return value;
     }
 
-    cpp_type ConvertToCpp(abi_type value) const noexcept
+    cpp_type ConvertToCpp(abi_type value) noexcept
     {
         return value;
     }
@@ -102,12 +104,12 @@ struct SharedArrayConstPointerMarshallerBase
     using cpp_type = const TArray*;
     using abi_type = TArray*;
 
-    abi_type ConvertToAbi(cpp_type value) const
+    abi_type ConvertToAbi(cpp_type value) noexcept
     {
         return const_cast<TArray*>(value);
     }
 
-    cpp_type ConvertToCpp(abi_type value) const noexcept
+    cpp_type ConvertToCpp(abi_type value) noexcept
     {
         return value;
     }
@@ -363,8 +365,8 @@ Marshaller<Urho3D::Vector2>
 {
     using cpp_type = Urho3D::Vector2;
     using abi_type = Urho3D::Vector2;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 template <>
@@ -372,8 +374,8 @@ struct Marshaller<const Urho3D::Vector2&>
 {
     using cpp_type = const Urho3D::Vector2&;
     using abi_type = const Urho3D::Vector2*;
-    abi_type ConvertToAbi(cpp_type v) const noexcept { return &v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return *v; }
+    abi_type ConvertToAbi(cpp_type v) noexcept { return &v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return *v; }
 };
 
 template <>
@@ -381,8 +383,8 @@ struct ReturnMarshaller<Urho3D::Vector2>
 {
     using cpp_type = Urho3D::Vector2;
     using abi_type = Vector2Abi;
-    abi_type ConvertToAbi(const cpp_type& v) const { return ToAbi(v); }
-    cpp_type ConvertToCpp(const abi_type& v) const { return ToCpp(v); }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return ToAbi(v); }
+    cpp_type ConvertToCpp(const abi_type& v) noexcept { return ToCpp(v); }
 };
 
 // ═════════════════════════════════════════════════════════════════════
@@ -397,8 +399,8 @@ Marshaller<Urho3D::Vector3>
 {
     using cpp_type = Urho3D::Vector3;
     using abi_type = Urho3D::Vector3;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 template <>
@@ -406,8 +408,8 @@ struct Marshaller<const Urho3D::Vector3&>
 {
     using cpp_type = const Urho3D::Vector3&;
     using abi_type = const Urho3D::Vector3*;
-    abi_type ConvertToAbi(cpp_type v) const noexcept { return &v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return *v; }
+    abi_type ConvertToAbi(cpp_type v) noexcept { return &v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return *v; }
 };
 
 template <>
@@ -415,8 +417,8 @@ struct ReturnMarshaller<Urho3D::Vector3>
 {
     using cpp_type = Urho3D::Vector3;
     using abi_type = Vector3Abi;
-    abi_type ConvertToAbi(const cpp_type& v) const { return ToAbi(v); }
-    cpp_type ConvertToCpp(const abi_type& v) const { return ToCpp(v); }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return ToAbi(v); }
+    cpp_type ConvertToCpp(const abi_type& v) noexcept { return ToCpp(v); }
 };
 
 // ═════════════════════════════════════════════════════════════════════
@@ -431,8 +433,8 @@ Marshaller<Urho3D::Vector4>
 {
     using cpp_type = Urho3D::Vector4;
     using abi_type = Urho3D::Vector4;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 template <>
@@ -440,8 +442,8 @@ struct Marshaller<const Urho3D::Vector4&>
 {
     using cpp_type = const Urho3D::Vector4&;
     using abi_type = const Urho3D::Vector4*;
-    abi_type ConvertToAbi(cpp_type v) const noexcept { return &v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return *v; }
+    abi_type ConvertToAbi(cpp_type v) noexcept { return &v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return *v; }
 };
 
 template <>
@@ -449,8 +451,8 @@ struct ReturnMarshaller<Urho3D::Vector4>
 {
     using cpp_type = Urho3D::Vector4;
     using abi_type = Vector4Abi;
-    abi_type ConvertToAbi(const cpp_type& v) const { return ToAbi(v); }
-    cpp_type ConvertToCpp(const abi_type& v) const { return ToCpp(v); }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return ToAbi(v); }
+    cpp_type ConvertToCpp(const abi_type& v) noexcept { return ToCpp(v); }
 };
 
 // ═════════════════════════════════════════════════════════════════════
@@ -465,8 +467,8 @@ Marshaller<Urho3D::IntVector2>
 {
     using cpp_type = Urho3D::IntVector2;
     using abi_type = Urho3D::IntVector2;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 template <>
@@ -474,8 +476,8 @@ struct Marshaller<const Urho3D::IntVector2&>
 {
     using cpp_type = const Urho3D::IntVector2&;
     using abi_type = const Urho3D::IntVector2*;
-    abi_type ConvertToAbi(cpp_type v) const noexcept { return &v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return *v; }
+    abi_type ConvertToAbi(cpp_type v) noexcept { return &v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return *v; }
 };
 
 // ═════════════════════════════════════════════════════════════════════
@@ -490,8 +492,8 @@ Marshaller<Urho3D::IntVector3>
 {
     using cpp_type = Urho3D::IntVector3;
     using abi_type = Urho3D::IntVector3;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 template <>
@@ -499,8 +501,8 @@ struct Marshaller<const Urho3D::IntVector3&>
 {
     using cpp_type = const Urho3D::IntVector3&;
     using abi_type = const Urho3D::IntVector3*;
-    abi_type ConvertToAbi(cpp_type v) const noexcept { return &v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return *v; }
+    abi_type ConvertToAbi(cpp_type v) noexcept { return &v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return *v; }
 };
 
 // ═════════════════════════════════════════════════════════════════════
@@ -515,8 +517,8 @@ Marshaller<Urho3D::DoubleVector2>
 {
     using cpp_type = Urho3D::DoubleVector2;
     using abi_type = Urho3D::DoubleVector2;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 template <>
@@ -524,8 +526,8 @@ struct Marshaller<const Urho3D::DoubleVector2&>
 {
     using cpp_type = const Urho3D::DoubleVector2&;
     using abi_type = const Urho3D::DoubleVector2*;
-    abi_type ConvertToAbi(cpp_type v) const noexcept { return &v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return *v; }
+    abi_type ConvertToAbi(cpp_type v) noexcept { return &v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return *v; }
 };
 
 // ═════════════════════════════════════════════════════════════════════
@@ -540,8 +542,8 @@ Marshaller<Urho3D::DoubleVector3>
 {
     using cpp_type = Urho3D::DoubleVector3;
     using abi_type = Urho3D::DoubleVector3;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 template <>
@@ -549,8 +551,8 @@ struct Marshaller<const Urho3D::DoubleVector3&>
 {
     using cpp_type = const Urho3D::DoubleVector3&;
     using abi_type = const Urho3D::DoubleVector3*;
-    abi_type ConvertToAbi(cpp_type v) const noexcept { return &v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return *v; }
+    abi_type ConvertToAbi(cpp_type v) noexcept { return &v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return *v; }
 };
 
 // ═════════════════════════════════════════════════════════════════════
@@ -565,8 +567,8 @@ Marshaller<Urho3D::Quaternion>
 {
     using cpp_type = Urho3D::Quaternion;
     using abi_type = Urho3D::Quaternion;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 template <>
@@ -574,8 +576,8 @@ struct Marshaller<const Urho3D::Quaternion&>
 {
     using cpp_type = const Urho3D::Quaternion&;
     using abi_type = const Urho3D::Quaternion*;
-    abi_type ConvertToAbi(cpp_type v) const noexcept { return &v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return *v; }
+    abi_type ConvertToAbi(cpp_type v) noexcept { return &v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return *v; }
 };
 
 template <>
@@ -583,8 +585,8 @@ struct ReturnMarshaller<Urho3D::Quaternion>
 {
     using cpp_type = Urho3D::Quaternion;
     using abi_type = QuaternionAbi;
-    abi_type ConvertToAbi(const cpp_type& v) const { return ToAbi(v); }
-    cpp_type ConvertToCpp(const abi_type& v) const { return ToCpp(v); }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return ToAbi(v); }
+    cpp_type ConvertToCpp(const abi_type& v) noexcept { return ToCpp(v); }
 };
 
 // ═════════════════════════════════════════════════════════════════════
@@ -599,8 +601,8 @@ Marshaller<Urho3D::Color>
 {
     using cpp_type = Urho3D::Color;
     using abi_type = Urho3D::Color;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 // ═════════════════════════════════════════════════════════════════════
@@ -615,8 +617,8 @@ Marshaller<Urho3D::StringHash>
 {
     using cpp_type = Urho3D::StringHash;
     using abi_type = unsigned int;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v.Value(); }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return static_cast<cpp_type>(v); }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v.Value(); }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return static_cast<cpp_type>(v); }
 };
 
 static_assert(std::is_same_v<ret_t<Urho3D::StringHash>, unsigned int>);
@@ -626,8 +628,8 @@ struct Marshaller<const Urho3D::StringHash&>
 {
     using cpp_type = const Urho3D::StringHash&;
     using abi_type = const unsigned int*;
-    abi_type ConvertToAbi(cpp_type v) const noexcept { return reinterpret_cast<abi_type>(&v); }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return *reinterpret_cast<const Urho3D::StringHash*>(v); }
+    abi_type ConvertToAbi(cpp_type v) noexcept { return reinterpret_cast<abi_type>(&v); }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return *reinterpret_cast<const Urho3D::StringHash*>(v); }
 };
 
 // Generic Marshaller<T&> produces abi_type = Marshaller<T>::abi_type* and
@@ -640,8 +642,8 @@ struct Marshaller<Urho3D::StringHash&>
 {
     using cpp_type = Urho3D::StringHash&;
     using abi_type = unsigned int*;
-    abi_type ConvertToAbi(cpp_type v) const noexcept { return reinterpret_cast<abi_type>(&v); }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return *reinterpret_cast<Urho3D::StringHash*>(v); }
+    abi_type ConvertToAbi(cpp_type v) noexcept { return reinterpret_cast<abi_type>(&v); }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return *reinterpret_cast<Urho3D::StringHash*>(v); }
 };
 
 // ═════════════════════════════════════════════════════════════════════
@@ -656,8 +658,8 @@ Marshaller<Urho3D::BoundingBox>
 {
     using cpp_type = Urho3D::BoundingBox;
     using abi_type = Urho3D::BoundingBox;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 template <>
@@ -670,8 +672,8 @@ Marshaller<Urho3D::Matrix2>
 {
     using cpp_type = Urho3D::Matrix2;
     using abi_type = Urho3D::Matrix2;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 template <>
@@ -684,8 +686,8 @@ Marshaller<Urho3D::Matrix3>
 {
     using cpp_type = Urho3D::Matrix3;
     using abi_type = Urho3D::Matrix3;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 template <>
@@ -698,8 +700,8 @@ Marshaller<Urho3D::Matrix3x4>
 {
     using cpp_type = Urho3D::Matrix3x4;
     using abi_type = Urho3D::Matrix3x4;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 template <>
@@ -712,8 +714,8 @@ Marshaller<Urho3D::Matrix4>
 {
     using cpp_type = Urho3D::Matrix4;
     using abi_type = Urho3D::Matrix4;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 template <>
@@ -726,8 +728,8 @@ Marshaller<Urho3D::Plane>
 {
     using cpp_type = Urho3D::Plane;
     using abi_type = Urho3D::Plane;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 template <>
@@ -740,8 +742,8 @@ Marshaller<Urho3D::Ray>
 {
     using cpp_type = Urho3D::Ray;
     using abi_type = Urho3D::Ray;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 template <>
@@ -754,8 +756,8 @@ Marshaller<Urho3D::Sphere>
 {
     using cpp_type = Urho3D::Sphere;
     using abi_type = Urho3D::Sphere;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 template <>
@@ -768,8 +770,8 @@ Marshaller<Urho3D::Rect>
 {
     using cpp_type = Urho3D::Rect;
     using abi_type = Urho3D::Rect;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 template <>
@@ -782,8 +784,8 @@ Marshaller<Urho3D::IntRect>
 {
     using cpp_type = Urho3D::IntRect;
     using abi_type = Urho3D::IntRect;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 template <>
@@ -796,8 +798,8 @@ Marshaller<Urho3D::Transform>
 {
     using cpp_type = Urho3D::Transform;
     using abi_type = Urho3D::Transform;
-    abi_type ConvertToAbi(const cpp_type& v) const noexcept { return v; }
-    cpp_type ConvertToCpp(abi_type v) const noexcept { return v; }
+    abi_type ConvertToAbi(const cpp_type& v) noexcept { return v; }
+    cpp_type ConvertToCpp(abi_type v) noexcept { return v; }
 };
 
 } // namespace SharpCpp

@@ -56,12 +56,12 @@ struct [[sharpcpp::managed_type(
     using cpp_type = Urho3D::RefCounted*;
     using abi_type = Urho3D::RefCounted*;
 
-    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    constexpr abi_type ConvertToAbi(cpp_type value) noexcept
     {
         return value;
     }
 
-    constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
+    constexpr cpp_type ConvertToCpp(abi_type value) noexcept
     {
         return value;
     }
@@ -76,12 +76,12 @@ struct [[sharpcpp::managed_type(
     using cpp_type = Urho3D::Object*;
     using abi_type = Urho3D::Object*;
 
-    constexpr abi_type ConvertToAbi(cpp_type value) const noexcept
+    constexpr abi_type ConvertToAbi(cpp_type value) noexcept
     {
         return value;
     }
 
-    constexpr cpp_type ConvertToCpp(abi_type value) const noexcept
+    constexpr cpp_type ConvertToCpp(abi_type value) noexcept
     {
         return value;
     }
@@ -97,12 +97,12 @@ struct [[sharpcpp::managed_type(
     using cpp_type = Urho3D::SharedPtr<TCpp, TRefCounted>;
     using abi_type = TCpp*;
 
-    abi_type ConvertToAbi(cpp_type value) const noexcept
+    abi_type ConvertToAbi(cpp_type value) noexcept
     {
         return value.Detach();
     }
 
-    cpp_type ConvertToCpp(abi_type value) const noexcept
+    cpp_type ConvertToCpp(abi_type value) noexcept
     {
         return rbfx::detail::MakeSharedPtrFromAbi<TCpp, TRefCounted>(value);
     }
@@ -122,12 +122,12 @@ struct Marshaller<const Urho3D::SharedPtr<TCpp, TRefCounted>&>
     using cpp_type = const Urho3D::SharedPtr<TCpp, TRefCounted>&;
     using abi_type = TCpp*;
 
-    abi_type ConvertToAbi(cpp_type value) const noexcept
+    abi_type ConvertToAbi(cpp_type value) noexcept
     {
         return value.Get();
     }
 
-    cpp_type ConvertToCpp(abi_type value) const noexcept
+    cpp_type ConvertToCpp(abi_type value) noexcept
     {
         storage_ = rbfx::detail::MakeSharedPtrFromAbi<TCpp, TRefCounted>(value);
         return storage_;
@@ -147,12 +147,12 @@ struct [[sharpcpp::managed_type(
     using cpp_type = Urho3D::WeakPtr<TCpp, TRefCounted>;
     using abi_type = TCpp*;
 
-    abi_type ConvertToAbi(const cpp_type& value) const noexcept
+    abi_type ConvertToAbi(const cpp_type& value) noexcept
     {
         return value.Lock().Detach();
     }
 
-    cpp_type ConvertToCpp(abi_type value) const noexcept
+    cpp_type ConvertToCpp(abi_type value) noexcept
     {
         return rbfx::detail::MakeWeakPtrFromAbi<TCpp, TRefCounted>(value);
     }
@@ -172,12 +172,12 @@ struct Marshaller<const Urho3D::WeakPtr<TCpp, TRefCounted>&>
     using cpp_type = const Urho3D::WeakPtr<TCpp, TRefCounted>&;
     using abi_type = TCpp*;
 
-    abi_type ConvertToAbi(cpp_type value) const noexcept
+    abi_type ConvertToAbi(cpp_type value) noexcept
     {
         return value.Get();
     }
 
-    cpp_type ConvertToCpp(abi_type value) const noexcept
+    cpp_type ConvertToCpp(abi_type value) noexcept
     {
         storage_ = rbfx::detail::MakeWeakPtrFromAbi<TCpp, TRefCounted>(value);
         return storage_;

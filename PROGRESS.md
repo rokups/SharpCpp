@@ -85,6 +85,10 @@ Current worktree verification passes with generic complex C++ values crossing ca
 - Type alias pipeline (`using` / `typedef` → metadata-backed C# using directives)
 - rbfx `FlagSet<TEnum>` lowering to public `[Flags]` enum surfaces
 
+### Current Audit
+
+- `global::SharpCpp.Support.NativeObject.GetHandle(...)` renderer usage has been reviewed against generated managed-handle marshaller support. The live renderer already passes plain wrapper parameters for non-ref/out handle imports when `CanUseManagedHandleParameterImport(...)` applies, including generic parameters substituted with concrete handle types. Remaining renderer uses are currently required for custom marshaller bodies, callback/native handle returns, explicit `nint self` imports, ref/out fallback paths, or generic array element setters whose imports still use raw handle ABI.
+
 ## Remaining Work
 
 ### Parser Breadth
@@ -132,6 +136,14 @@ Current worktree verification passes with generic complex C++ values crossing ca
 - All type-specific behaviors configured through C++/C# marshallers, never hardcoded in core
 
 ## Recently Fixed
+
+- **Marshaller sync-back now belongs to the marshaller lifetime and field access goes through invoke helpers**:
+  - `ConvertToCpp` / `ConvertToAbi` marshaller methods are non-`const` and `noexcept`; invalid ABI fail-fast paths now call `std::terminate()` with the previous diagnostic strings preserved as comments.
+  - `ParameterMarshaller<T>` wraps configured marshallers in an RAII adapter that calls `Sync()` from the destructor when present, so generated thunks no longer emit explicit `detail::SyncMarshaller(...)` calls.
+  - Removed explicit sync helper machinery from `MarshallerSupport.hpp`; invocation helpers now rely on scoped marshaller destruction for sync-back.
+  - Field getters/setters now render through `MarshallerInvoker::get_field` / `set_field`, including protected director helpers, fixed arrays, and borrowed-storage fields. Protected helpers take member pointers through the director type so inherited protected fields remain C++-access legal.
+  - Protected method helpers now render through `MarshallerInvoker::invoke_*` / `invoke_owned_*` instead of manually constructing parameter and return marshallers; the rbfx `Application.__call_HandleLogMessage(...)` helper now dispatches through `invoke_instance` directly.
+  - Verification: `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj --logger "console;verbosity=minimal"`, `dotnet test tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj --logger "console;verbosity=minimal"`, `cmake --build --preset Debug`, `ctest --preset Debug`, and `git diff --check` pass.
 
 - **Alias-backed value-type parameter coverage is no longer skipped**:
   - Re-enabled `Bootstrap_pipeline_preserves_alias_backed_value_type_parameters_and_emits_alias_metadata`; the parser now preserves enough alias identity through the standard parse/bootstrap path for `Urho3D::Vector3` value-type parameters and alias metadata to validate normally.
