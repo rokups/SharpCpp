@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <PackageId>SharpCpp.Rbfx.Bindings</PackageId>
+    <Title>SharpCpp.Rbfx.Bindings</Title>
+    <Version>$(PackageVersion)</Version>
+    <Authors>rbfx contributors</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/rbfx/rbfx</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/rbfx/SharpCpp</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <Description>Generated SharpCpp bindings for the rbfx game engine.</Description>
+    <PackageTags>rbfx SharpCpp Urho3D gamedev csharp dotnet game-engine</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <NoWarn>$(NoWarn);NU5128;NU5131</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(SharpCppNuGetStageRoot)/managed/ref/net8.0/*" Pack="true" PackagePath="ref/net8.0/%(Filename)%(Extension)" />
+    <None Include="$(SharpCppNuGetStageRoot)/managed/lib/net8.0/*" Pack="true" PackagePath="lib/net8.0/%(Filename)%(Extension)" />
+    <None Include="$(SharpCppNuGetStageRoot)/managed/analyzers/dotnet/cs/*" Pack="true" PackagePath="analyzers/dotnet/cs/%(Filename)%(Extension)" />
+    <None Include="buildTransitive/SharpCpp.Rbfx.Bindings.targets" Pack="true" PackagePath="buildTransitive/" />
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <Target Name="ValidateSharpCppPackageInputs" BeforeTargets="Pack">
+    <Error Condition="'$(SharpCppNuGetStageRoot)' == ''" Text="SharpCppNuGetStageRoot must point to staged package files." />
+    <Error Condition="!Exists('$(SharpCppNuGetStageRoot)/managed/ref/net8.0/SharpCpp.Rbfx.Bindings.dll')" Text="Missing staged SharpCpp.Rbfx.Bindings reference assembly." />
+    <Error Condition="!Exists('$(SharpCppNuGetStageRoot)/managed/lib/net8.0/SharpCpp.Rbfx.Bindings.dll')" Text="Missing staged SharpCpp.Rbfx.Bindings implementation assembly." />
+    <Error Condition="!Exists('$(SharpCppNuGetStageRoot)/managed/lib/net8.0/SharpCpp.Support.dll')" Text="Missing staged SharpCpp.Support implementation assembly." />
+    <Error Condition="!Exists('$(SharpCppNuGetStageRoot)/managed/analyzers/dotnet/cs/SharpCpp.Rbfx.SourceGenerator.dll')" Text="Missing staged SharpCpp.Rbfx.SourceGenerator analyzer assembly." />
+  </Target>
+</Project>

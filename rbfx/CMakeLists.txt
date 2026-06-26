@@ -67,6 +67,7 @@ list(REMOVE_DUPLICATES RBFX_URHO3D_COMPILE_OPTIONS)
 
 set(RBFX_GENERATOR_PROJECT "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Generator/SharpCpp.Rbfx.Generator.csproj")
 set(RBFX_BINDINGS_PROJECT "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Bindings/SharpCpp.Rbfx.Bindings.csproj")
+set(RBFX_SOURCE_GENERATOR_PROJECT "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.SourceGenerator/SharpCpp.Rbfx.SourceGenerator.csproj")
 set(RBFX_E2E_TESTS_PROJECT "${CMAKE_CURRENT_SOURCE_DIR}/SharpCpp.Rbfx.Tests.E2E/SharpCpp.Rbfx.Tests.E2E.csproj")
 set(RBFX_GENERATED_ROOT "${CMAKE_BINARY_DIR}/generated/rbfx")
 set(RBFX_FILE_STEM "SharpCpp.Rbfx")
@@ -137,6 +138,10 @@ set_property(GLOBAL PROPERTY SHARPCPP_RBFX_GENERATED_DIR "${RBFX_GENERATED_ROOT}
 set_property(GLOBAL PROPERTY SHARPCPP_RBFX_GENERATED_STAMP "${RBFX_GENERATED_STAMP}")
 set_property(GLOBAL PROPERTY SHARPCPP_RBFX_TESTS_E2E_GENERATED_DIR "${RBFX_GENERATED_ROOT}")
 set_property(GLOBAL PROPERTY SHARPCPP_RBFX_RUNSETTINGS_FILE "${RBFX_TEST_RUNSETTINGS_FILE}")
+
+sharpcpp_add_dotnet_build_target(
+  sharpcpp-rbfx-sourcegenerator
+  "${RBFX_SOURCE_GENERATOR_PROJECT}")
 
 sharpcpp_add_dotnet_build_target(
   sharpcpp-rbfx-generator
@@ -236,7 +241,7 @@ file(GLOB_RECURSE RBFX_GENERATED_CS_FILES CONFIGURE_DEPENDS "${RBFX_GENERATED_RO
 sharpcpp_add_dotnet_build_target(
   sharpcpp-rbfx-managed
   "${RBFX_BINDINGS_PROJECT}"
-  DEPENDS sharpcpp-generate-rbfx SharpCppRbfx_Native sharpcpp-support ${RBFX_GENERATED_CS_FILES}
+  DEPENDS sharpcpp-generate-rbfx SharpCppRbfx_Native sharpcpp-support sharpcpp-rbfx-sourcegenerator ${RBFX_GENERATED_CS_FILES}
   PROPERTIES "-p:SharpCppGeneratedDir=${RBFX_GENERATED_ROOT}")
 
 sharpcpp_add_dotnet_build_target(
@@ -249,6 +254,13 @@ add_dependencies(sharpcpp-rbfx-managed sharpcpp-rbfx-runtime)
 add_dependencies(sharpcpp-rbfx-tests-e2e-managed sharpcpp-rbfx-runtime)
 
 add_custom_target(sharpcpp-rbfx-native DEPENDS sharpcpp-generate-rbfx SharpCppRbfx_Native sharpcpp-rbfx-runtime)
+
+add_custom_target(
+  sharpcpp-package-rbfx-inputs
+  DEPENDS
+    sharpcpp-rbfx-managed
+    sharpcpp-rbfx-sourcegenerator
+    sharpcpp-rbfx-runtime)
 
 add_subdirectory(Rbfx.UserCode)
 add_subdirectory(Rbfx.Application)

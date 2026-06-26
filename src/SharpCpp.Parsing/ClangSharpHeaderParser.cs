@@ -4649,7 +4649,7 @@ public sealed partial class ClangSharpHeaderParser
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
     {
-        foreach (var child in decl.Decls)
+        foreach (var child in EnumerateChildDeclsSafely(decl))
         {
             if (TryGetAliasDecl(child, out var aliasDecl) &&
                 IsOwnedDecl(aliasDecl, ownedFileRoots) &&
@@ -4681,7 +4681,7 @@ public sealed partial class ClangSharpHeaderParser
 
     private static void CollectOwnedManagedAliases(Decl decl, IReadOnlyList<string> ownedFileRoots)
     {
-        foreach (var child in decl.Decls)
+        foreach (var child in EnumerateChildDeclsSafely(decl))
         {
             if (TryGetAliasDecl(child, out var aliasDecl) &&
                 IsOwnedDecl(aliasDecl, ownedFileRoots) &&
@@ -4717,6 +4717,35 @@ public sealed partial class ClangSharpHeaderParser
         return false;
     }
 
+    private static IEnumerable<Decl> EnumerateChildDeclsSafely(Decl decl)
+    {
+        int count;
+        try
+        {
+            count = decl.Decls.Count;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            yield break;
+        }
+
+        for (var index = 0; index < count; ++index)
+        {
+            Decl child;
+            try
+            {
+                child = decl.Decls[index];
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                // Some SDK headers expose Clang cursors that ClangSharp cannot wrap.
+                continue;
+            }
+
+            yield return child;
+        }
+    }
+
     private static bool IsNamespaceOrTranslationUnitAlias(TypedefNameDecl typedefNameDecl)
     {
         return typedefNameDecl.SemanticParentCursor is NamespaceDecl or TranslationUnitDecl;
@@ -4724,7 +4753,7 @@ public sealed partial class ClangSharpHeaderParser
 
     private static void CollectTypeAliases(Decl decl)
     {
-        foreach (var child in decl.Decls)
+        foreach (var child in EnumerateChildDeclsSafely(decl))
         {
             if (TryGetAliasDecl(child, out var aliasDecl))
             {

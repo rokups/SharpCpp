@@ -45,6 +45,22 @@
       "targets": [
         "sharpcpp-tests"
       ]
+    },
+    {
+      "name": "package-rbfx-debug",
+      "configurePreset": "dev",
+      "configuration": "Debug",
+      "targets": [
+        "sharpcpp-package-rbfx-inputs"
+      ]
+    },
+    {
+      "name": "package-rbfx-release",
+      "configurePreset": "dev",
+      "configuration": "Release",
+      "targets": [
+        "sharpcpp-package-rbfx-inputs"
+      ]
     }
   ],
   "testPresets": [

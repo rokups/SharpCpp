@@ -137,6 +137,15 @@ Current worktree verification passes with generic complex C++ values crossing ca
 
 ## Recently Fixed
 
+- **SDK-style NuGet packaging pipeline for rbfx bindings was added**:
+  - Added `packaging/nuget/package.sh` with SDK download/extract, staging, package creation, and local-repository actions. Package creation uses SDK-style `.csproj` package projects and `dotnet pack`, not `.nuspec`.
+  - Added packages for `SharpCpp.Rbfx.Bindings`, `SharpCpp.Rbfx.Bindings.runtime.<rid>`, `SharpCpp.Rbfx.CoreData`, `SharpCpp.Rbfx.Data`, and `SharpCpp.Rbfx.EditorData`.
+  - Runtime packages stage native files under `runtimes/<rid>/native/`, include the source generator analyzer directly, and depend on the matching managed bindings package version.
+  - Added `sharpcpp-rbfx-sourcegenerator` and `sharpcpp-package-rbfx-inputs` CMake targets plus package-focused CMake build presets.
+  - Hardened rbfx SDK packaging on non-Debian Linux hosts by normalizing the SDK's hardcoded DBus CMake export from `/usr/lib/x86_64-linux-gnu/libdbus-1.so` to `dbus-1` when `pkg-config` can resolve DBus.
+  - Made alias pre-scans tolerate ClangSharp child declaration materialization failures, fixing parsing of the refreshed rbfx SDK release headers.
+  - Verification: `./packaging/nuget/package.sh create --version 0.0.0-dev --rid linux-x64 --skip-fetch` produced all five packages, a temporary consumer restored and built against `SharpCpp.Rbfx.Bindings.runtime.linux-x64`, `cmake --build --preset Debug` passes, and `ctest --preset Debug` passes.
+
 - **Managed wrapper instance caches are now selected by actual native type**:
   - `CreateManagedWrapper` is now a thin null-check plus `NativeObjectRegistry.Create<T>(...)`; polymorphic paths no longer probe the static/root wrapper cache before native metadata resolution.
   - `NativeObjectRegistry.Create<T>` now owns cache lookup and registration for wrappers it creates, using native dynamic type metadata to select the resolved type cache before creating a wrapper.
