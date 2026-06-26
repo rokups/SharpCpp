@@ -133,6 +133,10 @@ Current worktree verification passes with generic complex C++ values crossing ca
 
 ## Recently Fixed
 
+- **Alias-backed value-type parameter coverage is no longer skipped**:
+  - Re-enabled `Bootstrap_pipeline_preserves_alias_backed_value_type_parameters_and_emits_alias_metadata`; the parser now preserves enough alias identity through the standard parse/bootstrap path for `Urho3D::Vector3` value-type parameters and alias metadata to validate normally.
+  - Verification: focused test and full model suite pass with `Skipped: 0`.
+
 - **Generated rbfx `Object.SubscribeToEvent(...)` overloads replaced the manual event-subscription ownership helper**:
   - Removed the handwritten `EventHandler.TransferToNativeOwner()` / `Object.SubscribeToEvent(...)` helper path; generated wrappers now call native `Urho3D::Object::SubscribeToEvent<T>`, which allocates and transfers `EventHandler` ownership to the native `Object` event list.
   - Added rbfx parse-umbrella explicit template instantiations for both native `SubscribeToEvent<Urho3D::EventHandler::HandlerFunction>` overloads, with parser discovery from ClangSharp `FunctionTemplateDecl.Specializations` AST facts rather than file prescans.

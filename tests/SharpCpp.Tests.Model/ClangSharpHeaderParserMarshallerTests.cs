@@ -691,7 +691,7 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         return $"{type.Kind}:{type.ManagedTypeName}:{type.RecordId}:{type.CppTypeName}{args}";
     }
 
-    [Fact(Skip = "Known issue: MapParameter passes canonical type for record references, losing typedef identity for managed-type-override lookup.")]
+    [Fact]
     public void Bootstrap_pipeline_preserves_alias_backed_value_type_parameters_and_emits_alias_metadata()
     {
         var repoRoot = FindRepositoryRoot();
