@@ -55,7 +55,8 @@ public static partial class BindingOutputRenderer
     public static GeneratedBindingSet Render(
         BindingCompilation compilation,
         string fileStem,
-        Func<string?, string>? deriveGroupStem = null)
+        Func<string?, string>? deriveGroupStem = null,
+        bool includeCallbackReleaseRegistration = true)
     {
         ArgumentNullException.ThrowIfNull(compilation);
         ArgumentException.ThrowIfNullOrWhiteSpace(fileStem);
@@ -70,7 +71,7 @@ public static partial class BindingOutputRenderer
                     compilation,
                     includeCallbackHelpers: false)),
                 new GeneratedBindingFile($"{fileStem}.Bindings.Aliases.g.cs", RenderAliasBindings(compilation, includeSharedCallbackHelpers: true)),
-                new GeneratedBindingFile($"{fileStem}.Bindings.g.cpp", RenderNativeBindings(compilation))
+                new GeneratedBindingFile($"{fileStem}.Bindings.g.cpp", RenderNativeBindings(compilation, includeCallbackReleaseRegistration: includeCallbackReleaseRegistration))
             };
             return new GeneratedBindingSet(files);
         }
@@ -91,7 +92,7 @@ public static partial class BindingOutputRenderer
             allFiles.Add(new GeneratedBindingFile($"{fileStem}.Bindings.g.cs", RenderManagedBindings(
                 compilation,
                 includeCallbackHelpers: false)));
-            allFiles.Add(new GeneratedBindingFile($"{fileStem}.Bindings.g.cpp", RenderNativeBindings(compilation)));
+            allFiles.Add(new GeneratedBindingFile($"{fileStem}.Bindings.g.cpp", RenderNativeBindings(compilation, includeCallbackReleaseRegistration: includeCallbackReleaseRegistration)));
         }
         else
         {
@@ -110,7 +111,7 @@ public static partial class BindingOutputRenderer
                     RenderNativeBindings(
                         compilation,
                         node => memberSet.Contains(node) || (node is RecordBinding r && memberSet.Contains(r)),
-                        includeCallbackReleaseRegistration: groupIndex == 0)));
+                        includeCallbackReleaseRegistration: includeCallbackReleaseRegistration && groupIndex == 0)));
             }
         }
 
