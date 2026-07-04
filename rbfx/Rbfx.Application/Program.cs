@@ -528,7 +528,7 @@ partial class DemoApplication : Application
             {
                 _ = value.Assign<Ea.String>(text);
             },
-            value => CopyVariantString(text, value));
+            value => text.Assign(value.Get<Ea.String>()));
     }
 
     private void UpdateModelValue(Ea.String currentValue, string newValue, string variableName)
@@ -549,7 +549,7 @@ partial class DemoApplication : Application
 
         if (arguments.Count > 0)
         {
-            CopyVariantString(_noteText, arguments[0]);
+            _noteText.Assign(arguments[0].Get<Ea.String>());
         }
         else
         {
@@ -557,17 +557,8 @@ partial class DemoApplication : Application
         }
 
         _eventCount++;
-        using var noteName = new Ea.String("note");
-        using var statusName = new Ea.String("status");
-        handle.DirtyVariable(noteName);
-        handle.DirtyVariable(statusName);
-    }
-
-    private static void CopyVariantString(Ea.String target, Rml.Variant value)
-    {
-        using var fallback = new Ea.String();
-        using var nativeText = value.Get<Ea.String>(fallback);
-        target.Assign(nativeText.AsUtf8Span());
+        handle.DirtyVariable("note");
+        handle.DirtyVariable("status");
     }
 
     private static bool IsNullOrWhiteSpace(Ea.String value)

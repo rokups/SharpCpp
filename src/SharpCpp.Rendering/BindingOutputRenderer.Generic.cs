@@ -599,6 +599,8 @@ public static partial class BindingOutputRenderer
             var managedElementType = FormatGlobalTypeName(elementType, compilation);
             var getReturnType = elementType.Kind == BindingTypeKind.Handle ? "nint" : managedElementType;
             var setParameterType = elementType.Kind == BindingTypeKind.Handle ? "nint" : managedElementType;
+            var getReturnAttribute = GetManagedReturnAttribute(elementType);
+            var setParameterAttribute = GetManagedParameterAttribute(elementType, compilation);
             yield return $$"""
                 [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArrayCreateEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -612,12 +614,13 @@ public static partial class BindingOutputRenderer
             yield return $$"""
                 [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArrayGetEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                {{getReturnAttribute}}
                 internal static partial {{getReturnType}} __Array_Get_{{importToken}}(global::SharpCpp.Support.NativeArrayAbi self, nuint index);
                 """;
             yield return $$"""
                 [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArraySetEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                internal static partial void __Array_Set_{{importToken}}(global::SharpCpp.Support.NativeArrayAbi self, nuint index, {{setParameterType}} value);
+                internal static partial void __Array_Set_{{importToken}}(global::SharpCpp.Support.NativeArrayAbi self, nuint index, {{setParameterAttribute}}{{setParameterType}} value);
                 """;
         }
     }
@@ -2354,7 +2357,7 @@ public static partial class BindingOutputRenderer
         foreach (var instantiation in GetFixedArrayInstantiations(compilation, record))
         {
             _ = TryGetFixedArrayLength(instantiation, out var length);
-            var elementCppType = instantiation.TypeArguments[0].CppTypeName;
+            var elementCppType = GetNativeFixedArrayElementCppType(compilation, instantiation.TypeArguments[0]);
             if (record.GetMetadata<bool>(MetadataKeys.NativeArrayRecord))
             {
                 writer.Write($$"""

@@ -822,7 +822,7 @@ public static partial class BindingOutputRenderer
         var isNativeFixedArrayField = IsNativeFixedArrayType(compilation, field.Type);
         var getterReturnType = isNativeFixedArrayField ? "NativeArrayAbi" : $"ret_t<{plan.StorageCppType}>";
         var directorName = GetNativeDirectorClassName(accessorRecord);
-        var getterBody = RenderNativeFieldGetInvocation(field, plan, "this", directorName);
+        var getterBody = RenderNativeFieldGetInvocation(compilation, field, plan, "this", directorName);
 
         var writer = new CodeWriter();
         writer.Write($$"""
@@ -835,7 +835,7 @@ public static partial class BindingOutputRenderer
         if (!field.IsReadOnly)
         {
             var setterParameterType = isNativeFixedArrayField ? "NativeArrayAbi" : plan.SetterParameterCppType;
-            var setterBody = RenderNativeFieldSetInvocation(field, plan, "this", directorName);
+            var setterBody = RenderNativeFieldSetInvocation(compilation, field, plan, "this", directorName);
             writer.WriteLine();
             writer.Write($$"""
                 void {{GetNativeProtectedFieldSetterHelperName(field)}}({{setterParameterType}} value)
@@ -987,18 +987,91 @@ public static partial class BindingOutputRenderer
         return new NativeFieldInteropPlan(storageCppType, borrowsStorage, setterMode);
     }
 
-    private static string RenderNativeFieldGetInvocation(FieldBinding field, NativeFieldInteropPlan plan, string selfExpression, string? fieldOwnerCppTypeName = null)
+    private static string RenderNativeFieldGetInvocation(BindingCompilation compilation, FieldBinding field, NativeFieldInteropPlan plan, string selfExpression, string? fieldOwnerCppTypeName = null)
     {
+        if (IsNativeFixedArrayType(compilation, field.Type))
+        {
+            var arrayAccessExpression = GetNativeFixedArrayFieldAccessExpression(field, selfExpression);
+            return $"return {{ const_cast<void*>(static_cast<const void*>({arrayAccessExpression})), {field.Type.FixedArrayLength ?? 0} }};";
+        }
+
+        if (TryGetNativeFieldAccessExpression(field, selfExpression, out var accessExpression))
+        {
+            return plan.BorrowsStorage
+                ? $"return &({accessExpression});"
+                : $"return {accessExpression};";
+        }
+
         var fieldOwner = fieldOwnerCppTypeName ?? field.OwningRecordCppTypeName;
         var borrowedStorageTag = plan.BorrowsStorage ? ", std::true_type{}" : string.Empty;
         return $"return MarshallerInvoker::get_field<{plan.StorageCppType}>(&{fieldOwner}::{field.NativeName}, {selfExpression}{borrowedStorageTag});";
     }
 
-    private static string RenderNativeFieldSetInvocation(FieldBinding field, NativeFieldInteropPlan plan, string selfExpression, string? fieldOwnerCppTypeName = null)
+    private static string RenderNativeFieldSetInvocation(BindingCompilation compilation, FieldBinding field, NativeFieldInteropPlan plan, string selfExpression, string? fieldOwnerCppTypeName = null)
     {
+        if (IsNativeFixedArrayType(compilation, field.Type))
+        {
+            var arrayAccessExpression = GetNativeFixedArrayFieldAccessExpression(field, selfExpression);
+            var elementCppType = GetNativeFixedArrayElementCppType(compilation, field.Type);
+            var length = field.Type.FixedArrayLength ?? 0;
+            return $$"""
+                if (value.handle == nullptr || value.length != {{length}})
+                {
+                    throw std::runtime_error("SharpCpp fixed array field assignment length mismatch.");
+                }
+
+                auto* source = static_cast<{{elementCppType}}*>(value.handle);
+                ParameterMarshaller<{{elementCppType}}> marshaller;
+                for (std::size_t index = 0; index < {{length}}; ++index)
+                {
+                    {{arrayAccessExpression}}[index] = marshaller.ConvertToCpp(source[index]);
+                }
+                """;
+        }
+
+        if (TryGetNativeFieldAccessExpression(field, selfExpression, out var accessExpression))
+        {
+            var valueExpression = plan.SetterMode == FieldSetterMode.ValuePointer ? "*value" : "value";
+            if (ShouldCastDirectNativeFieldSetValue(field, plan))
+            {
+                valueExpression = $"static_cast<decltype({accessExpression})>({valueExpression})";
+            }
+
+            return $"{accessExpression} = {valueExpression};";
+        }
+
         var fieldOwner = fieldOwnerCppTypeName ?? field.OwningRecordCppTypeName;
         var borrowedStorageTag = plan.SetterMode == FieldSetterMode.BorrowedStorage ? ", std::true_type{}" : string.Empty;
         return $"MarshallerInvoker::set_field<{plan.StorageCppType}>(&{fieldOwner}::{field.NativeName}, {selfExpression}, value{borrowedStorageTag});";
+    }
+
+    private static string GetNativeFixedArrayFieldAccessExpression(FieldBinding field, string selfExpression)
+    {
+        return TryGetNativeFieldAccessExpression(field, selfExpression, out var accessExpression)
+            ? accessExpression
+            : $"{selfExpression}->{field.NativeName}";
+    }
+
+    private static bool TryGetNativeFieldAccessExpression(FieldBinding field, string selfExpression, out string accessExpression)
+    {
+        if (field.TryGetMetadata<string>(MetadataKeys.NativeFieldAccessExpression, out var fieldAccessPath) &&
+            !string.IsNullOrWhiteSpace(fieldAccessPath))
+        {
+            accessExpression = $"{selfExpression}->{fieldAccessPath}";
+            return true;
+        }
+
+        accessExpression = string.Empty;
+        return false;
+    }
+
+    private static bool ShouldCastDirectNativeFieldSetValue(FieldBinding field, NativeFieldInteropPlan plan)
+    {
+        return plan.SetterMode == FieldSetterMode.ValuePointer &&
+            field.IsPointer &&
+            field.Type.Kind == BindingTypeKind.Primitive &&
+            field.Type.PrimitiveKind == BindingPrimitiveKind.IntPtr &&
+            string.Equals(plan.StorageCppType, BindingType.IntPtr.CppTypeName, StringComparison.Ordinal);
     }
 
     private static string GetNativeProtectedMethodHelperName(FunctionBinding method)
@@ -1182,9 +1255,10 @@ public static partial class BindingOutputRenderer
         var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
         var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, ReturnsOwnedHandle(function));
         var importMethodName = GetManagedImportMethodName(function);
+        var unsafeModifier = function.Parameters.Any(IsInputHandlePointerArrayParameter) ? "unsafe " : string.Empty;
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
-            ? $"internal static partial {returnTypeName} {importMethodName}({parameterList});"
-            : $"{returnAttribute}\ninternal static partial {returnTypeName} {importMethodName}({parameterList});";
+            ? $"internal static {unsafeModifier}partial {returnTypeName} {importMethodName}({parameterList});"
+            : $"{returnAttribute}\ninternal static {unsafeModifier}partial {returnTypeName} {importMethodName}({parameterList});";
 
         writer.Write(
             $$"""
@@ -2140,7 +2214,7 @@ public static partial class BindingOutputRenderer
         }
 
         var writer = new CodeWriter();
-        var canEmitDeleteThunk = !record.GetMetadata<bool>(MetadataKeys.NonPublicDestructor);
+        var canEmitDeleteThunk = CanEmitDeleteThunk(record);
         var pinvokeDeclarations = new List<string>();
         if (canEmitDeleteThunk)
         {
@@ -2149,7 +2223,8 @@ public static partial class BindingOutputRenderer
         var requiresDirector = record.RequiresDirector(compilation);
         var virtualSlots = record.GetEffectiveVirtualMethodSlots(compilation);
         var isEffectivelyAbstract = IsManagedWrapperAbstract(compilation, record, virtualSlots);
-        if (record.IsPolymorphic)
+        var isRegistrationPolymorphic = record.IsPolymorphic && !IsNativeInterfaceWrapper(record);
+        if (isRegistrationPolymorphic)
         {
             pinvokeDeclarations.Add(RenderManagedStaticTypeIdImportDeclaration(compilation, record));
             pinvokeDeclarations.Add(RenderManagedNativeObjectMetadataImportDeclaration(compilation, record));
@@ -2428,15 +2503,15 @@ public static partial class BindingOutputRenderer
         writer.WriteLine();
         writer.Write(
             $$"""
-            {{(record.IsPolymorphic ? $$"""
+            {{(isRegistrationPolymorphic ? $$"""
             {{staticHelperModifier}}internal static nuint GetManagedTypeId()
             {
             return __PInvoke.GetStaticTypeId();
             }
 
-            """ : string.Empty)}}static bool global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationIsPolymorphic => {{record.IsPolymorphic.ToString().ToLowerInvariant()}};
+            """ : string.Empty)}}static bool global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationIsPolymorphic => {{isRegistrationPolymorphic.ToString().ToLowerInvariant()}};
 
-            static nuint global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationDynamicTypeId => {{(record.IsPolymorphic ? "GetManagedTypeId()" : "0")}};
+            static nuint global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationDynamicTypeId => {{(isRegistrationPolymorphic ? "GetManagedTypeId()" : "0")}};
 
             static global::System.Type global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationExpectedType => typeof({{record.ManagedName}});
 
@@ -2446,7 +2521,7 @@ public static partial class BindingOutputRenderer
 
             static global::SharpCpp.Support.NativeObjectMetadata global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationGetMetadata(nint handle)
             {
-            {{(record.IsPolymorphic ? "__PInvoke.GetNativeObjectMetadata(handle, out var resolvedHandle, out var dynamicTypeId);\nreturn new global::SharpCpp.Support.NativeObjectMetadata(resolvedHandle, dynamicTypeId);" : "return new global::SharpCpp.Support.NativeObjectMetadata(handle, 0);")}}
+            {{(isRegistrationPolymorphic ? "__PInvoke.GetNativeObjectMetadata(handle, out var resolvedHandle, out var dynamicTypeId);\nreturn new global::SharpCpp.Support.NativeObjectMetadata(resolvedHandle, dynamicTypeId);" : "return new global::SharpCpp.Support.NativeObjectMetadata(handle, 0);")}}
             }
             """);
         writer.WriteLine();
@@ -2586,6 +2661,11 @@ public static partial class BindingOutputRenderer
             return writer.ToString();
         }
 
+        if (function.Parameters.Any(IsInputHandlePointerArrayParameter))
+        {
+            return RenderManagedPointerArrayInstanceMethod(compilation, record, function, returnTypeName, memberModifier, importMethodName);
+        }
+
         if (HasUndefaultableParams(function))
         {
             WriteUndefaultableOverloads(compilation, writer, function, importMethodName, ["this"]);
@@ -2678,6 +2758,73 @@ public static partial class BindingOutputRenderer
             """
             }
             """);
+        return writer.ToString();
+    }
+
+    private static string RenderManagedPointerArrayInstanceMethod(
+        BindingCompilation compilation,
+        RecordBinding record,
+        FunctionBinding function,
+        string returnTypeName,
+        string memberModifier,
+        string importMethodName)
+    {
+        if (function.ReturnType.MarshallerTypeName is not null)
+        {
+            throw new NotSupportedException($"Pointer-array method '{function.ManagedName}' does not support custom return marshalling yet.");
+        }
+
+        var writer = new CodeWriter();
+        var parameterList = RenderManagedPublicParameterList(function.Parameters, compilation);
+        writer.Write($$"""
+            {{GetManagedVisibilityNormalized(compilation, record, function)}} {{memberModifier}}{{returnTypeName}} {{function.ManagedName}}({{parameterList}})
+            {
+            """);
+
+        var pointerArrayParameters = function.Parameters.Where(IsInputHandlePointerArrayParameter).ToArray();
+        foreach (var parameter in pointerArrayParameters)
+        {
+            var abiSpanName = GetPointerArrayAbiSpanName(parameter);
+            var indexName = $"{abiSpanName}_i";
+            writer.Write($$"""
+                global::System.Span<nint> {{abiSpanName}} = {{parameter.ManagedName}}.Length <= 64 ? stackalloc nint[{{parameter.ManagedName}}.Length] : new nint[{{parameter.ManagedName}}.Length];
+                for (var {{indexName}} = 0; {{indexName}} < {{parameter.ManagedName}}.Length; {{indexName}}++)
+                {
+                    {{abiSpanName}}[{{indexName}}] = global::SharpCpp.Support.NativeObject.GetHandle({{parameter.ManagedName}}[{{indexName}}]);
+                }
+                """);
+        }
+
+        writer.WriteLine("unsafe");
+        writer.WriteLine("{");
+        foreach (var parameter in pointerArrayParameters)
+        {
+            writer.WriteLine($"fixed (nint* {GetPointerArrayPointerName(parameter)} = {GetPointerArrayAbiSpanName(parameter)})");
+        }
+        writer.WriteLine("{");
+
+        var invokeArguments = string.Join(", ", new[] { "this" }.Concat(function.Parameters.Select(parameter =>
+            IsInputHandlePointerArrayParameter(parameter)
+                ? GetPointerArrayPointerName(parameter)
+                : RenderManagedInvocationArgument(compilation, parameter))));
+
+        if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+        {
+            writer.WriteLine($"__PInvoke.{importMethodName}({invokeArguments});");
+        }
+        else if (function.ReturnType.Kind == BindingTypeKind.Handle)
+        {
+            writer.WriteLine($"var __result = __PInvoke.{importMethodName}({invokeArguments});");
+            writer.WriteLine($"return {BuildManagedHandleReturnResultExpression(compilation, function.ReturnType, "__result", ReturnsOwnedHandle(function))};");
+        }
+        else
+        {
+            writer.WriteLine($"return __PInvoke.{importMethodName}({invokeArguments});");
+        }
+
+        writer.WriteLine("}");
+        writer.WriteLine("}");
+        writer.WriteLine("}");
         return writer.ToString();
     }
 
@@ -3366,9 +3513,10 @@ public static partial class BindingOutputRenderer
         var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
         var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, ReturnsOwnedHandle(function));
         var importMethodName = GetManagedImportMethodName(function);
+        var unsafeModifier = function.Parameters.Any(IsInputHandlePointerArrayParameter) ? "unsafe " : string.Empty;
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
-            ? $"internal static partial {returnTypeName} {importMethodName}({parameterList});"
-            : $"{returnAttribute}\ninternal static partial {returnTypeName} {importMethodName}({parameterList});";
+            ? $"internal static {unsafeModifier}partial {returnTypeName} {importMethodName}({parameterList});"
+            : $"{returnAttribute}\ninternal static {unsafeModifier}partial {returnTypeName} {importMethodName}({parameterList});";
 
         writer.Write(
             $$"""
@@ -3569,9 +3717,10 @@ public static partial class BindingOutputRenderer
         var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
         var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, ReturnsOwnedHandle(function));
         var importMethodName = GetManagedImportMethodName(function);
+        var unsafeModifier = function.Parameters.Any(IsInputHandlePointerArrayParameter) ? "unsafe " : string.Empty;
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
-            ? $"internal static partial {returnTypeName} {importMethodName}({parameterList});"
-            : $"{returnAttribute}\ninternal static partial {returnTypeName} {importMethodName}({parameterList});";
+            ? $"internal static {unsafeModifier}partial {returnTypeName} {importMethodName}({parameterList});"
+            : $"{returnAttribute}\ninternal static {unsafeModifier}partial {returnTypeName} {importMethodName}({parameterList});";
 
         writer.Write(
             $$"""
@@ -3598,6 +3747,10 @@ public static partial class BindingOutputRenderer
         var entryPointName = owningRecord is not null
             ? GetNativeCallbaseEntrypointName(owningRecord, function)
             : function.EntryPointName;
+        var unsafeModifier = function.Parameters.Any(IsInputHandlePointerArrayParameter) ? "unsafe " : string.Empty;
+        importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
+            ? $"internal static {unsafeModifier}partial {returnTypeName} {importMethodName}({parameterList});"
+            : $"{returnAttribute}\ninternal static {unsafeModifier}partial {returnTypeName} {importMethodName}({parameterList});";
 
         writer.Write(
             $$"""
@@ -4143,7 +4296,7 @@ public static partial class BindingOutputRenderer
                 {
                 {{(field.AccessModifier == BindingAccessModifier.Protected
                     ? RenderNativeProtectedFieldGetInvocation(accessorRecord, field)
-                    : RenderNativeFieldGetInvocation(field, plan, "self"))}}
+                    : RenderNativeFieldGetInvocation(compilation, field, plan, "self"))}}
                 }
                 """);
 
@@ -4156,7 +4309,7 @@ public static partial class BindingOutputRenderer
                     {
                     {{(field.AccessModifier == BindingAccessModifier.Protected
                         ? RenderNativeProtectedFieldSetInvocation(accessorRecord, field)
-                        : RenderNativeFieldSetInvocation(field, plan, "self"))}}
+                        : RenderNativeFieldSetInvocation(compilation, field, plan, "self"))}}
                     }
                     """);
             }
@@ -4165,12 +4318,12 @@ public static partial class BindingOutputRenderer
         foreach (var record in records.Where(static record => !record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static record => record.ManagedName, StringComparer.Ordinal))
         {
             writer.WriteLine();
-            if (!record.GetMetadata<bool>(MetadataKeys.NonPublicDestructor))
+            if (CanEmitDeleteThunk(record))
             {
                 writer.Write(RenderNativeDelete(record, record.RequiresDirector(compilation)));
             }
 
-            if (CanEmitClone(record, record.IsEffectivelyAbstract || record.HasUnimplementedAbstractBaseMethods(compilation), !record.GetMetadata<bool>(MetadataKeys.NonPublicDestructor)))
+            if (CanEmitClone(record, record.IsEffectivelyAbstract || record.HasUnimplementedAbstractBaseMethods(compilation), CanEmitDeleteThunk(record)))
             {
                 writer.WriteLine();
                 writer.Write(RenderNativeClone(record));
@@ -4182,7 +4335,7 @@ public static partial class BindingOutputRenderer
                 writer.Write(RenderNativeConnectDirector(record, record.GetEffectiveVirtualMethodSlots(compilation)));
             }
 
-            if (!record.IsPolymorphic)
+            if (!record.IsPolymorphic || IsNativeInterfaceWrapper(record))
             {
                 continue;
             }
@@ -4556,6 +4709,11 @@ public static partial class BindingOutputRenderer
         BindingCompilation? compilation,
         ParameterBinding? callbackMarshallerParameter)
     {
+        if (IsInputHandlePointerArrayParameter(parameter))
+        {
+            return $"nint* {parameter.ManagedName}";
+        }
+
         if (type.IsFixedArray)
         {
             var attribute = compilation is null ? string.Empty : GetManagedFixedArrayInMarshallerAttribute(compilation, type);
@@ -4809,6 +4967,11 @@ public static partial class BindingOutputRenderer
         BindingCompilation? compilation = null,
         bool renderUnexpressibleDefault = false)
     {
+        if (IsInputHandlePointerArrayParameter(parameter))
+        {
+            return $"global::System.ReadOnlySpan<{GetManagedPublicReturnTypeName(parameter.Type, compilation)}?> {parameter.ManagedName}";
+        }
+
         var modifier = parameter.Direction switch
         {
             BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => "in ",
@@ -4918,6 +5081,39 @@ public static partial class BindingOutputRenderer
     private static string GetNativeFieldCppType(BindingCompilation compilation, FieldBinding field)
     {
         return field.CppTypeName;
+    }
+
+    private static string GetNativeFixedArrayElementCppType(BindingCompilation compilation, BindingType type)
+    {
+        var elementType = type.IsFixedArray ? type.FixedArrayElementType ?? type : type;
+        return elementType.Kind switch
+        {
+            BindingTypeKind.Enum => compilation.FindEnumBySymbolId(elementType.EnumId)?.CppQualifiedName ?? elementType.CppTypeName,
+            BindingTypeKind.Handle => GetNativeFixedArrayHandleElementCppType(compilation, elementType),
+            _ => elementType.CppTypeName
+        };
+    }
+
+    private static string GetNativeFixedArrayHandleElementCppType(BindingCompilation compilation, BindingType type)
+    {
+        var record = compilation.FindRecordBySymbolId(type.RecordId);
+        if (record is null)
+        {
+            return type.CppTypeName;
+        }
+
+        var pointerSuffix = string.Empty;
+        var cppTypeName = type.CppTypeName.TrimEnd();
+        while (cppTypeName.EndsWith('*'))
+        {
+            pointerSuffix += "*";
+            cppTypeName = cppTypeName[..^1].TrimEnd();
+        }
+
+        var qualifiedTypeName = record.GenericParameters.Count > 0 && type.GenericArguments.Count > 0
+            ? record.FormatCppTypeName(type.GenericArguments)
+            : record.CppQualifiedName;
+        return qualifiedTypeName + pointerSuffix;
     }
 
 
@@ -5079,6 +5275,11 @@ public static partial class BindingOutputRenderer
             !function.IsOverride;
         var hidingModifier = hidingObjectToString ? "new " : string.Empty;
         var primaryBaseVirtualMatch = hasManagedBase ? FindPrimaryBaseVirtualMatch(compilation, record, function) : null;
+
+        if (IsNativeInterfaceWrapper(record) && IsManagedAbstractMethod(function))
+        {
+            return hidingModifier + "virtual ";
+        }
 
         if (IsManagedAbstractMethod(function) && primaryBaseVirtualMatch is null)
         {
@@ -5552,6 +5753,14 @@ public static partial class BindingOutputRenderer
             (!record.EmitDefaultNativeReleaseOverride || canEmitDeleteThunk);
     }
 
+    private static bool CanEmitDeleteThunk(RecordBinding record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        return !record.GetMetadata<bool>(MetadataKeys.NonPublicDestructor) &&
+            !record.GetMetadata<bool>(MetadataKeys.OpaqueNativeHandle) &&
+            !IsNativeInterfaceWrapper(record);
+    }
+
     private static bool CanCreateManagedWrapperFactory(BindingCompilation compilation, RecordBinding record)
     {
         ArgumentNullException.ThrowIfNull(compilation);
@@ -5569,9 +5778,21 @@ public static partial class BindingOutputRenderer
         ArgumentNullException.ThrowIfNull(record);
         ArgumentNullException.ThrowIfNull(virtualSlots);
 
+        if (IsNativeInterfaceWrapper(record))
+        {
+            return false;
+        }
+
         return record.IsAbstract ||
             virtualSlots.Any(static slot => IsManagedAbstractMethod(slot.Method)) ||
             HasUnimplementedManagedAbstractBaseMethods(compilation, record);
+    }
+
+    private static bool IsNativeInterfaceWrapper(RecordBinding record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+
+        return record.GetMetadata<bool>(MetadataKeys.NativeInterfaceWrapper);
     }
 
     private static bool IsManagedAbstractMethod(FunctionBinding method)
@@ -6236,6 +6457,35 @@ public static partial class BindingOutputRenderer
             parameter.AbiKind == BindingParameterAbiKind.Value &&
             parameter.ManagedDefaultValueExpression == "null" &&
             IsManagedReferenceDefaultParameter(parameter);
+    }
+
+    private static bool IsInputHandlePointerArrayParameter(ParameterBinding parameter)
+    {
+        ArgumentNullException.ThrowIfNull(parameter);
+
+        return parameter.Direction == BindingParameterDirection.In &&
+            parameter.AbiKind == BindingParameterAbiKind.Pointer &&
+            parameter.Type.Kind == BindingTypeKind.Handle &&
+            IsPointerToPointerType(parameter.CppTypeName);
+    }
+
+    private static bool IsPointerToPointerType(string cppTypeName)
+    {
+        var normalized = cppTypeName
+            .Replace("const", string.Empty, StringComparison.Ordinal)
+            .Replace(" ", string.Empty, StringComparison.Ordinal)
+            .Trim();
+        return normalized.EndsWith("**", StringComparison.Ordinal);
+    }
+
+    private static string GetPointerArrayAbiSpanName(ParameterBinding parameter)
+    {
+        return $"__abi_{parameter.ManagedName}";
+    }
+
+    private static string GetPointerArrayPointerName(ParameterBinding parameter)
+    {
+        return $"{GetPointerArrayAbiSpanName(parameter)}_ptr";
     }
 
     private static string BuildUnexpressibleDefaultCondition(FunctionBinding function, IReadOnlyList<int> defaultIndices, int providedDefaultCount)

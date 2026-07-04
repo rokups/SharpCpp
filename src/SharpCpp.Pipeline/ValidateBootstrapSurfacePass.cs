@@ -262,7 +262,8 @@ public static class ValidateBootstrapSurfacePass
 
     private static bool IsFatalIgnoredGenericArgumentRecord(RecordBinding record)
     {
-        if (record.GetMetadata<bool>(MetadataKeys.ForwardDeclaration))
+        if (record.GetMetadata<bool>(MetadataKeys.ForwardDeclaration) &&
+            !record.GetMetadata<bool>(MetadataKeys.OpaqueNativeHandle))
         {
             return true;
         }

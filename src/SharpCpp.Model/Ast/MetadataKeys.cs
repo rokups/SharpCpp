@@ -16,6 +16,8 @@ public static class MetadataKeys
     public const string DeclarationDisplayText = "declaration_display_text";
     public const string ExplicitGenericInstantiations = "explicit_generic_instantiations";
     public const string ForwardDeclaration = "forward_declaration";
+    public const string OpaqueNativeHandle = "opaque_native_handle";
+    public const string NativeInterfaceWrapper = "native_interface_wrapper";
     public const string PlaceholderRecord = "placeholder_record";
     public const string SuppressEmission = "suppress_emission";
     public const string HasNativeDefinition = "has_native_definition";
@@ -28,6 +30,7 @@ public static class MetadataKeys
     public const string ExplicitManagedRename = "explicit_managed_rename";
     public const string ManagedStaticInterfaces = "managed_static_interfaces";
     public const string ManagedStaticInterfacesAbstract = "managed_static_interfaces_abstract";
+    public const string NativeFieldAccessExpression = "native_field_access_expression";
 }
 
 public enum AccessorPropertyKind

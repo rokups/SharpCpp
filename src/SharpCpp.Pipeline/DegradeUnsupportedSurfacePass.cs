@@ -101,7 +101,8 @@ public static class DegradeUnsupportedSurfacePass
                     continue;
                 }
 
-                if (record.GetMetadata<bool>(MetadataKeys.ForwardDeclaration))
+                if (record.GetMetadata<bool>(MetadataKeys.ForwardDeclaration) &&
+                    !record.GetMetadata<bool>(MetadataKeys.OpaqueNativeHandle))
                 {
                     record.SetIgnoreReason("record is only forward-declared; wrapper materialization requires a complete definition");
                     changed = true;
@@ -334,6 +335,7 @@ public static class DegradeUnsupportedSurfacePass
         // configured by marshallers (e.g. std::string → StringBase).
         if (string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
             (record.ManagedTypeFormat is null || record.ManagedTypeFormat == record.ManagedName) &&
+            !record.GetMetadata<bool>(MetadataKeys.OpaqueNativeHandle) &&
             !record.Members.OfType<FunctionBinding>().Any(static m => !m.IsConstructor && !m.IsStatic && !m.HasMetadata(MetadataKeys.IgnoreReason)) &&
             !record.Members.OfType<FieldBinding>().Any() &&
             !record.Members.OfType<FunctionBinding>().Any(static m => m.IsConstructor && !m.HasMetadata(MetadataKeys.IgnoreReason)))
@@ -787,7 +789,8 @@ public static class DegradeUnsupportedSurfacePass
 
     private static bool IsFatalIgnoredGenericArgumentRecord(RecordBinding record)
     {
-        if (record.GetMetadata<bool>(MetadataKeys.ForwardDeclaration))
+        if (record.GetMetadata<bool>(MetadataKeys.ForwardDeclaration) &&
+            !record.GetMetadata<bool>(MetadataKeys.OpaqueNativeHandle))
         {
             return true;
         }

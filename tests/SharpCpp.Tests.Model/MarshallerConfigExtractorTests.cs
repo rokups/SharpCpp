@@ -631,16 +631,60 @@ public sealed class MarshallerConfigExtractorTests
         var args = new List<string> { "-x", "c++", "-std=c++20" };
         args.AddRange(includeDirs.Select(static includeDir => $"-I{includeDir}"));
 
-        var systemIncludeDirs = new[]
-        {
-            "/usr/include/c++/16.1.1",
-            "/usr/include/c++/16.1.1/x86_64-pc-linux-gnu",
-            "/usr/include/c++/16.1.1/backward",
-            "/usr/lib/gcc/x86_64-pc-linux-gnu/16.1.1/include",
-            "/usr/include"
-        };
-
-        args.AddRange(systemIncludeDirs.Where(Directory.Exists).Select(static includeDir => $"-I{includeDir}"));
+        args.AddRange(EnumerateSystemIncludeDirs().Select(static includeDir => $"-I{includeDir}"));
         return args.ToArray();
+    }
+
+    private static IEnumerable<string> EnumerateSystemIncludeDirs()
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        if (Directory.Exists("/usr/include/c++"))
+        {
+            foreach (var versionDir in Directory.GetDirectories("/usr/include/c++").OrderByDescending(static path => path, StringComparer.Ordinal))
+            {
+                foreach (var candidate in new[]
+                {
+                    versionDir,
+                    Path.Combine(versionDir, "x86_64-pc-linux-gnu"),
+                    Path.Combine(versionDir, "backward")
+                })
+                {
+                    if (Directory.Exists(candidate) && seen.Add(candidate))
+                    {
+                        yield return candidate;
+                    }
+                }
+            }
+        }
+
+        if (Directory.Exists("/usr/lib/gcc/x86_64-pc-linux-gnu"))
+        {
+            foreach (var versionDir in Directory.GetDirectories("/usr/lib/gcc/x86_64-pc-linux-gnu").OrderByDescending(static path => path, StringComparer.Ordinal))
+            {
+                var includeDir = Path.Combine(versionDir, "include");
+                if (Directory.Exists(includeDir) && seen.Add(includeDir))
+                {
+                    yield return includeDir;
+                }
+            }
+        }
+
+        if (Directory.Exists("/usr/lib/clang"))
+        {
+            foreach (var versionDir in Directory.GetDirectories("/usr/lib/clang").OrderByDescending(static path => path, StringComparer.Ordinal))
+            {
+                var includeDir = Path.Combine(versionDir, "include");
+                if (Directory.Exists(includeDir) && seen.Add(includeDir))
+                {
+                    yield return includeDir;
+                }
+            }
+        }
+
+        if (Directory.Exists("/usr/include") && seen.Add("/usr/include"))
+        {
+            yield return "/usr/include";
+        }
     }
 }

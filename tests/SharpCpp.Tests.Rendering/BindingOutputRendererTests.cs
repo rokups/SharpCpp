@@ -155,6 +155,106 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Native_field_access_metadata_renders_direct_nested_field_access()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });
+        var record = new RecordBinding("record:sample", "sample", "Sample");
+        var field = new FieldBinding("field:sample:nested_value", "nested_value", "NestedValue", BindingType.Int32, "int", "sample", isReadOnly: false);
+        field.SetMetadata(MetadataKeys.NativeFieldAccessExpression, "outer.inner.value");
+        record.Members.Add(field);
+        compilation.Members.Add(record);
+
+        var nativeOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("return self->outer.inner.value;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("self->outer.inner.value = *value;", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("&sample::nested_value", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Native_field_access_metadata_casts_opaque_pointer_setters_to_declared_field_type()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });
+        var record = new RecordBinding("record:sample", "sample", "Sample");
+        var field = new FieldBinding("field:sample:info_wl_display", "info_wl_display", "InfoWlDisplay", BindingType.IntPtr, "void*", "sample", isReadOnly: false, isPointer: true);
+        field.SetMetadata(MetadataKeys.NativeFieldAccessExpression, "info.wl.display");
+        record.Members.Add(field);
+        compilation.Members.Add(record);
+
+        var nativeOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("return self->info.wl.display;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("self->info.wl.display = static_cast<decltype(self->info.wl.display)>(*value);", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Native_field_accessors_preserve_const_char_pointer_storage_types()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });
+        var record = new RecordBinding("record:sample", "Sample", "Sample");
+        var field = new FieldBinding("field:sample:Source", "Source", "Source", BindingType.IntPtr, "const Sample::Char*", "Sample", isReadOnly: false, isPointer: true);
+        record.Members.Add(field);
+        compilation.Members.Add(record);
+
+        var output = BindingOutputRenderer.Render(compilation, "SharpCppSample");
+        var managedOutput = output.Files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = output.Files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public global::System.IntPtr Source", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("ret_t<const Sample::Char*> sharpcpp_e2e_Sample_Source_get", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("field_t<const Sample::Char*> value", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("MarshallerInvoker::set_field<const Sample::Char*>(&Sample::Source, self, value);", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Native_fixed_array_fields_render_view_and_copy_accessors_with_qualified_element_type()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp", "SharpCpp/Marshaller.hpp" });
+        var arrayRecord = new RecordBinding("record:SharpCpp::NativeArray", "NativeArray", "NativeArray", "SharpCpp::NativeArray")
+        {
+            ManagedTypeFormat = "global::SharpCpp.NativeArray<{0}>"
+        };
+        arrayRecord.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        arrayRecord.GenericParameters.Add(new BindingGenericParameter("N", 1));
+        arrayRecord.SetMetadata(MetadataKeys.FixedArrayRecord, true);
+        arrayRecord.SetMetadata(MetadataKeys.NativeArrayRecord, true);
+        compilation.Members.Add(arrayRecord);
+
+        var formatEnum = new EnumBinding("enum:Sample::FORMAT", "FORMAT", "Format", cppQualifiedName: "Sample::FORMAT");
+        compilation.Members.Add(formatEnum);
+
+        var formatType = BindingType.CreateEnum("FORMAT", "Format", enumId: formatEnum.SymbolId);
+        var lengthType = BindingType.CreateConfigured("4", "4");
+        arrayRecord.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding([formatType, lengthType]));
+        arrayRecord.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding([BindingType.Boolean, BindingType.CreateConfigured("7", "7")]));
+        var fixedArrayType = BindingType.CreateHandle(
+            "SharpCpp::NativeArray<FORMAT,4>",
+            "global::SharpCpp.NativeArray<{0}>",
+            arrayRecord.SymbolId,
+            genericArguments: [formatType, lengthType])
+            .WithFixedArray(formatType, 4);
+        var record = new RecordBinding("record:Sample::Pipeline", "Pipeline", "Pipeline", "Sample::Pipeline");
+        record.Members.Add(new FieldBinding("field:Sample::Pipeline:Formats", "Formats", "Formats", fixedArrayType, "Sample::FORMAT[4]", "Sample::Pipeline", isReadOnly: false));
+        compilation.Members.Add(record);
+
+        var output = BindingOutputRenderer.Render(compilation, "SharpCppSample");
+        var managedOutput = output.Files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = output.Files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("[return: MarshalAs(UnmanagedType.I1)]", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial void __Array_Set_NativeArray_bool_7(global::SharpCpp.Support.NativeArrayAbi self, nuint index, [MarshalAs(UnmanagedType.I1)] bool value);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("auto* value = new Sample::FORMAT[4]{};", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("static_cast<Sample::FORMAT*>(self.handle)[index]", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return { const_cast<void*>(static_cast<const void*>(self->Formats)), 4 };", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("auto* source = static_cast<Sample::FORMAT*>(value.handle);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("ParameterMarshaller<Sample::FORMAT> marshaller;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("self->Formats[index] = marshaller.ConvertToCpp(source[index]);", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("new FORMAT[4]", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Free_functions_can_render_into_custom_managed_containers()
     {
         var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });
@@ -1244,6 +1344,62 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Instance_methods_render_handle_pointer_array_parameters_as_spans()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Graphics/DeviceContext.hpp" });
+        var textureView = new RecordBinding("record:Sample::TextureView", "TextureView", "TextureView", "Sample::TextureView");
+        var deviceContext = new RecordBinding("record:Sample::DeviceContext", "DeviceContext", "DeviceContext", "Sample::DeviceContext");
+        var method = new FunctionBinding(
+            "method:Sample::DeviceContext:SetTargets",
+            "SetTargets",
+            "SetTargets",
+            BindingType.Void,
+            "sharpcpp_sample_set_targets",
+            "void",
+            "Sample::DeviceContext::SetTargets")
+        {
+            IsStatic = false,
+            IsVirtual = true,
+            OwningRecordCppTypeName = "Sample::DeviceContext"
+        };
+        method.Parameters.Add(new ParameterBinding(
+            "parameter:Sample::DeviceContext:SetTargets:count",
+            "count",
+            "count",
+            BindingType.UInt32,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "unsigned int"));
+        method.Parameters.Add(new ParameterBinding(
+            "parameter:Sample::DeviceContext:SetTargets:views",
+            "views",
+            "views",
+            textureView.HandleType,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Pointer,
+            "Sample::TextureView**"));
+        deviceContext.Members.Add(method);
+        compilation.Members.Add(textureView);
+        compilation.Members.Add(deviceContext);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public virtual void SetTargets(uint count, global::System.ReadOnlySpan<global::SharpCpp.Sample.TextureView?> views)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("global::System.Span<nint> __abi_views", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("fixed (nint* __abi_views_ptr = __abi_views)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static unsafe partial void SetTargets(DeviceContext self, uint count, nint* views);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT ret_t<void> sharpcpp_sample_set_targets(arg_t<Sample::DeviceContext*> self, arg_t<unsigned int> count, arg_t<Sample::TextureView**> views)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("using FT = void(Sample::DeviceContext::*)(unsigned int, Sample::TextureView**);", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Managed_output_uses_string_for_const_char_return()
     {
         var compilation = new BindingCompilation(
@@ -1598,6 +1754,84 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("public partial class Widget : global::SharpCpp.Support.NativeObject", managedOutput, StringComparison.Ordinal);
         Assert.Contains("public bool OwnsHandle => OwnsNativeHandle;", managedOutput, StringComparison.Ordinal);
         Assert.Contains("protected override bool ReleaseNativeHandle(nint handle)", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Output_does_not_emit_generic_delete_for_opaque_native_handles()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "SDL.h" });
+        var record = new RecordBinding("record:SDL_Window", "SDL_Window", "SdlWindow", "SDL_Window");
+        record.SetMetadata(MetadataKeys.ForwardDeclaration, true);
+        record.SetMetadata(MetadataKeys.OpaqueNativeHandle, true);
+        record.SetMetadata(MetadataKeys.NonPublicDestructor, true);
+        compilation.Members.Add(record);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public partial class SdlWindow : global::SharpCpp.Support.NativeObject", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("protected override bool ReleaseNativeHandle(nint handle)", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("__PInvoke.Delete(handle);", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("internal static partial void Delete(nint self);", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("sharpcpp_e2e_SDL_Window_delete", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("MarshallerInvoker::destroy<SDL_Window>", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Native_interface_wrappers_emit_concrete_pure_virtual_calls_without_lifetime_metadata()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Diligent/Interface.hpp" });
+        var record = new RecordBinding("record:IValue", "IValue", "IValue", "IValue")
+        {
+            IsAbstract = true,
+            IsPolymorphic = true
+        };
+        record.SetMetadata(MetadataKeys.NativeInterfaceWrapper, true);
+        var getValue = new FunctionBinding(
+            "method:IValue:GetValue",
+            "GetValue",
+            "GetValue",
+            BindingType.Int32,
+            "entry_get_value",
+            cppQualifiedName: "IValue::GetValue")
+        {
+            IsStatic = false,
+            IsVirtual = true,
+            IsPureVirtual = true,
+            OwningRecordCppTypeName = "IValue"
+        };
+        record.Members.Add(getValue);
+        compilation.Members.Add(record);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public partial class IValue : global::SharpCpp.Support.NativeObject", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public virtual int GetValue()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke.GetValue(this)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("INativeObjectRegistration<IValue>.RegistrationCreateFactory => static (handle, ownsHandle) => new IValue(handle, ownsHandle)", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("public abstract partial class IValue", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("Native pure virtual method 'GetValue' is not callable", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("internal static partial void Delete(nint self);", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("GetNativeObjectMetadata", managedOutput, StringComparison.Ordinal);
+
+        Assert.Contains("&IValue::GetValue", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("sharpcpp_e2e_IValue_delete", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("sharpcpp_e2e_IValue_type_id", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("sharpcpp_e2e_IValue_metadata", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("dynamic_cast<void*>", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]

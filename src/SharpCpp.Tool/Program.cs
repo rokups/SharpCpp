@@ -85,13 +85,9 @@ internal static class Program
             "-std=c++20",
             "-Wno-unknown-attributes",
             $"-I{Path.Combine(projectRoot, "include")}",
-            $"-I{fixtureRoot}",
-            "-I/usr/include/c++/16.1.1",
-            "-I/usr/include/c++/16.1.1/x86_64-pc-linux-gnu",
-            "-I/usr/include/c++/16.1.1/backward",
-            "-I/usr/lib/gcc/x86_64-pc-linux-gnu/16.1.1/include",
-            "-I/usr/include"
+            $"-I{fixtureRoot}"
         };
+        clangArguments.AddRange(GetSystemCppIncludeArguments());
         var marshallerConfigurationFiles = new[]
         {
             Path.Combine(projectRoot, "include", "SharpCpp", "Marshaller.hpp")
@@ -177,6 +173,55 @@ internal static class Program
         Console.WriteLine("Commands:");
         Console.WriteLine("  sample-metadata [output-path]   Emit deterministic sample metadata.");
         Console.WriteLine("  generate-sample --generated-root <dir> [--project-root <dir>] [--file-stem <stem>] [--log-file <path>]   Emit sample bindings artifacts.");
+    }
+
+    private static IEnumerable<string> GetSystemCppIncludeArguments()
+    {
+        foreach (var includePath in GetSystemCppIncludePaths())
+        {
+            yield return $"-I{includePath}";
+        }
+    }
+
+    private static IEnumerable<string> GetSystemCppIncludePaths()
+    {
+        var cppRoot = "/usr/include/c++";
+        var cppVersionDir = Directory.Exists(cppRoot)
+            ? Directory.EnumerateDirectories(cppRoot)
+                .OrderByDescending(Path.GetFileName, StringComparer.Ordinal)
+                .FirstOrDefault()
+            : null;
+
+        if (!string.IsNullOrWhiteSpace(cppVersionDir))
+        {
+            yield return cppVersionDir;
+
+            var targetDir = Path.Combine(cppVersionDir, "x86_64-pc-linux-gnu");
+            if (Directory.Exists(targetDir))
+            {
+                yield return targetDir;
+            }
+
+            var backwardDir = Path.Combine(cppVersionDir, "backward");
+            if (Directory.Exists(backwardDir))
+            {
+                yield return backwardDir;
+            }
+        }
+
+        var gccRoot = "/usr/lib/gcc/x86_64-pc-linux-gnu";
+        var gccIncludeDir = Directory.Exists(gccRoot)
+            ? Directory.EnumerateDirectories(gccRoot)
+                .OrderByDescending(Path.GetFileName, StringComparer.Ordinal)
+                .Select(path => Path.Combine(path, "include"))
+                .FirstOrDefault(Directory.Exists)
+            : null;
+        if (!string.IsNullOrWhiteSpace(gccIncludeDir))
+        {
+            yield return gccIncludeDir;
+        }
+
+        yield return "/usr/include";
     }
 
     private static string? GetOptionValue(IReadOnlyList<string> args, string name)

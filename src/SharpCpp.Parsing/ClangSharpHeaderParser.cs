@@ -548,7 +548,7 @@ public sealed partial class ClangSharpHeaderParser
         var declarationText = braceIndex >= 0
             ? sourceText[..braceIndex]
             : sourceText;
-        var isForwardDeclaration = braceIndex < 0;
+        var isForwardDeclaration = braceIndex < 0 && !recordDecl.Decls.Any();
 
         // Look up ghost records under both the unqualified spelling and the fully
         // qualified name — placeholders created by MapType may be keyed by either.
@@ -579,10 +579,19 @@ public sealed partial class ClangSharpHeaderParser
                 ContainsCopyConstructorDeclaration(sourceText, nativeName) ||
                 ContainsCopyConstructorDeclaration(GetDeclFileText(recordDecl), nativeName)
         };
+        if (HasSharpCppAttribute(declarationText, "native_interface"))
+        {
+            record.SetMetadata(MetadataKeys.NativeInterfaceWrapper, true);
+        }
         record.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(recordDecl));
         if (isForwardDeclaration)
         {
             record.SetMetadata(MetadataKeys.ForwardDeclaration, true);
+            if (IsOpaqueNativeHandleDeclaration(recordDecl))
+            {
+                record.SetMetadata(MetadataKeys.OpaqueNativeHandle, true);
+                record.SetMetadata(MetadataKeys.NonPublicDestructor, true);
+            }
         }
         CheckAndApplyIgnoreAttribute(recordDecl, record);
         TryApplyRename(recordDecl, record);
@@ -594,8 +603,46 @@ public sealed partial class ClangSharpHeaderParser
         ApplyDestructorMetadata(cxxRecord, record);
         PopulateRecordBases(cxxRecord, record, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
         PopulateRecordMembers(recordDecl, record, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters, entryPointPrefix, compilation, headerIncludePath);
+        AddSyntheticDefaultConstructorForPlainRecord(recordDecl, record, entryPointPrefix);
 
         UpdatePolymorphism(record, recordsByName);
+    }
+
+    private static bool IsOpaqueNativeHandleDeclaration(RecordDecl recordDecl)
+    {
+        return recordDecl is not CXXRecordDecl &&
+            !recordDecl.Decls.Any();
+    }
+
+    private static void AddSyntheticDefaultConstructorForPlainRecord(
+        RecordDecl recordDecl,
+        RecordBinding record,
+        string entryPointPrefix)
+    {
+        if (recordDecl is CXXRecordDecl ||
+            record.GetMetadata<bool>(MetadataKeys.ForwardDeclaration) ||
+            record.Members.OfType<FunctionBinding>().Any(static member => member.IsConstructor && member.Parameters.Count == 0) ||
+            !record.Members.OfType<FieldBinding>().Any())
+        {
+            return;
+        }
+
+        var constructor = new FunctionBinding(
+            $"ctor:{record.NativeName}:c-default",
+            record.NativeName,
+            record.ManagedName,
+            record.HandleType,
+            entryPointName: BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_ctor"),
+            cppReturnTypeName: $"{record.CppQualifiedName}*",
+            cppQualifiedName: $"{record.CppQualifiedName}::{record.NativeName}")
+        {
+            IsStatic = false,
+            AccessModifier = BindingAccessModifier.Public,
+            IsConstructor = true,
+            OwningRecordCppTypeName = record.CppQualifiedName
+        };
+        constructor.SetMetadata(MetadataKeys.DeclarationDisplayText, $"{record.NativeName}();");
+        record.Members.Add(constructor);
     }
 
     private static void RegisterTemplateRecord(
@@ -656,6 +703,10 @@ public sealed partial class ClangSharpHeaderParser
                 ContainsCopyConstructorDeclaration(sourceText, nativeName) ||
                 ContainsCopyConstructorDeclaration(GetDeclFileText(classTemplate), nativeName)
         };
+        if (HasSharpCppAttribute(declarationText, "native_interface"))
+        {
+            record.SetMetadata(MetadataKeys.NativeInterfaceWrapper, true);
+        }
         record.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(classTemplate));
         if (isForwardDeclaration)
         {
@@ -866,6 +917,9 @@ public sealed partial class ClangSharpHeaderParser
 
                 case FieldDecl fieldDecl:
                 {
+                    if (TryAddFlattenedRecordFields(recordDecl, record, fieldDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters))
+                        break;
+
                     var field = CreateField(record, fieldDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
                     CheckAndApplyIgnoreAttribute(fieldDecl, field);
                     TryApplyRename(fieldDecl, field);
@@ -984,7 +1038,7 @@ public sealed partial class ClangSharpHeaderParser
                 parameterType,
                 direction,
                 abiKind,
-                ResolveQualifiedTypeName(parameter.Type.Handle, recordsByName));
+                ResolveParameterCppTypeName(parameter.Type.Handle, recordsByName));
             ApplyManagedDefaultValue(param, parameter, parameterType, managedTypeOverrides);
             ApplyCallbackDelegateAttribute(methodDecl.Handle, parameter.Handle, param, ref ignoreReason);
             function.Parameters.Add(param);
@@ -1075,7 +1129,7 @@ public sealed partial class ClangSharpHeaderParser
                 parameterType,
                 direction,
                 abiKind,
-                ResolveQualifiedTypeName(parameter.Type.Handle, recordsByName));
+                ResolveParameterCppTypeName(parameter.Type.Handle, recordsByName));
             ApplyManagedDefaultValue(templateParam, parameter, parameterType, managedTypeOverrides);
             ApplyCallbackDelegateAttribute(templatedFunction.Handle, parameter.Handle, templateParam, ref ignoreReason);
             function.Parameters.Add(templateParam);
@@ -1144,7 +1198,7 @@ public sealed partial class ClangSharpHeaderParser
                 parameterType,
                 direction,
                 abiKind,
-                ResolveQualifiedTypeName(parameter.Type.Handle, recordsByName));
+                ResolveParameterCppTypeName(parameter.Type.Handle, recordsByName));
             ApplyManagedDefaultValue(staticParam, parameter, parameterType, managedTypeOverrides);
             ApplyCallbackDelegateAttribute(methodDecl.Handle, parameter.Handle, staticParam, ref ignoreReason);
             function.Parameters.Add(staticParam);
@@ -1207,7 +1261,7 @@ public sealed partial class ClangSharpHeaderParser
                 parameterType,
                 direction,
                 abiKind,
-                ResolveQualifiedTypeName(parameter.Type.Handle, recordsByName));
+                ResolveParameterCppTypeName(parameter.Type.Handle, recordsByName));
             ApplyManagedDefaultValue(ctorParam, parameter, parameterType, managedTypeOverrides);
             ApplyCallbackDelegateAttribute(ctorDecl.Handle, parameter.Handle, ctorParam, ref ignoreReason);
             function.Parameters.Add(ctorParam);
@@ -1238,6 +1292,12 @@ public sealed partial class ClangSharpHeaderParser
             ? "fixed-size array fields are not yet supported in this bootstrap surface"
             : null;
         var (fieldType, ignoreReason) = TryMapType(fieldDecl.Type.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        if (ShouldExposeCharPointerFieldAsIntPtr(fieldDecl.Type.Handle))
+        {
+            fieldType = BindingType.IntPtr;
+            ignoreReason = null;
+        }
+
         ignoreReason ??= initialIgnoreReason;
         var field = new FieldBinding(
             $"field:{record.NativeName}:{nativeName}",
@@ -1262,6 +1322,378 @@ public sealed partial class ClangSharpHeaderParser
         field.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(fieldDecl));
 
         return field;
+    }
+
+    private static bool TryAddFlattenedRecordFields(
+        RecordDecl ownerDecl,
+        RecordBinding ownerRecord,
+        FieldDecl fieldDecl,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        IReadOnlyDictionary<string, BindingType> genericParameters)
+    {
+        if (!IsRecordValueField(fieldDecl.Type.Handle))
+            return false;
+
+        var nativeName = fieldDecl.Name ?? fieldDecl.Spelling.ToString();
+        if (string.IsNullOrWhiteSpace(nativeName))
+            return false;
+
+        var accessPath = nativeName;
+
+        if (TryResolveNestedRecordDecl(ownerDecl, fieldDecl.Type.Handle, out var nestedRecordDecl, out var nestedAccessPrefix))
+        {
+            accessPath = JoinFieldAccessPath(nestedAccessPrefix, nativeName);
+            var flattenedCount = AddFlattenedFieldsFromRecordDecl(
+                ownerRecord,
+                nestedRecordDecl,
+                accessPath,
+                recordsByName,
+                enumsByName,
+                managedTypeOverrides,
+                genericParameters);
+
+            return flattenedCount > 0 || IsAnonymousRecordDecl(nestedRecordDecl);
+        }
+
+        var recordTypeName = GetRecordQualifiedName(fieldDecl.Type.Handle, recordsByName);
+        if (!recordsByName.TryGetValue(recordTypeName, out var nestedRecord) || IsMarshallerBackedRecordValue(nestedRecord))
+            return false;
+
+        return AddFlattenedFieldsFromRecordBinding(
+            ownerRecord,
+            nestedRecord,
+            accessPath) > 0;
+    }
+
+    private static int AddFlattenedFieldsFromRecordDecl(
+        RecordBinding ownerRecord,
+        RecordDecl sourceRecordDecl,
+        string accessPath,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        IReadOnlyDictionary<string, BindingType> genericParameters)
+    {
+        var flattenedCount = 0;
+        foreach (var child in sourceRecordDecl.Decls.OfType<FieldDecl>())
+        {
+            var childNativeName = child.Name ?? child.Spelling.ToString();
+            if (string.IsNullOrWhiteSpace(childNativeName) || IsIncompleteArrayType(child.Type.Handle.CanonicalType))
+                continue;
+
+            var childAccessPath = JoinFieldAccessPath(accessPath, childNativeName);
+            var childNativePrefix = ToFlattenedFieldNativeName(childAccessPath);
+            var childManagedPrefix = ToFlattenedFieldManagedName(childAccessPath);
+
+            if (IsRecordValueField(child.Type.Handle))
+            {
+                if (TryResolveNestedRecordDecl(sourceRecordDecl, child.Type.Handle, out var nestedRecordDecl, out var nestedAccessPrefix))
+                {
+                    var nestedChildAccessPath = JoinFieldAccessPath(accessPath, nestedAccessPrefix, childNativeName);
+                    flattenedCount += AddFlattenedFieldsFromRecordDecl(
+                        ownerRecord,
+                        nestedRecordDecl,
+                        nestedChildAccessPath,
+                        recordsByName,
+                        enumsByName,
+                        managedTypeOverrides,
+                        genericParameters);
+                    continue;
+                }
+
+                var recordTypeName = GetRecordQualifiedName(child.Type.Handle, recordsByName);
+                if (recordsByName.TryGetValue(recordTypeName, out var nestedRecord) && !IsMarshallerBackedRecordValue(nestedRecord))
+                {
+                    flattenedCount += AddFlattenedFieldsFromRecordBinding(
+                        ownerRecord,
+                        nestedRecord,
+                        childAccessPath);
+                    continue;
+                }
+            }
+
+            var flattenedField = CreateFlattenedLeafField(
+                ownerRecord,
+                child,
+                childNativePrefix,
+                childManagedPrefix,
+                childAccessPath,
+                recordsByName,
+                enumsByName,
+                managedTypeOverrides,
+                genericParameters);
+            ownerRecord.Members.Add(flattenedField);
+            flattenedCount++;
+        }
+
+        return flattenedCount;
+    }
+
+    private static int AddFlattenedFieldsFromRecordBinding(
+        RecordBinding ownerRecord,
+        RecordBinding sourceRecord,
+        string accessPath)
+    {
+        var flattenedCount = 0;
+        foreach (var sourceField in sourceRecord.Members.OfType<FieldBinding>().Where(static field => !field.IsIgnored()))
+        {
+            if (sourceField.Type.Marshaller.CppIsRecordValue)
+                continue;
+
+            var sourceAccessPath = sourceField.GetMetadata<string>(MetadataKeys.NativeFieldAccessExpression) ?? sourceField.NativeName;
+            var flattenedAccessPath = JoinFieldAccessPath(accessPath, sourceAccessPath);
+            var nativeName = ToFlattenedFieldNativeName(flattenedAccessPath);
+            var managedName = ToFlattenedFieldManagedName(flattenedAccessPath);
+            var flattenedField = new FieldBinding(
+                $"field:{ownerRecord.NativeName}:{flattenedAccessPath}",
+                nativeName,
+                managedName,
+                sourceField.Type,
+                sourceField.CppTypeName,
+                ownerRecord.CppQualifiedName,
+                sourceField.IsReadOnly,
+                sourceField.IsReference,
+                sourceField.IsPointer)
+            {
+                AccessModifier = sourceField.AccessModifier,
+                ReturnsOwnedHandle = sourceField.ReturnsOwnedHandle
+            };
+            flattenedField.SetMetadata(MetadataKeys.NativeFieldAccessExpression, flattenedAccessPath);
+            if (sourceField.TryGetMetadata(MetadataKeys.DocumentationComment, out string? documentationComment) && !string.IsNullOrWhiteSpace(documentationComment))
+                flattenedField.SetMetadata(MetadataKeys.DocumentationComment, documentationComment);
+            flattenedField.SetMetadata(MetadataKeys.DeclarationDisplayText, sourceField.GetMetadata<string>(MetadataKeys.DeclarationDisplayText) ?? sourceField.NativeName);
+            ownerRecord.Members.Add(flattenedField);
+            flattenedCount++;
+        }
+
+        return flattenedCount;
+    }
+
+    private static FieldBinding CreateFlattenedLeafField(
+        RecordBinding ownerRecord,
+        FieldDecl leafFieldDecl,
+        string nativeName,
+        string managedName,
+        string accessPath,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        IReadOnlyDictionary<string, BindingType> genericParameters)
+    {
+        var (fieldType, ignoreReason) = TryMapType(leafFieldDecl.Type.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        var cppTypeName = ResolveQualifiedTypeName(leafFieldDecl.Type.Handle, recordsByName);
+        if (ShouldExposeCharPointerFieldAsIntPtr(leafFieldDecl.Type.Handle))
+        {
+            fieldType = BindingType.IntPtr;
+            ignoreReason = null;
+        }
+        else if (ShouldExposeFlattenedFieldAsIntPtr(leafFieldDecl.Type.Handle, fieldType, recordsByName))
+        {
+            fieldType = BindingType.IntPtr;
+            cppTypeName = BindingType.IntPtr.CppTypeName;
+            ignoreReason = null;
+        }
+
+        var field = new FieldBinding(
+            $"field:{ownerRecord.NativeName}:{accessPath}",
+            nativeName,
+            managedName,
+            fieldType,
+            cppTypeName,
+            ownerRecord.CppQualifiedName,
+            isReadOnly: leafFieldDecl.Type.Handle.IsConstQualified,
+            isReference: TypeIsAnyReference(leafFieldDecl.Type.Handle),
+            isPointer: TypeIsPointer(leafFieldDecl.Type.Handle))
+        {
+            AccessModifier = MapAccessModifier(leafFieldDecl.Access)
+        };
+        field.ReturnsOwnedHandle = ShouldReturnOwnedHandle(leafFieldDecl.Type.Handle, field.Type, managedTypeOverrides, preferReturnOverride: false);
+        field.SetMetadata(MetadataKeys.NativeFieldAccessExpression, accessPath);
+        field.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(leafFieldDecl));
+        ExtractAndApplyDocumentation(leafFieldDecl, field);
+
+        if (ignoreReason is not null)
+            field.SetIgnoreReason(ignoreReason);
+
+        return field;
+    }
+
+    private static bool IsRecordValueField(CXType type)
+    {
+        var normalizedType = type.CanonicalType;
+        return TypeIsRecord(normalizedType) &&
+            !TypeIsPointer(normalizedType) &&
+            !TypeIsAnyReference(normalizedType) &&
+            !IsIncompleteArrayType(normalizedType);
+    }
+
+    private static bool TryResolveNestedRecordDecl(RecordDecl ownerDecl, CXType fieldType, out RecordDecl nestedRecordDecl, out string accessPrefix)
+    {
+        var lookupNames = GetRecordTypeLookupNames(fieldType);
+        var targetLocationKey = GetCursorLocationKey(fieldType.Declaration);
+        return TryResolveNestedRecordDecl(ownerDecl, lookupNames, targetLocationKey, string.Empty, out nestedRecordDecl, out accessPrefix);
+    }
+
+    private static bool TryResolveNestedRecordDecl(
+        RecordDecl ownerDecl,
+        HashSet<string> lookupNames,
+        string? targetLocationKey,
+        string currentAccessPath,
+        out RecordDecl nestedRecordDecl,
+        out string accessPrefix)
+    {
+        foreach (var childRecordDecl in ownerDecl.Decls.OfType<RecordDecl>())
+        {
+            if (IsMatchingRecordDecl(childRecordDecl, lookupNames, targetLocationKey))
+            {
+                nestedRecordDecl = childRecordDecl;
+                accessPrefix = currentAccessPath;
+                return true;
+            }
+        }
+
+        foreach (var childFieldDecl in ownerDecl.Decls.OfType<FieldDecl>())
+        {
+            var childNativeName = childFieldDecl.Name ?? childFieldDecl.Spelling.ToString();
+            if (string.IsNullOrWhiteSpace(childNativeName) || !IsRecordValueField(childFieldDecl.Type.Handle))
+                continue;
+
+            if (!TryResolveDirectNestedRecordDecl(ownerDecl, childFieldDecl.Type.Handle, out var childRecordDecl))
+                continue;
+
+            var childAccessPath = JoinFieldAccessPath(currentAccessPath, childNativeName);
+            if (TryResolveNestedRecordDecl(childRecordDecl, lookupNames, targetLocationKey, childAccessPath, out nestedRecordDecl, out accessPrefix))
+                return true;
+        }
+
+        nestedRecordDecl = null!;
+        accessPrefix = string.Empty;
+        return false;
+    }
+
+    private static bool TryResolveDirectNestedRecordDecl(RecordDecl ownerDecl, CXType fieldType, out RecordDecl nestedRecordDecl)
+    {
+        var lookupNames = GetRecordTypeLookupNames(fieldType);
+        var targetLocationKey = GetCursorLocationKey(fieldType.Declaration);
+        foreach (var childRecordDecl in ownerDecl.Decls.OfType<RecordDecl>())
+        {
+            if (IsMatchingRecordDecl(childRecordDecl, lookupNames, targetLocationKey))
+            {
+                nestedRecordDecl = childRecordDecl;
+                return true;
+            }
+        }
+
+        nestedRecordDecl = null!;
+        return false;
+    }
+
+    private static bool IsMatchingRecordDecl(RecordDecl recordDecl, HashSet<string> lookupNames, string? targetLocationKey)
+    {
+        return (!string.IsNullOrWhiteSpace(targetLocationKey) && string.Equals(GetDeclLocationKey(recordDecl), targetLocationKey, StringComparison.Ordinal)) ||
+            lookupNames.Contains(NormalizeRecordLookupName(GetCppQualifiedName(recordDecl)));
+    }
+
+    private static string? GetDeclLocationKey(Decl decl)
+    {
+        return GetCursorLocationKey(decl.Handle);
+    }
+
+    private static string? GetCursorLocationKey(CXCursor cursor)
+    {
+        if (cursor.IsNull)
+            return null;
+
+        cursor.Location.GetFileLocation(out var file, out var line, out var column, out _);
+        var path = file.Name.CString;
+        return string.IsNullOrWhiteSpace(path) ? null : $"{Path.GetFullPath(path)}:{line}:{column}";
+    }
+
+    private static HashSet<string> GetRecordTypeLookupNames(CXType type)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal)
+        {
+            NormalizeRecordLookupName(type.Spelling.ToString()),
+            NormalizeRecordLookupName(type.CanonicalType.Spelling.ToString())
+        };
+
+        var declaration = type.Declaration;
+        if (!declaration.IsNull)
+            names.Add(NormalizeRecordLookupName(GetCppQualifiedName(declaration)));
+
+        return names;
+    }
+
+    private static string NormalizeRecordLookupName(string name)
+    {
+        return NormalizeNamedTypeName(StripGenericArguments(NormalizeTypeName(name)));
+    }
+
+    private static bool IsAnonymousRecordDecl(RecordDecl recordDecl)
+    {
+        var name = recordDecl.Name ?? recordDecl.Spelling.ToString();
+        return name.Contains("(unnamed", StringComparison.Ordinal) ||
+            GetCppQualifiedName(recordDecl).Contains("(unnamed", StringComparison.Ordinal);
+    }
+
+    private static bool IsMarshallerBackedRecordValue(RecordBinding record)
+    {
+        return record.GetMetadata<bool>(MetadataKeys.MarshallerConfiguredRecord) ||
+            !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ||
+            record.Members.OfType<FunctionBinding>().Any(static member => member.HasMetadata(MetadataKeys.MarshallerExposedMethod));
+    }
+
+    private static bool ShouldExposeFlattenedFieldAsIntPtr(CXType type, BindingType fieldType, IDictionary<string, RecordBinding> recordsByName)
+    {
+        if (!TypeIsPointer(type.CanonicalType) || fieldType.Kind != BindingTypeKind.Handle || string.IsNullOrWhiteSpace(fieldType.RecordId))
+            return false;
+
+        var record = recordsByName.Values.FirstOrDefault(candidate => string.Equals(candidate.SymbolId, fieldType.RecordId, StringComparison.Ordinal));
+        return record is null || record.GetMetadata<bool>(MetadataKeys.PlaceholderRecord);
+    }
+
+    private static bool ShouldExposeCharPointerFieldAsIntPtr(CXType type)
+    {
+        var normalizedType = type.CanonicalType;
+        if (!TypeIsPointer(normalizedType))
+            return false;
+
+        var pointeeType = normalizedType.PointeeType.CanonicalType;
+        return pointeeType.kind is CXTypeKind.CXType_Char_S or
+            CXTypeKind.CXType_SChar or
+            CXTypeKind.CXType_Char_U or
+            CXTypeKind.CXType_UChar;
+    }
+
+    private static string JoinFieldAccessPath(params string[] segments)
+    {
+        return string.Join('.', segments.Where(static segment => !string.IsNullOrWhiteSpace(segment)));
+    }
+
+    private static string ToFlattenedFieldNativeName(string accessPath)
+    {
+        return string.Join('_', accessPath.Split('.', StringSplitOptions.RemoveEmptyEntries).Select(SanitizeFlattenedFieldSegment));
+    }
+
+    private static string ToFlattenedFieldManagedName(string accessPath)
+    {
+        return string.Concat(accessPath.Split('.', StringSplitOptions.RemoveEmptyEntries).Select(ToManagedFlattenedFieldSegment));
+    }
+
+    private static string SanitizeFlattenedFieldSegment(string value)
+    {
+        var sanitized = Regex.Replace(value, "[^A-Za-z0-9_]+", "_").Trim('_');
+        return string.IsNullOrWhiteSpace(sanitized) ? "field" : sanitized;
+    }
+
+    private static string ToManagedFlattenedFieldSegment(string value)
+    {
+        var managedName = ToPascalCase(SanitizeFlattenedFieldSegment(value));
+        return !string.IsNullOrWhiteSpace(managedName) && (char.IsLetter(managedName[0]) || managedName[0] == '_')
+            ? managedName
+            : $"Field{managedName}";
     }
 
     private static bool IsIncompleteArrayType(CXType type)
@@ -1309,7 +1741,7 @@ public sealed partial class ClangSharpHeaderParser
                 parameterType,
                 direction,
                 abiKind,
-                ResolveQualifiedTypeName(parameter.Type.Handle, recordsByName));
+                ResolveParameterCppTypeName(parameter.Type.Handle, recordsByName));
             ApplyManagedDefaultValue(freeParam, parameter, parameterType, managedTypeOverrides);
             ApplyCallbackDelegateAttribute(functionDecl.Handle, parameter.Handle, freeParam, ref ignoreReason);
             function.Parameters.Add(freeParam);
@@ -1384,7 +1816,7 @@ public sealed partial class ClangSharpHeaderParser
                 parameterType,
                 direction,
                 abiKind,
-                ResolveQualifiedTypeName(parameter.Type.Handle, recordsByName));
+                ResolveParameterCppTypeName(parameter.Type.Handle, recordsByName));
             ApplyManagedDefaultValue(freeTemplateParam, parameter, parameterType, managedTypeOverrides);
             ApplyCallbackDelegateAttribute(templatedFunction.Handle, parameter.Handle, freeTemplateParam, ref ignoreReason);
             function.Parameters.Add(freeTemplateParam);
@@ -1695,6 +2127,18 @@ public sealed partial class ClangSharpHeaderParser
             ? overrideDirection
             : (BindingParameterDirection?)null;
 
+        if (IsIncompleteArrayType(normalizedType))
+        {
+            return MapIncompleteArrayParameter(
+                functionCursor,
+                type,
+                explicitDirection,
+                recordsByName,
+                enumsByName,
+                managedTypeOverrides,
+                genericParameters);
+        }
+
         if (TypeIsLValueReference(normalizedType))
         {
             var sourcePointeeType = type.PointeeType;
@@ -1766,6 +2210,41 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         return (MapType(type, recordsByName, enumsByName, managedTypeOverrides, genericParameters), explicitDirection ?? BindingParameterDirection.In, BindingParameterAbiKind.Value);
+    }
+
+    private static (BindingType Type, BindingParameterDirection Direction, BindingParameterAbiKind AbiKind) MapIncompleteArrayParameter(
+        CXCursor functionCursor,
+        CXType type,
+        BindingParameterDirection? explicitDirection,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        IReadOnlyDictionary<string, BindingType> genericParameters)
+    {
+        if (functionCursor.Kind != CXCursorKind.CXCursor_CXXMethod || functionCursor.CXXMethod_IsStatic)
+        {
+            throw new NotSupportedException("incomplete array parameters are only supported on instance methods in this bootstrap surface.");
+        }
+
+        if (explicitDirection is { } direction && direction != BindingParameterDirection.In)
+        {
+            throw new NotSupportedException("incomplete array parameters only support input passing in this bootstrap surface.");
+        }
+
+        var elementType = type.ArrayElementType;
+        var normalizedElementType = elementType.CanonicalType;
+        if (!TypeIsPointer(normalizedElementType))
+        {
+            throw new NotSupportedException("incomplete array parameters require pointer elements in this bootstrap surface.");
+        }
+
+        var mappedElementType = MapType(elementType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        if (mappedElementType.Kind != BindingTypeKind.Handle)
+        {
+            throw new NotSupportedException("incomplete array parameters require handle pointer elements in this bootstrap surface.");
+        }
+
+        return (mappedElementType, BindingParameterDirection.In, BindingParameterAbiKind.Pointer);
     }
 
     private static bool TryGetManagedTypeOverride(
@@ -2077,6 +2556,15 @@ public sealed partial class ClangSharpHeaderParser
             var concretePointeeTypeName = SelectConcreteTemplateTypeName(
                 NormalizeTypeName(pointeeType.Spelling.ToString()),
                 NormalizeTypeName(type.PointeeType.Spelling.ToString()));
+
+            if (pointeeType.kind == CXTypeKind.CXType_Void)
+            {
+                return TryApplyManagedAliasSurface(
+                    type,
+                    BindingType.CreateConfigured(spelledTypeName, BindingType.IntPtr.ManagedTypeName, primitiveKind: BindingPrimitiveKind.IntPtr),
+                    preserveAliasSurface);
+            }
+
             if (TryCreateSpecializedRecordHandleType(
                     spelledTypeName,
                     concretePointeeTypeName,
@@ -2983,7 +3471,7 @@ public sealed partial class ClangSharpHeaderParser
     {
         if (TryGetOwnedManagedAliasInfo(type, out var aliasInfo))
         {
-            return BuildQualifiedAliasSurfaceTypeName(type, aliasInfo.CppQualifiedName);
+            return BuildQualifiedAliasSurfaceTypeName(type, aliasInfo);
         }
 
         var spelling = NormalizeTypeName(type.Spelling.ToString());
@@ -3023,6 +3511,17 @@ public sealed partial class ClangSharpHeaderParser
         return spelling;
     }
 
+    private static string ResolveParameterCppTypeName(CXType type, IDictionary<string, RecordBinding> recordsByName)
+    {
+        if (!IsIncompleteArrayType(type.CanonicalType))
+        {
+            return ResolveQualifiedTypeName(type, recordsByName);
+        }
+
+        var elementTypeName = ResolveQualifiedTypeName(type.ArrayElementType, recordsByName);
+        return NormalizeTypeName(elementTypeName + "*");
+    }
+
     private static string RewriteTopLevelTemplateArgumentsFromCanonical(string surfaceTypeName, string canonicalTypeName)
     {
         var surfaceStart = surfaceTypeName.IndexOf('<');
@@ -3040,8 +3539,17 @@ public sealed partial class ClangSharpHeaderParser
         return $"{surfaceTypeName[..(surfaceStart + 1)]}{string.Join(", ", canonicalArguments)}{surfaceTypeName[surfaceEnd..]}";
     }
 
-    private static string BuildQualifiedAliasSurfaceTypeName(CXType type, string qualifiedAliasName)
+    private static string BuildQualifiedAliasSurfaceTypeName(CXType type, OwnedAliasInfo aliasInfo)
     {
+        var qualifiedAliasName = aliasInfo.CppQualifiedName;
+        var spelledTypeName = StripTopLevelCvQualifier(NormalizeTypeName(type.Spelling.ToString()));
+        if (string.Equals(spelledTypeName, aliasInfo.CppQualifiedName, StringComparison.Ordinal) ||
+            string.Equals(spelledTypeName, aliasInfo.NativeName, StringComparison.Ordinal))
+        {
+            var aliasPrefix = type.IsConstQualified ? "const " : string.Empty;
+            return aliasPrefix + qualifiedAliasName;
+        }
+
         var suffix = new StringBuilder();
         var current = type;
         while (true)
@@ -3099,6 +3607,7 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         if (declaration.Kind is not (CXCursorKind.CXCursor_StructDecl or
+                                     CXCursorKind.CXCursor_UnionDecl or
                                      CXCursorKind.CXCursor_ClassDecl or
                                      CXCursorKind.CXCursor_ClassTemplate or
                                      CXCursorKind.CXCursor_ClassTemplatePartialSpecialization or
@@ -3205,6 +3714,7 @@ public sealed partial class ClangSharpHeaderParser
             .Replace("enum ", string.Empty, StringComparison.Ordinal)
             .Replace("const ", string.Empty, StringComparison.Ordinal)
             .Replace("struct ", string.Empty, StringComparison.Ordinal)
+            .Replace("union ", string.Empty, StringComparison.Ordinal)
             .Replace("class ", string.Empty, StringComparison.Ordinal)
             .Trim();
     }

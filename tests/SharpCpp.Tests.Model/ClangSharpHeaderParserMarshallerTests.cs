@@ -1038,6 +1038,196 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         }
     }
 
+    [Fact]
+    public void Parse_maps_instance_method_handle_pointer_arrays_to_input_pointer_abi()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), "sharpcpp-pointer-array-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(fixtureDir);
+        try
+        {
+            var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+            File.WriteAllText(headerPath,
+                """
+                namespace Sample
+                {
+                struct TextureView {};
+
+                struct DeviceContext
+                {
+                    virtual void SetTargets(unsigned int count, TextureView* views[]) = 0;
+                };
+                }
+                """);
+
+            var parser = new ClangSharpHeaderParser();
+            var compilation = parser.Parse(new ClangSharpParseRequest(
+                ProjectName: "TestProject",
+                ManagedNamespace: "Test.Namespace",
+                ManagedClassName: "Bindings",
+                NativeLibraryName: "Test.Native",
+                HeaderFilePath: headerPath,
+                HeaderIncludePath: "Sample.hpp",
+                ClangArguments: ["-x", "c++", "-std=c++20", $"-I{fixtureDir}"],
+                MarshallerConfigurationFiles: Array.Empty<string>(),
+                EntryPointPrefix: "Test_"));
+
+            var textureView = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "Sample::TextureView");
+            var deviceContext = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "Sample::DeviceContext");
+            var setTargets = Assert.Single(deviceContext.Members.OfType<FunctionBinding>(), static function => function.NativeName == "SetTargets");
+            var views = Assert.Single(setTargets.Parameters, static parameter => parameter.NativeName == "views");
+
+            Assert.False(setTargets.IsIgnored(), setTargets.GetIgnoreReason());
+            Assert.Equal(textureView.SymbolId, views.Type.RecordId);
+            Assert.Equal(BindingParameterDirection.In, views.Direction);
+            Assert.Equal(BindingParameterAbiKind.Pointer, views.AbiKind);
+            Assert.Equal("Sample::TextureView**", views.CppTypeName);
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Parse_keeps_c_opaque_handles_void_pointers_and_event_records()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), "sharpcpp-c-opaque-handles-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(fixtureDir);
+        try
+        {
+            var headerPath = Path.Combine(fixtureDir, "Sample.h");
+            File.WriteAllText(headerPath,
+                """
+                typedef struct SDL_Window SDL_Window;
+                typedef void* SDL_GLContext;
+
+                typedef union SDL_Event
+                {
+                    unsigned int type;
+                    unsigned char padding[56];
+                } SDL_Event;
+
+                SDL_Window* SDL_CreateWindow(int flags);
+                void SDL_DestroyWindow(SDL_Window* window);
+                SDL_GLContext SDL_GL_CreateContext(SDL_Window* window);
+                void SDL_GL_DeleteContext(SDL_GLContext context);
+                void* SDL_GL_GetCurrentContext(void);
+                int SDL_PollEvent(SDL_Event* event);
+                """);
+
+            var parser = new ClangSharpHeaderParser();
+            var compilation = parser.Parse(new ClangSharpParseRequest(
+                ProjectName: "TestProject",
+                ManagedNamespace: "Test.Namespace",
+                ManagedClassName: "Bindings",
+                NativeLibraryName: "Test.Native",
+                HeaderFilePath: headerPath,
+                HeaderIncludePath: "Sample.h",
+                ClangArguments: ["-xc", "-std=c17", $"-I{fixtureDir}"],
+                MarshallerConfigurationFiles: Array.Empty<string>(),
+                EntryPointPrefix: "Test_"));
+
+            DegradeUnsupportedSurfacePass.Apply(compilation);
+
+            var window = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "SDL_Window");
+            Assert.True(window.GetMetadata<bool>(MetadataKeys.ForwardDeclaration));
+            Assert.True(window.GetMetadata<bool>(MetadataKeys.OpaqueNativeHandle));
+            Assert.True(window.GetMetadata<bool>(MetadataKeys.NonPublicDestructor));
+            Assert.False(window.IsIgnored(), window.GetIgnoreReason());
+
+            var createWindow = Assert.Single(compilation.Functions, static function => function.NativeName == "SDL_CreateWindow");
+            Assert.Equal(window.SymbolId, createWindow.ReturnType.RecordId);
+            Assert.False(createWindow.IsIgnored(), createWindow.GetIgnoreReason());
+
+            var destroyWindow = Assert.Single(compilation.Functions, static function => function.NativeName == "SDL_DestroyWindow");
+            Assert.Equal(BindingParameterDirection.In, destroyWindow.Parameters[0].Direction);
+            Assert.Equal(BindingParameterAbiKind.Value, destroyWindow.Parameters[0].AbiKind);
+            Assert.Equal(window.SymbolId, destroyWindow.Parameters[0].Type.RecordId);
+            Assert.False(destroyWindow.IsIgnored(), destroyWindow.GetIgnoreReason());
+
+            var createContext = Assert.Single(compilation.Functions, static function => function.NativeName == "SDL_GL_CreateContext");
+            Assert.Equal("SDL_GLContext", createContext.CppReturnTypeName);
+            Assert.Equal(BindingPrimitiveKind.IntPtr, createContext.ReturnType.PrimitiveKind);
+            Assert.False(createContext.IsIgnored(), createContext.GetIgnoreReason());
+
+            var deleteContext = Assert.Single(compilation.Functions, static function => function.NativeName == "SDL_GL_DeleteContext");
+            Assert.Equal("SDL_GLContext", deleteContext.Parameters[0].CppTypeName);
+            Assert.Equal(BindingPrimitiveKind.IntPtr, deleteContext.Parameters[0].Type.PrimitiveKind);
+            Assert.False(deleteContext.IsIgnored(), deleteContext.GetIgnoreReason());
+
+            var currentContext = Assert.Single(compilation.Functions, static function => function.NativeName == "SDL_GL_GetCurrentContext");
+            Assert.Equal("void*", currentContext.CppReturnTypeName);
+            Assert.Equal(BindingPrimitiveKind.IntPtr, currentContext.ReturnType.PrimitiveKind);
+            Assert.False(currentContext.IsIgnored(), currentContext.GetIgnoreReason());
+
+            var sdlEvent = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "SDL_Event");
+            Assert.False(sdlEvent.IsIgnored(), sdlEvent.GetIgnoreReason());
+            Assert.Contains(sdlEvent.Members.OfType<FunctionBinding>(), static member => member.IsConstructor && member.Parameters.Count == 0);
+
+            var pollEvent = Assert.Single(compilation.Functions, static function => function.NativeName == "SDL_PollEvent");
+            Assert.Equal(BindingParameterDirection.In, pollEvent.Parameters[0].Direction);
+            Assert.Equal(BindingParameterAbiKind.Value, pollEvent.Parameters[0].AbiKind);
+            Assert.Equal(sdlEvent.SymbolId, pollEvent.Parameters[0].Type.RecordId);
+            Assert.False(pollEvent.IsIgnored(), pollEvent.GetIgnoreReason());
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Parse_treats_macro_generated_native_interfaces_as_definitions()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), "sharpcpp-native-interface-macro-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(fixtureDir);
+        try
+        {
+            var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+            File.WriteAllText(headerPath,
+                """
+                #define BEGIN_INTERFACE(NAME) struct NAME {
+                #define END_INTERFACE };
+
+                BEGIN_INTERFACE(IMacroCounter)
+                    virtual int GetValue() = 0;
+                END_INTERFACE
+
+                struct [[sharpcpp::native_interface]] IDirectCounter
+                {
+                    virtual int GetValue() = 0;
+                };
+                """);
+
+            var parser = new ClangSharpHeaderParser();
+            var compilation = parser.Parse(new ClangSharpParseRequest(
+                ProjectName: "TestProject",
+                ManagedNamespace: "Test.Namespace",
+                ManagedClassName: "Bindings",
+                NativeLibraryName: "Test.Native",
+                HeaderFilePath: headerPath,
+                HeaderIncludePath: "Sample.hpp",
+                ClangArguments: ["-x", "c++", "-std=c++20", "-Wno-unknown-attributes", $"-I{fixtureDir}"],
+                MarshallerConfigurationFiles: Array.Empty<string>(),
+                EntryPointPrefix: "Test_"));
+
+            var counter = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "IMacroCounter");
+            Assert.False(counter.GetMetadata<bool>(MetadataKeys.ForwardDeclaration));
+
+            var method = Assert.Single(counter.Members.OfType<FunctionBinding>(), static member => member.NativeName == "GetValue");
+            Assert.True(method.IsVirtual);
+            Assert.True(method.IsPureVirtual);
+            Assert.False(method.IsIgnored(), method.GetIgnoreReason());
+
+            var directCounter = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "IDirectCounter");
+            Assert.True(directCounter.GetMetadata<bool>(MetadataKeys.NativeInterfaceWrapper));
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -1060,16 +1250,60 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         var args = new List<string> { "-x", "c++", "-std=c++20" };
         args.AddRange(includeDirs.Select(static includeDir => $"-I{includeDir}"));
 
-        var systemIncludeDirs = new[]
-        {
-            "/usr/include/c++/16.1.1",
-            "/usr/include/c++/16.1.1/x86_64-pc-linux-gnu",
-            "/usr/include/c++/16.1.1/backward",
-            "/usr/lib/gcc/x86_64-pc-linux-gnu/16.1.1/include",
-            "/usr/include"
-        };
-
-        args.AddRange(systemIncludeDirs.Where(Directory.Exists).Select(static includeDir => $"-I{includeDir}"));
+        args.AddRange(EnumerateSystemIncludeDirs().Select(static includeDir => $"-I{includeDir}"));
         return args.ToArray();
+    }
+
+    private static IEnumerable<string> EnumerateSystemIncludeDirs()
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        if (Directory.Exists("/usr/include/c++"))
+        {
+            foreach (var versionDir in Directory.GetDirectories("/usr/include/c++").OrderByDescending(static path => path, StringComparer.Ordinal))
+            {
+                foreach (var candidate in new[]
+                {
+                    versionDir,
+                    Path.Combine(versionDir, "x86_64-pc-linux-gnu"),
+                    Path.Combine(versionDir, "backward")
+                })
+                {
+                    if (Directory.Exists(candidate) && seen.Add(candidate))
+                    {
+                        yield return candidate;
+                    }
+                }
+            }
+        }
+
+        if (Directory.Exists("/usr/lib/gcc/x86_64-pc-linux-gnu"))
+        {
+            foreach (var versionDir in Directory.GetDirectories("/usr/lib/gcc/x86_64-pc-linux-gnu").OrderByDescending(static path => path, StringComparer.Ordinal))
+            {
+                var includeDir = Path.Combine(versionDir, "include");
+                if (Directory.Exists(includeDir) && seen.Add(includeDir))
+                {
+                    yield return includeDir;
+                }
+            }
+        }
+
+        if (Directory.Exists("/usr/lib/clang"))
+        {
+            foreach (var versionDir in Directory.GetDirectories("/usr/lib/clang").OrderByDescending(static path => path, StringComparer.Ordinal))
+            {
+                var includeDir = Path.Combine(versionDir, "include");
+                if (Directory.Exists(includeDir) && seen.Add(includeDir))
+                {
+                    yield return includeDir;
+                }
+            }
+        }
+
+        if (Directory.Exists("/usr/include") && seen.Add("/usr/include"))
+        {
+            yield return "/usr/include";
+        }
     }
 }
