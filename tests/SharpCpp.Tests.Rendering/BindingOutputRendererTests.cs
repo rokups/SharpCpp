@@ -255,6 +255,102 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Native_handle_backed_fixed_array_fields_render_view_and_copy_accessors()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp", "SharpCpp/Marshaller.hpp" });
+        var arrayRecord = new RecordBinding("record:SharpCpp::NativeArray", "NativeArray", "NativeArray", "SharpCpp::NativeArray")
+        {
+            ManagedTypeFormat = "global::SharpCpp.NativeArray<{0}>"
+        };
+        arrayRecord.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        arrayRecord.GenericParameters.Add(new BindingGenericParameter("N", 1));
+        arrayRecord.SetMetadata(MetadataKeys.FixedArrayRecord, true);
+        arrayRecord.SetMetadata(MetadataKeys.NativeArrayRecord, true);
+        compilation.Members.Add(arrayRecord);
+
+        var attachment = new RecordBinding("record:Sample::Attachment", "Attachment", "Attachment", "Sample::Attachment");
+        compilation.Members.Add(attachment);
+
+        var attachmentType = BindingType.CreateHandle("Sample::Attachment*", "global::SharpCpp.Sample.Attachment", attachment.SymbolId, cppIsRecordValue: true);
+        var lengthType = BindingType.CreateConfigured("2", "2");
+        arrayRecord.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding([attachmentType, lengthType]));
+        var fixedArrayType = BindingType.CreateHandle(
+            "SharpCpp::NativeArray<Sample::Attachment,2>",
+            "global::SharpCpp.NativeArray<{0}>",
+            arrayRecord.SymbolId,
+            genericArguments: [attachmentType, lengthType])
+            .WithFixedArray(attachmentType, 2);
+
+        var record = new RecordBinding("record:Sample::Pipeline", "Pipeline", "Pipeline", "Sample::Pipeline");
+        record.Members.Add(new FieldBinding("field:Sample::Pipeline:Attachments", "Attachments", "Attachments", fixedArrayType, "Sample::Attachment[2]", "Sample::Pipeline", isReadOnly: false));
+        compilation.Members.Add(record);
+
+        var output = BindingOutputRenderer.Render(compilation, "SharpCppSample");
+        var managedOutput = output.Files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = output.Files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public global::SharpCpp.Support.IFixedArray<global::SharpCpp.Sample.Attachment> Attachments", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("private __AttachmentsFixedArrayProxy? __attachmentsFixedArrayProxy;", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial global::SharpCpp.Sample.Attachment Get_Attachments_Item(Pipeline self, nuint index);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial void Set_Attachments_Item(Pipeline self, nuint index, global::SharpCpp.Sample.Attachment value);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("ReturnMarshaller<Sample::Attachment> marshaller;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return marshaller.ConvertToAbi(&(self->Attachments[index]));", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("auto* source = marshaller.ConvertToCpp(value);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("if (source == nullptr)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("self->Attachments[index] = *source;", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("Get_Attachments(Pipeline self)", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("Set_Attachments(Pipeline self", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Native_nested_fixed_array_fields_render_proxy_item_accessors()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp", "SharpCpp/Marshaller.hpp" });
+        var arrayRecord = new RecordBinding("record:SharpCpp::NativeArray", "NativeArray", "NativeArray", "SharpCpp::NativeArray")
+        {
+            ManagedTypeFormat = "global::SharpCpp.NativeArray<{0}>"
+        };
+        arrayRecord.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        arrayRecord.GenericParameters.Add(new BindingGenericParameter("N", 1));
+        arrayRecord.SetMetadata(MetadataKeys.FixedArrayRecord, true);
+        arrayRecord.SetMetadata(MetadataKeys.NativeArrayRecord, true);
+        compilation.Members.Add(arrayRecord);
+
+        var innerLengthType = BindingType.CreateConfigured("4", "4");
+        var outerLengthType = BindingType.CreateConfigured("3", "3");
+        arrayRecord.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding([BindingType.Single, innerLengthType]));
+        var innerArrayType = BindingType.CreateHandle(
+            "SharpCpp::NativeArray<float,4>",
+            "global::SharpCpp.NativeArray<{0}>",
+            arrayRecord.SymbolId,
+            genericArguments: [BindingType.Single, innerLengthType])
+            .WithFixedArray(BindingType.Single, 4);
+        arrayRecord.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding([innerArrayType, outerLengthType]));
+        var outerArrayType = BindingType.CreateHandle(
+            "SharpCpp::NativeArray<SharpCpp::NativeArray<float,4>,3>",
+            "global::SharpCpp.NativeArray<{0}>",
+            arrayRecord.SymbolId,
+            genericArguments: [innerArrayType, outerLengthType])
+            .WithFixedArray(innerArrayType, 3);
+
+        var record = new RecordBinding("record:Sample::Matrix", "Matrix", "Matrix", "Sample::Matrix");
+        record.Members.Add(new FieldBinding("field:Sample::Matrix:data", "data", "Data", outerArrayType, "float[3][4]", "Sample::Matrix", isReadOnly: false));
+        compilation.Members.Add(record);
+
+        var output = BindingOutputRenderer.Render(compilation, "SharpCppSample");
+        var managedOutput = output.Files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = output.Files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public global::SharpCpp.Support.IFixedArray<global::SharpCpp.NativeArray<float>> Data", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial global::SharpCpp.NativeArray<float> Get_Data_Item(Matrix self, nuint index);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial void Set_Data_Item(Matrix self, nuint index, [MarshalUsing(typeof(global::SharpCpp.__NativeArrayInMarshaller<>))] global::SharpCpp.NativeArray<float> value);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("return { const_cast<void*>(static_cast<const void*>(self->data[index])), 4 };", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("auto* source = reinterpret_cast<float (*)[4]>(value.handle);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("target[nestedIndex] = (*source)[nestedIndex];", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("return { const_cast<void*>(static_cast<const void*>(self->data)), 3 };", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Free_functions_can_render_into_custom_managed_containers()
     {
         var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });

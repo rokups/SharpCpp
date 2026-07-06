@@ -21,6 +21,7 @@ public sealed class FieldTests
         Assert.Equal(FieldMode.Active, box.Mode);
         Assert.False(box.Payload.OwnsHandle);
         Assert.Equal(10, box.Payload.Value);
+        Assert.Equal(new[] { 0, 0 }, box.PayloadSamples.Select(static sample => sample.Value).ToArray());
         Assert.Equal(new[] { 0, 0, 0 }, box.Samples.ToArray());
         Assert.Equal(99, box.FixedValue);
 
@@ -28,7 +29,9 @@ public sealed class FieldTests
         box.Enabled = false;
         box.Mode = FieldMode.Suspended;
         box.Payload = replacement;
+        using var payloadSamples = new global::SharpCpp.NativeArray<FieldPayload>(new[] { payload, replacement });
         using var samples = new global::SharpCpp.NativeArray<int>(new[] { 3, 5, 7 });
+        box.PayloadSamples = payloadSamples;
         box.Samples = samples;
 
         Assert.Equal(7, box.Count);
@@ -36,6 +39,7 @@ public sealed class FieldTests
         Assert.Equal(FieldMode.Suspended, box.Mode);
         Assert.False(box.Payload.OwnsHandle);
         Assert.Equal(30, box.Payload.Value);
+        Assert.Equal(new[] { 10, 30 }, box.PayloadSamples.Select(static sample => sample.Value).ToArray());
         Assert.Equal(new[] { 3, 5, 7 }, box.Samples.ToArray());
         Assert.Equal(99, box.FixedValue);
     }
@@ -55,6 +59,23 @@ public sealed class FieldTests
         var exception = Assert.Throws<ArgumentException>(() => box.Samples = wrongLength);
 
         Assert.Contains("Expected array length 3", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Handle_backed_native_fixed_array_fields_validate_setter_lengths()
+    {
+        var payload = E2EBindings.CreateFieldPayload(10);
+        var box = E2EBindings.CreateFieldBox(2, true, FieldMode.Active, payload, 99);
+        using var wrongLength = (global::SharpCpp.NativeArray<FieldPayload>)Activator.CreateInstance(
+            typeof(global::SharpCpp.NativeArray<FieldPayload>),
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            args: [IntPtr.Zero, 1, false],
+            culture: null)!;
+
+        var exception = Assert.Throws<ArgumentException>(() => box.PayloadSamples = wrongLength);
+
+        Assert.Contains("Expected array length 2", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]

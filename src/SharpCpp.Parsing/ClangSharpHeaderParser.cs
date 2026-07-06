@@ -211,7 +211,7 @@ public sealed partial class ClangSharpHeaderParser
         var enumsByName = new BindingIndex<EnumBinding>(static @enum => @enum.NativeName);
         var managedTypeOverrides = MarshallerConfigExtractor.ExtractManagedTypeOverrides(
             request.MarshallerConfigurationFiles,
-            request.ClangArguments);
+            request.MarshallerClangArguments ?? request.ClangArguments);
 
         request.ImportedBindingMetadata?.Seed(compilation, recordsByName, enumsByName);
 
@@ -2858,10 +2858,6 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         var elementType = MapType(arrayType.ArrayElementType, recordsByName, enumsByName, managedTypeOverrides, genericParameters, preserveAliasSurface: false);
-        if (elementType.Kind == BindingTypeKind.Handle)
-        {
-            throw new NotSupportedException("fixed-size array fields with handle-backed elements are not yet supported in this bootstrap surface.");
-        }
 
         var concreteArrayTypeName = FormatConfiguredNativeArrayTypeName(nativeArrayOverride.CppTypeName, elementType.CppTypeName, length);
         return CreateConfiguredOrWrapperType(

@@ -15,4 +15,5 @@ public sealed record ClangSharpParseRequest(
     IReadOnlyList<string>? OwnedFileRoots = null,
     IReadOnlyDictionary<string, string>? OwnedFileRootIncludePrefixes = null,
     BindingMetadataImportCatalog? ImportedBindingMetadata = null,
-    IReadOnlySet<string>? DirectorRecordCppTypeNames = null);
+    IReadOnlySet<string>? DirectorRecordCppTypeNames = null,
+    IReadOnlyList<string>? MarshallerClangArguments = null);

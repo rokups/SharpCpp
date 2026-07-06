@@ -20,13 +20,19 @@ public static class BindingCompilationBootstrapPipeline
     /// <param name="marshallerConfigFiles">Paths to marshaller configuration headers only
     /// (e.g., Marshaller.hpp), not all API header files.</param>
     /// <param name="clangArgs">Clang compiler arguments (same as used in Phase 1 parse).</param>
-    public static void Apply(BindingCompilation compilation, IEnumerable<string> marshallerConfigFiles, IReadOnlyList<string> clangArgs)
+    /// <param name="marshallerClangArgs">Optional Clang compiler arguments for marshaller configuration parsing.
+    /// Use this when the API surface and marshaller headers need different language modes.</param>
+    public static void Apply(
+        BindingCompilation compilation,
+        IEnumerable<string> marshallerConfigFiles,
+        IReadOnlyList<string> clangArgs,
+        IReadOnlyList<string>? marshallerClangArgs = null)
     {
         ArgumentNullException.ThrowIfNull(compilation);
         ArgumentNullException.ThrowIfNull(marshallerConfigFiles);
 
         RunTimed("NormalizeManagedNamespaces", () => NormalizeManagedNamespacesPass.Apply(compilation));
-        RunTimed("MarshallerMetadataPhase2", () => MarshallerMetadataPhase2.ApplyWithClang(compilation, marshallerConfigFiles, clangArgs));
+        RunTimed("MarshallerMetadataPhase2", () => MarshallerMetadataPhase2.ApplyWithClang(compilation, marshallerConfigFiles, marshallerClangArgs ?? clangArgs));
         RunTimed("SilentlyExcludeExternalDeclarations", () => SilentlyExcludeExternalDeclarationsPass.Apply(compilation));
         RunTimed("GenericInstantiation", () => BindingCompilationGenericInstantiationPass.Apply(compilation));
         RunTimed("DegradeUnsupportedSurface", () => DegradeUnsupportedSurfacePass.Apply(compilation));

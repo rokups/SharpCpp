@@ -27,6 +27,7 @@ struct field_box
     bool enabled{};
     field_mode mode{field_mode::idle};
     field_payload* payload{};
+    field_payload payload_samples[2]{};
     int samples[3]{};
     const int fixed_value{};
 };

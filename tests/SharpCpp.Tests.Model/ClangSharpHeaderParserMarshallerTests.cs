@@ -877,6 +877,41 @@ public sealed class ClangSharpHeaderParserMarshallerTests
     }
 
     [Fact]
+    public void Parse_maps_handle_backed_native_fixed_array_fields_to_native_array_wrapper()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.E2E", "Records");
+        var includeDir = Path.Combine(repoRoot, "include");
+        var headerPath = Path.Combine(fixtureDir, "Field.hpp");
+        var marshallerHeader = Path.Combine(includeDir, "SharpCpp", "Marshaller.hpp");
+
+        var parser = new ClangSharpHeaderParser();
+        var clangArgs = CreateStandardLibraryClangArgs(fixtureDir, includeDir);
+
+        var compilation = parser.Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test.Namespace",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: clangArgs,
+            MarshallerConfigurationFiles: [marshallerHeader],
+            EntryPointPrefix: "Test_"));
+
+        BindingCompilationBootstrapPipeline.Apply(compilation, [marshallerHeader], clangArgs);
+
+        var box = Assert.Single(compilation.Records.Where(static record => record.NativeName == "field_box"));
+        var payloadSamples = Assert.Single(box.Members.OfType<FieldBinding>().Where(static field => field.NativeName == "payload_samples"));
+
+        Assert.False(payloadSamples.IsIgnored(), payloadSamples.GetIgnoreReason());
+        Assert.True(payloadSamples.Type.IsFixedArray);
+        Assert.Equal(2, payloadSamples.Type.FixedArrayLength);
+        Assert.Equal("SharpCpp.NativeArray<Test.Namespace.FieldPayload>", payloadSamples.Type.ManagedTypeName);
+        Assert.Equal("Test.Namespace.FieldPayload", payloadSamples.Type.FixedArrayElementType!.ManagedTypeName);
+    }
+
+    [Fact]
     public void Parse_uses_qualified_record_symbol_ids_for_same_named_records()
     {
         var repoRoot = FindRepositoryRoot();

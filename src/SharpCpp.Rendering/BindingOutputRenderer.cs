@@ -325,6 +325,16 @@ public static partial class BindingOutputRenderer
                 writer.Write(RenderManagedCallbackSupport(compilation, callbackParameters));
             }
 
+            if (isDefaultContainer)
+            {
+                var nativeArrayRegistryInitializer = RenderSharedNativeArrayRegistryInitializer(compilation, records);
+                if (!string.IsNullOrEmpty(nativeArrayRegistryInitializer))
+                {
+                    writer.WriteLine();
+                    writer.Write(nativeArrayRegistryInitializer);
+                }
+            }
+
             if (freeFunctionDeclarations.Count > 0 || isDefaultContainer && genericImportDeclarations.Count > 0)
             {
                 writer.WriteLine();
@@ -818,31 +828,54 @@ public static partial class BindingOutputRenderer
 
     private static string RenderNativeProtectedFieldHelpers(BindingCompilation compilation, RecordBinding accessorRecord, FieldBinding field)
     {
-        var plan = CreateNativeFieldInteropPlan(compilation, field);
-        var isNativeFixedArrayField = IsNativeFixedArrayType(compilation, field.Type);
-        var getterReturnType = isNativeFixedArrayField ? "NativeArrayAbi" : $"ret_t<{plan.StorageCppType}>";
-        var directorName = GetNativeDirectorClassName(accessorRecord);
-        var getterBody = RenderNativeFieldGetInvocation(compilation, field, plan, "this", directorName);
-
         var writer = new CodeWriter();
-        writer.Write($$"""
-            {{getterReturnType}} {{GetNativeProtectedFieldGetterHelperName(field)}}()
-            {
-            {{getterBody}}
-            }
-            """);
-
-        if (!field.IsReadOnly)
+        if (NeedsManagedFixedArrayProxy(field))
         {
-            var setterParameterType = isNativeFixedArrayField ? "NativeArrayAbi" : plan.SetterParameterCppType;
-            var setterBody = RenderNativeFieldSetInvocation(compilation, field, plan, "this", directorName);
-            writer.WriteLine();
             writer.Write($$"""
-                void {{GetNativeProtectedFieldSetterHelperName(field)}}({{setterParameterType}} value)
+                {{GetNativeFixedArrayItemGetterReturnType(compilation, field)}} {{GetNativeProtectedFieldItemGetterHelperName(field)}}(std::size_t index)
                 {
-                {{setterBody}}
+                {{RenderNativeFixedArrayItemGetInvocation(compilation, field, "this")}}
                 }
                 """);
+
+            if (!field.IsReadOnly)
+            {
+                writer.WriteLine();
+                writer.Write($$"""
+                    void {{GetNativeProtectedFieldItemSetterHelperName(field)}}(std::size_t index, {{GetNativeFixedArrayItemSetterParameterType(compilation, field)}} value)
+                    {
+                    {{RenderNativeFixedArrayItemSetInvocation(compilation, field, "this")}}
+                    }
+                    """);
+            }
+        }
+        else
+        {
+            var plan = CreateNativeFieldInteropPlan(compilation, field);
+            var isNativeFixedArrayField = IsNativeFixedArrayType(compilation, field.Type);
+            var getterReturnType = isNativeFixedArrayField ? "NativeArrayAbi" : $"ret_t<{plan.StorageCppType}>";
+            var directorName = GetNativeDirectorClassName(accessorRecord);
+            var getterBody = RenderNativeFieldGetInvocation(compilation, field, plan, "this", directorName);
+
+            writer.Write($$"""
+                {{getterReturnType}} {{GetNativeProtectedFieldGetterHelperName(field)}}()
+                {
+                {{getterBody}}
+                }
+                """);
+
+            if (!field.IsReadOnly)
+            {
+                var setterParameterType = isNativeFixedArrayField ? "NativeArrayAbi" : plan.SetterParameterCppType;
+                var setterBody = RenderNativeFieldSetInvocation(compilation, field, plan, "this", directorName);
+                writer.WriteLine();
+                writer.Write($$"""
+                    void {{GetNativeProtectedFieldSetterHelperName(field)}}({{setterParameterType}} value)
+                    {
+                    {{setterBody}}
+                    }
+                    """);
+            }
         }
 
         return writer.ToString();
@@ -867,6 +900,18 @@ public static partial class BindingOutputRenderer
     {
         var helperName = GetNativeProtectedFieldSetterHelperName(field);
         return RenderNativeProtectedAccessInvocation(accessorRecord, directorExpression => $"{directorExpression}->{helperName}(value); return;", "SharpCpp protected field access requires a director-backed instance.");
+    }
+
+    private static string RenderNativeProtectedFieldItemGetInvocation(RecordBinding accessorRecord, FieldBinding field)
+    {
+        var helperName = GetNativeProtectedFieldItemGetterHelperName(field);
+        return RenderNativeProtectedAccessInvocation(accessorRecord, directorExpression => $"return {directorExpression}->{helperName}(index);", "SharpCpp protected field access requires a director-backed instance.");
+    }
+
+    private static string RenderNativeProtectedFieldItemSetInvocation(RecordBinding accessorRecord, FieldBinding field)
+    {
+        var helperName = GetNativeProtectedFieldItemSetterHelperName(field);
+        return RenderNativeProtectedAccessInvocation(accessorRecord, directorExpression => $"{directorExpression}->{helperName}(index, value); return;", "SharpCpp protected field access requires a director-backed instance.");
     }
 
     private static string RenderNativeProtectedAccessInvocation(
@@ -952,9 +997,19 @@ public static partial class BindingOutputRenderer
         return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(recordCppTypeName)}_{field.NativeName}_get";
     }
 
+    private static string GetNativeFieldItemGetterEntrypointName(string recordCppTypeName, FieldBinding field)
+    {
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(recordCppTypeName)}_{field.NativeName}_item_get";
+    }
+
     private static string GetNativeFieldSetterEntrypointName(string recordCppTypeName, FieldBinding field)
     {
         return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(recordCppTypeName)}_{field.NativeName}_set";
+    }
+
+    private static string GetNativeFieldItemSetterEntrypointName(string recordCppTypeName, FieldBinding field)
+    {
+        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(recordCppTypeName)}_{field.NativeName}_item_set";
     }
 
     private enum FieldSetterMode
@@ -992,6 +1047,20 @@ public static partial class BindingOutputRenderer
         if (IsNativeFixedArrayType(compilation, field.Type))
         {
             var arrayAccessExpression = GetNativeFixedArrayFieldAccessExpression(field, selfExpression);
+            if (NeedsNativeFixedArrayHandleView(field))
+            {
+                var handleCppType = GetNativeFixedArrayElementCppType(compilation, field.Type);
+                var length = field.Type.FixedArrayLength ?? 0;
+                return $$"""
+                    auto* view = new {{handleCppType}}[{{length}}]{};
+                    for (std::size_t index = 0; index < {{length}}; ++index)
+                    {
+                        view[index] = &({{arrayAccessExpression}}[index]);
+                    }
+                    return { view, {{length}} };
+                    """;
+            }
+
             return $"return {{ const_cast<void*>(static_cast<const void*>({arrayAccessExpression})), {field.Type.FixedArrayLength ?? 0} }};";
         }
 
@@ -1014,6 +1083,27 @@ public static partial class BindingOutputRenderer
             var arrayAccessExpression = GetNativeFixedArrayFieldAccessExpression(field, selfExpression);
             var elementCppType = GetNativeFixedArrayElementCppType(compilation, field.Type);
             var length = field.Type.FixedArrayLength ?? 0;
+            if (NeedsNativeFixedArrayHandleView(field))
+            {
+                return $$"""
+                    if (value.handle == nullptr || value.length != {{length}})
+                    {
+                        throw std::runtime_error("SharpCpp fixed array field assignment length mismatch.");
+                    }
+
+                    auto* source = static_cast<{{elementCppType}}*>(value.handle);
+                    for (std::size_t index = 0; index < {{length}}; ++index)
+                    {
+                        if (source[index] == nullptr)
+                        {
+                            throw std::runtime_error("SharpCpp fixed array field assignment encountered a null handle.");
+                        }
+
+                        {{arrayAccessExpression}}[index] = *source[index];
+                    }
+                    """;
+            }
+
             return $$"""
                 if (value.handle == nullptr || value.length != {{length}})
                 {
@@ -1043,6 +1133,97 @@ public static partial class BindingOutputRenderer
         var fieldOwner = fieldOwnerCppTypeName ?? field.OwningRecordCppTypeName;
         var borrowedStorageTag = plan.SetterMode == FieldSetterMode.BorrowedStorage ? ", std::true_type{}" : string.Empty;
         return $"MarshallerInvoker::set_field<{plan.StorageCppType}>(&{fieldOwner}::{field.NativeName}, {selfExpression}, value{borrowedStorageTag});";
+    }
+
+    private static string RenderNativeFixedArrayItemGetInvocation(BindingCompilation compilation, FieldBinding field, string selfExpression)
+    {
+        var arrayAccessExpression = GetNativeFixedArrayFieldAccessExpression(field, selfExpression);
+        var elementType = field.Type.FixedArrayElementType
+            ?? throw new InvalidOperationException($"Fixed array field '{field.ManagedName}' is missing element type metadata.");
+
+        if (elementType.IsFixedArray)
+        {
+            return $"return {{ const_cast<void*>(static_cast<const void*>({arrayAccessExpression}[index])), {elementType.FixedArrayLength ?? 0} }};";
+        }
+
+        var elementCppType = GetNativeFixedArrayElementCppType(compilation, elementType);
+        var valueExpression = field.CppTypeName.Contains('*', StringComparison.Ordinal)
+            ? $"{arrayAccessExpression}[index]"
+            : $"&({arrayAccessExpression}[index])";
+        return $$"""
+            ReturnMarshaller<{{elementCppType}}> marshaller;
+            return marshaller.ConvertToAbi({{valueExpression}});
+            """;
+    }
+
+    private static string RenderNativeFixedArrayItemSetInvocation(BindingCompilation compilation, FieldBinding field, string selfExpression)
+    {
+        var arrayAccessExpression = GetNativeFixedArrayFieldAccessExpression(field, selfExpression);
+        var elementType = field.Type.FixedArrayElementType
+            ?? throw new InvalidOperationException($"Fixed array field '{field.ManagedName}' is missing element type metadata.");
+
+        if (elementType.IsFixedArray)
+        {
+            var nestedElementCppType = GetNativeFixedArrayElementCppType(compilation, elementType);
+            var nestedLength = elementType.FixedArrayLength ?? 0;
+            return $$"""
+                if (value.handle == nullptr || value.length != {{nestedLength}})
+                {
+                    throw std::runtime_error("SharpCpp fixed array element assignment length mismatch.");
+                }
+
+                auto& target = {{arrayAccessExpression}}[index];
+                auto* source = reinterpret_cast<{{nestedElementCppType}} (*)[{{nestedLength}}]>(value.handle);
+                for (std::size_t nestedIndex = 0; nestedIndex < {{nestedLength}}; ++nestedIndex)
+                {
+                    target[nestedIndex] = (*source)[nestedIndex];
+                }
+                """;
+        }
+
+        var elementCppType = GetNativeFixedArrayElementCppType(compilation, elementType);
+        if (field.CppTypeName.Contains('*', StringComparison.Ordinal))
+        {
+            return $$"""
+                ParameterMarshaller<{{elementCppType}}> marshaller;
+                {{arrayAccessExpression}}[index] = marshaller.ConvertToCpp(value);
+                """;
+        }
+
+        return $$"""
+            ParameterMarshaller<{{elementCppType}}> marshaller;
+            auto* source = marshaller.ConvertToCpp(value);
+            if (source == nullptr)
+            {
+                throw std::runtime_error("SharpCpp fixed array element assignment encountered a null handle.");
+            }
+
+            {{arrayAccessExpression}}[index] = *source;
+            """;
+    }
+
+    private static string GetNativeFixedArrayItemGetterReturnType(BindingCompilation compilation, FieldBinding field)
+    {
+        var elementType = field.Type.FixedArrayElementType
+            ?? throw new InvalidOperationException($"Fixed array field '{field.ManagedName}' is missing element type metadata.");
+        return elementType.IsFixedArray
+            ? "NativeArrayAbi"
+            : $"ret_t<{GetNativeFixedArrayElementCppType(compilation, elementType)}>";
+    }
+
+    private static string GetNativeFixedArrayItemSetterParameterType(BindingCompilation compilation, FieldBinding field)
+    {
+        var elementType = field.Type.FixedArrayElementType
+            ?? throw new InvalidOperationException($"Fixed array field '{field.ManagedName}' is missing element type metadata.");
+        return elementType.IsFixedArray
+            ? "NativeArrayAbi"
+            : $"arg_t<{GetNativeFixedArrayElementCppType(compilation, elementType)}>";
+    }
+
+    private static bool NeedsNativeFixedArrayHandleView(FieldBinding field)
+    {
+        var elementType = field.Type.FixedArrayElementType;
+        return elementType?.Kind == BindingTypeKind.Handle && !field.CppTypeName.Contains('*', StringComparison.Ordinal);
     }
 
     private static string GetNativeFixedArrayFieldAccessExpression(FieldBinding field, string selfExpression)
@@ -1084,9 +1265,19 @@ public static partial class BindingOutputRenderer
         return $"__get_{SanitizeManagedToken(field.ManagedName)}";
     }
 
+    private static string GetNativeProtectedFieldItemGetterHelperName(FieldBinding field)
+    {
+        return $"__get_{SanitizeManagedToken(field.ManagedName)}_item";
+    }
+
     private static string GetNativeProtectedFieldSetterHelperName(FieldBinding field)
     {
         return $"__set_{SanitizeManagedToken(field.ManagedName)}";
+    }
+
+    private static string GetNativeProtectedFieldItemSetterHelperName(FieldBinding field)
+    {
+        return $"__set_{SanitizeManagedToken(field.ManagedName)}_item";
     }
 
     private static void ValidateProtectedMemberSupport(FunctionBinding method)
@@ -1628,6 +1819,11 @@ public static partial class BindingOutputRenderer
 
     private static string RenderManagedHandleReturnMarshallerHelpers(BindingCompilation compilation, RecordBinding record, string recordDeclarationName)
     {
+        if (IsSharedNativeArrayRecord(record))
+        {
+            return string.Empty;
+        }
+
         if (IsGenericArrayRecord(record))
         {
             return RenderManagedGenericArrayMarshallerHelpers(compilation, record, recordDeclarationName);
@@ -2471,12 +2667,29 @@ public static partial class BindingOutputRenderer
             }
             else
             {
-                writer.Write(RenderManagedProperty(compilation, field));
-                pinvokeDeclarations.Add(RenderManagedFieldGetterImportDeclaration(compilation, field, record.ManagedName, record.CppQualifiedName));
-
-                if (!field.IsReadOnly)
+                if (NeedsManagedFixedArrayProxy(field))
                 {
-                    pinvokeDeclarations.Add(RenderManagedFieldSetterImportDeclaration(compilation, field, record.ManagedName, record.CppQualifiedName));
+                    writer.Write(RenderManagedFixedArrayProxy(compilation, field, record.ManagedName));
+                }
+
+                writer.Write(RenderManagedProperty(compilation, field));
+                if (NeedsManagedFixedArrayProxy(field))
+                {
+                    pinvokeDeclarations.Add(RenderManagedFieldItemGetterImportDeclaration(compilation, field, record.ManagedName, record.CppQualifiedName));
+
+                    if (!field.IsReadOnly)
+                    {
+                        pinvokeDeclarations.Add(RenderManagedFieldItemSetterImportDeclaration(compilation, field, record.ManagedName, record.CppQualifiedName));
+                    }
+                }
+                else
+                {
+                    pinvokeDeclarations.Add(RenderManagedFieldGetterImportDeclaration(compilation, field, record.ManagedName, record.CppQualifiedName));
+
+                    if (!field.IsReadOnly)
+                    {
+                        pinvokeDeclarations.Add(RenderManagedFieldSetterImportDeclaration(compilation, field, record.ManagedName, record.CppQualifiedName));
+                    }
                 }
             }
         }
@@ -2490,11 +2703,23 @@ public static partial class BindingOutputRenderer
 
             WriteRecordMemberSeparator(false);
             writer.Write(RenderManagedProperty(compilation, field, hidesInheritedMember: true));
-            pinvokeDeclarations.Add(RenderManagedFieldGetterImportDeclaration(compilation, field, record.ManagedName, record.CppQualifiedName));
-
-            if (!field.IsReadOnly)
+            if (NeedsManagedFixedArrayProxy(field))
             {
-                pinvokeDeclarations.Add(RenderManagedFieldSetterImportDeclaration(compilation, field, record.ManagedName, record.CppQualifiedName));
+                pinvokeDeclarations.Add(RenderManagedFieldItemGetterImportDeclaration(compilation, field, record.ManagedName, record.CppQualifiedName));
+
+                if (!field.IsReadOnly)
+                {
+                    pinvokeDeclarations.Add(RenderManagedFieldItemSetterImportDeclaration(compilation, field, record.ManagedName, record.CppQualifiedName));
+                }
+            }
+            else
+            {
+                pinvokeDeclarations.Add(RenderManagedFieldGetterImportDeclaration(compilation, field, record.ManagedName, record.CppQualifiedName));
+
+                if (!field.IsReadOnly)
+                {
+                    pinvokeDeclarations.Add(RenderManagedFieldSetterImportDeclaration(compilation, field, record.ManagedName, record.CppQualifiedName));
+                }
             }
         }
 
@@ -3827,7 +4052,7 @@ public static partial class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         WriteDocumentationComment(writer, field);
-        var propertyTypeName = GetManagedPublicReturnTypeName(field.Type, compilation);
+        var propertyTypeName = GetManagedFieldPropertyTypeName(compilation, field);
         writer.Write($$"""
             {{GetManagedVisibility(field.AccessModifier)}} {{(hidesInheritedMember ? "new " : string.Empty)}}{{propertyTypeName}} {{field.ManagedName}}
             {
@@ -3835,7 +4060,13 @@ public static partial class BindingOutputRenderer
             {
             """);
 
-        if (field.Type.Kind == BindingTypeKind.Handle)
+        if (NeedsManagedFixedArrayProxy(field))
+        {
+            writer.Write($$"""
+                return {{GetManagedFixedArrayProxyFieldName(field)}} ??= new {{GetManagedFixedArrayProxyClassName(field)}}(this);
+                """);
+        }
+        else if (field.Type.Kind == BindingTypeKind.Handle)
         {
             writer.Write($$"""
                 return {{BuildManagedHandleReturnResultExpression(compilation, field.Type, $"__PInvoke.Get_{field.ManagedName}(this)", field.ReturnsOwnedHandle)}};
@@ -3855,22 +4086,44 @@ public static partial class BindingOutputRenderer
 
         if (!field.IsReadOnly)
         {
-            var setterParameter = new ParameterBinding(
-                $"field:set:{field.NativeName}",
-                "value",
-                "value",
-                field.Type,
-                BindingParameterDirection.In,
-                BindingParameterAbiKind.Pointer,
-                field.CppTypeName);
-            var setterArgument = field.Type.IsFixedArray
-                ? "value"
-                : CanUseManagedHandleParameterImport(setterParameter, field.Type)
-                ? "value"
-                : RequiresHandleWrapping(field.Type)
-                ? "global::SharpCpp.Support.NativeObject.GetHandle(value)"
-                : BuildManagedPublicToImportExpression(compilation, field.Type, "value");
-            var setterPrecondition = field.Type.IsFixedArray
+            if (NeedsManagedFixedArrayProxy(field))
+            {
+                writer.Write($$"""
+                    set
+                    {
+                    global::System.ArgumentNullException.ThrowIfNull(value);
+                    if (value.Count != {{field.Type.FixedArrayLength ?? 0}})
+                    {
+                        throw new global::System.ArgumentException("Expected array length {{field.Type.FixedArrayLength ?? 0}}.", nameof(value));
+                    }
+
+                    var proxy = {{GetManagedFixedArrayProxyFieldName(field)}} ??= new {{GetManagedFixedArrayProxyClassName(field)}}(this);
+                    for (var index = 0; index < value.Count; ++index)
+                    {
+                        proxy[index] = value[index];
+                    }
+                    global::System.GC.KeepAlive(value);
+                    }
+                    """);
+            }
+            else
+            {
+                var setterParameter = new ParameterBinding(
+                    $"field:set:{field.NativeName}",
+                    "value",
+                    "value",
+                    field.Type,
+                    BindingParameterDirection.In,
+                    BindingParameterAbiKind.Pointer,
+                    field.CppTypeName);
+                var setterArgument = field.Type.IsFixedArray
+                    ? "value"
+                    : CanUseManagedHandleParameterImport(setterParameter, field.Type)
+                    ? "value"
+                    : RequiresHandleWrapping(field.Type)
+                    ? "global::SharpCpp.Support.NativeObject.GetHandle(value)"
+                    : BuildManagedPublicToImportExpression(compilation, field.Type, "value");
+                var setterPrecondition = field.Type.IsFixedArray
                 ? $$"""
                     global::System.ArgumentNullException.ThrowIfNull(value);
                     if (value.Length != {{field.Type.FixedArrayLength ?? 0}})
@@ -3878,21 +4131,89 @@ public static partial class BindingOutputRenderer
                         throw new global::System.ArgumentException("Expected array length {{field.Type.FixedArrayLength ?? 0}}.", nameof(value));
                     }
             """
-                : string.Empty;
-            var setterKeepAlive = field.Type.IsFixedArray || RequiresHandleWrapping(field.Type)
-                ? "\n            global::System.GC.KeepAlive(value);"
-                : string.Empty;
-            writer.Write($$"""
-                set
-                {
-                {{setterPrecondition}}
-                __PInvoke.Set_{{field.ManagedName}}(this, {{setterArgument}});{{setterKeepAlive}}
-                }
-                """);
+                    : string.Empty;
+                var setterKeepAlive = field.Type.IsFixedArray || RequiresHandleWrapping(field.Type)
+                    ? "\n            global::System.GC.KeepAlive(value);"
+                    : string.Empty;
+                writer.Write($$"""
+                    set
+                    {
+                    {{setterPrecondition}}
+                    __PInvoke.Set_{{field.ManagedName}}(this, {{setterArgument}});{{setterKeepAlive}}
+                    }
+                    """);
+            }
         }
 
         writer.Write(
             """
+            }
+            """);
+        return writer.ToString();
+    }
+
+    private static string GetManagedFieldPropertyTypeName(BindingCompilation compilation, FieldBinding field)
+    {
+        if (!NeedsManagedFixedArrayProxy(field))
+        {
+            return GetManagedPublicReturnTypeName(field.Type, compilation);
+        }
+
+        var elementType = field.Type.FixedArrayElementType
+            ?? throw new InvalidOperationException($"Fixed array field '{field.ManagedName}' is missing element type metadata.");
+        return $"global::SharpCpp.Support.IFixedArray<{GetManagedPublicReturnTypeName(elementType, compilation)}>";
+    }
+
+    private static bool NeedsManagedFixedArrayProxy(FieldBinding field)
+    {
+        return field.Type.IsFixedArray && field.Type.FixedArrayElementType?.Kind == BindingTypeKind.Handle;
+    }
+
+    private static string GetManagedFixedArrayProxyClassName(FieldBinding field)
+    {
+        return $"__{field.ManagedName}FixedArrayProxy";
+    }
+
+    private static string GetManagedFixedArrayProxyFieldName(FieldBinding field)
+    {
+        return $"__{char.ToLowerInvariant(field.ManagedName[0])}{field.ManagedName[1..]}FixedArrayProxy";
+    }
+
+    private static string RenderManagedFixedArrayProxy(BindingCompilation compilation, FieldBinding field, string recordManagedName)
+    {
+        if (!NeedsManagedFixedArrayProxy(field))
+        {
+            return string.Empty;
+        }
+
+        var writer = new CodeWriter();
+        var elementType = field.Type.FixedArrayElementType
+            ?? throw new InvalidOperationException($"Fixed array field '{field.ManagedName}' is missing element type metadata.");
+        var elementTypeName = GetManagedPublicReturnTypeName(elementType, compilation);
+        var setterKeepAlive = elementType.Kind == BindingTypeKind.Handle
+            ? "\n            global::System.GC.KeepAlive(value);"
+            : string.Empty;
+
+        writer.Write($$"""
+            private {{GetManagedFixedArrayProxyClassName(field)}}? {{GetManagedFixedArrayProxyFieldName(field)}};
+
+            private sealed class {{GetManagedFixedArrayProxyClassName(field)}}({{recordManagedName}} owner)
+                : global::SharpCpp.Support.FixedArrayProxy<{{elementTypeName}}>({{field.Type.FixedArrayLength ?? 0}})
+            {
+                private readonly {{recordManagedName}} owner = owner;
+
+                protected override {{elementTypeName}} GetAtCore(nuint index)
+                {
+                    var result = __PInvoke.Get_{{field.ManagedName}}_Item(owner, index);
+                    global::System.GC.KeepAlive(owner);
+                    return result;
+                }
+
+                protected override void SetAtCore(nuint index, {{elementTypeName}} value)
+                {
+                    __PInvoke.Set_{{field.ManagedName}}_Item(owner, index, value);
+                    global::System.GC.KeepAlive(owner);{{setterKeepAlive}}
+                }
             }
             """);
         return writer.ToString();
@@ -3933,6 +4254,49 @@ public static partial class BindingOutputRenderer
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetNativeFieldSetterEntrypointName(entryPointRecordCppTypeName, field)}}", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             internal static partial void Set_{{field.ManagedName}}({{recordManagedName}} self, {{parameter}});
+            """);
+        return writer.ToString();
+    }
+
+    private static string RenderManagedFieldItemGetterImportDeclaration(BindingCompilation compilation, FieldBinding field, string recordManagedName, string entryPointRecordCppTypeName)
+    {
+        var writer = new CodeWriter();
+        var elementType = field.Type.FixedArrayElementType
+            ?? throw new InvalidOperationException($"Fixed array field '{field.ManagedName}' is missing element type metadata.");
+        var returnTypeName = GetManagedImportReturnTypeName(compilation, elementType);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, elementType, ownsHandle: false);
+        var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
+            ? $"internal static partial {returnTypeName} Get_{field.ManagedName}_Item({recordManagedName} self, nuint index);"
+            : $"{returnAttribute}\ninternal static partial {returnTypeName} Get_{field.ManagedName}_Item({recordManagedName} self, nuint index);";
+
+        writer.Write($$"""
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetNativeFieldItemGetterEntrypointName(entryPointRecordCppTypeName, field)}}", StringMarshalling = StringMarshalling.Utf8)]
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            {{importMethodLine}}
+            """);
+        return writer.ToString();
+    }
+
+    private static string RenderManagedFieldItemSetterImportDeclaration(BindingCompilation compilation, FieldBinding field, string recordManagedName, string entryPointRecordCppTypeName)
+    {
+        var writer = new CodeWriter();
+        var elementType = field.Type.FixedArrayElementType
+            ?? throw new InvalidOperationException($"Fixed array field '{field.ManagedName}' is missing element type metadata.");
+        var parameter = RenderManagedImportParameter(
+            new ParameterBinding(
+                $"field:set:item:{field.NativeName}",
+                "value",
+                "value",
+                elementType,
+                BindingParameterDirection.In,
+                elementType.Kind == BindingTypeKind.Handle ? BindingParameterAbiKind.Value : BindingParameterAbiKind.Pointer,
+                elementType.CppTypeName),
+            compilation);
+
+        writer.Write($$"""
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetNativeFieldItemSetterEntrypointName(entryPointRecordCppTypeName, field)}}", StringMarshalling = StringMarshalling.Utf8)]
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal static partial void Set_{{field.ManagedName}}_Item({{recordManagedName}} self, nuint index, {{parameter}});
             """);
         return writer.ToString();
     }
@@ -4286,32 +4650,60 @@ public static partial class BindingOutputRenderer
                      .Where(static entry => !entry.Field.HasMetadata(MetadataKeys.IgnoreReason))
                      .OrderBy(static entry => entry.Field.ManagedName, StringComparer.Ordinal))
         {
-            var plan = CreateNativeFieldInteropPlan(compilation, field);
-            var nativeFieldCppType = plan.StorageCppType;
-            var isNativeFixedArrayField = IsNativeFixedArrayType(compilation, field.Type);
-            var getterReturnType = isNativeFixedArrayField ? "NativeArrayAbi" : $"ret_t<{nativeFieldCppType}>";
-            writer.WriteLine();
-            writer.Write($$"""
-                SHARPCPP_EXPORT {{getterReturnType}} {{GetNativeFieldGetterEntrypointName(accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self)
-                {
-                {{(field.AccessModifier == BindingAccessModifier.Protected
-                    ? RenderNativeProtectedFieldGetInvocation(accessorRecord, field)
-                    : RenderNativeFieldGetInvocation(compilation, field, plan, "self"))}}
-                }
-                """);
-
-            if (!field.IsReadOnly)
+            if (NeedsManagedFixedArrayProxy(field))
             {
-                var setterParameterType = isNativeFixedArrayField ? "NativeArrayAbi" : plan.SetterParameterCppType;
                 writer.WriteLine();
                 writer.Write($$"""
-                    SHARPCPP_EXPORT ret_t<void> {{GetNativeFieldSetterEntrypointName(accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self, {{setterParameterType}} value)
+                    SHARPCPP_EXPORT {{GetNativeFixedArrayItemGetterReturnType(compilation, field)}} {{GetNativeFieldItemGetterEntrypointName(accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self, std::size_t index)
                     {
                     {{(field.AccessModifier == BindingAccessModifier.Protected
-                        ? RenderNativeProtectedFieldSetInvocation(accessorRecord, field)
-                        : RenderNativeFieldSetInvocation(compilation, field, plan, "self"))}}
+                        ? RenderNativeProtectedFieldItemGetInvocation(accessorRecord, field)
+                        : RenderNativeFixedArrayItemGetInvocation(compilation, field, "self"))}}
                     }
                     """);
+
+                if (!field.IsReadOnly)
+                {
+                    writer.WriteLine();
+                    writer.Write($$"""
+                        SHARPCPP_EXPORT ret_t<void> {{GetNativeFieldItemSetterEntrypointName(accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self, std::size_t index, {{GetNativeFixedArrayItemSetterParameterType(compilation, field)}} value)
+                        {
+                        {{(field.AccessModifier == BindingAccessModifier.Protected
+                            ? RenderNativeProtectedFieldItemSetInvocation(accessorRecord, field)
+                            : RenderNativeFixedArrayItemSetInvocation(compilation, field, "self"))}}
+                        }
+                        """);
+                }
+            }
+            else
+            {
+                var plan = CreateNativeFieldInteropPlan(compilation, field);
+                var nativeFieldCppType = plan.StorageCppType;
+                var isNativeFixedArrayField = IsNativeFixedArrayType(compilation, field.Type);
+                var getterReturnType = isNativeFixedArrayField ? "NativeArrayAbi" : $"ret_t<{nativeFieldCppType}>";
+                writer.WriteLine();
+                writer.Write($$"""
+                    SHARPCPP_EXPORT {{getterReturnType}} {{GetNativeFieldGetterEntrypointName(accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self)
+                    {
+                    {{(field.AccessModifier == BindingAccessModifier.Protected
+                        ? RenderNativeProtectedFieldGetInvocation(accessorRecord, field)
+                        : RenderNativeFieldGetInvocation(compilation, field, plan, "self"))}}
+                    }
+                    """);
+
+                if (!field.IsReadOnly)
+                {
+                    var setterParameterType = isNativeFixedArrayField ? "NativeArrayAbi" : plan.SetterParameterCppType;
+                    writer.WriteLine();
+                    writer.Write($$"""
+                        SHARPCPP_EXPORT ret_t<void> {{GetNativeFieldSetterEntrypointName(accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self, {{setterParameterType}} value)
+                        {
+                        {{(field.AccessModifier == BindingAccessModifier.Protected
+                            ? RenderNativeProtectedFieldSetInvocation(accessorRecord, field)
+                            : RenderNativeFieldSetInvocation(compilation, field, plan, "self"))}}
+                        }
+                        """);
+                }
             }
         }
 

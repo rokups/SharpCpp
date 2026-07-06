@@ -357,6 +357,11 @@ public static partial class BindingOutputRenderer
         return IsGenericFixedArrayRecord(record) || IsGenericDynamicArrayRecord(record);
     }
 
+    private static bool IsSharedNativeArrayRecord(RecordBinding record)
+    {
+        return record.GetMetadata<bool>(MetadataKeys.NativeArrayRecord);
+    }
+
     private static bool IsGenericFixedArrayRecord(RecordBinding record)
     {
         return record.GetMetadata<bool>(MetadataKeys.FixedArrayRecord) ||
@@ -371,6 +376,11 @@ public static partial class BindingOutputRenderer
 
     private static string RenderGenericArrayRecord(BindingCompilation compilation, RecordBinding record)
     {
+        if (IsSharedNativeArrayRecord(record))
+        {
+            return string.Empty;
+        }
+
         return IsGenericDynamicArrayRecord(record)
             ? RenderGenericDynamicArrayRecord(compilation, record)
             : RenderGenericFixedArrayRecord(compilation, record);
@@ -589,18 +599,85 @@ public static partial class BindingOutputRenderer
             : CollectGenericFixedArrayImportDeclarations(compilation, record);
     }
 
+    private static string RenderSharedNativeArrayRegistryInitializer(BindingCompilation compilation, IReadOnlyList<RecordBinding> records)
+    {
+        var registrations = records
+            .Where(IsSharedNativeArrayRecord)
+            .SelectMany(record => GetFixedArrayInstantiations(compilation, record)
+                .Select(instantiation => RenderSharedNativeArrayRegistration(compilation, record, instantiation)))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (registrations.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var writer = new CodeWriter();
+        writer.Write(
+            """
+            internal static class __NativeArrayRegistryInitializer
+            {
+            [global::System.Runtime.CompilerServices.ModuleInitializer]
+            internal static void RegisterAll()
+            {
+            """);
+
+        foreach (var registration in registrations)
+        {
+            writer.Write(registration);
+        }
+
+        writer.Write(
+            """
+            }
+            }
+            """);
+        return writer.ToString();
+    }
+
+    private static string RenderSharedNativeArrayRegistration(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    {
+        _ = TryGetFixedArrayLength(instantiation, out var length);
+        var elementType = instantiation.TypeArguments[0];
+        var managedElementType = GetManagedPublicReturnTypeName(elementType, compilation);
+        var importToken = GetFixedArrayImportMethodToken(record, instantiation);
+        var importAccessor = GetGenericImportAccessor(compilation);
+        return $$"""
+            global::SharpCpp.NativeArray<{{managedElementType}}>.__Register(
+                {{length}},
+                static () => {{importAccessor}}.__Array_Create_{{importToken}}(),
+                static self => {{importAccessor}}.__Array_Delete_{{importToken}}(self),
+                static (self, index) => {{importAccessor}}.__Array_Get_{{importToken}}(self, index),
+                static (self, index, value) => {{importAccessor}}.__Array_Set_{{importToken}}(self, index, value));
+            """;
+    }
+
     private static IEnumerable<string> CollectGenericFixedArrayImportDeclarations(BindingCompilation compilation, RecordBinding record)
     {
         foreach (var instantiation in GetFixedArrayInstantiations(compilation, record))
         {
-            var token = GetFixedArrayInstantiationToken(instantiation);
             var importToken = GetFixedArrayImportMethodToken(record, instantiation);
             var elementType = instantiation.TypeArguments[0];
-            var managedElementType = FormatGlobalTypeName(elementType, compilation);
-            var getReturnType = elementType.Kind == BindingTypeKind.Handle ? "nint" : managedElementType;
-            var setParameterType = elementType.Kind == BindingTypeKind.Handle ? "nint" : managedElementType;
-            var getReturnAttribute = GetManagedReturnAttribute(elementType);
-            var setParameterAttribute = GetManagedParameterAttribute(elementType, compilation);
+            var getReturnType = IsSharedNativeArrayRecord(record)
+                ? GetManagedImportReturnTypeName(compilation, elementType)
+                : elementType.Kind == BindingTypeKind.Handle
+                    ? "nint"
+                    : FormatGlobalTypeName(elementType, compilation);
+            var getReturnAttribute = IsSharedNativeArrayRecord(record)
+                ? GetManagedImportReturnAttribute(compilation, elementType, ownsHandle: false)
+                : GetManagedReturnAttribute(elementType);
+            var setParameter = IsSharedNativeArrayRecord(record)
+                ? RenderManagedImportParameter(
+                    new ParameterBinding(
+                        $"array:set:{importToken}",
+                        "value",
+                        "value",
+                        elementType,
+                        BindingParameterDirection.In,
+                        BindingParameterAbiKind.Value,
+                        elementType.CppTypeName),
+                    compilation)
+                : $"{GetManagedParameterAttribute(elementType, compilation)}{(elementType.Kind == BindingTypeKind.Handle ? "nint" : FormatGlobalTypeName(elementType, compilation))} value";
             yield return $$"""
                 [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArrayCreateEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -620,7 +697,7 @@ public static partial class BindingOutputRenderer
             yield return $$"""
                 [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArraySetEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                internal static partial void __Array_Set_{{importToken}}(global::SharpCpp.Support.NativeArrayAbi self, nuint index, {{setParameterAttribute}}{{setParameterType}} value);
+                internal static partial void __Array_Set_{{importToken}}(global::SharpCpp.Support.NativeArrayAbi self, nuint index, {{setParameter}});
                 """;
         }
     }
@@ -2357,9 +2434,62 @@ public static partial class BindingOutputRenderer
         foreach (var instantiation in GetFixedArrayInstantiations(compilation, record))
         {
             _ = TryGetFixedArrayLength(instantiation, out var length);
-            var elementCppType = GetNativeFixedArrayElementCppType(compilation, instantiation.TypeArguments[0]);
+            var elementType = instantiation.TypeArguments[0];
+            var elementCppType = GetNativeFixedArrayElementCppType(compilation, elementType);
             if (record.GetMetadata<bool>(MetadataKeys.NativeArrayRecord))
             {
+                if (elementType.IsFixedArray)
+                {
+                    var nestedLength = elementType.FixedArrayLength ?? 0;
+                    writer.Write($$"""
+                        SHARPCPP_EXPORT NativeArrayAbi {{GetFixedArrayCreateEntryPointName(record, instantiation)}}()
+                        {
+                            auto* value = new {{elementCppType}}[{{length}}][{{nestedLength}}]{};
+                            return { value, {{length}} };
+                        }
+
+                        SHARPCPP_EXPORT ret_t<void> {{GetFixedArrayDeleteEntryPointName(record, instantiation)}}(NativeArrayAbi self)
+                        {
+                            if (self.handle != nullptr)
+                            {
+                                delete[] static_cast<{{elementCppType}} (*)[{{nestedLength}}]>(self.handle);
+                            }
+                        }
+
+                        SHARPCPP_EXPORT NativeArrayAbi {{GetFixedArrayGetEntryPointName(record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index)
+                        {
+                            if (self.handle == nullptr || self.length != {{length}} || index >= {{length}})
+                            {
+                                throw std::runtime_error("SharpCpp fixed array access out of range.");
+                            }
+
+                            return { const_cast<void*>(static_cast<const void*>(static_cast<{{elementCppType}} (*)[{{nestedLength}}]>(self.handle)[index])), {{nestedLength}} };
+                        }
+
+                        SHARPCPP_EXPORT ret_t<void> {{GetFixedArraySetEntryPointName(record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index, NativeArrayAbi value)
+                        {
+                            if (self.handle == nullptr || self.length != {{length}} || index >= {{length}})
+                            {
+                                throw std::runtime_error("SharpCpp fixed array access out of range.");
+                            }
+
+                            if (value.handle == nullptr || value.length != {{nestedLength}})
+                            {
+                                throw std::runtime_error("SharpCpp fixed array element assignment length mismatch.");
+                            }
+
+                            auto* target = static_cast<{{elementCppType}} (*)[{{nestedLength}}]>(self.handle);
+                            auto* source = reinterpret_cast<{{elementCppType}} (*)[{{nestedLength}}]>(value.handle);
+                            for (std::size_t nestedIndex = 0; nestedIndex < {{nestedLength}}; ++nestedIndex)
+                            {
+                                target[index][nestedIndex] = (*source)[nestedIndex];
+                            }
+                        }
+
+                        """);
+                    continue;
+                }
+
                 writer.Write($$"""
                     SHARPCPP_EXPORT NativeArrayAbi {{GetFixedArrayCreateEntryPointName(record, instantiation)}}()
                     {
