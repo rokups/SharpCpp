@@ -430,6 +430,7 @@ set_target_properties(SharpCppTestsE2E_Native PROPERTIES CXX_SCAN_FOR_MODULES OF
 target_include_directories(
   SharpCppTestsE2E_Native
   PRIVATE
+    "${CMAKE_SOURCE_DIR}/include"
     "${SHARPCPP_E2E_GENERATED_ROOT}"
     "${CMAKE_SOURCE_DIR}/tests/SharpCpp.Tests.E2E")
 target_link_libraries(SharpCppTestsE2E_Native PRIVATE sharpcpp-native-support)

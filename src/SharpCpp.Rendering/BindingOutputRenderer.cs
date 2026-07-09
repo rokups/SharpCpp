@@ -5346,7 +5346,34 @@ public static partial class BindingOutputRenderer
         int keepCount,
         BindingCompilation? compilation = null)
     {
-        return RenderManagedPublicParameterList(function.Parameters.Take(keepCount), compilation);
+        var parameterArray = function.Parameters;
+        var keepParameters = parameterArray.Take(keepCount).ToArray();
+        if (keepParameters.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var localDefaultFlags = GetManagedPublicParameterDefaultFlags(keepParameters);
+        var firstUnexpressibleDefault = parameterArray
+            .Select((parameter, index) => (parameter, index))
+            .FirstOrDefault(static entry => entry.parameter.HasMetadata(MetadataKeys.UnexpressibleDefault));
+
+        var parts = new List<string>(keepCount);
+        for (var i = 0; i < keepParameters.Length; i++)
+        {
+            var parameter = keepParameters[i];
+            if (firstUnexpressibleDefault.parameter is not null && i < firstUnexpressibleDefault.index)
+            {
+                parts.Add(RenderManagedPublicParameterRequired(parameter, compilation));
+                continue;
+            }
+
+            parts.Add(localDefaultFlags[i]
+                ? RenderManagedPublicParameter(parameter, compilation)
+                : RenderManagedPublicParameterNoDefault(parameter, compilation));
+        }
+
+        return string.Join(", ", parts);
     }
 
     private static string GetManagedOmittedDefaultArgument(ParameterBinding parameter, BindingCompilation? compilation = null)
@@ -6477,8 +6504,14 @@ public static partial class BindingOutputRenderer
 
     private static IReadOnlyList<int> GetUnexpressibleDefaultConvenienceOverloadParameterIndices(FunctionBinding function)
     {
+        var unexpressibleDefaultParameters = GetUnexpressibleDefaultParameterIndices(function);
+        if (unexpressibleDefaultParameters.Count <= 1)
+        {
+            return Array.Empty<int>();
+        }
+
         var mainDefaultFlags = GetManagedPublicParameterDefaultFlags(function);
-        return GetUnexpressibleDefaultParameterIndices(function)
+        return unexpressibleDefaultParameters
             .Where(index => !IsRedundantUnexpressibleDefaultConvenienceOverload(function, index, mainDefaultFlags))
             .ToArray();
     }
@@ -6488,6 +6521,11 @@ public static partial class BindingOutputRenderer
         int keepCount,
         IReadOnlyList<bool> mainDefaultFlags)
     {
+        if (keepCount == function.Parameters.Count - 1)
+        {
+            return true;
+        }
+
         for (var i = 0; i < keepCount; i++)
         {
             if (HasManagedUnexpressibleDefaultOverloadParameterDefault(function, keepCount, i) && !mainDefaultFlags[i])

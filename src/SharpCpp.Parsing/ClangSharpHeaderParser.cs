@@ -1,6 +1,7 @@
 using ClangSharp.Interop;
 using ClangSharp;
 using System.Collections;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -4748,27 +4749,67 @@ public sealed partial class ClangSharpHeaderParser
 
     private static string? GetNativeDefaultValueExpression(ParmVarDecl parameterDecl)
     {
-        if (!TryGetDefaultArgumentExpression(parameterDecl, out _, out var expression))
+        if (!TryGetDefaultArgumentExpression(parameterDecl, out var expressionCursor, out var expression))
             return null;
 
         if (expression.Contains('#') || expression.Contains("///"))
             return null;
 
+        if (TryGetEvaluatedNativeDefaultValueExpression(expressionCursor, out var evaluatedExpression))
+            return evaluatedExpression;
+
+        if (TryGetEvaluatedNativeDefaultValueExpression(parameterDecl.DefaultArg.Handle, out evaluatedExpression))
+            return evaluatedExpression;
+
+        if (parameterDecl.HasUninstantiatedDefaultArg &&
+            TryGetEvaluatedNativeDefaultValueExpression(parameterDecl.UninstantiatedDefaultArg.Handle, out evaluatedExpression))
+            return evaluatedExpression;
+
         return expression.Length == 0 ? null : expression;
+    }
+
+    private static bool TryGetEvaluatedNativeDefaultValueExpression(
+        CXCursor expressionCursor,
+        out string expression)
+    {
+        expression = string.Empty;
+
+        if (!expressionCursor.IsPotentiallyEvaluated)
+            return false;
+
+        using var evaluation = expressionCursor.Evaluate;
+        if (evaluation.Kind == CXEvalResultKind.CXEval_UnExposed)
+            return false;
+
+        expression = evaluation.Kind switch
+        {
+            CXEvalResultKind.CXEval_Int =>
+                evaluation.IsUnsignedInt
+                    ? $"{evaluation.AsUnsigned.ToString(CultureInfo.InvariantCulture)}u"
+                    : evaluation.AsInt.ToString(CultureInfo.InvariantCulture),
+            CXEvalResultKind.CXEval_Float => evaluation.AsDouble.ToString("R", CultureInfo.InvariantCulture),
+            CXEvalResultKind.CXEval_ObjCStrLiteral => $"\"{evaluation.AsStr}\"",
+            CXEvalResultKind.CXEval_StrLiteral => $"\"{evaluation.AsStr}\"",
+            _ => string.Empty
+        };
+
+        return !string.IsNullOrEmpty(expression);
     }
 
     private static bool TryGetDefaultArgumentExpression(ParmVarDecl parameterDecl, out CXCursor expressionCursor, out string expression)
     {
         expressionCursor = default;
         expression = string.Empty;
-        if (!parameterDecl.HasDefaultArg)
-            return false;
-
         var parameterCursor = parameterDecl.Handle;
+
         var defaultArgumentCursor = parameterCursor.DefaultArg;
         if (defaultArgumentCursor.Kind == CXCursorKind.CXCursor_FirstInvalid && parameterDecl.HasUninstantiatedDefaultArg)
         {
             defaultArgumentCursor = parameterDecl.UninstantiatedDefaultArg.Handle;
+        }
+        else if (defaultArgumentCursor.Kind == CXCursorKind.CXCursor_FirstInvalid && !parameterDecl.HasDefaultArg)
+        {
+            return TryGetDefaultArgumentExpressionFromDeclaration(parameterDecl, out expression);
         }
 
         if (defaultArgumentCursor.Kind == CXCursorKind.CXCursor_FirstInvalid)
@@ -4785,9 +4826,23 @@ public sealed partial class ClangSharpHeaderParser
             ? expression[1..].TrimStart()
             : expression;
         if (expression.Length != 0)
+        {
+            if (expression.Contains('#') || expression.Contains("///"))
+            {
+                if (TryGetDefaultArgumentExpressionFromDeclaration(parameterDecl, out var declarationExpression))
+                {
+                    expression = declarationExpression;
+                }
+                else
+                {
+                    return false;
+                }
+            }
             return true;
+        }
 
-        return TryGetDefaultArgumentExpressionFromDeclaration(parameterDecl, out expression);
+        var fallback = TryGetDefaultArgumentExpressionFromDeclaration(parameterDecl, out expression);
+        return fallback;
     }
 
     private static bool TryGetDefaultArgumentExpressionFromDeclaration(ParmVarDecl parameterDecl, out string expression)
