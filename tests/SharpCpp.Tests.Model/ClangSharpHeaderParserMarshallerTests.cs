@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
 
 using SharpCpp.Model.Ast;
 using SharpCpp.Pipeline;
@@ -186,6 +187,66 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         Assert.Equal("global::System.IntPtr", explicitSignedOut.Parameters[0].Type.ManagedTypeName);
         Assert.Equal(BindingParameterDirection.Out, explicitSignedOut.Parameters[0].Direction);
         Assert.Equal(BindingParameterAbiKind.Value, explicitSignedOut.Parameters[0].AbiKind);
+    }
+
+    [Fact]
+    public void Parse_treats_null_macro_pointer_defaults_as_managed_defaults()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "PointerNullDefaults");
+        var includeDir = Path.Combine(repoRoot, "include");
+        var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+        var marshallerHeader = Path.Combine(fixtureDir, "SampleMarshallers.h");
+
+        var parser = new ClangSharpHeaderParser();
+        var clangArgs = CreateStandardLibraryClangArgs(fixtureDir, includeDir);
+
+        var compilation = parser.Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test.Namespace",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: clangArgs,
+            MarshallerConfigurationFiles: [marshallerHeader],
+            EntryPointPrefix: "Test_"));
+
+        var function = Assert.Single(compilation.Functions.Where(static candidate => candidate.NativeName == "accept_pointer"));
+        var parameter = Assert.Single(function.Parameters);
+        Assert.Equal("global::System.IntPtr", parameter.Type.ManagedTypeName);
+        Assert.Equal("default", parameter.ManagedDefaultValueExpression);
+        Assert.False(parameter.HasMetadata(MetadataKeys.UnexpressibleDefault));
+    }
+
+    [Fact]
+    public void Parse_marks_empty_macro_expansions_as_unexpressible_defaults()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "EmptyMacroDefaults");
+        var includeDir = Path.Combine(repoRoot, "include");
+        var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+
+        var parser = new ClangSharpHeaderParser();
+        var clangArgs = CreateStandardLibraryClangArgs(fixtureDir, includeDir);
+
+        var compilation = parser.Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test.Namespace",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: clangArgs,
+            MarshallerConfigurationFiles: Array.Empty<string>(),
+            EntryPointPrefix: "Test_"));
+
+        var function = Assert.Single(compilation.Functions.Where(static candidate => candidate.NativeName == "plot_value"));
+        Assert.All(function.Parameters, static parameter =>
+        {
+            Assert.Null(parameter.ManagedDefaultValueExpression);
+            Assert.True(parameter.HasMetadata(MetadataKeys.UnexpressibleDefault));
+        });
     }
 
     [Fact]
@@ -1263,13 +1324,18 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         }
     }
 
-    private static string FindRepositoryRoot()
+    private static string FindRepositoryRoot([CallerFilePath] string sourceFilePath = "")
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        var startPath = string.IsNullOrWhiteSpace(sourceFilePath)
+            ? AppContext.BaseDirectory
+            : Path.GetDirectoryName(sourceFilePath)!;
+        var directory = new DirectoryInfo(startPath);
         while (directory is not null)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "AGENTS.md")) &&
-                Directory.Exists(Path.Combine(directory.FullName, "include")))
+            var hasIncludeDir = Directory.Exists(Path.Combine(directory.FullName, "include"));
+            var hasModelTestsDir = Directory.Exists(Path.Combine(directory.FullName, "tests", "SharpCpp.Tests.Model"));
+            if (hasIncludeDir &&
+                (File.Exists(Path.Combine(directory.FullName, "AGENTS.md")) || hasModelTestsDir))
             {
                 return directory.FullName;
             }

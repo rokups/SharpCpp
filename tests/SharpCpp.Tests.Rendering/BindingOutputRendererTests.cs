@@ -696,6 +696,407 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void String_default_values_render_nullable_public_parameters()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "String/String.hpp" });
+        var function = new FunctionBinding(
+            "function:measure",
+            "Measure",
+            "Measure",
+            BindingType.Void,
+            "sharpcpp_sample_measure");
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:measure:out_remaining",
+            "out_remaining",
+            "outRemaining",
+            BindingType.CreateConfigured("const char**", "string"),
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "const char**")
+        {
+            ManagedDefaultValueExpression = "default"
+        });
+        compilation.Members.Add(function);
+
+        var managedOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public static void Measure(string? outRemaining = default)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial void Measure(string? outRemaining);", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("public static void Measure(string outRemaining = default)", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("internal static partial void Measure(string outRemaining);", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Unexpressible_default_overloads_preserve_prefix_optional_parameters()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "ImGui/imgui.h" });
+        var function = new FunctionBinding(
+            "function:drag_scalar",
+            "DragScalar",
+            "DragScalar",
+            BindingType.Boolean,
+            "sharpcpp_sample_drag_scalar");
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:drag_scalar:label",
+            "label",
+            "label",
+            BindingType.CreateConfigured("const char*", "global::System.ReadOnlySpan<byte>"),
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "const char*"));
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:drag_scalar:data_type",
+            "data_type",
+            "dataType",
+            BindingType.Int32,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "int"));
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:drag_scalar:p_data",
+            "p_data",
+            "pData",
+            BindingType.IntPtr,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "void*"));
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:drag_scalar:v_speed",
+            "v_speed",
+            "vSpeed",
+            BindingType.Single,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "float")
+        {
+            ManagedDefaultValueExpression = "1.0f"
+        });
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:drag_scalar:p_min",
+            "p_min",
+            "pMin",
+            BindingType.IntPtr,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "const void*")
+        {
+            ManagedDefaultValueExpression = "default"
+        });
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:drag_scalar:p_max",
+            "p_max",
+            "pMax",
+            BindingType.IntPtr,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "const void*")
+        {
+            ManagedDefaultValueExpression = "default"
+        });
+        var format = new ParameterBinding(
+            "parameter:drag_scalar:format",
+            "format",
+            "format",
+            BindingType.CreateConfigured("const char*", "global::System.ReadOnlySpan<byte>"),
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "const char*");
+        format.SetMetadata(MetadataKeys.UnexpressibleDefault, true);
+        function.Parameters.Add(format);
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:drag_scalar:flags",
+            "flags",
+            "flags",
+            BindingType.Int32,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "int")
+        {
+            ManagedDefaultValueExpression = "0"
+        });
+        compilation.Members.Add(function);
+
+        var managedOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains(
+            "public static bool DragScalar(global::System.ReadOnlySpan<byte> label, int dataType, global::System.IntPtr pData, float vSpeed = 1.0f, global::System.IntPtr pMin = default, global::System.IntPtr pMax = default)",
+            managedOutput,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "float vSpeed = 1.0f, global::System.IntPtr pMin, global::System.IntPtr pMax",
+            managedOutput,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Unexpressible_default_convenience_overloads_forward_out_parameters_with_modifiers()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "ImGui/imgui.h" });
+        var function = new FunctionBinding(
+            "function:selectable",
+            "Selectable",
+            "Selectable",
+            BindingType.Boolean,
+            "sharpcpp_sample_selectable");
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:selectable:label",
+            "label",
+            "label",
+            BindingType.CreateConfigured("const char*", "global::System.ReadOnlySpan<byte>"),
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "const char*"));
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:selectable:p_selected",
+            "p_selected",
+            "p_selected",
+            BindingType.Boolean,
+            BindingParameterDirection.Out,
+            BindingParameterAbiKind.Value,
+            "bool"));
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:selectable:flags",
+            "flags",
+            "flags",
+            BindingType.Int32,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "int")
+        {
+            ManagedDefaultValueExpression = "0"
+        });
+        var size = new ParameterBinding(
+            "parameter:selectable:size",
+            "size",
+            "size",
+            BindingType.CreateConfigured("ImVec2", "global::RedBolt.Vector2"),
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Reference,
+            "const ImVec2&");
+        size.SetMetadata(MetadataKeys.UnexpressibleDefault, true);
+        function.Parameters.Add(size);
+        compilation.Members.Add(function);
+
+        var managedOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains(
+            "return Selectable(label, out p_selected, flags, default(global::RedBolt.Vector2?));",
+            managedOutput,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "return Selectable(label, p_selected, flags, default(global::RedBolt.Vector2?));",
+            managedOutput,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Undefaultable_default_cascade_dispatches_to_matching_argument_variants()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "ImGui/imgui.h" });
+        var function = new FunctionBinding(
+            "function:plot_like",
+            "PlotLike",
+            "PlotLike",
+            BindingType.Void,
+            "sharpcpp_sample_plot_like");
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:plot_like:label",
+            "label",
+            "label",
+            BindingType.CreateConfigured("const char*", "global::System.ReadOnlySpan<byte>"),
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "const char*"));
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:plot_like:value",
+            "value",
+            "value",
+            BindingType.Single,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Reference,
+            "const float&"));
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:plot_like:count",
+            "count",
+            "count",
+            BindingType.Int32,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "int"));
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:plot_like:offset",
+            "offset",
+            "offset",
+            BindingType.Int32,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "int")
+        {
+            ManagedDefaultValueExpression = "0"
+        });
+        var overlayText = new ParameterBinding(
+            "parameter:plot_like:overlay_text",
+            "overlay_text",
+            "overlay_text",
+            BindingType.CreateConfigured("const char*", "global::System.ReadOnlySpan<byte>"),
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "const char*")
+        {
+            ManagedDefaultValueExpression = "null"
+        };
+        overlayText.SetMetadata(MetadataKeys.UndefaultableParam, true);
+        function.Parameters.Add(overlayText);
+        var scaleMin = new ParameterBinding(
+            "parameter:plot_like:scale_min",
+            "scale_min",
+            "scale_min",
+            BindingType.Single,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "float");
+        scaleMin.SetMetadata(MetadataKeys.UnexpressibleDefault, true);
+        function.Parameters.Add(scaleMin);
+        var scaleMax = new ParameterBinding(
+            "parameter:plot_like:scale_max",
+            "scale_max",
+            "scale_max",
+            BindingType.Single,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "float");
+        scaleMax.SetMetadata(MetadataKeys.UnexpressibleDefault, true);
+        function.Parameters.Add(scaleMax);
+        var graphSize = new ParameterBinding(
+            "parameter:plot_like:graph_size",
+            "graph_size",
+            "graph_size",
+            BindingType.CreateConfigured("ImVec2", "global::RedBolt.Vector2"),
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Reference,
+            "const ImVec2&");
+        graphSize.SetMetadata(MetadataKeys.UnexpressibleDefault, true);
+        function.Parameters.Add(graphSize);
+        compilation.Members.Add(function);
+
+        var managedOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains(
+            "__PInvoke.PlotLike__Args7(label, value, count, offset, overlay_text, scale_min.Value, scale_max.Value);",
+            managedOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "__PInvoke.PlotLike__Args6(label, value, count, offset, overlay_text, scale_min.Value);",
+            managedOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "__PInvoke.PlotLike__Args5(label, value, count, offset, overlay_text);",
+            managedOutput,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "__PInvoke.PlotLike(label, value, count, offset, overlay_text, scale_min.Value, scale_max.Value);",
+            managedOutput,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "__PInvoke.PlotLike(label, value, count, offset, overlay_text, scale_min.Value);",
+            managedOutput,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "__PInvoke.PlotLike(label, value, count, offset, overlay_text);",
+            managedOutput,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Undefaultable_prefix_cascade_uses_prefix_variant_as_full_dispatch()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "ImGui/imgui.h" });
+        var function = new FunctionBinding(
+            "function:progress_like",
+            "ProgressLike",
+            "ProgressLike",
+            BindingType.Void,
+            "sharpcpp_sample_progress_like");
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:progress_like:fraction",
+            "fraction",
+            "fraction",
+            BindingType.Single,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "float"));
+        var size = new ParameterBinding(
+            "parameter:progress_like:size",
+            "size",
+            "size",
+            BindingType.CreateConfigured("ImVec2", "global::RedBolt.Vector2"),
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Reference,
+            "const ImVec2&");
+        size.SetMetadata(MetadataKeys.UnexpressibleDefault, true);
+        function.Parameters.Add(size);
+        var overlay = new ParameterBinding(
+            "parameter:progress_like:overlay",
+            "overlay",
+            "overlay",
+            BindingType.CreateConfigured("const char*", "global::System.ReadOnlySpan<byte>"),
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "const char*")
+        {
+            ManagedDefaultValueExpression = "default"
+        };
+        overlay.SetMetadata(MetadataKeys.UndefaultableParam, true);
+        function.Parameters.Add(overlay);
+        compilation.Members.Add(function);
+
+        var managedOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains(
+            "__PInvoke.ProgressLike__Args2(fraction, size.Value);",
+            managedOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "__PInvoke.ProgressLike__Args1(fraction);",
+            managedOutput,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "__PInvoke.ProgressLike(fraction, size.Value, overlay);",
+            managedOutput,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Grouped_managed_output_emits_callback_marshaller_helpers_once_in_alias_file()
     {
         var compilation = new BindingCompilation(
@@ -3706,6 +4107,88 @@ public sealed class BindingOutputRendererTests
 
         Assert.DoesNotContain("NativeArray_array_create", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("NativeArray_array_get", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Fixed_array_free_functions_use_declared_marshaller_tuple()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Array/NativeArray.hpp" });
+        var arrayRecord = new RecordBinding("record:SharpCpp::NativeArray", "NativeArray", "NativeArray", "SharpCpp::NativeArray")
+        {
+            ManagedTypeFormat = "global::SharpCpp.NativeArray<{0}>"
+        };
+        arrayRecord.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        arrayRecord.GenericParameters.Add(new BindingGenericParameter("N", 1));
+        arrayRecord.SetMetadata(MetadataKeys.FixedArrayRecord, true);
+        arrayRecord.SetMetadata(MetadataKeys.NativeArrayRecord, true);
+        compilation.Members.Add(arrayRecord);
+
+        var fixedArrayType = BindingType.CreateHandle(
+            "SharpCpp::NativeArray<int,2>",
+            "global::SharpCpp.NativeArray<{0}>",
+            arrayRecord.SymbolId,
+            genericArguments: [BindingType.Int32, BindingType.CreateConfigured("2", "2")])
+            .WithFixedArray(BindingType.Int32, 2);
+        var function = new FunctionBinding(
+            "function:consume_pair",
+            "consume_pair",
+            "ConsumePair",
+            BindingType.Void,
+            "sharpcpp_sample_consume_pair",
+            "void",
+            "Sample::ConsumePair");
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:consume_pair:values",
+            "values",
+            "values",
+            fixedArrayType,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "int [2]"));
+        compilation.Members.Add(function);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("SHARPCPP_EXPORT ret_t<void> sharpcpp_sample_consume_pair(arg_t<int [2]> values)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("MarshallerInvoker::invoke_as<FT, std::tuple<int [2]>>(static_cast<std::add_pointer_t<FT>>(&Sample::ConsumePair), values);", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Generic_array_helpers_honor_entrypoint_prefix()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Array/NativeArray.hpp" })
+        {
+            EntryPointPrefix = "sample_prefix"
+        };
+        var arrayRecord = new RecordBinding("record:NativeArray", "NativeArray", "NativeArray", "NativeArray")
+        {
+            ManagedTypeFormat = "global::SharpCpp.NativeArray<{0}>"
+        };
+        arrayRecord.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        arrayRecord.GenericParameters.Add(new BindingGenericParameter("N", 1));
+        arrayRecord.SetMetadata(MetadataKeys.NativeArrayRecord, true);
+        arrayRecord.SetMetadata(MetadataKeys.FixedArrayRecord, true);
+        arrayRecord.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding([BindingType.Single, BindingType.CreateConfigured("3", "3")]));
+        compilation.Members.Add(arrayRecord);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("EntryPoint = \"sample_prefix_NativeArray_array_create_float_3\"", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT NativeArrayAbi sample_prefix_NativeArray_array_create_float_3()", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("sharpcpp_e2e_NativeArray_array_create_float_3", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]

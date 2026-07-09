@@ -231,6 +231,10 @@ public sealed partial class ClangSharpHeaderParser
                     VisitNamespace(nsChild, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix, ownedFileRoots, ownedFileRootIncludePrefixes, request.HeaderIncludePath, request.DirectorRecordCppTypeNames);
                     break;
 
+                case LinkageSpecDecl linkageSpecDecl:
+                    VisitLinkageSpec(linkageSpecDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix, ownedFileRoots, ownedFileRootIncludePrefixes, request.HeaderIncludePath, request.DirectorRecordCppTypeNames);
+                    break;
+
                 case RecordDecl recordDecl:
                     RegisterRecord(recordDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix,
                         ResolveDeclIncludePath(recordDecl, ownedFileRoots, ownedFileRootIncludePrefixes, request.HeaderIncludePath), request.DirectorRecordCppTypeNames);
@@ -329,6 +333,88 @@ public sealed partial class ClangSharpHeaderParser
                 {
                     counter++;
                     function.ImportMethodName = counter == 1 ? function.ManagedName : $"{function.ManagedName}{counter}";
+                }
+            }
+        }
+    }
+
+    private static void VisitLinkageSpec(
+        LinkageSpecDecl linkageSpecDecl,
+        BindingCompilation compilation,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        string entryPointPrefix,
+        IReadOnlyList<string> ownedFileRoots,
+        IReadOnlyDictionary<string, string> ownedFileRootIncludePrefixes,
+        string? headerIncludePath,
+        IReadOnlySet<string>? directorRecordCppTypeNames)
+    {
+        foreach (var child in linkageSpecDecl.Decls)
+        {
+            if (!IsOwnedDecl(child, ownedFileRoots))
+            {
+                continue;
+            }
+
+            switch (child)
+            {
+                case NamespaceDecl nsChild:
+                    VisitNamespace(nsChild, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath, directorRecordCppTypeNames);
+                    break;
+
+                case LinkageSpecDecl nestedLinkageSpecDecl:
+                    VisitLinkageSpec(nestedLinkageSpecDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath, directorRecordCppTypeNames);
+                    break;
+
+                case RecordDecl recordDecl:
+                    RegisterRecord(recordDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix,
+                        ResolveDeclIncludePath(recordDecl, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty), directorRecordCppTypeNames);
+                    break;
+
+                case ClassTemplateDecl classTemplateDecl:
+                    RegisterTemplateRecord(classTemplateDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix,
+                        ResolveDeclIncludePath(classTemplateDecl, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty), directorRecordCppTypeNames);
+                    break;
+
+                case EnumDecl enumChildDecl:
+                    if (!string.IsNullOrEmpty(enumChildDecl.Name) &&
+                        !GetCppQualifiedName(enumChildDecl).Contains("(unnamed enum", StringComparison.Ordinal))
+                        RegisterEnum(enumChildDecl, compilation, enumsByName,
+                            ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty));
+                    break;
+
+                case FunctionTemplateDecl funcTemplateDecl:
+                {
+                    if (funcTemplateDecl.TemplatedDecl is CXXMethodDecl)
+                        break;
+                    var function = CreateTemplateFunction(funcTemplateDecl, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
+                    if (function is not null)
+                    {
+                        CheckAndApplyIgnoreAttribute(funcTemplateDecl, function);
+                        TryApplyRename(funcTemplateDecl, function);
+                        ExtractAndApplyDocumentation(funcTemplateDecl, function);
+                        ApplyCallableDefinitionMetadata(funcTemplateDecl, function);
+                        ApplyDeletedCallableIgnore(funcTemplateDecl.TemplatedDecl, function);
+                        function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty);
+                        compilation.Members.Add(function);
+                    }
+                    break;
+                }
+
+                case FunctionDecl functionDecl:
+                {
+                    if (functionDecl is CXXMethodDecl)
+                        break;
+                    var function = CreateFunction(functionDecl, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
+                    CheckAndApplyIgnoreAttribute(functionDecl, function);
+                    TryApplyRename(functionDecl, function);
+                    ExtractAndApplyDocumentation(functionDecl, function);
+                    ApplyCallableDefinitionMetadata(functionDecl, function);
+                    ApplyDeletedCallableIgnore(functionDecl, function);
+                    function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty);
+                    compilation.Members.Add(function);
+                    break;
                 }
             }
         }
@@ -1337,18 +1423,16 @@ public sealed partial class ClangSharpHeaderParser
             return false;
 
         var nativeName = fieldDecl.Name ?? fieldDecl.Spelling.ToString();
-        if (string.IsNullOrWhiteSpace(nativeName))
-            return false;
-
-        var accessPath = nativeName;
 
         if (TryResolveNestedRecordDecl(ownerDecl, fieldDecl.Type.Handle, out var nestedRecordDecl, out var nestedAccessPrefix))
         {
-            accessPath = JoinFieldAccessPath(nestedAccessPrefix, nativeName);
+            var flattenedAccessPath = IsAnonymousFieldName(nativeName)
+                ? nestedAccessPrefix
+                : JoinFieldAccessPath(nestedAccessPrefix, nativeName);
             var flattenedCount = AddFlattenedFieldsFromRecordDecl(
                 ownerRecord,
                 nestedRecordDecl,
-                accessPath,
+                flattenedAccessPath,
                 recordsByName,
                 enumsByName,
                 managedTypeOverrides,
@@ -1356,6 +1440,11 @@ public sealed partial class ClangSharpHeaderParser
 
             return flattenedCount > 0 || IsAnonymousRecordDecl(nestedRecordDecl);
         }
+
+        if (string.IsNullOrWhiteSpace(nativeName))
+            return false;
+
+        var accessPath = nativeName;
 
         var recordTypeName = GetRecordQualifiedName(fieldDecl.Type.Handle, recordsByName);
         if (!recordsByName.TryGetValue(recordTypeName, out var nestedRecord) || IsMarshallerBackedRecordValue(nestedRecord))
@@ -1380,18 +1469,16 @@ public sealed partial class ClangSharpHeaderParser
         foreach (var child in sourceRecordDecl.Decls.OfType<FieldDecl>())
         {
             var childNativeName = child.Name ?? child.Spelling.ToString();
-            if (string.IsNullOrWhiteSpace(childNativeName) || IsIncompleteArrayType(child.Type.Handle.CanonicalType))
+            if (IsIncompleteArrayType(child.Type.Handle.CanonicalType))
                 continue;
-
-            var childAccessPath = JoinFieldAccessPath(accessPath, childNativeName);
-            var childNativePrefix = ToFlattenedFieldNativeName(childAccessPath);
-            var childManagedPrefix = ToFlattenedFieldManagedName(childAccessPath);
 
             if (IsRecordValueField(child.Type.Handle))
             {
                 if (TryResolveNestedRecordDecl(sourceRecordDecl, child.Type.Handle, out var nestedRecordDecl, out var nestedAccessPrefix))
                 {
-                    var nestedChildAccessPath = JoinFieldAccessPath(accessPath, nestedAccessPrefix, childNativeName);
+                    var nestedChildAccessPath = IsAnonymousFieldName(childNativeName)
+                        ? JoinFieldAccessPath(accessPath, nestedAccessPrefix)
+                        : JoinFieldAccessPath(accessPath, nestedAccessPrefix, childNativeName);
                     flattenedCount += AddFlattenedFieldsFromRecordDecl(
                         ownerRecord,
                         nestedRecordDecl,
@@ -1406,13 +1493,24 @@ public sealed partial class ClangSharpHeaderParser
                 var recordTypeName = GetRecordQualifiedName(child.Type.Handle, recordsByName);
                 if (recordsByName.TryGetValue(recordTypeName, out var nestedRecord) && !IsMarshallerBackedRecordValue(nestedRecord))
                 {
+                    if (string.IsNullOrWhiteSpace(childNativeName))
+                        continue;
+
+                    var childAccessPathForRecord = JoinFieldAccessPath(accessPath, childNativeName);
                     flattenedCount += AddFlattenedFieldsFromRecordBinding(
                         ownerRecord,
                         nestedRecord,
-                        childAccessPath);
+                        childAccessPathForRecord);
                     continue;
                 }
             }
+
+            if (string.IsNullOrWhiteSpace(childNativeName))
+                continue;
+
+            var childAccessPath = JoinFieldAccessPath(accessPath, childNativeName);
+            var childNativePrefix = ToFlattenedFieldNativeName(childAccessPath);
+            var childManagedPrefix = ToFlattenedFieldManagedName(childAccessPath);
 
             var flattenedField = CreateFlattenedLeafField(
                 ownerRecord,
@@ -1557,13 +1655,15 @@ public sealed partial class ClangSharpHeaderParser
         foreach (var childFieldDecl in ownerDecl.Decls.OfType<FieldDecl>())
         {
             var childNativeName = childFieldDecl.Name ?? childFieldDecl.Spelling.ToString();
-            if (string.IsNullOrWhiteSpace(childNativeName) || !IsRecordValueField(childFieldDecl.Type.Handle))
+            if (!IsRecordValueField(childFieldDecl.Type.Handle))
                 continue;
 
             if (!TryResolveDirectNestedRecordDecl(ownerDecl, childFieldDecl.Type.Handle, out var childRecordDecl))
                 continue;
 
-            var childAccessPath = JoinFieldAccessPath(currentAccessPath, childNativeName);
+            var childAccessPath = IsAnonymousFieldName(childNativeName)
+                ? currentAccessPath
+                : JoinFieldAccessPath(currentAccessPath, childNativeName);
             if (TryResolveNestedRecordDecl(childRecordDecl, lookupNames, targetLocationKey, childAccessPath, out nestedRecordDecl, out accessPrefix))
                 return true;
         }
@@ -1635,7 +1735,15 @@ public sealed partial class ClangSharpHeaderParser
     {
         var name = recordDecl.Name ?? recordDecl.Spelling.ToString();
         return name.Contains("(unnamed", StringComparison.Ordinal) ||
+            name.Contains("(anonymous", StringComparison.Ordinal) ||
             GetCppQualifiedName(recordDecl).Contains("(unnamed", StringComparison.Ordinal);
+    }
+
+    private static bool IsAnonymousFieldName(string? name)
+    {
+        return string.IsNullOrWhiteSpace(name) ||
+            name.Contains("(unnamed", StringComparison.Ordinal) ||
+            name.Contains("(anonymous", StringComparison.Ordinal);
     }
 
     private static bool IsMarshallerBackedRecordValue(RecordBinding record)
@@ -2513,7 +2621,7 @@ public sealed partial class ClangSharpHeaderParser
                 .WithCppIsReference(TypeIsAnyReference(normalizedType));
             // Alias surface stamping is deferred to the pipeline post-pruning.
             return preserveAliasSurface
-                ? TryApplyManagedAliasSurface(type, mapped, preserveAliasSurface)
+                ? TryApplyManagedAliasSurface(type, mapped, preserveAliasSurface, enumsByName)
                 : mapped;
         }
 
@@ -2524,7 +2632,7 @@ public sealed partial class ClangSharpHeaderParser
             var mapped = CreateConfiguredOrWrapperType(managedTypeOverride, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName)
                 .WithCppIsReference(TypeIsAnyReference(normalizedType));
             return preserveAliasSurface
-                ? TryApplyManagedAliasSurface(type, mapped, preserveAliasSurface)
+                ? TryApplyManagedAliasSurface(type, mapped, preserveAliasSurface, enumsByName)
                 : mapped;
         }
 
@@ -2536,7 +2644,8 @@ public sealed partial class ClangSharpHeaderParser
                 ParseTypeToken(aliasTargetTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters)
                     .WithCppIsRecordValue(false)
                     .WithCppIsReference(true),
-                preserveAliasSurface);
+                preserveAliasSurface,
+                enumsByName);
         }
 
         if (TypeIsLValueReference(normalizedType))
@@ -2547,7 +2656,8 @@ public sealed partial class ClangSharpHeaderParser
                 MapType(sourcePointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters, preserveAliasSurface: false)
                     .WithCppIsRecordValue(false)
                     .WithCppIsReference(true),
-                preserveAliasSurface);
+                preserveAliasSurface,
+                enumsByName);
         }
 
         if (TypeIsPointer(normalizedType))
@@ -2562,7 +2672,8 @@ public sealed partial class ClangSharpHeaderParser
                 return TryApplyManagedAliasSurface(
                     type,
                     BindingType.CreateConfigured(spelledTypeName, BindingType.IntPtr.ManagedTypeName, primitiveKind: BindingPrimitiveKind.IntPtr),
-                    preserveAliasSurface);
+                    preserveAliasSurface,
+                    enumsByName);
             }
 
             if (TryCreateSpecializedRecordHandleType(
@@ -2574,7 +2685,7 @@ public sealed partial class ClangSharpHeaderParser
                     genericParameters,
                     out var specializedRecordHandleType))
             {
-                return TryApplyManagedAliasSurface(type, specializedRecordHandleType, preserveAliasSurface);
+                return TryApplyManagedAliasSurface(type, specializedRecordHandleType, preserveAliasSurface, enumsByName);
             }
 
             if (pointeeType.kind == CXTypeKind.CXType_Void &&
@@ -2583,7 +2694,8 @@ public sealed partial class ClangSharpHeaderParser
                 return TryApplyManagedAliasSurface(
                     type,
                     BindingType.CreateConfigured(spelledTypeName, voidPointerOverride.PublicTypeName),
-                    preserveAliasSurface);
+                    preserveAliasSurface,
+                    enumsByName);
             }
 
             if (TypeIsRecord(pointeeType))
@@ -2615,7 +2727,7 @@ public sealed partial class ClangSharpHeaderParser
                     recordHandleType,
                     isDynamicArray,
                     genericArguments);
-                return TryApplyManagedAliasSurface(type, recordHandleType, preserveAliasSurface);
+                return TryApplyManagedAliasSurface(type, recordHandleType, preserveAliasSurface, enumsByName);
             }
         }
 
@@ -2631,7 +2743,7 @@ public sealed partial class ClangSharpHeaderParser
                     genericParameters,
                     out var specializedRecordHandleType))
             {
-                return TryApplyManagedAliasSurface(type, specializedRecordHandleType, preserveAliasSurface);
+                return TryApplyManagedAliasSurface(type, specializedRecordHandleType, preserveAliasSurface, enumsByName);
             }
 
             var recordName = GetRecordQualifiedName(normalizedType, recordsByName);
@@ -2659,7 +2771,7 @@ public sealed partial class ClangSharpHeaderParser
                 recordValueType,
                 isDynamicArray,
                 genericArguments);
-            return TryApplyManagedAliasSurface(type, recordValueType, preserveAliasSurface);
+            return TryApplyManagedAliasSurface(type, recordValueType, preserveAliasSurface, enumsByName);
         }
 
         if (TypeIsEnum(normalizedType))
@@ -2667,10 +2779,10 @@ public sealed partial class ClangSharpHeaderParser
             var enumName = NormalizeNamedTypeName(normalizedType.Spelling.ToString());
             if (enumsByName.TryGetValue(enumName, out var @enum))
             {
-                return TryApplyManagedAliasSurface(type, BindingType.CreateEnum(enumName, @enum.ManagedName, enumId: @enum.SymbolId), preserveAliasSurface);
+                return TryApplyManagedAliasSurface(type, BindingType.CreateEnum(enumName, @enum.ManagedName, enumId: @enum.SymbolId), preserveAliasSurface, enumsByName);
             }
 
-            return TryApplyManagedAliasSurface(type, BindingType.CreateEnum(enumName, ToPascalCase(GetManagedTypeHead(enumName))), preserveAliasSurface);
+            return TryApplyManagedAliasSurface(type, BindingType.CreateEnum(enumName, ToPascalCase(GetManagedTypeHead(enumName))), preserveAliasSurface, enumsByName);
         }
 
         var primitiveType = normalizedType.kind switch
@@ -2693,7 +2805,7 @@ public sealed partial class ClangSharpHeaderParser
             CXTypeKind.CXType_ULong => BindingType.NativeUInt,
             _ => throw new NotSupportedException($"ClangSharp sample parser does not support '{normalizedType.kind}' ({normalizedType.Spelling}).")
         };
-        return TryApplyManagedAliasSurface(type, primitiveType, preserveAliasSurface);
+        return TryApplyManagedAliasSurface(type, primitiveType, preserveAliasSurface, enumsByName);
     }
 
     private static BindingType CreateConfiguredOrWrapperType(
@@ -4545,6 +4657,10 @@ public sealed partial class ClangSharpHeaderParser
         BindingType parameterType,
         IReadOnlyDictionary<string, ManagedTypeOverride>? managedTypeOverrides = null)
     {
+        var nativeDefaultValue = GetNativeDefaultValueExpression(parameterDecl);
+        if (!string.IsNullOrWhiteSpace(nativeDefaultValue))
+            parameter.SetMetadata(MetadataKeys.NativeDefaultValueExpression, nativeDefaultValue);
+
         var defaultValue = GetManagedDefaultValueExpression(parameterDecl, parameterType);
         parameter.ManagedDefaultValueExpression = defaultValue;
 
@@ -4569,33 +4685,10 @@ public sealed partial class ClangSharpHeaderParser
 
     private static string? GetManagedDefaultValueExpression(ParmVarDecl parameterDecl, BindingType parameterType)
     {
-        if (!parameterDecl.HasDefaultArg)
+        if (!TryGetDefaultArgumentExpression(parameterDecl, out var expressionCursor, out var expression))
         {
             return null;
         }
-
-        // Use the CXCursor handle for expression-level operations since
-        // Expr doesn't fully expose the SubExprAsWritten/kind pattern.
-        var parameterCursor = parameterDecl.Handle;
-        var defaultArgumentCursor = parameterCursor.DefaultArg;
-        if (defaultArgumentCursor.Kind == CXCursorKind.CXCursor_FirstInvalid && parameterDecl.HasUninstantiatedDefaultArg)
-        {
-            defaultArgumentCursor = parameterDecl.UninstantiatedDefaultArg.Handle;
-        }
-
-        if (defaultArgumentCursor.Kind == CXCursorKind.CXCursor_FirstInvalid)
-        {
-            return null;
-        }
-
-        var asWrittenCursor = defaultArgumentCursor.SubExprAsWritten;
-        var expressionCursor = asWrittenCursor.Kind == CXCursorKind.CXCursor_FirstInvalid
-            ? defaultArgumentCursor
-            : asWrittenCursor;
-        var expression = GetSourceText(expressionCursor.TranslationUnit, expressionCursor.Extent).Trim();
-        expression = expression.StartsWith("=", StringComparison.Ordinal)
-            ? expression[1..].TrimStart()
-            : expression;
 
         if (expression.Contains('#') || expression.Contains("///") || expression.Length > 100)
         {
@@ -4607,9 +4700,14 @@ public sealed partial class ClangSharpHeaderParser
             return null;
         }
 
-        if (string.Equals(expression, "nullptr", StringComparison.Ordinal))
+        if (IsNullDefaultExpression(expressionCursor.Kind, expression))
         {
             return parameterType.Kind == BindingTypeKind.Handle || parameterType.IsCallback ? "null" : "default";
+        }
+
+        if (expression.Length == 0)
+        {
+            return null;
         }
 
         if (parameterType.Kind == BindingTypeKind.Handle)
@@ -4646,6 +4744,71 @@ public sealed partial class ClangSharpHeaderParser
             CXCursorKind.CXCursor_CXXBoolLiteralExpr => expression.ToLowerInvariant(),
             _ => expression
         };
+    }
+
+    private static string? GetNativeDefaultValueExpression(ParmVarDecl parameterDecl)
+    {
+        if (!TryGetDefaultArgumentExpression(parameterDecl, out _, out var expression))
+            return null;
+
+        if (expression.Contains('#') || expression.Contains("///"))
+            return null;
+
+        return expression.Length == 0 ? null : expression;
+    }
+
+    private static bool TryGetDefaultArgumentExpression(ParmVarDecl parameterDecl, out CXCursor expressionCursor, out string expression)
+    {
+        expressionCursor = default;
+        expression = string.Empty;
+        if (!parameterDecl.HasDefaultArg)
+            return false;
+
+        var parameterCursor = parameterDecl.Handle;
+        var defaultArgumentCursor = parameterCursor.DefaultArg;
+        if (defaultArgumentCursor.Kind == CXCursorKind.CXCursor_FirstInvalid && parameterDecl.HasUninstantiatedDefaultArg)
+        {
+            defaultArgumentCursor = parameterDecl.UninstantiatedDefaultArg.Handle;
+        }
+
+        if (defaultArgumentCursor.Kind == CXCursorKind.CXCursor_FirstInvalid)
+        {
+            return TryGetDefaultArgumentExpressionFromDeclaration(parameterDecl, out expression);
+        }
+
+        var asWrittenCursor = defaultArgumentCursor.SubExprAsWritten;
+        expressionCursor = asWrittenCursor.Kind == CXCursorKind.CXCursor_FirstInvalid
+            ? defaultArgumentCursor
+            : asWrittenCursor;
+        expression = Regex.Replace(GetSourceText(expressionCursor.TranslationUnit, expressionCursor.Extent).Trim(), "\\s+", " ");
+        expression = expression.StartsWith("=", StringComparison.Ordinal)
+            ? expression[1..].TrimStart()
+            : expression;
+        if (expression.Length != 0)
+            return true;
+
+        return TryGetDefaultArgumentExpressionFromDeclaration(parameterDecl, out expression);
+    }
+
+    private static bool TryGetDefaultArgumentExpressionFromDeclaration(ParmVarDecl parameterDecl, out string expression)
+    {
+        expression = string.Empty;
+        var declarationText = Regex.Replace(GetSourceText(parameterDecl.Handle.TranslationUnit, parameterDecl.Extent).Trim(), "\\s+", " ");
+        var separatorIndex = declarationText.IndexOf('=', StringComparison.Ordinal);
+        if (separatorIndex < 0 || separatorIndex == declarationText.Length - 1)
+            return false;
+
+        expression = declarationText[(separatorIndex + 1)..].Trim();
+        return expression.Length != 0;
+    }
+
+    private static bool IsNullDefaultExpression(CXCursorKind expressionKind, string expression)
+    {
+        return expressionKind == CXCursorKind.CXCursor_CXXNullPtrLiteralExpr ||
+            expressionKind == CXCursorKind.CXCursor_GNUNullExpr ||
+            string.Equals(expression, "nullptr", StringComparison.Ordinal) ||
+            string.Equals(expression, "NULL", StringComparison.Ordinal) ||
+            string.Equals(expression, "__null", StringComparison.Ordinal);
     }
 
     private static string NormalizeManagedEnumDefaultExpression(string managedTypeName, string expression)
@@ -5541,7 +5704,11 @@ public sealed partial class ClangSharpHeaderParser
         }
     }
 
-    private static BindingType TryApplyManagedAliasSurface(CXType sourceType, BindingType mappedType, bool preserveAliasSurface)
+    private static BindingType TryApplyManagedAliasSurface(
+        CXType sourceType,
+        BindingType mappedType,
+        bool preserveAliasSurface,
+        IDictionary<string, EnumBinding> enumsByName)
     {
         if (!preserveAliasSurface ||
             !CanRenderManagedAliasTarget(mappedType) ||
@@ -5551,6 +5718,7 @@ public sealed partial class ClangSharpHeaderParser
             return mappedType;
         }
 
+        mappedType = mappedType.WithAliasSurface(aliasInfo.CppQualifiedName, aliasInfo.NativeName);
         var managedAliasName = GetManagedAliasName(aliasInfo.NativeName);
         return string.Equals(managedAliasName, mappedType.UnaliasedManagedTypeName, StringComparison.Ordinal)
             ? mappedType
@@ -5568,6 +5736,16 @@ public sealed partial class ClangSharpHeaderParser
         var declaration = resolvedType.Declaration;
         if (declaration.Kind is not (CXCursorKind.CXCursor_TypedefDecl or CXCursorKind.CXCursor_TypeAliasDecl))
         {
+            var spelledAliasName = NormalizeTypeName(resolvedType.Spelling.ToString());
+            if (!string.IsNullOrWhiteSpace(spelledAliasName) &&
+                s_ownedManagedAliases.ContainsKey(spelledAliasName))
+            {
+                qualifiedAliasName = spelledAliasName;
+                var lastColons = qualifiedAliasName.LastIndexOf("::", StringComparison.Ordinal);
+                unqualifiedAliasName = lastColons >= 0 ? qualifiedAliasName[(lastColons + 2)..] : qualifiedAliasName;
+                return true;
+            }
+
             var resolvedTypeName = SelectConcreteTemplateTypeName(
                 NormalizeTypeName(resolvedType.Spelling.ToString()),
                 NormalizeTypeName(resolvedType.CanonicalType.Spelling.ToString()));

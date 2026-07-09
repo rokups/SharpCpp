@@ -54,6 +54,8 @@ public sealed class BindingType
         MarshallerDescriptor marshaller,
         string? recordId = null,
         string? enumId = null,
+        string? aliasCppQualifiedName = null,
+        string? aliasNativeName = null,
         string? genericParameterName = null,
         IEnumerable<BindingType>? genericArguments = null,
         bool isCallback = false,
@@ -68,6 +70,8 @@ public sealed class BindingType
         Marshaller = marshaller;
         RecordId = recordId;
         EnumId = enumId;
+        AliasCppQualifiedName = aliasCppQualifiedName;
+        AliasNativeName = aliasNativeName;
         GenericParameterName = genericParameterName;
         _genericArguments = genericArguments?.ToArray() ?? Array.Empty<BindingType>();
         IsCallback = isCallback;
@@ -138,6 +142,10 @@ public sealed class BindingType
 
     public string? EnumId { get; }
 
+    public string? AliasCppQualifiedName { get; }
+
+    public string? AliasNativeName { get; }
+
     public string? GenericParameterName { get; }
 
     public IReadOnlyList<BindingType> GenericArguments => _genericArguments;
@@ -203,6 +211,8 @@ public sealed class BindingType
             Marshaller,
             RecordId,
             EnumId,
+            AliasCppQualifiedName,
+            AliasNativeName,
             GenericParameterName,
             GenericArguments,
             IsCallback,
@@ -233,6 +243,8 @@ public sealed class BindingType
             Marshaller,
             RecordId,
             EnumId,
+            AliasCppQualifiedName,
+            AliasNativeName,
             GenericParameterName,
             arguments,
             IsCallback,
@@ -282,6 +294,8 @@ public sealed class BindingType
             Marshaller,
             RecordId,
             EnumId,
+            AliasCppQualifiedName,
+            AliasNativeName,
             GenericParameterName,
             GenericArguments,
             IsCallback,
@@ -310,6 +324,8 @@ public sealed class BindingType
             Marshaller,
             RecordId,
             EnumId,
+            AliasCppQualifiedName,
+            AliasNativeName,
             GenericParameterName,
             GenericArguments,
             IsCallback,
@@ -339,7 +355,7 @@ public sealed class BindingType
             {
                 CppIsRecordValue = cppIsRecordValue
             },
-            recordId,
+            recordId: recordId,
             genericArguments: genericArguments);
     }
 
@@ -454,6 +470,8 @@ public sealed class BindingType
             Marshaller with { CppIsRecordValue = value },
             RecordId,
             EnumId,
+            AliasCppQualifiedName,
+            AliasNativeName,
             GenericParameterName,
             GenericArguments,
             IsCallback,
@@ -475,6 +493,8 @@ public sealed class BindingType
             Marshaller with { CppTypeName = cppTypeName },
             RecordId,
             EnumId,
+            AliasCppQualifiedName,
+            AliasNativeName,
             GenericParameterName,
             GenericArguments,
             IsCallback,
@@ -499,6 +519,8 @@ public sealed class BindingType
             Marshaller with { CppIsReference = value },
             RecordId,
             EnumId,
+            AliasCppQualifiedName,
+            AliasNativeName,
             GenericParameterName,
             GenericArguments,
             IsCallback,
@@ -507,6 +529,38 @@ public sealed class BindingType
             FixedArrayElementType,
             FixedArrayLength,
             DynamicArrayElementType);
+    }
+
+    public BindingType WithAliasSurface(string cppQualifiedName, string nativeName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(cppQualifiedName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(nativeName);
+        if (string.Equals(AliasCppQualifiedName, cppQualifiedName, StringComparison.Ordinal) &&
+            string.Equals(AliasNativeName, nativeName, StringComparison.Ordinal))
+        {
+            return this;
+        }
+
+        var copy = new BindingType(
+            Kind,
+            PrimitiveKind,
+            Marshaller,
+            RecordId,
+            EnumId,
+            cppQualifiedName,
+            nativeName,
+            GenericParameterName,
+            GenericArguments,
+            IsCallback,
+            CallbackReturnType,
+            CallbackParameterTypes,
+            FixedArrayElementType,
+            FixedArrayLength,
+            DynamicArrayElementType)
+        {
+            _managedTypeFormatOverride = _managedTypeFormatOverride
+        };
+        return copy;
     }
 
     private static bool ContainsUnresolvedManagedNamespaceSeparators(BindingType type)

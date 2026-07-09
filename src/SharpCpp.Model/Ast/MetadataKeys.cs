@@ -31,6 +31,7 @@ public static class MetadataKeys
     public const string ManagedStaticInterfaces = "managed_static_interfaces";
     public const string ManagedStaticInterfacesAbstract = "managed_static_interfaces_abstract";
     public const string NativeFieldAccessExpression = "native_field_access_expression";
+    public const string NativeDefaultValueExpression = "native_default_value_expression";
 }
 
 public enum AccessorPropertyKind

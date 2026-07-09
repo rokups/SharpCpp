@@ -678,19 +678,20 @@ public static partial class BindingOutputRenderer
     private static string RenderNativeMethodInvocation(FunctionBinding method, string abiArguments, string memberSignature)
     {
         var argumentsSuffix = abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty;
+        var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", method.Parameters.Select(static parameter => parameter.CppTypeName));
 
         if (string.IsNullOrWhiteSpace(method.NativeDispatchRecordCppTypeName))
         {
             return method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
                 ? $$"""
-                    MarshallerInvoker::invoke<FT>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}, self{{argumentsSuffix}});
+                    MarshallerInvoker::invoke<{{marshallerTemplateArguments}}>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}, self{{argumentsSuffix}});
                     """
                 : RequiresOwnedRecordValueReturn(method)
                     ? $$"""
-                        return MarshallerInvoker::invoke_owned<FT>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}, self{{argumentsSuffix}});
+                        return MarshallerInvoker::invoke_owned<{{marshallerTemplateArguments}}>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}, self{{argumentsSuffix}});
                         """
                 : $$"""
-                    return MarshallerInvoker::invoke<FT>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}, self{{argumentsSuffix}});
+                    return MarshallerInvoker::invoke<{{marshallerTemplateArguments}}>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}, self{{argumentsSuffix}});
                     """;
         }
 
@@ -705,10 +706,10 @@ public static partial class BindingOutputRenderer
 
                 using DispatchFT = {{memberSignature.Replace(method.OwningRecordCppTypeName + "::*", method.NativeDispatchRecordCppTypeName + "::*", StringComparison.Ordinal)}};
                 {{(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
-                    ? $"MarshallerInvoker::invoke_instance(static_cast<DispatchFT>(&{method.NativeDispatchRecordCppTypeName}::{method.NativeName}), dispatch{argumentsSuffix});"
+                    ? $"MarshallerInvoker::invoke_instance<{BuildMarshallerInvokerTemplateArguments("DispatchFT", method.Parameters.Select(static parameter => parameter.CppTypeName))}>(static_cast<DispatchFT>(&{method.NativeDispatchRecordCppTypeName}::{method.NativeName}), dispatch{argumentsSuffix});"
                     : RequiresOwnedRecordValueReturn(method)
-                        ? $"return MarshallerInvoker::invoke_owned_instance(static_cast<DispatchFT>(&{method.NativeDispatchRecordCppTypeName}::{method.NativeName}), dispatch{argumentsSuffix});"
-                        : $"return MarshallerInvoker::invoke_instance(static_cast<DispatchFT>(&{method.NativeDispatchRecordCppTypeName}::{method.NativeName}), dispatch{argumentsSuffix});")}}
+                        ? $"return MarshallerInvoker::invoke_owned_instance<{BuildMarshallerInvokerTemplateArguments("DispatchFT", method.Parameters.Select(static parameter => parameter.CppTypeName))}>(static_cast<DispatchFT>(&{method.NativeDispatchRecordCppTypeName}::{method.NativeName}), dispatch{argumentsSuffix});"
+                        : $"return MarshallerInvoker::invoke_instance<{BuildMarshallerInvokerTemplateArguments("DispatchFT", method.Parameters.Select(static parameter => parameter.CppTypeName))}>(static_cast<DispatchFT>(&{method.NativeDispatchRecordCppTypeName}::{method.NativeName}), dispatch{argumentsSuffix});")}}
                 """;
     }
 
@@ -800,9 +801,10 @@ public static partial class BindingOutputRenderer
         var callable = method.IsStatic
             ? $"static_cast<std::add_pointer_t<FT>>(&{directorName}::{method.NativeName})"
             : $"static_cast<FT>(&{directorName}::{method.NativeName})";
+        var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", method.Parameters.Select(static parameter => parameter.CppTypeName));
         var invocation = method.IsStatic
-            ? $"MarshallerInvoker::{(RequiresOwnedRecordValueReturn(method) ? "invoke_owned_as" : "invoke_as")}<FT>({callable}{argumentsSuffix})"
-            : $"MarshallerInvoker::{(RequiresOwnedRecordValueReturn(method) ? "invoke_owned_instance" : "invoke_instance")}<FT>({callable}, this{argumentsSuffix})";
+            ? $"MarshallerInvoker::{(RequiresOwnedRecordValueReturn(method) ? "invoke_owned_as" : "invoke_as")}<{marshallerTemplateArguments}>({callable}{argumentsSuffix})"
+            : $"MarshallerInvoker::{(RequiresOwnedRecordValueReturn(method) ? "invoke_owned_instance" : "invoke_instance")}<{marshallerTemplateArguments}>({callable}, this{argumentsSuffix})";
 
         writer.Write($$"""
             {{(method.IsStatic ? "static " : string.Empty)}}{{GetNativeEntrypointReturnType(method)}} {{helperName}}({{parameterList}})
@@ -3403,7 +3405,7 @@ public static partial class BindingOutputRenderer
             }
             else if (aHasUnexpressible)
             {
-                WriteUnexpressibleDefaultConstructorCascade(writer, function, importMethodName);
+                WriteUnexpressibleDefaultConstructorCascade(writer, function, importMethodName, firstU);
             }
             else
             {
@@ -4380,6 +4382,9 @@ public static partial class BindingOutputRenderer
                 var callbaseArguments = string.Join(", ", method.Parameters.Select(static p => p.NativeName));
                 var directorName = GetNativeDirectorClassName(record);
                 var helperName = GetNativeCallbaseHelperName(method);
+                var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments(
+                    "FT",
+                    new[] { $"{record.CppQualifiedName}*" }.Concat(method.Parameters.Select(static p => p.CppTypeName)));
 
                 writer.WriteLine();
                 if (method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
@@ -4388,7 +4393,7 @@ public static partial class BindingOutputRenderer
                         SHARPCPP_EXPORT ret_t<void> {{GetNativeCallbaseEntrypointName(record, method)}}({{parameterList}})
                         {
                         using FT = void({{record.CppQualifiedName}}*{{(parameterCppList.Length > 0 ? $", {parameterCppList}" : string.Empty)}});
-                        MarshallerInvoker::invoke_as<FT>(&{{directorName}}::{{helperName}}, self{{(callbaseArguments.Length > 0 ? $", {callbaseArguments}" : string.Empty)}});
+                        MarshallerInvoker::invoke_as<{{marshallerTemplateArguments}}>(&{{directorName}}::{{helperName}}, self{{(callbaseArguments.Length > 0 ? $", {callbaseArguments}" : string.Empty)}});
                         }
                         """);
                 }
@@ -4399,8 +4404,8 @@ public static partial class BindingOutputRenderer
                         {
                         using FT = {{method.CppReturnTypeName}}({{record.CppQualifiedName}}*{{(parameterCppList.Length > 0 ? $", {parameterCppList}" : string.Empty)}});
                         {{(RequiresOwnedRecordValueReturn(method)
-                            ? $"return MarshallerInvoker::invoke_owned_as<FT>(&{directorName}::{helperName}, self{(callbaseArguments.Length > 0 ? $", {callbaseArguments}" : string.Empty)});"
-                            : $"return MarshallerInvoker::invoke_as<FT>(&{directorName}::{helperName}, self{(callbaseArguments.Length > 0 ? $", {callbaseArguments}" : string.Empty)});")}}
+                            ? $"return MarshallerInvoker::invoke_owned_as<{marshallerTemplateArguments}>(&{directorName}::{helperName}, self{(callbaseArguments.Length > 0 ? $", {callbaseArguments}" : string.Empty)});"
+                            : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(&{directorName}::{helperName}, self{(callbaseArguments.Length > 0 ? $", {callbaseArguments}" : string.Empty)});")}}
                         }
                         """);
                 }
@@ -4494,6 +4499,7 @@ public static partial class BindingOutputRenderer
             var parameterList = string.Join(", ", function.Parameters.Select(RenderNativeParameter));
             var abiArguments = string.Join(", ", function.Parameters.Select(static p => p.NativeName));
             var signature = BuildNativeFunctionSignature(function);
+            var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", function.Parameters.Select(static p => p.CppTypeName));
 
             writer.WriteLine();
             writer.Write($$"""
@@ -4505,15 +4511,15 @@ public static partial class BindingOutputRenderer
             if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
             {
                 writer.Write($$"""
-                    MarshallerInvoker::invoke_as<FT>(static_cast<std::add_pointer_t<FT>>(&{{function.CppQualifiedName}}){{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                    MarshallerInvoker::invoke_as<{{marshallerTemplateArguments}}>(static_cast<std::add_pointer_t<FT>>(&{{function.CppQualifiedName}}){{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
                     """);
             }
             else
             {
                 writer.Write($$"""
                     {{(RequiresOwnedRecordValueReturn(function)
-                        ? $"return MarshallerInvoker::invoke_owned_as<FT>(static_cast<std::add_pointer_t<FT>>(&{function.CppQualifiedName}){(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
-                        : $"return MarshallerInvoker::invoke_as<FT>(static_cast<std::add_pointer_t<FT>>(&{function.CppQualifiedName}){(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
+                        ? $"return MarshallerInvoker::invoke_owned_as<{marshallerTemplateArguments}>(static_cast<std::add_pointer_t<FT>>(&{function.CppQualifiedName}){(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
+                        : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(static_cast<std::add_pointer_t<FT>>(&{function.CppQualifiedName}){(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
                     """);
             }
 
@@ -4586,6 +4592,7 @@ public static partial class BindingOutputRenderer
             var parameterList = string.Join(", ", method.Parameters.Select(RenderNativeParameter));
             var abiArguments = string.Join(", ", method.Parameters.Select(static p => p.NativeName));
             var signature = BuildNativeFunctionSignature(method);
+            var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", method.Parameters.Select(static p => p.CppTypeName));
 
             writer.WriteLine();
             writer.Write($$"""
@@ -4597,15 +4604,15 @@ public static partial class BindingOutputRenderer
             if (method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
             {
                 writer.Write($$"""
-                    MarshallerInvoker::invoke_as<FT>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                    MarshallerInvoker::invoke_as<{{marshallerTemplateArguments}}>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}{{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
                     """);
             }
             else
             {
                 writer.Write($$"""
                     {{(RequiresOwnedRecordValueReturn(method)
-                        ? $"return MarshallerInvoker::invoke_owned_as<FT>(&{method.OwningRecordCppTypeName}::{method.NativeName}{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
-                        : $"return MarshallerInvoker::invoke_as<FT>(&{method.OwningRecordCppTypeName}::{method.NativeName}{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
+                        ? $"return MarshallerInvoker::invoke_owned_as<{marshallerTemplateArguments}>(&{method.OwningRecordCppTypeName}::{method.NativeName}{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
+                        : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(&{method.OwningRecordCppTypeName}::{method.NativeName}{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
                     """);
             }
 
@@ -5133,9 +5140,12 @@ public static partial class BindingOutputRenderer
             _ => string.Empty
         };
         var attributeFallback = GetManagedParameterAttribute(callbackMarshallerParameter ?? parameter, type, compilation);
+        var importTypeName = GetManagedImportTypeName(type, compilation);
         var typeNameFallback = type.IsCallback && parameter.Direction == BindingParameterDirection.In && parameter.AbiKind == BindingParameterAbiKind.Value
             ? $"{GetManagedCallbackParameterTypeName(compilation!, parameter)}?"
-            : GetManagedImportTypeName(type, compilation);
+            : IsNullableManagedReferenceDefaultParameter(parameter) && IsManagedReferenceTypeName(type.ManagedTypeName)
+                ? $"{importTypeName}?"
+                : importTypeName;
         return $"{attributeFallback}{modifierFallback}{typeNameFallback} {parameter.ManagedName}";
     }
 
@@ -5219,11 +5229,16 @@ public static partial class BindingOutputRenderer
     {
         foreach (var keepCount in GetUnexpressibleDefaultConvenienceOverloadParameterIndices(function))
         {
+            if (isConstructor && ShouldSkipConflictingConstructorConvenienceOverload(compilation, function, keepCount))
+            {
+                continue;
+            }
+
             var variantParams = function.Parameters.Take(keepCount).ToArray();
             var parameterList = RenderManagedUnexpressibleDefaultOverloadParameterList(function, keepCount, compilation);
             var forwardedArgs = string.Join(
                 ", ",
-                variantParams.Select(static parameter => parameter.ManagedName)
+                variantParams.Select(RenderManagedForwardingArgument)
                     .Concat(function.Parameters.Skip(keepCount).Select(p => GetManagedOmittedDefaultArgument(p, compilation))));
             var overloadSignaturePrefix = signaturePrefix;
 
@@ -5274,29 +5289,64 @@ public static partial class BindingOutputRenderer
         }
     }
 
+    private static bool ShouldSkipConflictingConstructorConvenienceOverload(BindingCompilation compilation, FunctionBinding function, int keepCount)
+    {
+        if (function.Parent is not RecordBinding record)
+            return false;
+
+        foreach (var other in record.Members.OfType<FunctionBinding>().Where(static member => member.IsConstructor && !member.HasMetadata(MetadataKeys.IgnoreReason)))
+        {
+            if (ReferenceEquals(other, function))
+                continue;
+
+            if (!ConstructorExposesManagedSignatureWithArity(other, keepCount))
+                continue;
+
+            if (!ManagedParameterPrefixSignaturesMatch(compilation, function, other, keepCount))
+                continue;
+
+            if (string.CompareOrdinal(function.SymbolId, other.SymbolId) > 0)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool ConstructorExposesManagedSignatureWithArity(FunctionBinding constructor, int parameterCount)
+    {
+        if (constructor.Parameters.Count == parameterCount)
+            return true;
+
+        return GetUnexpressibleDefaultConvenienceOverloadParameterIndices(constructor).Contains(parameterCount);
+    }
+
+    private static bool ManagedParameterPrefixSignaturesMatch(BindingCompilation compilation, FunctionBinding left, FunctionBinding right, int parameterCount)
+    {
+        if (left.Parameters.Count < parameterCount || right.Parameters.Count < parameterCount)
+            return false;
+
+        for (var i = 0; i < parameterCount; ++i)
+        {
+            var leftParameter = left.Parameters[i];
+            var rightParameter = right.Parameters[i];
+            if (leftParameter.Direction != rightParameter.Direction)
+                return false;
+
+            var leftTypeName = GetManagedPublicParameterTypeName(leftParameter, compilation);
+            var rightTypeName = GetManagedPublicParameterTypeName(rightParameter, compilation);
+            if (!string.Equals(leftTypeName, rightTypeName, StringComparison.Ordinal))
+                return false;
+        }
+
+        return true;
+    }
+
     private static string RenderManagedUnexpressibleDefaultOverloadParameterList(
         FunctionBinding function,
         int keepCount,
         BindingCompilation? compilation = null)
     {
-        var previousUnexpressibleDefaultIndex = GetUnexpressibleDefaultParameterIndices(function)
-            .Where(index => index < keepCount)
-            .DefaultIfEmpty(-1)
-            .Max();
-        var suppressDefaultsThroughIndex = previousUnexpressibleDefaultIndex >= 0
-            ? previousUnexpressibleDefaultIndex
-            : keepCount - 1;
-
-        var parts = new List<string>(keepCount);
-        for (var i = 0; i < keepCount; i++)
-        {
-            var parameter = function.Parameters[i];
-            parts.Add(i <= suppressDefaultsThroughIndex
-                ? RenderManagedPublicParameterNoDefault(parameter, compilation)
-                : RenderManagedPublicParameter(parameter, compilation));
-        }
-
-        return string.Join(", ", parts);
+        return RenderManagedPublicParameterList(function.Parameters.Take(keepCount), compilation);
     }
 
     private static string GetManagedOmittedDefaultArgument(ParameterBinding parameter, BindingCompilation? compilation = null)
@@ -5373,10 +5423,7 @@ public static partial class BindingOutputRenderer
         };
 
         var isNullableManagedReferenceDefault = !forceRequired &&
-            parameter.Direction == BindingParameterDirection.In &&
-            parameter.AbiKind == BindingParameterAbiKind.Value &&
-            parameter.ManagedDefaultValueExpression == "null" &&
-            IsManagedReferenceDefaultParameter(parameter);
+            IsNullableManagedReferenceDefaultParameter(parameter);
 
         var typeName = (!forceRequired && parameter.HasMetadata(MetadataKeys.UnexpressibleDefault)) || isNullableManagedReferenceDefault
             ? $"{GetManagedPublicParameterTypeName(parameter, compilation)}?"
@@ -5453,6 +5500,12 @@ public static partial class BindingOutputRenderer
         return parameter.Type.Marshaller.IsRefStruct
             ? parameter.Type.CppTypeName
             : parameter.CppTypeName;
+    }
+
+    private static string BuildMarshallerInvokerTemplateArguments(string functionTypeName, IEnumerable<string> cppParameterTypes)
+    {
+        var tupleTypes = string.Join(", ", cppParameterTypes);
+        return $"{functionTypeName}, std::tuple<{tupleTypes}>";
     }
 
     private static string BuildNativeFunctionSignature(FunctionBinding function)
@@ -6314,9 +6367,12 @@ public static partial class BindingOutputRenderer
         var returnStatement = method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
             ? $"Marshaller<{marshallerCppType}>::{method.NativeName}({invokeArguments});"
             : $"return Marshaller<{marshallerCppType}>::{method.NativeName}({invokeArguments});";
+        var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments(
+            "FT",
+            new[] { $"{method.OwningRecordCppTypeName}*" }.Concat(method.Parameters.Select(static parameter => parameter.CppTypeName)));
         var dispatch = method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
-            ? $"MarshallerInvoker::invoke_as<FT>(__invoke, {callArguments});"
-            : $"return MarshallerInvoker::invoke_as<FT>(__invoke, {callArguments});";
+            ? $"MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(__invoke, {callArguments});"
+            : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(__invoke, {callArguments});";
 
         return $$"""
             using FT = {{method.CppReturnTypeName}}({{signatureParameters}});
@@ -6453,27 +6509,33 @@ public static partial class BindingOutputRenderer
 
     private static bool HasManagedUnexpressibleDefaultOverloadParameterDefault(FunctionBinding function, int keepCount, int parameterIndex)
     {
-        var previousUnexpressibleDefaultIndex = GetUnexpressibleDefaultParameterIndices(function)
-            .Where(index => index < keepCount)
-            .DefaultIfEmpty(-1)
-            .Max();
-        var suppressDefaultsThroughIndex = previousUnexpressibleDefaultIndex >= 0
-            ? previousUnexpressibleDefaultIndex
-            : keepCount - 1;
-
-        return parameterIndex > suppressDefaultsThroughIndex && CanRenderManagedPublicDefault(function.Parameters[parameterIndex]);
+        var prefixFlags = GetManagedPublicParameterDefaultFlags(function.Parameters.Take(keepCount).ToArray());
+        return parameterIndex < prefixFlags.Count && prefixFlags[parameterIndex];
     }
 
     private static IReadOnlyList<bool> GetManagedPublicParameterDefaultFlags(FunctionBinding function)
     {
-        var parameterArray = function.Parameters.ToArray();
+        return GetManagedPublicParameterDefaultFlags(function.Parameters.ToArray());
+    }
+
+    private static IReadOnlyList<bool> GetManagedPublicParameterDefaultFlags(IReadOnlyList<ParameterBinding> parameterArray)
+    {
         var firstUnexpressibleDefault = parameterArray
             .Select((parameter, index) => (parameter, index))
             .FirstOrDefault(static entry => entry.parameter.HasMetadata(MetadataKeys.UnexpressibleDefault));
-        var lastRequiredParameterIndex = Array.FindLastIndex(parameterArray, static parameter => !CanRenderManagedPublicDefault(parameter));
-        var flags = new bool[parameterArray.Length];
+        var lastRequiredParameterIndex = -1;
+        for (var i = parameterArray.Count - 1; i >= 0; i--)
+        {
+            if (!CanRenderManagedPublicDefault(parameterArray[i]))
+            {
+                lastRequiredParameterIndex = i;
+                break;
+            }
+        }
 
-        for (var i = 0; i < parameterArray.Length; i++)
+        var flags = new bool[parameterArray.Count];
+
+        for (var i = 0; i < parameterArray.Count; i++)
         {
             var parameter = parameterArray[i];
             if (firstUnexpressibleDefault.parameter is not null)
@@ -6673,6 +6735,7 @@ public static partial class BindingOutputRenderer
         var cppParamDecls = string.Join(", ", paramDeclParts);
 
         var signature = $"{function.CppReturnTypeName}({cppTypeNames})";
+        var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", cppTypeParts);
 
         var invokeAsArgs = isSelf
             ? $"fn, self{(abiArgs.Length > 0 ? $", {abiArgs}" : string.Empty)}"
@@ -6687,8 +6750,8 @@ public static partial class BindingOutputRenderer
                     {{invocation}}
                 };
                 {{(RequiresOwnedRecordValueReturn(function)
-                    ? $"return MarshallerInvoker::invoke_owned_as<FT>({invokeAsArgs});"
-                    : $"return MarshallerInvoker::invoke_as<FT>({invokeAsArgs});")}}
+                    ? $"return MarshallerInvoker::invoke_owned_as<{marshallerTemplateArguments}>({invokeAsArgs});"
+                    : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>({invokeAsArgs});")}}
             }
 
             """);
@@ -6697,6 +6760,74 @@ public static partial class BindingOutputRenderer
     private static string ForwardVariantArgs(IReadOnlyList<ParameterBinding> variantParams)
     {
         return string.Join(", ", variantParams.Select(static p => $"std::forward<decltype({p.NativeName})>({p.NativeName})"));
+    }
+
+    private static string BuildNativeVariantCallArguments(FunctionBinding function, IReadOnlyList<ParameterBinding> variantParams)
+    {
+        var providedParameterNames = new HashSet<string>(variantParams.Select(static parameter => parameter.NativeName), StringComparer.Ordinal);
+        var arguments = new List<string>(function.Parameters.Count);
+        foreach (var parameter in function.Parameters)
+        {
+            if (providedParameterNames.Contains(parameter.NativeName))
+            {
+                arguments.Add($"std::forward<decltype({parameter.NativeName})>({parameter.NativeName})");
+                continue;
+            }
+
+            if (!parameter.TryGetMetadata<string>(MetadataKeys.NativeDefaultValueExpression, out var defaultValue) ||
+                string.IsNullOrWhiteSpace(defaultValue))
+            {
+                defaultValue = GetFallbackNativeDefaultValueExpression(parameter);
+            }
+
+            if (string.IsNullOrWhiteSpace(defaultValue))
+            {
+                throw new InvalidOperationException($"Parameter '{parameter.ManagedName}' on '{function.ManagedName}' is missing native default metadata.");
+            }
+
+            arguments.Add(defaultValue);
+        }
+
+        return string.Join(", ", arguments);
+    }
+
+    private static string? GetFallbackNativeDefaultValueExpression(ParameterBinding parameter)
+    {
+        if (parameter.CppTypeName.Contains('*', StringComparison.Ordinal) ||
+            parameter.AbiKind == BindingParameterAbiKind.Pointer ||
+            parameter.Type.IsPointerType ||
+            parameter.Type.PrimitiveKind == BindingPrimitiveKind.IntPtr)
+        {
+            return "nullptr";
+        }
+
+        if (string.Equals(parameter.ManagedDefaultValueExpression, "null", StringComparison.Ordinal) &&
+            IsManagedReferenceDefaultParameter(parameter))
+        {
+            return "nullptr";
+        }
+
+        if (string.Equals(parameter.ManagedDefaultValueExpression, "default", StringComparison.Ordinal) &&
+            IsManagedReferenceDefaultParameter(parameter))
+        {
+            return "nullptr";
+        }
+
+        return null;
+    }
+
+    private static string BuildConstructorDefaultNamespacePreamble(FunctionBinding constructor)
+    {
+        var cppTypeName = constructor.OwningRecordCppTypeName;
+        if (string.IsNullOrWhiteSpace(cppTypeName))
+            return string.Empty;
+
+        var lastSeparatorIndex = cppTypeName.LastIndexOf("::", StringComparison.Ordinal);
+        if (lastSeparatorIndex <= 0)
+            return string.Empty;
+
+        var cppNamespace = cppTypeName[..lastSeparatorIndex];
+        return $"using namespace {cppNamespace};";
     }
 
     private static string RenderNativeUnexpressibleDefaultFreeFunction(FunctionBinding function)
@@ -6772,11 +6903,14 @@ public static partial class BindingOutputRenderer
         var constructedTypeName = requiresDirector
             ? GetNativeDirectorClassName((RecordBinding)constructor.Parent!)
             : constructor.OwningRecordCppTypeName;
+        var namespacePreamble = BuildConstructorDefaultNamespacePreamble(constructor);
 
         foreach (var keepCount in GetVariantParameterIndices(constructor))
         {
             var variantParams = GetUnexpressibleVariantParams(constructor, keepCount);
-            var invocation = $"return new {constructedTypeName}({ForwardVariantArgs(variantParams)});";
+            var invocation = string.IsNullOrWhiteSpace(namespacePreamble)
+                ? $"return new {constructedTypeName}({BuildNativeVariantCallArguments(constructor, variantParams)});"
+                : $"{namespacePreamble}\n        return new {constructedTypeName}({BuildNativeVariantCallArguments(constructor, variantParams)});";
             EmitUnexpressibleDefaultVariant(writer, constructor, variantParams, keepCount, constructor.EntryPointName, invocation);
         }
         return writer.ToString();
@@ -6840,15 +6974,32 @@ public static partial class BindingOutputRenderer
 
     private static bool IsManagedReferenceDefaultParameter(ParameterBinding parameter)
     {
-        return parameter.Type.IsPointerType || parameter.Type.IsCallback;
+        return parameter.Type.IsPointerType ||
+            parameter.Type.IsCallback ||
+            IsManagedReferenceTypeName(parameter.Type.ManagedTypeName);
     }
 
     private static bool IsNullableManagedReferenceDefaultParameter(ParameterBinding parameter)
     {
-        return parameter.Direction == BindingParameterDirection.In &&
-            parameter.AbiKind == BindingParameterAbiKind.Value &&
-            parameter.ManagedDefaultValueExpression == "null" &&
-            IsManagedReferenceDefaultParameter(parameter);
+        if (parameter.Direction != BindingParameterDirection.In ||
+            parameter.AbiKind != BindingParameterAbiKind.Value)
+        {
+            return false;
+        }
+
+        if (parameter.ManagedDefaultValueExpression == "null")
+        {
+            return IsManagedReferenceDefaultParameter(parameter);
+        }
+
+        return parameter.ManagedDefaultValueExpression == "default" &&
+            IsManagedReferenceTypeName(parameter.Type.ManagedTypeName);
+    }
+
+    private static bool IsManagedReferenceTypeName(string managedTypeName)
+    {
+        return string.Equals(managedTypeName, "string", StringComparison.Ordinal) ||
+            string.Equals(managedTypeName, "global::System.String", StringComparison.Ordinal);
     }
 
     private static bool IsInputHandlePointerArrayParameter(ParameterBinding parameter)
@@ -6970,7 +7121,7 @@ public static partial class BindingOutputRenderer
             else if (beforeHasUnexpressible)
             {
                 // Cascade for before-params with unexpressible defaults
-                WriteUnexpressibleDefaultCascade(compilation, writer, function, importMethodName, leadingArguments);
+                WriteUnexpressibleDefaultCascade(compilation, writer, function, importMethodName, leadingArguments, firstU);
                 // Need to get past the closing brace
             }
             else
@@ -7216,11 +7367,14 @@ public static partial class BindingOutputRenderer
             }
         }
         var invokeArgs = string.Join(", ", args);
+        var branchImportName = keepCount == function.Parameters.Count
+            ? importMethodName
+            : GetUnexpressibleVariantImportName(importMethodName, keepCount);
 
         if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
         {
             writer.Write($$"""
-                __PInvoke.{{importMethodName}}({{invokeArgs}});
+                __PInvoke.{{branchImportName}}({{invokeArgs}});
                 """);
 
             foreach (var statement in plan.PostCallStatements)
@@ -7237,7 +7391,7 @@ public static partial class BindingOutputRenderer
         else
         {
             writer.Write($$"""
-                var __result = __PInvoke.{{importMethodName}}({{invokeArgs}});
+                var __result = __PInvoke.{{branchImportName}}({{invokeArgs}});
                 """);
 
             foreach (var statement in plan.PostCallStatements)
@@ -7282,19 +7436,25 @@ public static partial class BindingOutputRenderer
         return BuildManagedHandleReturnResultExpression(compilation, type, variableName, returnsOwnedHandle);
     }
 
-    private static void WriteUnexpressibleDefaultCascade(BindingCompilation compilation, CodeWriter writer, FunctionBinding function, string importMethodName, IReadOnlyList<string> leadingArguments)
+    private static void WriteUnexpressibleDefaultCascade(BindingCompilation compilation, CodeWriter writer, FunctionBinding function, string importMethodName, IReadOnlyList<string> leadingArguments, int? maxParameterCount = null)
     {
-        var defaultIndices = GetNativeDefaultDispatchParameterIndices(function);
-        var invocationPlan = BuildManagedInvocationPlan(compilation, function.Parameters);
+        var parameterCount = maxParameterCount ?? function.Parameters.Count;
+        var defaultIndices = GetNativeDefaultDispatchParameterIndices(function)
+            .Where(index => index < parameterCount)
+            .ToArray();
+        var invocationPlan = BuildManagedInvocationPlan(compilation, GetUnexpressibleVariantParams(function, parameterCount));
+        var fullImportName = parameterCount == function.Parameters.Count
+            ? importMethodName
+            : GetUnexpressibleVariantImportName(importMethodName, parameterCount);
 
         foreach (var statement in invocationPlan.PreCallStatements)
         {
             writer.Write(statement);
         }
 
-        WriteUnexpressibleDefaultBranch(compilation, writer, function, importMethodName, invocationPlan, leadingArguments, function.Parameters.Count, defaultIndices, defaultIndices.Count);
+        WriteUnexpressibleDefaultBranch(compilation, writer, function, fullImportName, invocationPlan, leadingArguments, parameterCount, defaultIndices, defaultIndices.Length);
 
-        for (var providedDefaultCount = defaultIndices.Count - 1; providedDefaultCount >= 0; providedDefaultCount--)
+        for (var providedDefaultCount = defaultIndices.Length - 1; providedDefaultCount >= 0; providedDefaultCount--)
         {
             var keepCount = defaultIndices[providedDefaultCount];
             var variantPlan = BuildManagedInvocationPlan(compilation, GetUnexpressibleVariantParams(function, keepCount));
@@ -7366,19 +7526,25 @@ public static partial class BindingOutputRenderer
         }
     }
 
-    private static void WriteUnexpressibleDefaultConstructorCascade(CodeWriter writer, FunctionBinding function, string importMethodName)
+    private static void WriteUnexpressibleDefaultConstructorCascade(CodeWriter writer, FunctionBinding function, string importMethodName, int? maxParameterCount = null)
     {
-        var defaultIndices = GetNativeDefaultDispatchParameterIndices(function);
-        var invocationPlan = BuildManagedInvocationPlan(null!, function.Parameters);
+        var parameterCount = maxParameterCount ?? function.Parameters.Count;
+        var defaultIndices = GetNativeDefaultDispatchParameterIndices(function)
+            .Where(index => index < parameterCount)
+            .ToArray();
+        var invocationPlan = BuildManagedInvocationPlan(null!, GetUnexpressibleVariantParams(function, parameterCount));
+        var fullImportName = parameterCount == function.Parameters.Count
+            ? importMethodName
+            : GetUnexpressibleVariantImportName(importMethodName, parameterCount);
 
         foreach (var statement in invocationPlan.PreCallStatements)
         {
             writer.Write(statement);
         }
 
-        WriteUnexpressibleDefaultConstructorBranch(writer, function, importMethodName, invocationPlan, function.Parameters.Count, defaultIndices, defaultIndices.Count);
+        WriteUnexpressibleDefaultConstructorBranch(writer, function, fullImportName, invocationPlan, parameterCount, defaultIndices, defaultIndices.Length);
 
-        for (var providedDefaultCount = defaultIndices.Count - 1; providedDefaultCount >= 0; providedDefaultCount--)
+        for (var providedDefaultCount = defaultIndices.Length - 1; providedDefaultCount >= 0; providedDefaultCount--)
         {
             var keepCount = defaultIndices[providedDefaultCount];
             var variantPlan = BuildManagedInvocationPlan(null!, GetUnexpressibleVariantParams(function, keepCount));

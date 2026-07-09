@@ -679,23 +679,23 @@ public static partial class BindingOutputRenderer
                     compilation)
                 : $"{GetManagedParameterAttribute(elementType, compilation)}{(elementType.Kind == BindingTypeKind.Handle ? "nint" : FormatGlobalTypeName(elementType, compilation))} value";
             yield return $$"""
-                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArrayCreateEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArrayCreateEntryPointName(compilation, record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 internal static partial global::SharpCpp.Support.NativeArrayAbi __Array_Create_{{importToken}}();
                 """;
             yield return $$"""
-                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArrayDeleteEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArrayDeleteEntryPointName(compilation, record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 internal static partial void __Array_Delete_{{importToken}}(global::SharpCpp.Support.NativeArrayAbi self);
                 """;
             yield return $$"""
-                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArrayGetEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArrayGetEntryPointName(compilation, record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 {{getReturnAttribute}}
                 internal static partial {{getReturnType}} __Array_Get_{{importToken}}(global::SharpCpp.Support.NativeArrayAbi self, nuint index);
                 """;
             yield return $$"""
-                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArraySetEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArraySetEntryPointName(compilation, record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 internal static partial void __Array_Set_{{importToken}}(global::SharpCpp.Support.NativeArrayAbi self, nuint index, {{setParameter}});
                 """;
@@ -712,22 +712,22 @@ public static partial class BindingOutputRenderer
             var getReturnType = elementType.Kind == BindingTypeKind.Handle ? "nint" : managedElementType;
             var setParameterType = elementType.Kind == BindingTypeKind.Handle ? "nint" : managedElementType;
             yield return $$"""
-                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetDynamicArrayCreateEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetDynamicArrayCreateEntryPointName(compilation, record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 internal static partial nint __Array_Create_{{token}}(nuint length);
                 """;
             yield return $$"""
-                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetDynamicArrayDeleteEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetDynamicArrayDeleteEntryPointName(compilation, record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 internal static partial void __Array_Delete_{{token}}(nint self);
                 """;
             yield return $$"""
-                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetDynamicArrayGetEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetDynamicArrayGetEntryPointName(compilation, record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 internal static partial {{getReturnType}} __Array_Get_{{token}}(nint self, nuint index);
                 """;
             yield return $$"""
-                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetDynamicArraySetEntryPointName(record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetDynamicArraySetEntryPointName(compilation, record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 internal static partial void __Array_Set_{{token}}(nint self, nuint index, {{setParameterType}} value);
                 """;
@@ -1122,44 +1122,44 @@ public static partial class BindingOutputRenderer
         return SanitizeManagedToken(instantiation.TypeArguments[0].ManagedTypeName);
     }
 
-    private static string GetFixedArrayCreateEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    private static string GetFixedArrayCreateEntryPointName(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_array_create_{GetFixedArrayInstantiationToken(instantiation)}";
+        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_array_create_{GetFixedArrayInstantiationToken(instantiation)}";
     }
 
-    private static string GetFixedArrayDeleteEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    private static string GetFixedArrayDeleteEntryPointName(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_array_delete_{GetFixedArrayInstantiationToken(instantiation)}";
+        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_array_delete_{GetFixedArrayInstantiationToken(instantiation)}";
     }
 
-    private static string GetFixedArrayGetEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    private static string GetFixedArrayGetEntryPointName(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_array_get_{GetFixedArrayInstantiationToken(instantiation)}";
+        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_array_get_{GetFixedArrayInstantiationToken(instantiation)}";
     }
 
-    private static string GetFixedArraySetEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    private static string GetFixedArraySetEntryPointName(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_array_set_{GetFixedArrayInstantiationToken(instantiation)}";
+        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_array_set_{GetFixedArrayInstantiationToken(instantiation)}";
     }
 
-    private static string GetDynamicArrayCreateEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    private static string GetDynamicArrayCreateEntryPointName(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_dynamic_array_create_{GetDynamicArrayInstantiationToken(instantiation)}";
+        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_dynamic_array_create_{GetDynamicArrayInstantiationToken(instantiation)}";
     }
 
-    private static string GetDynamicArrayDeleteEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    private static string GetDynamicArrayDeleteEntryPointName(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_dynamic_array_delete_{GetDynamicArrayInstantiationToken(instantiation)}";
+        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_dynamic_array_delete_{GetDynamicArrayInstantiationToken(instantiation)}";
     }
 
-    private static string GetDynamicArrayGetEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    private static string GetDynamicArrayGetEntryPointName(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_dynamic_array_get_{GetDynamicArrayInstantiationToken(instantiation)}";
+        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_dynamic_array_get_{GetDynamicArrayInstantiationToken(instantiation)}";
     }
 
-    private static string GetDynamicArraySetEntryPointName(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    private static string GetDynamicArraySetEntryPointName(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_dynamic_array_set_{GetDynamicArrayInstantiationToken(instantiation)}";
+        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_dynamic_array_set_{GetDynamicArrayInstantiationToken(instantiation)}";
     }
 
     private static string RenderGenericArrayCreateDispatch(BindingCompilation compilation, RecordBinding record, IReadOnlyList<RecordGenericInstantiationBinding> instantiations)
@@ -2442,13 +2442,13 @@ public static partial class BindingOutputRenderer
                 {
                     var nestedLength = elementType.FixedArrayLength ?? 0;
                     writer.Write($$"""
-                        SHARPCPP_EXPORT NativeArrayAbi {{GetFixedArrayCreateEntryPointName(record, instantiation)}}()
+                        SHARPCPP_EXPORT NativeArrayAbi {{GetFixedArrayCreateEntryPointName(compilation, record, instantiation)}}()
                         {
                             auto* value = new {{elementCppType}}[{{length}}][{{nestedLength}}]{};
                             return { value, {{length}} };
                         }
 
-                        SHARPCPP_EXPORT ret_t<void> {{GetFixedArrayDeleteEntryPointName(record, instantiation)}}(NativeArrayAbi self)
+                        SHARPCPP_EXPORT ret_t<void> {{GetFixedArrayDeleteEntryPointName(compilation, record, instantiation)}}(NativeArrayAbi self)
                         {
                             if (self.handle != nullptr)
                             {
@@ -2456,7 +2456,7 @@ public static partial class BindingOutputRenderer
                             }
                         }
 
-                        SHARPCPP_EXPORT NativeArrayAbi {{GetFixedArrayGetEntryPointName(record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index)
+                        SHARPCPP_EXPORT NativeArrayAbi {{GetFixedArrayGetEntryPointName(compilation, record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index)
                         {
                             if (self.handle == nullptr || self.length != {{length}} || index >= {{length}})
                             {
@@ -2466,7 +2466,7 @@ public static partial class BindingOutputRenderer
                             return { const_cast<void*>(static_cast<const void*>(static_cast<{{elementCppType}} (*)[{{nestedLength}}]>(self.handle)[index])), {{nestedLength}} };
                         }
 
-                        SHARPCPP_EXPORT ret_t<void> {{GetFixedArraySetEntryPointName(record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index, NativeArrayAbi value)
+                        SHARPCPP_EXPORT ret_t<void> {{GetFixedArraySetEntryPointName(compilation, record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index, NativeArrayAbi value)
                         {
                             if (self.handle == nullptr || self.length != {{length}} || index >= {{length}})
                             {
@@ -2491,13 +2491,13 @@ public static partial class BindingOutputRenderer
                 }
 
                 writer.Write($$"""
-                    SHARPCPP_EXPORT NativeArrayAbi {{GetFixedArrayCreateEntryPointName(record, instantiation)}}()
+                    SHARPCPP_EXPORT NativeArrayAbi {{GetFixedArrayCreateEntryPointName(compilation, record, instantiation)}}()
                     {
                         auto* value = new {{elementCppType}}[{{length}}]{};
                         return { value, {{length}} };
                     }
 
-                    SHARPCPP_EXPORT ret_t<void> {{GetFixedArrayDeleteEntryPointName(record, instantiation)}}(NativeArrayAbi self)
+                    SHARPCPP_EXPORT ret_t<void> {{GetFixedArrayDeleteEntryPointName(compilation, record, instantiation)}}(NativeArrayAbi self)
                     {
                         if (self.handle != nullptr)
                         {
@@ -2505,7 +2505,7 @@ public static partial class BindingOutputRenderer
                         }
                     }
 
-                    SHARPCPP_EXPORT ret_t<{{elementCppType}}> {{GetFixedArrayGetEntryPointName(record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index)
+                    SHARPCPP_EXPORT ret_t<{{elementCppType}}> {{GetFixedArrayGetEntryPointName(compilation, record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index)
                     {
                         if (self.handle == nullptr || self.length != {{length}} || index >= {{length}})
                         {
@@ -2516,7 +2516,7 @@ public static partial class BindingOutputRenderer
                         return marshaller.ConvertToAbi(static_cast<{{elementCppType}}*>(self.handle)[index]);
                     }
 
-                    SHARPCPP_EXPORT ret_t<void> {{GetFixedArraySetEntryPointName(record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index, arg_t<{{elementCppType}}> value)
+                    SHARPCPP_EXPORT ret_t<void> {{GetFixedArraySetEntryPointName(compilation, record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index, arg_t<{{elementCppType}}> value)
                     {
                         if (self.handle == nullptr || self.length != {{length}} || index >= {{length}})
                         {
@@ -2533,13 +2533,13 @@ public static partial class BindingOutputRenderer
 
             var concreteArrayType = record.FormatCppTypeName(instantiation.TypeArguments);
             writer.Write($$"""
-                SHARPCPP_EXPORT NativeArrayAbi {{GetFixedArrayCreateEntryPointName(record, instantiation)}}()
+                SHARPCPP_EXPORT NativeArrayAbi {{GetFixedArrayCreateEntryPointName(compilation, record, instantiation)}}()
                 {
                     auto* value = new {{concreteArrayType}}{};
                     return { value, {{length}} };
                 }
 
-                SHARPCPP_EXPORT ret_t<void> {{GetFixedArrayDeleteEntryPointName(record, instantiation)}}(NativeArrayAbi self)
+                SHARPCPP_EXPORT ret_t<void> {{GetFixedArrayDeleteEntryPointName(compilation, record, instantiation)}}(NativeArrayAbi self)
                 {
                     if (self.handle != nullptr)
                     {
@@ -2547,7 +2547,7 @@ public static partial class BindingOutputRenderer
                     }
                 }
 
-                SHARPCPP_EXPORT ret_t<{{elementCppType}}> {{GetFixedArrayGetEntryPointName(record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index)
+                SHARPCPP_EXPORT ret_t<{{elementCppType}}> {{GetFixedArrayGetEntryPointName(compilation, record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index)
                 {
                     if (self.handle == nullptr || self.length != {{length}} || index >= {{length}})
                     {
@@ -2558,7 +2558,7 @@ public static partial class BindingOutputRenderer
                     return marshaller.ConvertToAbi((*static_cast<{{concreteArrayType}}*>(self.handle))[index]);
                 }
 
-                SHARPCPP_EXPORT ret_t<void> {{GetFixedArraySetEntryPointName(record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index, arg_t<{{elementCppType}}> value)
+                SHARPCPP_EXPORT ret_t<void> {{GetFixedArraySetEntryPointName(compilation, record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index, arg_t<{{elementCppType}}> value)
                 {
                     if (self.handle == nullptr || self.length != {{length}} || index >= {{length}})
                     {
@@ -2583,17 +2583,17 @@ public static partial class BindingOutputRenderer
             var concreteArrayType = record.FormatCppTypeName(instantiation.TypeArguments);
             var elementCppType = instantiation.TypeArguments[0].CppTypeName;
             writer.Write($$"""
-                SHARPCPP_EXPORT ret_t<{{concreteArrayType}}*> {{GetDynamicArrayCreateEntryPointName(record, instantiation)}}(arg_t<std::size_t> length)
+                SHARPCPP_EXPORT ret_t<{{concreteArrayType}}*> {{GetDynamicArrayCreateEntryPointName(compilation, record, instantiation)}}(arg_t<std::size_t> length)
                 {
                     return new {{concreteArrayType}}(new {{elementCppType}}[length]{});
                 }
 
-                SHARPCPP_EXPORT ret_t<void> {{GetDynamicArrayDeleteEntryPointName(record, instantiation)}}(arg_t<{{concreteArrayType}}*> self)
+                SHARPCPP_EXPORT ret_t<void> {{GetDynamicArrayDeleteEntryPointName(compilation, record, instantiation)}}(arg_t<{{concreteArrayType}}*> self)
                 {
                     delete self;
                 }
 
-                SHARPCPP_EXPORT ret_t<{{elementCppType}}> {{GetDynamicArrayGetEntryPointName(record, instantiation)}}(arg_t<{{concreteArrayType}}*> self, arg_t<std::size_t> index)
+                SHARPCPP_EXPORT ret_t<{{elementCppType}}> {{GetDynamicArrayGetEntryPointName(compilation, record, instantiation)}}(arg_t<{{concreteArrayType}}*> self, arg_t<std::size_t> index)
                 {
                     if (self == nullptr)
                     {
@@ -2604,7 +2604,7 @@ public static partial class BindingOutputRenderer
                     return marshaller.ConvertToAbi((*self)[index]);
                 }
 
-                SHARPCPP_EXPORT ret_t<void> {{GetDynamicArraySetEntryPointName(record, instantiation)}}(arg_t<{{concreteArrayType}}*> self, arg_t<std::size_t> index, arg_t<{{elementCppType}}> value)
+                SHARPCPP_EXPORT ret_t<void> {{GetDynamicArraySetEntryPointName(compilation, record, instantiation)}}(arg_t<{{concreteArrayType}}*> self, arg_t<std::size_t> index, arg_t<{{elementCppType}}> value)
                 {
                     if (self == nullptr)
                     {
@@ -2642,6 +2642,7 @@ public static partial class BindingOutputRenderer
         var parameterList = string.Join(", ", new[] { $"arg_t<{concreteRecordType}*> self" }.Concat(method.Parameters.Select((parameter, index) => $"arg_t<{concreteParameters[index].CppTypeName}> {parameter.NativeName}")));
         var abiArguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
         var memberSignature = $"{concreteReturnType.CppTypeName}({concreteRecordType}::*)({string.Join(", ", concreteParameters.Select(static parameter => parameter.CppTypeName))}){(method.IsConstMethod ? " const" : string.Empty)}";
+        var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", concreteParameters.Select(static parameter => parameter.CppTypeName));
 
         if (method.TryGetMetadata(MetadataKeys.MarshallerExposedMethod, out string? _))
         {
@@ -2658,10 +2659,10 @@ public static partial class BindingOutputRenderer
             {
             using FT = {{memberSignature}};
             {{(concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void
-                ? $"MarshallerInvoker::invoke<FT>(&{concreteRecordType}::{method.NativeName}, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
+                ? $"MarshallerInvoker::invoke<{marshallerTemplateArguments}>(&{concreteRecordType}::{method.NativeName}, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
                 : RequiresOwnedRecordValueReturn(concreteReturnType)
-                    ? $"return MarshallerInvoker::invoke_owned<FT>(&{concreteRecordType}::{method.NativeName}, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
-                    : $"return MarshallerInvoker::invoke<FT>(&{concreteRecordType}::{method.NativeName}, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
+                    ? $"return MarshallerInvoker::invoke_owned<{marshallerTemplateArguments}>(&{concreteRecordType}::{method.NativeName}, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
+                    : $"return MarshallerInvoker::invoke<{marshallerTemplateArguments}>(&{concreteRecordType}::{method.NativeName}, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
             }
             """;
     }
@@ -2674,16 +2675,17 @@ public static partial class BindingOutputRenderer
         var parameterList = string.Join(", ", method.Parameters.Select((parameter, index) => $"arg_t<{concreteParameters[index].CppTypeName}> {parameter.NativeName}"));
         var abiArguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
         var signature = $"{concreteReturnType.CppTypeName}({string.Join(", ", concreteParameters.Select(static parameter => parameter.CppTypeName))})";
+        var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", concreteParameters.Select(static parameter => parameter.CppTypeName));
 
         return $$"""
             SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(concreteReturnType)}} {{GetGenericEntryPointName(method, instantiation)}}({{parameterList}})
             {
             using FT = {{signature}};
             {{(concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void
-                ? $"MarshallerInvoker::invoke_as<FT>(&{concreteRecordType}::{method.NativeName}{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
+                ? $"MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(&{concreteRecordType}::{method.NativeName}{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
                 : RequiresOwnedRecordValueReturn(concreteReturnType)
-                    ? $"return MarshallerInvoker::invoke_owned_as<FT>(&{concreteRecordType}::{method.NativeName}{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
-                    : $"return MarshallerInvoker::invoke_as<FT>(&{concreteRecordType}::{method.NativeName}{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
+                    ? $"return MarshallerInvoker::invoke_owned_as<{marshallerTemplateArguments}>(&{concreteRecordType}::{method.NativeName}{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
+                    : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(&{concreteRecordType}::{method.NativeName}{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
             }
             """;
     }
@@ -2697,16 +2699,17 @@ public static partial class BindingOutputRenderer
         var abiArguments = string.Join(", ", function.Parameters.Select(static parameter => parameter.NativeName));
         var signature = $"{concreteReturnType.CppTypeName}({string.Join(", ", concreteParameters.Select(static parameter => parameter.CppTypeName))})";
         var methodCppTypeArgs = string.Join(", ", instantiation.TypeArguments.Select(static argument => argument.CppTypeName));
+        var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", concreteParameters.Select(static parameter => parameter.CppTypeName));
 
         return $$"""
             SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(concreteReturnType)}} {{GetGenericEntryPointName(function, instantiation)}}({{parameterList}})
             {
             using FT = {{signature}};
             {{(concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void
-                ? $"MarshallerInvoker::invoke_as<FT>(&{function.NativeName}<{methodCppTypeArgs}>{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
+                ? $"MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(&{function.NativeName}<{methodCppTypeArgs}>{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
                 : RequiresOwnedRecordValueReturn(concreteReturnType)
-                    ? $"return MarshallerInvoker::invoke_owned_as<FT>(&{function.NativeName}<{methodCppTypeArgs}>{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
-                    : $"return MarshallerInvoker::invoke_as<FT>(&{function.NativeName}<{methodCppTypeArgs}>{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
+                    ? $"return MarshallerInvoker::invoke_owned_as<{marshallerTemplateArguments}>(&{function.NativeName}<{methodCppTypeArgs}>{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
+                    : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(&{function.NativeName}<{methodCppTypeArgs}>{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
             }
             """;
     }
@@ -2736,18 +2739,20 @@ public static partial class BindingOutputRenderer
         var concreteReturnType = SubstituteGenericType(record, method.ReturnType, recordInstantiation, methodParams, methodInstantiation);
         var parameterList = string.Join(", ", new[] { $"arg_t<{concreteRecordType}*> self" }.Concat(method.Parameters.Select((parameter, index) => $"arg_t<{concreteParameters[index].CppTypeName}> {parameter.NativeName}")));
         var abiArguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
-        var memberSignature = $"{concreteReturnType.CppTypeName}({concreteRecordType}::*)({string.Join(", ", method.Parameters.Select((parameter, index) => FormatConcreteGenericParameterCppType(parameter, concreteParameters[index])))}){(method.IsConstMethod ? " const" : string.Empty)}";
+        var marshallerParameterTypes = method.Parameters.Select((parameter, index) => FormatConcreteGenericParameterCppType(parameter, concreteParameters[index])).ToArray();
+        var memberSignature = $"{concreteReturnType.CppTypeName}({concreteRecordType}::*)({string.Join(", ", marshallerParameterTypes)}){(method.IsConstMethod ? " const" : string.Empty)}";
         var methodCppTypeArgs = string.Join(", ", methodInstantiation.TypeArguments.Select(static argument => argument.CppTypeName));
+        var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", marshallerParameterTypes);
 
         writer.Write($$"""
             SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(concreteReturnType)}} {{GetGenericMethodEntryPointName(method, recordInstantiation, methodInstantiation)}}({{parameterList}})
             {
             using FT = {{memberSignature}};
             {{(concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void
-                ? $"MarshallerInvoker::invoke<FT>(&{concreteRecordType}::{method.NativeName}<{methodCppTypeArgs}>, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
+                ? $"MarshallerInvoker::invoke<{marshallerTemplateArguments}>(&{concreteRecordType}::{method.NativeName}<{methodCppTypeArgs}>, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
                 : RequiresOwnedRecordValueReturn(concreteReturnType)
-                    ? $"return MarshallerInvoker::invoke_owned<FT>(&{concreteRecordType}::{method.NativeName}<{methodCppTypeArgs}>, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
-                    : $"return MarshallerInvoker::invoke<FT>(&{concreteRecordType}::{method.NativeName}<{methodCppTypeArgs}>, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
+                    ? $"return MarshallerInvoker::invoke_owned<{marshallerTemplateArguments}>(&{concreteRecordType}::{method.NativeName}<{methodCppTypeArgs}>, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
+                    : $"return MarshallerInvoker::invoke<{marshallerTemplateArguments}>(&{concreteRecordType}::{method.NativeName}<{methodCppTypeArgs}>, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
             }
             """);
 
@@ -2786,8 +2791,10 @@ public static partial class BindingOutputRenderer
         var variantParams = method.Parameters.Take(keepCount).ToArray();
         var parameterList = string.Join(", ", new[] { $"arg_t<{concreteRecordType}*> self" }
             .Concat(variantParams.Select((parameter, index) => $"arg_t<{concreteParameters[index].CppTypeName}> {parameter.NativeName}")));
-        var signatureParameterList = string.Join(", ", new[] { $"{concreteRecordType}*" }
-            .Concat(variantParams.Select((parameter, index) => FormatConcreteGenericParameterCppType(parameter, concreteParameters[index]))));
+        var signatureParameterTypes = new[] { $"{concreteRecordType}*" }
+            .Concat(variantParams.Select((parameter, index) => FormatConcreteGenericParameterCppType(parameter, concreteParameters[index])))
+            .ToArray();
+        var signatureParameterList = string.Join(", ", signatureParameterTypes);
         var lambdaParameterList = string.Join(", ", new[] { "auto&& self" }
             .Concat(variantParams.Select(static parameter => $"auto&& {parameter.NativeName}")));
         var forwardedArgs = ForwardVariantArgs(variantParams);
@@ -2796,11 +2803,12 @@ public static partial class BindingOutputRenderer
         var invocation = forwardedArgs.Length == 0
             ? $"std::forward<decltype(self)>(self)->template {method.NativeName}<{methodCppTypeArgs}>()"
             : $"std::forward<decltype(self)>(self)->template {method.NativeName}<{methodCppTypeArgs}>({forwardedArgs})";
+        var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", signatureParameterTypes);
         var dispatch = concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void
-            ? $"MarshallerInvoker::invoke_as<FT>({invokeArgs});"
+            ? $"MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>({invokeArgs});"
             : RequiresOwnedRecordValueReturn(concreteReturnType)
-                ? $"return MarshallerInvoker::invoke_owned_as<FT>({invokeArgs});"
-                : $"return MarshallerInvoker::invoke_as<FT>({invokeArgs});";
+                ? $"return MarshallerInvoker::invoke_owned_as<{marshallerTemplateArguments}>({invokeArgs});"
+                : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>({invokeArgs});";
 
         return $$"""
             SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(concreteReturnType)}} {{entryPointName}}({{parameterList}})
@@ -2848,11 +2856,14 @@ public static partial class BindingOutputRenderer
         var returnStatement = concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void
             ? $"Marshaller<{concreteRecordType}>::{method.NativeName}({invokeArguments});"
             : $"return Marshaller<{concreteRecordType}>::{method.NativeName}({invokeArguments});";
+        var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments(
+            "FT",
+            new[] { $"{concreteRecordType}*" }.Concat(concreteParameters.Select(static parameter => parameter.CppTypeName)));
         var dispatch = concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void
-            ? $"MarshallerInvoker::invoke_as<FT>(__invoke, {callArguments});"
+            ? $"MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(__invoke, {callArguments});"
             : RequiresOwnedRecordValueReturn(concreteReturnType)
-                ? $"return MarshallerInvoker::invoke_owned_as<FT>(__invoke, {callArguments});"
-                : $"return MarshallerInvoker::invoke_as<FT>(__invoke, {callArguments});";
+                ? $"return MarshallerInvoker::invoke_owned_as<{marshallerTemplateArguments}>(__invoke, {callArguments});"
+                : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(__invoke, {callArguments});";
 
         return $$"""
             using FT = {{concreteReturnType.CppTypeName}}({{signatureParameters}});

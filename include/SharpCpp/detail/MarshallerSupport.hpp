@@ -360,12 +360,17 @@ struct [[maybe_unused]] MarshallerInvokerImpl;
 
 struct MarshallerInvoker
 {
-    template <typename FT, typename... TAbiArgs>
+    template <typename FT, typename TCppArgumentTuple = typename detail::FunctionTraits<FT>::argument_tuple, typename... TAbiArgs>
     static decltype(auto) invoke_as(typename std::add_pointer_t<FT> callable, TAbiArgs&&... abiArguments)
     {
         using traits = detail::FunctionTraits<FT>;
         using result_type = typename traits::return_type;
-        using arg_tuple = typename traits::argument_tuple;
+        using signature_arg_tuple = typename traits::argument_tuple;
+        using arg_tuple = TCppArgumentTuple;
+
+        static_assert(
+            std::tuple_size_v<arg_tuple> == std::tuple_size_v<signature_arg_tuple>,
+            "SharpCpp marshaller argument tuple arity mismatch.");
 
         detail::marshaller_tuple_t<arg_tuple> marshallers;
         return detail::InvokeWithMarshallersImpl<result_type, arg_tuple>(
@@ -375,12 +380,17 @@ struct MarshallerInvoker
             std::forward<TAbiArgs>(abiArguments)...);
     }
 
-    template <typename FT, typename... TAbiArgs>
+    template <typename FT, typename TCppArgumentTuple = typename detail::FunctionTraits<FT>::argument_tuple, typename... TAbiArgs>
     static auto invoke_owned_as(typename std::add_pointer_t<FT> callable, TAbiArgs&&... abiArguments)
     {
         using traits = detail::FunctionTraits<FT>;
         using result_type = typename traits::return_type;
-        using arg_tuple = typename traits::argument_tuple;
+        using signature_arg_tuple = typename traits::argument_tuple;
+        using arg_tuple = TCppArgumentTuple;
+
+        static_assert(
+            std::tuple_size_v<arg_tuple> == std::tuple_size_v<signature_arg_tuple>,
+            "SharpCpp marshaller argument tuple arity mismatch.");
 
         detail::marshaller_tuple_t<arg_tuple> marshallers;
         return detail::InvokeWithMarshallersOwnedImpl<result_type, arg_tuple>(
@@ -390,7 +400,7 @@ struct MarshallerInvoker
             std::forward<TAbiArgs>(abiArguments)...);
     }
 
-    template <typename FT, typename TCallable, typename... TAbiArgs>
+    template <typename FT, typename TCppArgumentTuple = typename detail::FunctionTraits<FT>::argument_tuple, typename TCallable, typename... TAbiArgs>
     static auto invoke_owned_as(TCallable&& callable, TAbiArgs&&... abiArguments)
     {
         if constexpr (std::is_member_function_pointer_v<std::remove_reference_t<TCallable>>)
@@ -398,7 +408,12 @@ struct MarshallerInvoker
             using traits = detail::MemberFunctionTraits<std::remove_reference_t<TCallable>>;
             using result_type = typename traits::return_type;
             using class_type = typename traits::class_type;
-            using arg_tuple = typename traits::argument_tuple;
+            using signature_arg_tuple = typename traits::argument_tuple;
+            using arg_tuple = TCppArgumentTuple;
+
+            static_assert(
+                std::tuple_size_v<arg_tuple> == std::tuple_size_v<signature_arg_tuple>,
+                "SharpCpp marshaller argument tuple arity mismatch.");
 
             detail::marshaller_tuple_t<arg_tuple> marshallers;
             return detail::InvokeMemberWithMarshallersOwnedImpl<result_type, arg_tuple>(
@@ -412,7 +427,12 @@ struct MarshallerInvoker
         {
             using traits = detail::FunctionTraits<FT>;
             using result_type = typename traits::return_type;
-            using arg_tuple = typename traits::argument_tuple;
+            using signature_arg_tuple = typename traits::argument_tuple;
+            using arg_tuple = TCppArgumentTuple;
+
+            static_assert(
+                std::tuple_size_v<arg_tuple> == std::tuple_size_v<signature_arg_tuple>,
+                "SharpCpp marshaller argument tuple arity mismatch.");
 
             detail::marshaller_tuple_t<arg_tuple> marshallers;
             return detail::InvokeWithMarshallersOwnedImpl<result_type, arg_tuple>(
@@ -423,7 +443,7 @@ struct MarshallerInvoker
         }
     }
 
-    template <typename FT, typename TCallable, typename... TAbiArgs>
+    template <typename FT, typename TCppArgumentTuple = typename detail::FunctionTraits<FT>::argument_tuple, typename TCallable, typename... TAbiArgs>
     static decltype(auto) invoke_as(TCallable&& callable, TAbiArgs&&... abiArguments)
     {
         // Detect member function pointers and route to the member-path.
@@ -436,7 +456,12 @@ struct MarshallerInvoker
             using traits = detail::MemberFunctionTraits<std::remove_reference_t<TCallable>>;
             using result_type = typename traits::return_type;
             using class_type = typename traits::class_type;
-            using arg_tuple = typename traits::argument_tuple;
+            using signature_arg_tuple = typename traits::argument_tuple;
+            using arg_tuple = TCppArgumentTuple;
+
+            static_assert(
+                std::tuple_size_v<arg_tuple> == std::tuple_size_v<signature_arg_tuple>,
+                "SharpCpp marshaller argument tuple arity mismatch.");
 
             detail::marshaller_tuple_t<arg_tuple> marshallers;
             // Use a nullptr instance — the member function doesn't access
@@ -454,7 +479,12 @@ struct MarshallerInvoker
         {
             using traits = detail::FunctionTraits<FT>;
             using result_type = typename traits::return_type;
-            using arg_tuple = typename traits::argument_tuple;
+            using signature_arg_tuple = typename traits::argument_tuple;
+            using arg_tuple = TCppArgumentTuple;
+
+            static_assert(
+                std::tuple_size_v<arg_tuple> == std::tuple_size_v<signature_arg_tuple>,
+                "SharpCpp marshaller argument tuple arity mismatch.");
 
             detail::marshaller_tuple_t<arg_tuple> marshallers;
             return detail::InvokeWithMarshallersImpl<result_type, arg_tuple>(
@@ -465,13 +495,18 @@ struct MarshallerInvoker
         }
     }
 
-    template <typename FT, typename TSelfAbi, typename... TAbiArgs>
+    template <typename FT, typename TCppArgumentTuple = typename detail::MemberFunctionTraits<FT>::argument_tuple, typename TSelfAbi, typename... TAbiArgs>
     static decltype(auto) invoke(FT method, TSelfAbi self, TAbiArgs&&... abiArguments)
     {
         using traits = detail::MemberFunctionTraits<FT>;
         using result_type = typename traits::return_type;
         using class_type = typename traits::class_type;
-        using arg_tuple = typename traits::argument_tuple;
+        using signature_arg_tuple = typename traits::argument_tuple;
+        using arg_tuple = TCppArgumentTuple;
+
+        static_assert(
+            std::tuple_size_v<arg_tuple> == std::tuple_size_v<signature_arg_tuple>,
+            "SharpCpp marshaller argument tuple arity mismatch.");
 
         Marshaller<class_type*> self_marshaller;
         auto* instance = static_cast<class_type*>(self_marshaller.ConvertToCpp(self));
@@ -485,13 +520,18 @@ struct MarshallerInvoker
             std::forward<TAbiArgs>(abiArguments)...);
     }
 
-    template <typename FT, typename TSelfAbi, typename... TAbiArgs>
+    template <typename FT, typename TCppArgumentTuple = typename detail::MemberFunctionTraits<FT>::argument_tuple, typename TSelfAbi, typename... TAbiArgs>
     static auto invoke_owned(FT method, TSelfAbi self, TAbiArgs&&... abiArguments)
     {
         using traits = detail::MemberFunctionTraits<FT>;
         using result_type = typename traits::return_type;
         using class_type = typename traits::class_type;
-        using arg_tuple = typename traits::argument_tuple;
+        using signature_arg_tuple = typename traits::argument_tuple;
+        using arg_tuple = TCppArgumentTuple;
+
+        static_assert(
+            std::tuple_size_v<arg_tuple> == std::tuple_size_v<signature_arg_tuple>,
+            "SharpCpp marshaller argument tuple arity mismatch.");
 
         Marshaller<class_type*> self_marshaller;
         auto* instance = static_cast<class_type*>(self_marshaller.ConvertToCpp(self));
@@ -505,12 +545,17 @@ struct MarshallerInvoker
             std::forward<TAbiArgs>(abiArguments)...);
     }
 
-    template <typename FT, typename TSelf, typename... TAbiArgs>
+    template <typename FT, typename TCppArgumentTuple = typename detail::MemberFunctionTraits<FT>::argument_tuple, typename TSelf, typename... TAbiArgs>
     static decltype(auto) invoke_instance(FT method, TSelf* instance, TAbiArgs&&... abiArguments)
     {
         using traits = detail::MemberFunctionTraits<FT>;
         using result_type = typename traits::return_type;
-        using arg_tuple = typename traits::argument_tuple;
+        using signature_arg_tuple = typename traits::argument_tuple;
+        using arg_tuple = TCppArgumentTuple;
+
+        static_assert(
+            std::tuple_size_v<arg_tuple> == std::tuple_size_v<signature_arg_tuple>,
+            "SharpCpp marshaller argument tuple arity mismatch.");
 
         detail::marshaller_tuple_t<arg_tuple> marshallers;
 
@@ -522,12 +567,17 @@ struct MarshallerInvoker
             std::forward<TAbiArgs>(abiArguments)...);
     }
 
-    template <typename FT, typename TSelf, typename... TAbiArgs>
+    template <typename FT, typename TCppArgumentTuple = typename detail::MemberFunctionTraits<FT>::argument_tuple, typename TSelf, typename... TAbiArgs>
     static auto invoke_owned_instance(FT method, TSelf* instance, TAbiArgs&&... abiArguments)
     {
         using traits = detail::MemberFunctionTraits<FT>;
         using result_type = typename traits::return_type;
-        using arg_tuple = typename traits::argument_tuple;
+        using signature_arg_tuple = typename traits::argument_tuple;
+        using arg_tuple = TCppArgumentTuple;
+
+        static_assert(
+            std::tuple_size_v<arg_tuple> == std::tuple_size_v<signature_arg_tuple>,
+            "SharpCpp marshaller argument tuple arity mismatch.");
 
         detail::marshaller_tuple_t<arg_tuple> marshallers;
 

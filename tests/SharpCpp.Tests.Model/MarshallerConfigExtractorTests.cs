@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
 
 using Xunit;
 
@@ -609,13 +610,18 @@ public sealed class MarshallerConfigExtractorTests
         Assert.Equal("method", (string)addCore.GetType().GetProperty("Shape")!.GetValue(addCore)!);
     }
 
-    private static string FindRepositoryRoot()
+    private static string FindRepositoryRoot([CallerFilePath] string sourceFilePath = "")
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        var startPath = string.IsNullOrWhiteSpace(sourceFilePath)
+            ? AppContext.BaseDirectory
+            : Path.GetDirectoryName(sourceFilePath)!;
+        var directory = new DirectoryInfo(startPath);
         while (directory is not null)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "AGENTS.md")) &&
-                Directory.Exists(Path.Combine(directory.FullName, "include")))
+            var hasIncludeDir = Directory.Exists(Path.Combine(directory.FullName, "include"));
+            var hasModelTestsDir = Directory.Exists(Path.Combine(directory.FullName, "tests", "SharpCpp.Tests.Model"));
+            if (hasIncludeDir &&
+                (File.Exists(Path.Combine(directory.FullName, "AGENTS.md")) || hasModelTestsDir))
             {
                 return directory.FullName;
             }
