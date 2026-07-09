@@ -968,8 +968,8 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         Assert.False(payloadSamples.IsIgnored(), payloadSamples.GetIgnoreReason());
         Assert.True(payloadSamples.Type.IsFixedArray);
         Assert.Equal(2, payloadSamples.Type.FixedArrayLength);
-        Assert.Equal("SharpCpp.NativeArray<Test.Namespace.FieldPayload>", payloadSamples.Type.ManagedTypeName);
-        Assert.Equal("Test.Namespace.FieldPayload", payloadSamples.Type.FixedArrayElementType!.ManagedTypeName);
+        Assert.Equal("SharpCpp.NativeArray<FieldPayload>", payloadSamples.Type.ManagedTypeName);
+        Assert.Equal("FieldPayload", payloadSamples.Type.FixedArrayElementType!.ManagedTypeName);
     }
 
     [Fact]

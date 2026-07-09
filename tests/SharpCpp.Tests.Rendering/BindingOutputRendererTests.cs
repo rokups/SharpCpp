@@ -292,8 +292,8 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("public global::SharpCpp.Support.IFixedArray<global::SharpCpp.Sample.Attachment> Attachments", managedOutput, StringComparison.Ordinal);
         Assert.Contains("private __AttachmentsFixedArrayProxy? __attachmentsFixedArrayProxy;", managedOutput, StringComparison.Ordinal);
         Assert.Contains("internal static partial global::SharpCpp.Sample.Attachment Get_Attachments_Item(Pipeline self, nuint index);", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("internal static partial void Set_Attachments_Item(Pipeline self, nuint index, global::SharpCpp.Sample.Attachment value);", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("ReturnMarshaller<Sample::Attachment> marshaller;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial void Set_Attachments_Item(Pipeline self, nuint index, [MarshalUsing(typeof(global::SharpCpp.Sample.__AttachmentMarshaller<global::SharpCpp.Support.BorrowedNativeHandle>))] global::SharpCpp.Sample.Attachment? value);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("ReturnMarshaller<Sample::Attachment*> marshaller;", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("return marshaller.ConvertToAbi(&(self->Attachments[index]));", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("auto* source = marshaller.ConvertToCpp(value);", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("if (source == nullptr)", nativeOutput, StringComparison.Ordinal);
@@ -343,7 +343,7 @@ public sealed class BindingOutputRendererTests
 
         Assert.Contains("public global::SharpCpp.Support.IFixedArray<global::SharpCpp.NativeArray<float>> Data", managedOutput, StringComparison.Ordinal);
         Assert.Contains("internal static partial global::SharpCpp.NativeArray<float> Get_Data_Item(Matrix self, nuint index);", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("internal static partial void Set_Data_Item(Matrix self, nuint index, [MarshalUsing(typeof(global::SharpCpp.__NativeArrayInMarshaller<>))] global::SharpCpp.NativeArray<float> value);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial void Set_Data_Item(Matrix self, nuint index, [MarshalUsing(typeof(global::SharpCpp.Sample.__NativeArrayInMarshaller<>))] global::SharpCpp.NativeArray<float> value);", managedOutput, StringComparison.Ordinal);
         Assert.Contains("return { const_cast<void*>(static_cast<const void*>(self->data[index])), 4 };", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("auto* source = reinterpret_cast<float (*)[4]>(value.handle);", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("target[nestedIndex] = (*source)[nestedIndex];", nativeOutput, StringComparison.Ordinal);
