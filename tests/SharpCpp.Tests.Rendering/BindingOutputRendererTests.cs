@@ -2416,7 +2416,7 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("[return: MarshalUsing(typeof(global::SharpCpp.Sample.__VariantMarshaller<global::SharpCpp.Support.OwnedNativeHandle>))]", managedOutput, StringComparison.Ordinal);
         Assert.Contains("internal static partial global::SharpCpp.Sample.Variant GetPoint(Spline self);", managedOutput, StringComparison.Ordinal);
         Assert.Contains("SHARPCPP_EXPORT arg_t<Sample::Variant*>", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("return MarshallerInvoker::invoke_owned<FT>(&Sample::Spline::GetPoint, self);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return MarshallerInvoker::invoke_owned<FT, std::tuple<>>(&Sample::Spline::GetPoint, self);", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2464,9 +2464,9 @@ public sealed class BindingOutputRendererTests
             .Files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
 
         Assert.Contains("SHARPCPP_EXPORT ret_t<Sample::Variant*>", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("return MarshallerInvoker::invoke<FT>(&eastl::vector<Sample::Variant*>::GetAtCore, self);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return MarshallerInvoker::invoke<FT, std::tuple<>>(&eastl::vector<Sample::Variant*>::GetAtCore, self);", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("arg_t<Sample::Variant**>", nativeOutput, StringComparison.Ordinal);
-        Assert.DoesNotContain("invoke_owned<FT>(&eastl::vector<Sample::Variant*>::GetAtCore", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("invoke_owned<FT, std::tuple<>>(&eastl::vector<Sample::Variant*>::GetAtCore", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2960,7 +2960,7 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("protected int Factor", managedOutput, StringComparison.Ordinal);
         Assert.Contains("__call_Increment", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("__call_Scale", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("return MarshallerInvoker::invoke_instance<FT>(static_cast<FT>(&__protected_counter_director::increment), this, amount);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return MarshallerInvoker::invoke_instance<FT, std::tuple<int>>(static_cast<FT>(&__protected_counter_director::increment), this, amount);", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("auto&& __arg0 = __arg0_marshaller.ConvertToCpp(amount);", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("__get_Factor", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("void __set_Factor(field_t<int> value)", nativeOutput, StringComparison.Ordinal);
