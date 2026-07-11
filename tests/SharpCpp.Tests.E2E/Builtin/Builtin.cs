@@ -446,6 +446,10 @@ public sealed class BuiltinTests
         E2EBindings.ReplaceRefVoidPtr(ref refValue);
         Assert.Equal(expectedToken, refValue);
 
+        var typedefRefValue = IntPtr.Zero;
+        E2EBindings.ReplaceRefTypedefVoidPtr(ref typedefRefValue);
+        Assert.Equal(expectedToken, typedefRefValue);
+
         E2EBindings.WriteOutVoidPtr(out var outValue);
         Assert.Equal(expectedToken, outValue);
     }

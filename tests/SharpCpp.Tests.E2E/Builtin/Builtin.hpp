@@ -39,6 +39,13 @@ inline void replace_ref_void_ptr(void*& value)
     value = opaque_token();
 }
 
+using opaque_ptr = void*;
+
+inline void replace_ref_typedef_void_ptr(opaque_ptr& value)
+{
+    value = opaque_token();
+}
+
 inline void write_out_void_ptr(void** value)
 {
     *value = opaque_token();

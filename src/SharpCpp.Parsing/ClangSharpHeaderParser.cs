@@ -2867,6 +2867,7 @@ public sealed partial class ClangSharpHeaderParser
                 managedTypeOverride.PublicTypeName,
                 managedTypeOverride.MarshallerTypeName,
                 managedTypeOverride.ManagedMarshaller,
+                GetConfiguredPrimitiveKind(managedTypeOverride.PublicTypeName),
                 genericArguments: configuredGenericArguments);
             return ApplyDynamicArrayMetadata(
                 ApplyFixedArrayMetadata(configuredType, isConfiguredFixedArray, rawGenericArguments),
@@ -2946,6 +2947,29 @@ public sealed partial class ClangSharpHeaderParser
             ApplyFixedArrayMetadata(handleType, isConfiguredFixedArray || isFixedArrayRecord, rawGenericArguments),
             isConfiguredDynamicArray || isDynamicArrayRecord,
             rawGenericArguments);
+    }
+
+    private static BindingPrimitiveKind GetConfiguredPrimitiveKind(string publicTypeName)
+    {
+        return publicTypeName switch
+        {
+            "void" => BindingPrimitiveKind.Void,
+            "bool" => BindingPrimitiveKind.Boolean,
+            "sbyte" => BindingPrimitiveKind.Int8,
+            "byte" => BindingPrimitiveKind.UInt8,
+            "short" => BindingPrimitiveKind.Int16,
+            "ushort" => BindingPrimitiveKind.UInt16,
+            "int" => BindingPrimitiveKind.Int32,
+            "uint" => BindingPrimitiveKind.UInt32,
+            "long" => BindingPrimitiveKind.Int64,
+            "ulong" => BindingPrimitiveKind.UInt64,
+            "float" => BindingPrimitiveKind.Single,
+            "double" => BindingPrimitiveKind.Double,
+            "nint" => BindingPrimitiveKind.NativeInt,
+            "nuint" => BindingPrimitiveKind.NativeUInt,
+            "global::System.IntPtr" => BindingPrimitiveKind.IntPtr,
+            _ => BindingPrimitiveKind.Unsupported
+        };
     }
 
     private static BindingType CreateNativeFixedArrayType(
@@ -3663,6 +3687,13 @@ public sealed partial class ClangSharpHeaderParser
         var current = type;
         while (true)
         {
+            var currentTypeName = StripTopLevelCvQualifier(NormalizeTypeName(current.Spelling.ToString()));
+            if (string.Equals(currentTypeName, aliasInfo.CppQualifiedName, StringComparison.Ordinal) ||
+                string.Equals(currentTypeName, aliasInfo.NativeName, StringComparison.Ordinal))
+            {
+                break;
+            }
+
             if (TypeIsAnyReference(current.CanonicalType))
             {
                 suffix.Append('&');
