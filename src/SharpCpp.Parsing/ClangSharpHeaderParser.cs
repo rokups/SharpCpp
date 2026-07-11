@@ -706,9 +706,10 @@ public sealed partial class ClangSharpHeaderParser
         RecordBinding record,
         string entryPointPrefix)
     {
-        if (recordDecl is CXXRecordDecl ||
-            record.GetMetadata<bool>(MetadataKeys.ForwardDeclaration) ||
-            record.Members.OfType<FunctionBinding>().Any(static member => member.IsConstructor && member.Parameters.Count == 0) ||
+        if (record.GetMetadata<bool>(MetadataKeys.ForwardDeclaration) ||
+            record.IsAbstract ||
+            record.Members.OfType<FunctionBinding>().Any(static member => member.IsConstructor) ||
+            record.Members.OfType<FieldBinding>().Any(static field => field.IsReference) ||
             !record.Members.OfType<FieldBinding>().Any())
         {
             return;
