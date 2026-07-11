@@ -303,6 +303,44 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Pointer_count_record_fields_register_runtime_length_native_arrays()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native",
+            new[] { "Sample.hpp", "SharpCpp/Marshaller.hpp" });
+        var arrayRecord = new RecordBinding("record:SharpCpp::NativeArray", "NativeArray", "NativeArray", "SharpCpp::NativeArray")
+        {
+            ManagedTypeFormat = "global::SharpCpp.NativeArray<{0}>"
+        };
+        arrayRecord.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        arrayRecord.GenericParameters.Add(new BindingGenericParameter("N", 1));
+        arrayRecord.SetMetadata(MetadataKeys.FixedArrayRecord, true);
+        arrayRecord.SetMetadata(MetadataKeys.NativeArrayRecord, true);
+        compilation.Members.Add(arrayRecord);
+
+        var attachment = new RecordBinding("record:Sample::Attachment", "Attachment", "Attachment", "Sample::Attachment");
+        compilation.Members.Add(attachment);
+        var attachmentType = BindingType.CreateHandle("const Sample::Attachment*", "global::SharpCpp.Sample.Attachment",
+            attachment.SymbolId, cppIsRecordValue: true);
+        var pipeline = new RecordBinding("record:Sample::Pipeline", "Pipeline", "Pipeline", "Sample::Pipeline");
+        pipeline.Members.Add(new FieldBinding("field:Sample::Pipeline:Attachments", "Attachments", "Attachments",
+            attachmentType, "const Sample::Attachment*", "Sample::Pipeline", isReadOnly: false, isPointer: true));
+        pipeline.Members.Add(new FieldBinding("field:Sample::Pipeline:NumAttachments", "NumAttachments", "NumAttachments",
+            BindingType.UInt32, "unsigned int", "Sample::Pipeline", isReadOnly: false));
+        compilation.Members.Add(pipeline);
+
+        var output = BindingOutputRenderer.Render(compilation, "SharpCppSample");
+        var managedOutput = output.Files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = output.Files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("NativeArray<global::SharpCpp.Sample.Attachment>.__RegisterDynamic", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__DynamicNativeArray_Create_record_Sample__Attachment", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("dynamic_native_array_record_Sample__Attachment_create", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("new Sample::Attachment[length]{}", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("delete[] static_cast<Sample::Attachment*>(self.handle)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("index >= self.length", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Native_nested_fixed_array_fields_render_proxy_item_accessors()
     {
         var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp", "SharpCpp/Marshaller.hpp" });

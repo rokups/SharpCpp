@@ -8,15 +8,17 @@ namespace SharpCpp;
 public partial class NativeArray<T> : global::SharpCpp.Support.ArrayBase<T>
 {
     public delegate global::SharpCpp.Support.NativeArrayAbi __CreateDelegate();
+    public delegate global::SharpCpp.Support.NativeArrayAbi __DynamicCreateDelegate(nuint length);
     public delegate void __DeleteDelegate(global::SharpCpp.Support.NativeArrayAbi self);
     public delegate T __GetDelegate(global::SharpCpp.Support.NativeArrayAbi self, nuint index);
     public delegate void __SetDelegate(global::SharpCpp.Support.NativeArrayAbi self, nuint index, T value);
 
-    private sealed record Operations(__CreateDelegate Create, __DeleteDelegate Delete, __GetDelegate Get, __SetDelegate Set);
+    private sealed record Operations(__DynamicCreateDelegate Create, __DeleteDelegate Delete, __GetDelegate Get, __SetDelegate Set);
     private readonly Operations? _operations;
 
     private static readonly global::SharpCpp.Support.DefaultNativeInstanceCache s_instanceCache = new();
     private static readonly ConcurrentDictionary<int, Operations> s_operations = new();
+    private static Operations? s_dynamicOperations;
 
     internal NativeArray(nint handle, int length, bool ownsHandle = false)
         : this(handle, length, ownsHandle, TryGetOperations(length, out var operations) ? operations : null)
@@ -84,7 +86,20 @@ public partial class NativeArray<T> : global::SharpCpp.Support.ArrayBase<T>
         ArgumentNullException.ThrowIfNull(get);
         ArgumentNullException.ThrowIfNull(set);
 
-        s_operations.TryAdd(length, new Operations(create, delete, get, set));
+        s_operations.TryAdd(length, new Operations(_ => create(), delete, get, set));
+    }
+
+    public static void __RegisterDynamic(
+        __DynamicCreateDelegate create,
+        __DeleteDelegate delete,
+        __GetDelegate get,
+        __SetDelegate set)
+    {
+        ArgumentNullException.ThrowIfNull(create);
+        ArgumentNullException.ThrowIfNull(delete);
+        ArgumentNullException.ThrowIfNull(get);
+        ArgumentNullException.ThrowIfNull(set);
+        Interlocked.CompareExchange(ref s_dynamicOperations, new Operations(create, delete, get, set), null);
     }
 
     public static NativeArray<T> CreateManagedWrapper(global::SharpCpp.Support.NativeArrayAbi abi, bool ownsHandle)
@@ -144,12 +159,15 @@ public partial class NativeArray<T> : global::SharpCpp.Support.ArrayBase<T>
 
     private static global::SharpCpp.Support.NativeArrayAbi CreateNative(int length)
     {
-        return GetOperations(length).Create();
+        return GetOperations(length).Create(checked((nuint)length));
     }
 
     private static bool TryGetOperations(int length, out Operations? operations)
     {
-        return s_operations.TryGetValue(length, out operations);
+        if (s_operations.TryGetValue(length, out operations))
+            return true;
+        operations = s_dynamicOperations;
+        return operations is not null;
     }
 
     private static Operations GetOperations(int length)

@@ -594,9 +594,12 @@ public static partial class BindingOutputRenderer
 
     private static IEnumerable<string> CollectGenericArrayImportDeclarations(BindingCompilation compilation, RecordBinding record)
     {
-        return IsGenericDynamicArrayRecord(record)
+        var declarations = IsGenericDynamicArrayRecord(record)
             ? CollectGenericDynamicArrayImportDeclarations(compilation, record)
             : CollectGenericFixedArrayImportDeclarations(compilation, record);
+        return IsSharedNativeArrayRecord(record)
+            ? declarations.Concat(CollectDynamicNativeArrayImportDeclarations(compilation))
+            : declarations;
     }
 
     private static string RenderSharedNativeArrayRegistryInitializer(BindingCompilation compilation, IReadOnlyList<RecordBinding> records)
@@ -605,6 +608,9 @@ public static partial class BindingOutputRenderer
             .Where(IsSharedNativeArrayRecord)
             .SelectMany(record => GetFixedArrayInstantiations(compilation, record)
                 .Select(instantiation => RenderSharedNativeArrayRegistration(compilation, record, instantiation)))
+            .Distinct(StringComparer.Ordinal)
+            .Concat(GetPointerCountNativeArrayElementTypes(compilation)
+                .Select(elementType => RenderDynamicNativeArrayRegistration(compilation, elementType)))
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         if (registrations.Length == 0)
@@ -634,6 +640,106 @@ public static partial class BindingOutputRenderer
             """);
         return writer.ToString();
     }
+
+    private static string RenderDynamicNativeArrayRegistration(BindingCompilation compilation, BindingType elementType)
+    {
+        var managedElementType = GetManagedPublicReturnTypeName(elementType, compilation);
+        var token = GetDynamicNativeArrayToken(elementType);
+        var importAccessor = GetGenericImportAccessor(compilation);
+        return $$"""
+            global::SharpCpp.NativeArray<{{managedElementType}}>.__RegisterDynamic(
+                static length => {{importAccessor}}.__DynamicNativeArray_Create_{{token}}(length),
+                static self => {{importAccessor}}.__DynamicNativeArray_Delete_{{token}}(self),
+                static (self, index) => {{importAccessor}}.__DynamicNativeArray_Get_{{token}}(self, index),
+                static (self, index, value) => {{importAccessor}}.__DynamicNativeArray_Set_{{token}}(self, index, value));
+            """;
+    }
+
+    private static IEnumerable<string> CollectDynamicNativeArrayImportDeclarations(BindingCompilation compilation)
+    {
+        foreach (var elementType in GetPointerCountNativeArrayElementTypes(compilation))
+        {
+            var token = GetDynamicNativeArrayToken(elementType);
+            var getReturnType = GetManagedImportReturnTypeName(compilation, elementType);
+            var getReturnAttribute = GetManagedImportReturnAttribute(compilation, elementType, ownsHandle: false);
+            var setParameter = RenderManagedImportParameter(
+                new ParameterBinding($"dynamic-array:set:{token}", "value", "value", elementType,
+                    BindingParameterDirection.In, BindingParameterAbiKind.Value, elementType.CppTypeName), compilation);
+            yield return $$"""
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetDynamicNativeArrayEntryPoint(compilation, token, "create")}}", StringMarshalling = StringMarshalling.Utf8)]
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                internal static partial global::SharpCpp.Support.NativeArrayAbi __DynamicNativeArray_Create_{{token}}(nuint length);
+                """;
+            yield return $$"""
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetDynamicNativeArrayEntryPoint(compilation, token, "delete")}}", StringMarshalling = StringMarshalling.Utf8)]
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                internal static partial void __DynamicNativeArray_Delete_{{token}}(global::SharpCpp.Support.NativeArrayAbi self);
+                """;
+            yield return $$"""
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetDynamicNativeArrayEntryPoint(compilation, token, "get")}}", StringMarshalling = StringMarshalling.Utf8)]
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                {{getReturnAttribute}}
+                internal static partial {{getReturnType}} __DynamicNativeArray_Get_{{token}}(global::SharpCpp.Support.NativeArrayAbi self, nuint index);
+                """;
+            yield return $$"""
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetDynamicNativeArrayEntryPoint(compilation, token, "set")}}", StringMarshalling = StringMarshalling.Utf8)]
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                internal static partial void __DynamicNativeArray_Set_{{token}}(global::SharpCpp.Support.NativeArrayAbi self, nuint index, {{setParameter}});
+                """;
+        }
+    }
+
+    private static IReadOnlyList<BindingType> GetPointerCountNativeArrayElementTypes(BindingCompilation compilation)
+    {
+        var result = new Dictionary<string, BindingType>(StringComparer.Ordinal);
+        foreach (var owner in compilation.Records.Where(static record => !record.IsIgnored()))
+        {
+            var fields = owner.Members.OfType<FieldBinding>().Where(static field => !field.IsIgnored()).ToArray();
+            var fieldNames = fields.Select(static field => field.NativeName).ToHashSet(StringComparer.Ordinal);
+            foreach (var field in fields)
+            {
+                var elementType = field.Type;
+                if (elementType.Kind != BindingTypeKind.Handle || elementType.RecordId is null ||
+                    !elementType.CppTypeName.TrimEnd().EndsWith('*'))
+                    continue;
+                if (!HasMatchingCountField(field.NativeName, fieldNames))
+                    continue;
+
+                var elementRecord = compilation.FindRecordBySymbolId(elementType.RecordId);
+                if (elementRecord is null || elementRecord.IsIgnored() || elementRecord.IsGeneric ||
+                    elementRecord.IsAbstract || elementRecord.IsPolymorphic)
+                    continue;
+                var arrayElementType = BindingType.CreateHandle(
+                    elementRecord.CppQualifiedName,
+                    elementType.ManagedTypeName,
+                    elementRecord.SymbolId,
+                    elementRecord.HandleMarshallerTypeName,
+                    cppIsRecordValue: true);
+                result.TryAdd(elementType.RecordId, arrayElementType);
+            }
+        }
+        return result.Values.OrderBy(static type => type.CppTypeName, StringComparer.Ordinal).ToArray();
+    }
+
+    private static bool HasMatchingCountField(string pointerFieldName, IReadOnlySet<string> fieldNames)
+    {
+        if (fieldNames.Contains($"Num{pointerFieldName}"))
+            return true;
+        for (var i = pointerFieldName.Length - 1; i > 0; --i)
+        {
+            if (!char.IsUpper(pointerFieldName[i]))
+                continue;
+            return fieldNames.Contains($"Num{pointerFieldName[i..]}");
+        }
+        return false;
+    }
+
+    private static string GetDynamicNativeArrayToken(BindingType elementType) =>
+        SanitizeManagedToken(elementType.RecordId ?? elementType.ManagedTypeName);
+
+    private static string GetDynamicNativeArrayEntryPoint(
+        BindingCompilation compilation, string token, string operation) =>
+        $"{compilation.EntryPointPrefix}dynamic_native_array_{token}_{operation}";
 
     private static string RenderSharedNativeArrayRegistration(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
@@ -1178,6 +1284,41 @@ public static partial class BindingOutputRenderer
         }
 
         return writer.ToString();
+    }
+
+    private static string RenderNativeDynamicNativeArray(BindingCompilation compilation, BindingType elementType)
+    {
+        var elementCppType = GetNativeFixedArrayElementCppType(compilation, elementType);
+        var token = GetDynamicNativeArrayToken(elementType);
+        return $$"""
+            SHARPCPP_EXPORT NativeArrayAbi {{GetDynamicNativeArrayEntryPoint(compilation, token, "create")}}(arg_t<std::size_t> length)
+            {
+                auto* value = length != 0 ? new {{elementCppType}}[length]{} : nullptr;
+                return { value, length };
+            }
+
+            SHARPCPP_EXPORT ret_t<void> {{GetDynamicNativeArrayEntryPoint(compilation, token, "delete")}}(NativeArrayAbi self)
+            {
+                delete[] static_cast<{{elementCppType}}*>(self.handle);
+            }
+
+            SHARPCPP_EXPORT ret_t<{{elementCppType}}> {{GetDynamicNativeArrayEntryPoint(compilation, token, "get")}}(NativeArrayAbi self, arg_t<std::size_t> index)
+            {
+                if (self.handle == nullptr || index >= self.length)
+                    throw std::runtime_error("SharpCpp native array access out of range.");
+                ReturnMarshaller<{{elementCppType}}> marshaller;
+                return marshaller.ConvertToAbi(static_cast<{{elementCppType}}*>(self.handle)[index]);
+            }
+
+            SHARPCPP_EXPORT ret_t<void> {{GetDynamicNativeArrayEntryPoint(compilation, token, "set")}}(NativeArrayAbi self, arg_t<std::size_t> index, arg_t<{{elementCppType}}> value)
+            {
+                if (self.handle == nullptr || index >= self.length)
+                    throw std::runtime_error("SharpCpp native array access out of range.");
+                ParameterMarshaller<{{elementCppType}}> marshaller;
+                static_cast<{{elementCppType}}*>(self.handle)[index] = marshaller.ConvertToCpp(value);
+            }
+
+            """;
     }
 
     private static string RenderGenericArrayDeleteDispatch(BindingCompilation compilation, RecordBinding record, IReadOnlyList<RecordGenericInstantiationBinding> instantiations)
@@ -2570,6 +2711,12 @@ public static partial class BindingOutputRenderer
                 }
 
                 """);
+        }
+
+        if (IsSharedNativeArrayRecord(record))
+        {
+            foreach (var elementType in GetPointerCountNativeArrayElementTypes(compilation))
+                writer.Write(RenderNativeDynamicNativeArray(compilation, elementType));
         }
 
         return writer.ToString();
