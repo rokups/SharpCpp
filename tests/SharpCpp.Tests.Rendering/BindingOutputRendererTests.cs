@@ -364,6 +364,15 @@ public sealed class BindingOutputRendererTests
             genericArguments: [BindingType.Single, innerLengthType])
             .WithFixedArray(BindingType.Single, 4);
         arrayRecord.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding([innerArrayType, outerLengthType]));
+        var alternateInnerLengthType = BindingType.CreateConfigured("8", "8");
+        var alternateInnerArrayType = BindingType.CreateHandle(
+            "SharpCpp::NativeArray<float,8>",
+            "global::SharpCpp.NativeArray<{0}>",
+            arrayRecord.SymbolId,
+            genericArguments: [BindingType.Single, alternateInnerLengthType])
+            .WithFixedArray(BindingType.Single, 8);
+        arrayRecord.SupportedGenericInstantiations.Add(
+            new RecordGenericInstantiationBinding([alternateInnerArrayType, outerLengthType]));
         var outerArrayType = BindingType.CreateHandle(
             "SharpCpp::NativeArray<SharpCpp::NativeArray<float,4>,3>",
             "global::SharpCpp.NativeArray<{0}>",
@@ -385,6 +394,8 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("return { const_cast<void*>(static_cast<const void*>(self->data[index])), 4 };", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("auto* source = reinterpret_cast<float (*)[4]>(value.handle);", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("target[nestedIndex] = (*source)[nestedIndex];", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("_float_4_3", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("_float_8_3", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("return { const_cast<void*>(static_cast<const void*>(self->data)), 3 };", nativeOutput, StringComparison.Ordinal);
     }
 

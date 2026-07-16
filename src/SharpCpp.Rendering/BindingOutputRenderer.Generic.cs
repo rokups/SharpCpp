@@ -1215,7 +1215,14 @@ public static partial class BindingOutputRenderer
     private static string GetFixedArrayInstantiationToken(RecordGenericInstantiationBinding instantiation)
     {
         _ = TryGetFixedArrayLength(instantiation, out var length);
-        return $"{SanitizeManagedToken(instantiation.TypeArguments[0].ManagedTypeName)}_{length}";
+        var elementType = instantiation.TypeArguments[0];
+        var elementToken = SanitizeManagedToken(elementType.ManagedTypeName);
+        while (elementType.IsFixedArray)
+        {
+            elementToken = $"{elementToken}_{elementType.FixedArrayLength}";
+            elementType = elementType.FixedArrayElementType!;
+        }
+        return $"{elementToken}_{length}";
     }
 
     private static string GetFixedArrayImportMethodToken(RecordBinding record, RecordGenericInstantiationBinding instantiation)
