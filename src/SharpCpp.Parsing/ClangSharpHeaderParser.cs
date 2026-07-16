@@ -2314,7 +2314,8 @@ public sealed partial class ClangSharpHeaderParser
             }
 
             return (
-                MapType(normalizedPointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
+                MapType(normalizedPointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters,
+                    allowPrimitivePointer: true),
                 explicitDirection ?? (sourcePointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Out),
                 BindingParameterAbiKind.Pointer);
         }
@@ -2557,7 +2558,8 @@ public sealed partial class ClangSharpHeaderParser
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         IReadOnlyDictionary<string, BindingType> genericParameters,
         bool isReturn = false,
-        bool preserveAliasSurface = true)
+        bool preserveAliasSurface = true,
+        bool allowPrimitivePointer = false)
     {
         var normalizedType = type.CanonicalType;
         var spelledTypeName = NormalizeTypeName(type.Spelling.ToString());
@@ -2731,6 +2733,16 @@ public sealed partial class ClangSharpHeaderParser
                     genericArguments);
                 return TryApplyManagedAliasSurface(type, recordHandleType, preserveAliasSurface, enumsByName);
             }
+
+            if (isReturn || allowPrimitivePointer)
+            {
+                return TryApplyManagedAliasSurface(
+                    type,
+                    BindingType.CreateHandle(spelledTypeName, "global::System.IntPtr"),
+                    preserveAliasSurface,
+                    enumsByName);
+            }
+
         }
 
         if (TypeIsRecord(normalizedType))
