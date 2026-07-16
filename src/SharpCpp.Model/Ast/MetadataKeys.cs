@@ -18,6 +18,8 @@ public static class MetadataKeys
     public const string ForwardDeclaration = "forward_declaration";
     public const string OpaqueNativeHandle = "opaque_native_handle";
     public const string NativeInterfaceWrapper = "native_interface_wrapper";
+    public const string NativeInterfaceQuery = "native_interface_query";
+    public const string NativeInterfaceReleaseMethod = "native_interface_release_method";
     public const string PlaceholderRecord = "placeholder_record";
     public const string SuppressEmission = "suppress_emission";
     public const string HasNativeDefinition = "has_native_definition";
@@ -33,6 +35,8 @@ public static class MetadataKeys
     public const string NativeFieldAccessExpression = "native_field_access_expression";
     public const string NativeDefaultValueExpression = "native_default_value_expression";
 }
+
+public sealed record NativeInterfaceQueryAnnotation(string SourceRecordCppQualifiedName, string InterfaceIdExpression);
 
 public enum AccessorPropertyKind
 {

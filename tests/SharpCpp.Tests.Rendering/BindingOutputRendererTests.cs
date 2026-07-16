@@ -2386,6 +2386,39 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Native_interface_query_emits_owned_managed_wrapper_and_query_interface_thunk()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Diligent/Interface.hpp" });
+        var objectRecord = new RecordBinding("record:IObject", "IObject", "IObject", "Diligent::IObject");
+        objectRecord.SetMetadata(MetadataKeys.NativeInterfaceWrapper, true);
+        var deviceRecord = new RecordBinding("record:IRenderDeviceVk", "IRenderDeviceVk", "IRenderDeviceVk", "Diligent::IRenderDeviceVk");
+        deviceRecord.SetMetadata(MetadataKeys.NativeInterfaceWrapper, true);
+        deviceRecord.SetMetadata(MetadataKeys.NativeInterfaceReleaseMethod, "Release");
+        deviceRecord.SetMetadata(
+            MetadataKeys.NativeInterfaceQuery,
+            new NativeInterfaceQueryAnnotation("Diligent::IObject", "Diligent::IID_RenderDeviceVk"));
+        compilation.Members.Add(objectRecord);
+        compilation.Members.Add(deviceRecord);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public static IRenderDeviceVk? QueryManagedWrapper(global::SharpCpp.Sample.IObject source)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("return handle == 0 ? null : CreateManagedWrapper(handle, ownsHandle: true);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial nint QueryInterface(IObject source);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke.ReleaseOwnedHandle(handle);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("Diligent::IRenderDeviceVk* result = nullptr;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("self->QueryInterface(Diligent::IID_RenderDeviceVk, reinterpret_cast<Diligent::IObject**>(&result));", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("self->Release();", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Managed_output_renders_dispose_override_for_derived_records()
     {
         var compilation = new BindingCompilation(

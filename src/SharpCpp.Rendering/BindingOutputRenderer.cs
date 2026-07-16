@@ -2434,6 +2434,14 @@ public static partial class BindingOutputRenderer
         {
             pinvokeDeclarations.Add(RenderManagedArrayElementImportDeclaration(compilation, record));
         }
+        if (TryGetNativeInterfaceQuery(record, out var nativeInterfaceQuery))
+        {
+            pinvokeDeclarations.Add(RenderManagedNativeInterfaceQueryImportDeclaration(compilation, record, nativeInterfaceQuery));
+        }
+        if (record.HasMetadata(MetadataKeys.NativeInterfaceReleaseMethod))
+        {
+            pinvokeDeclarations.Add(RenderManagedNativeInterfaceReleaseImportDeclaration(compilation, record));
+        }
         var requiresDirector = record.RequiresDirector(compilation);
         var virtualSlots = record.GetEffectiveVirtualMethodSlots(compilation);
         var isEffectivelyAbstract = IsManagedWrapperAbstract(compilation, record, virtualSlots);
@@ -2498,6 +2506,21 @@ public static partial class BindingOutputRenderer
             return ({{record.ManagedName}})global::SharpCpp.Support.NativeObjectRegistry.Create<{{record.ManagedName}}>(handle, ownsHandle);
             }
             """);
+
+        if (TryGetNativeInterfaceQuery(record, out nativeInterfaceQuery))
+        {
+            var sourceRecord = compilation.Records.Single(candidate =>
+                string.Equals(candidate.CppQualifiedName, nativeInterfaceQuery.SourceRecordCppQualifiedName, StringComparison.Ordinal));
+            writer.WriteLine();
+            writer.Write($$"""
+                public static {{record.ManagedName}}? QueryManagedWrapper({{QualifyRecordTypeName(compilation, sourceRecord.ManagedName)}} source)
+                {
+                global::System.ArgumentNullException.ThrowIfNull(source);
+                var handle = __PInvoke.QueryInterface(source);
+                return handle == 0 ? null : CreateManagedWrapper(handle, ownsHandle: true);
+                }
+                """);
+        }
 
         if (RequiresArrayElementAccess(compilation, record))
         {
@@ -3101,6 +3124,20 @@ public static partial class BindingOutputRenderer
             return string.Empty;
         }
 
+        if (record.HasMetadata(MetadataKeys.NativeInterfaceReleaseMethod))
+        {
+            return """
+                protected override bool ReleaseNativeHandle(nint handle)
+                {
+                if (OwnsNativeHandle)
+                {
+                    __PInvoke.ReleaseOwnedHandle(handle);
+                }
+                return true;
+                }
+                """;
+        }
+
         if (!canEmitDeleteThunk)
         {
             return """
@@ -3138,6 +3175,29 @@ public static partial class BindingOutputRenderer
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_array_element", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             internal static partial nint GetArrayElement({{record.ManagedName}} self, nuint index);
+            """;
+    }
+
+    private static string RenderManagedNativeInterfaceQueryImportDeclaration(
+        BindingCompilation compilation,
+        RecordBinding record,
+        NativeInterfaceQueryAnnotation query)
+    {
+        var sourceRecord = compilation.Records.Single(candidate =>
+            string.Equals(candidate.CppQualifiedName, query.SourceRecordCppQualifiedName, StringComparison.Ordinal));
+        return $$"""
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_query_interface", StringMarshalling = StringMarshalling.Utf8)]
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal static partial nint QueryInterface({{sourceRecord.ManagedName}} source);
+            """;
+    }
+
+    private static string RenderManagedNativeInterfaceReleaseImportDeclaration(BindingCompilation compilation, RecordBinding record)
+    {
+        return $$"""
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_release_interface", StringMarshalling = StringMarshalling.Utf8)]
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal static partial void ReleaseOwnedHandle(nint self);
             """;
     }
 
@@ -4764,6 +4824,19 @@ public static partial class BindingOutputRenderer
                 writer.Write(RenderNativeArrayElement(record));
             }
 
+
+            if (TryGetNativeInterfaceQuery(record, out var nativeInterfaceQuery))
+            {
+                writer.WriteLine();
+                writer.Write(RenderNativeInterfaceQuery(record, nativeInterfaceQuery));
+            }
+
+            if (record.TryGetMetadata(MetadataKeys.NativeInterfaceReleaseMethod, out string? nativeInterfaceReleaseMethod))
+            {
+                writer.WriteLine();
+                writer.Write(RenderNativeInterfaceRelease(record, nativeInterfaceReleaseMethod!));
+            }
+
             if (CanEmitClone(record, record.IsEffectivelyAbstract || record.HasUnimplementedAbstractBaseMethods(compilation), CanEmitDeleteThunk(record)))
             {
                 writer.WriteLine();
@@ -6297,6 +6370,41 @@ public static partial class BindingOutputRenderer
         ArgumentNullException.ThrowIfNull(record);
 
         return record.GetMetadata<bool>(MetadataKeys.NativeInterfaceWrapper);
+    }
+
+    private static bool TryGetNativeInterfaceQuery(RecordBinding record, out NativeInterfaceQueryAnnotation query)
+    {
+        return record.TryGetMetadata(MetadataKeys.NativeInterfaceQuery, out query!);
+    }
+
+    private static string RenderNativeInterfaceQuery(RecordBinding record, NativeInterfaceQueryAnnotation query)
+    {
+        return $$"""
+            SHARPCPP_EXPORT ret_t<{{record.CppQualifiedName}}*> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_query_interface(arg_t<{{query.SourceRecordCppQualifiedName}}*> self)
+            {
+            if (self == nullptr)
+            {
+            return nullptr;
+            }
+
+            {{record.CppQualifiedName}}* result = nullptr;
+            self->QueryInterface({{query.InterfaceIdExpression}}, reinterpret_cast<{{query.SourceRecordCppQualifiedName}}**>(&result));
+            return result;
+            }
+            """;
+    }
+
+    private static string RenderNativeInterfaceRelease(RecordBinding record, string releaseMethod)
+    {
+        return $$"""
+            SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_release_interface(arg_t<{{record.CppQualifiedName}}*> self)
+            {
+            if (self != nullptr)
+            {
+            self->{{releaseMethod}}();
+            }
+            }
+            """;
     }
 
     private static bool IsManagedAbstractMethod(FunctionBinding method)
