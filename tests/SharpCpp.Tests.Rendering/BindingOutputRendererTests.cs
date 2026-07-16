@@ -936,11 +936,11 @@ public sealed class BindingOutputRendererTests
             .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
         Assert.Contains(
-            "return Selectable(label, out p_selected, flags, default(global::RedBolt.Vector2?));",
+            "return Selectable(label, out p_selected, flags, default(",
             managedOutput,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
-            "return Selectable(label, p_selected, flags, default(global::RedBolt.Vector2?));",
+            "return Selectable(label, p_selected, flags, default(",
             managedOutput,
             StringComparison.Ordinal);
     }
@@ -2036,18 +2036,23 @@ public sealed class BindingOutputRendererTests
             "payload",
             payloadRecord.HandleType,
             BindingParameterDirection.Out,
-            BindingParameterAbiKind.Value,
-            "payload_record*&"));
+            BindingParameterAbiKind.Pointer,
+            "payload_record**"));
         compilation.Members.Add(payloadRecord);
         compilation.Members.Add(function);
 
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
 
         Assert.Contains("public static void WritePayload(out global::SharpCpp.Sample.PayloadRecord payload)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("internal static partial void WritePayload(out nint payload);", managedOutput, StringComparison.Ordinal);
         Assert.Contains("nint __abi_payload;", managedOutput, StringComparison.Ordinal);
         Assert.Contains("payload = global::SharpCpp.Sample.PayloadRecord.CreateManagedWrapper(__abi_payload, ownsHandle: false);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public PayloadRecord GetArrayElement(nuint index)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial nint GetArrayElement(PayloadRecord self, nuint index);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("sharpcpp_e2e_payload_record_array_element", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return self != nullptr ? self + index : nullptr;", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -664,6 +664,16 @@ public static partial class BindingOutputRenderer
             """;
     }
 
+    private static string RenderNativeArrayElement(RecordBinding record)
+    {
+        return $$"""
+            SHARPCPP_EXPORT ret_t<{{record.CppQualifiedName}}*> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_array_element(arg_t<{{record.CppQualifiedName}}*> self, arg_t<std::size_t> index)
+            {
+            return self != nullptr ? self + index : nullptr;
+            }
+            """;
+    }
+
     private static string RenderNativeClone(RecordBinding record)
     {
         return $$"""
@@ -2420,6 +2430,10 @@ public static partial class BindingOutputRenderer
         {
             pinvokeDeclarations.Add(RenderManagedDeleteImportDeclaration(compilation, record));
         }
+        if (RequiresArrayElementAccess(compilation, record))
+        {
+            pinvokeDeclarations.Add(RenderManagedArrayElementImportDeclaration(compilation, record));
+        }
         var requiresDirector = record.RequiresDirector(compilation);
         var virtualSlots = record.GetEffectiveVirtualMethodSlots(compilation);
         var isEffectivelyAbstract = IsManagedWrapperAbstract(compilation, record, virtualSlots);
@@ -2484,6 +2498,17 @@ public static partial class BindingOutputRenderer
             return ({{record.ManagedName}})global::SharpCpp.Support.NativeObjectRegistry.Create<{{record.ManagedName}}>(handle, ownsHandle);
             }
             """);
+
+        if (RequiresArrayElementAccess(compilation, record))
+        {
+            writer.WriteLine();
+            writer.Write($$"""
+                {{(!string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "new " : string.Empty)}}public {{record.ManagedName}} GetArrayElement(nuint index)
+                {
+                return CreateManagedWrapper(__PInvoke.GetArrayElement(this, index), ownsHandle: false);
+                }
+                """);
+        }
 
         if (record.Members.OfType<FunctionBinding>().Any(static function => function.OperatorToken is "==" or "!="))
         {
@@ -3104,6 +3129,15 @@ public static partial class BindingOutputRenderer
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_delete", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             internal static partial void Delete(nint self);
+            """;
+    }
+
+    private static string RenderManagedArrayElementImportDeclaration(BindingCompilation compilation, RecordBinding record)
+    {
+        return $$"""
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_array_element", StringMarshalling = StringMarshalling.Utf8)]
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal static partial nint GetArrayElement({{record.ManagedName}} self, nuint index);
             """;
     }
 
@@ -4724,6 +4758,12 @@ public static partial class BindingOutputRenderer
                 writer.Write(RenderNativeDelete(record, record.RequiresDirector(compilation)));
             }
 
+            if (RequiresArrayElementAccess(compilation, record))
+            {
+                writer.WriteLine();
+                writer.Write(RenderNativeArrayElement(record));
+            }
+
             if (CanEmitClone(record, record.IsEffectivelyAbstract || record.HasUnimplementedAbstractBaseMethods(compilation), CanEmitDeleteThunk(record)))
             {
                 writer.WriteLine();
@@ -5356,20 +5396,10 @@ public static partial class BindingOutputRenderer
         }
 
         var localDefaultFlags = GetManagedPublicParameterDefaultFlags(keepParameters);
-        var firstUnexpressibleDefault = parameterArray
-            .Select((parameter, index) => (parameter, index))
-            .FirstOrDefault(static entry => entry.parameter.HasMetadata(MetadataKeys.UnexpressibleDefault));
-
         var parts = new List<string>(keepCount);
         for (var i = 0; i < keepParameters.Length; i++)
         {
             var parameter = keepParameters[i];
-            if (firstUnexpressibleDefault.parameter is not null && i < firstUnexpressibleDefault.index)
-            {
-                parts.Add(RenderManagedPublicParameterRequired(parameter, compilation));
-                continue;
-            }
-
             parts.Add(localDefaultFlags[i]
                 ? RenderManagedPublicParameter(parameter, compilation)
                 : RenderManagedPublicParameterNoDefault(parameter, compilation));
@@ -6507,7 +6537,7 @@ public static partial class BindingOutputRenderer
     private static IReadOnlyList<int> GetUnexpressibleDefaultConvenienceOverloadParameterIndices(FunctionBinding function)
     {
         var unexpressibleDefaultParameters = GetUnexpressibleDefaultParameterIndices(function);
-        if (unexpressibleDefaultParameters.Count <= 1)
+        if (unexpressibleDefaultParameters.Count == 0)
         {
             return Array.Empty<int>();
         }
@@ -6523,11 +6553,6 @@ public static partial class BindingOutputRenderer
         int keepCount,
         IReadOnlyList<bool> mainDefaultFlags)
     {
-        if (keepCount == function.Parameters.Count - 1)
-        {
-            return true;
-        }
-
         for (var i = 0; i < keepCount; i++)
         {
             if (HasManagedUnexpressibleDefaultOverloadParameterDefault(function, keepCount, i) && !mainDefaultFlags[i])
@@ -7050,6 +7075,21 @@ public static partial class BindingOutputRenderer
             parameter.AbiKind == BindingParameterAbiKind.Pointer &&
             parameter.Type.Kind == BindingTypeKind.Handle &&
             IsPointerToPointerType(parameter.CppTypeName);
+    }
+
+    private static bool RequiresArrayElementAccess(BindingCompilation compilation, RecordBinding record)
+    {
+        if (record.HasMetadata(MetadataKeys.ForwardDeclaration))
+            return false;
+
+        return compilation.Members.OfType<FunctionBinding>()
+            .Concat(compilation.Records.SelectMany(static candidate => candidate.Members.OfType<FunctionBinding>()))
+            .SelectMany(static function => function.Parameters)
+            .Any(parameter => parameter.Direction == BindingParameterDirection.Out
+                && parameter.AbiKind == BindingParameterAbiKind.Pointer
+                && parameter.Type.Kind == BindingTypeKind.Handle
+                && IsPointerToPointerType(parameter.CppTypeName)
+                && string.Equals(parameter.Type.RecordId, record.SymbolId, StringComparison.Ordinal));
     }
 
     private static bool IsPointerToPointerType(string cppTypeName)
