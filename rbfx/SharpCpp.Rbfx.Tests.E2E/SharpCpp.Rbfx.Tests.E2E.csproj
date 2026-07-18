@@ -13,7 +13,7 @@
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
     <Reference Include="Rbfx.UserCode.Bindings">
-      <HintPath>$(OutputPath)Rbfx.UserCode.Bindings.dll</HintPath>
+      <HintPath>$(SharpCppRbfxUserCodeBindingsDll)</HintPath>
       <Private>true</Private>
     </Reference>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />

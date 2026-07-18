@@ -188,6 +188,7 @@ add_custom_target(
   sharpcpp-generate-rbfx
   DEPENDS
     "${RBFX_GENERATED_STAMP}")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${RBFX_GENERATED_STAMP}")
 
 file(MAKE_DIRECTORY "${RBFX_GENERATED_ROOT}")
 file(GLOB_RECURSE RBFX_GENERATED_CPP_FILES CONFIGURE_DEPENDS "${RBFX_GENERATED_ROOT}/*.g.cpp")
@@ -244,14 +245,7 @@ sharpcpp_add_dotnet_build_target(
   DEPENDS sharpcpp-generate-rbfx SharpCppRbfx_Native sharpcpp-support sharpcpp-rbfx-sourcegenerator ${RBFX_GENERATED_CS_FILES}
   PROPERTIES "-p:SharpCppGeneratedDir=${RBFX_GENERATED_ROOT}")
 
-sharpcpp_add_dotnet_build_target(
-  sharpcpp-rbfx-tests-e2e-managed
-  "${RBFX_E2E_TESTS_PROJECT}"
-  DEPENDS sharpcpp-rbfx-managed
-  PROPERTIES "-p:SharpCppGeneratedDir=${RBFX_GENERATED_ROOT}" "-p:SharpCppUserCodeGeneratedDir=${RBFX_USERCODE_GENERATED_ROOT}")
-
 add_dependencies(sharpcpp-rbfx-managed sharpcpp-rbfx-runtime)
-add_dependencies(sharpcpp-rbfx-tests-e2e-managed sharpcpp-rbfx-runtime)
 
 add_custom_target(sharpcpp-rbfx-native DEPENDS sharpcpp-generate-rbfx SharpCppRbfx_Native sharpcpp-rbfx-runtime)
 
@@ -265,15 +259,28 @@ add_custom_target(
 add_subdirectory(Rbfx.UserCode)
 add_subdirectory(Rbfx.Application)
 
-add_dependencies(sharpcpp-rbfx-tests-e2e-managed sharpcpp-rbfx-usercode-managed)
+sharpcpp_add_dotnet_build_target(
+  sharpcpp-rbfx-tests-e2e-managed
+  "${RBFX_E2E_TESTS_PROJECT}"
+  DEPENDS sharpcpp-rbfx-managed sharpcpp-rbfx-usercode-managed
+  PROPERTIES "-p:SharpCppGeneratedDir=${RBFX_GENERATED_ROOT}" "-p:SharpCppUserCodeGeneratedDir=${RBFX_USERCODE_GENERATED_ROOT}")
+add_dependencies(sharpcpp-rbfx-tests-e2e-managed sharpcpp-rbfx-runtime)
 
 if(BUILD_TESTING)
+  get_property(sharpcpp_rbfx_test_build_props_file GLOBAL PROPERTY SHARPCPP_BUILD_PROPS_FILE)
+
   add_test(
     NAME sharpcpp.rbfx.e2e
-    COMMAND "${DOTNET_EXECUTABLE}" test "${RBFX_E2E_TESTS_PROJECT}"
+    COMMAND "${CMAKE_COMMAND}" -E env
+            "SharpCppGeneratedDir=$<SHELL_PATH:${RBFX_GENERATED_ROOT}>"
+            "${DOTNET_EXECUTABLE}" test "${RBFX_E2E_TESTS_PROJECT}"
             --configuration $<CONFIG>
             --no-build
             --no-restore
             --settings "$<SHELL_PATH:${RBFX_TEST_RUNSETTINGS_FILE}>"
             --logger "console;verbosity=minimal")
+  set_tests_properties(
+    sharpcpp.rbfx.e2e
+    PROPERTIES
+      ENVIRONMENT "SharpCppCMakePropsPath=${sharpcpp_rbfx_test_build_props_file}")
 endif()

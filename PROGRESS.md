@@ -137,6 +137,13 @@ Current worktree verification passes with generic complex C++ values crossing ca
 
 ## Recently Fixed
 
+- **Full generated-source builds and isolated test outputs are green**:
+  - CMake now treats generated binding stamps as configure dependencies, so generated `.g.cpp` files are compiled in the same build instead of leaving stub-only native libraries with missing exports.
+  - Test projects use isolated output directories, the default build produces every assembly consumed by CTest, and E2E tests receive their generated-output roots explicitly.
+  - Parser and renderer fixes cover concurrent Clang parsing, protected flattened-field access, explicit protected constructors, token-spaced lambda and enum defaults, and nested field ABI marshalling.
+  - Unsupported-default convenience overloads preserve ordinary optional prefix parameters while retaining unexpressible parameters as required when necessary.
+  - Verification: `cmake --build --preset Debug` and `ctest --preset Debug --output-on-failure` pass all five suites.
+
 - **Generic method defaults now preserve native `T()` semantics through nullable sentinels**:
   - Generic method wrappers now render unexpressible default parameters such as C++ `T default_value = T()` as nullable optional managed parameters, e.g. `T? defaultValue = default`.
   - A `null` nullable sentinel on an `UnexpressibleDefault` generic parameter dispatches to generated `__ArgsN` P/Invoke/native thunks so the C++ template call omits the argument and applies the native `T()` default instead of passing a null configured value such as `Ea.String`.

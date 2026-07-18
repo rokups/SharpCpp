@@ -217,12 +217,26 @@ function(sharpcpp_write_last_props)
 
   get_filename_component(build_props_dir "${build_props_file}" DIRECTORY)
   file(MAKE_DIRECTORY "${build_props_dir}")
-  file(WRITE "${build_props_file}" "${content}")
+  if(EXISTS "${build_props_file}")
+    file(READ "${build_props_file}" existing_build_props_content)
+  else()
+    set(existing_build_props_content "")
+  endif()
+  if(NOT existing_build_props_content STREQUAL content)
+    file(WRITE "${build_props_file}" "${content}")
+  endif()
 
   if(NOT compat_props_file STREQUAL "")
     get_filename_component(compat_props_dir "${compat_props_file}" DIRECTORY)
     file(MAKE_DIRECTORY "${compat_props_dir}")
-    file(WRITE "${compat_props_file}" "${content}")
+    if(EXISTS "${compat_props_file}")
+      file(READ "${compat_props_file}" existing_compat_props_content)
+    else()
+      set(existing_compat_props_content "")
+    endif()
+    if(NOT existing_compat_props_content STREQUAL content)
+      file(WRITE "${compat_props_file}" "${content}")
+    endif()
   endif()
 endfunction()
 
@@ -413,6 +427,7 @@ add_custom_target(
   sharpcpp-generate-e2e
   DEPENDS
     "${SHARPCPP_E2E_GENERATED_STAMP}")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${SHARPCPP_E2E_GENERATED_STAMP}")
 
 file(MAKE_DIRECTORY "${SHARPCPP_E2E_GENERATED_ROOT}")
 file(GLOB SHARPCPP_E2E_GENERATED_CPP_FILES CONFIGURE_DEPENDS "${SHARPCPP_E2E_GENERATED_ROOT}/*.g.cpp")
@@ -472,9 +487,11 @@ add_custom_target(
     sharpcpp-tests-metadata
     sharpcpp-tests-rendering)
 add_dependencies(sharpcpp-native sharpcpp-rbfx-native)
-add_custom_target(sharpcpp-all ALL DEPENDS sharpcpp-managed sharpcpp-native)
+add_custom_target(sharpcpp-all ALL DEPENDS sharpcpp-tests sharpcpp-native)
 
 if(BUILD_TESTING)
+  get_property(sharpcpp_test_build_props_file GLOBAL PROPERTY SHARPCPP_BUILD_PROPS_FILE)
+
   add_test(
     NAME sharpcpp.tests.model
     COMMAND "${DOTNET_EXECUTABLE}" test "${CMAKE_SOURCE_DIR}/tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj"
@@ -503,9 +520,18 @@ if(BUILD_TESTING)
     NAME sharpcpp.e2e
     COMMAND "${CMAKE_COMMAND}" -E env
             "LD_LIBRARY_PATH=$<SHELL_PATH:${SHARPCPP_BIN_DIR}>:$ENV{LD_LIBRARY_PATH}"
+            "SharpCppGeneratedDir=$<SHELL_PATH:${SHARPCPP_E2E_GENERATED_ROOT}>"
             "${DOTNET_EXECUTABLE}" test "${CMAKE_SOURCE_DIR}/tests/SharpCpp.Tests.E2E/SharpCpp.Tests.E2E.csproj"
             --configuration $<CONFIG>
             --no-build
             --no-restore
             --logger "console;verbosity=minimal")
+
+  set_tests_properties(
+    sharpcpp.tests.model
+    sharpcpp.tests.metadata
+    sharpcpp.tests.rendering
+    sharpcpp.e2e
+    PROPERTIES
+      ENVIRONMENT "SharpCppCMakePropsPath=${sharpcpp_test_build_props_file}")
 endif()

@@ -167,7 +167,8 @@ public sealed class BindingOutputRendererTests
         var nativeOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
             .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("return self->outer.inner.value;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("ReturnMarshaller<int> marshaller;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return marshaller.ConvertToAbi(self->outer.inner.value);", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("self->outer.inner.value = *value;", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("&sample::nested_value", nativeOutput, StringComparison.Ordinal);
     }
@@ -185,7 +186,8 @@ public sealed class BindingOutputRendererTests
         var nativeOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
             .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("return self->info.wl.display;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("ReturnMarshaller<void*> marshaller;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return marshaller.ConvertToAbi(self->info.wl.display);", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("self->info.wl.display = static_cast<decltype(self->info.wl.display)>(*value);", nativeOutput, StringComparison.Ordinal);
     }
 
@@ -3216,6 +3218,25 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_protected_counter_payload__set(arg_t<protected_counter*> self, field_t<std::unordered_map<int, int>> value)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("void __set_Payload(field_t<std::unordered_map<int, int>> value)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("MarshallerInvoker::set_field<std::unordered_map<int, int>>(&__protected_counter_director::payload_, this, value, std::true_type{});", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Nested_borrowed_container_fields_preserve_null_clear_and_move_assignment()
+    {
+        var compilation = CreateProtectedHandleFieldCompilation(
+            BindingType.CreateHandle("std::unordered_map<int, int>*", "VariantMap", "record:payload", marshallerTypeName: "Marshaller<std::unordered_map<int, int>>"),
+            "std::unordered_map<int, int>",
+            payloadHasMarshallerExposedMethod: true);
+        var record = compilation.Records.Single(static record => record.CppQualifiedName == "protected_counter");
+        var field = record.Members.OfType<FieldBinding>().Single();
+        field.SetMetadata(MetadataKeys.NativeFieldAccessExpression, "nested.payload_");
+
+        var nativeOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("if (value == nullptr)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("this->nested.payload_.clear();", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("this->nested.payload_ = std::move(*value);", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]

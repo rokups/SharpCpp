@@ -125,8 +125,8 @@ public sealed class UnsupportedDefaultsTests
         var freeFunctionConvenience = typeof(E2EBindings).GetMethod(
             nameof(E2EBindings.CheckMixedDefaults),
             BindingFlags.Public | BindingFlags.Static,
-            [typeof(int), typeof(int)]);
-        Assert.Null(freeFunctionConvenience);
+            [typeof(int), typeof(int)])!;
+        Assert.Equal(2, freeFunctionConvenience.GetParameters()[1].DefaultValue);
 
         var constructor = typeof(UnsupportedDefaultCounter).GetConstructor([typeof(int), typeof(int), typeof(int?), typeof(int)])!;
         var constructorParameters = constructor.GetParameters();
@@ -138,8 +138,8 @@ public sealed class UnsupportedDefaultsTests
         Assert.Null(constructorParameters[2].DefaultValue);
         Assert.Equal(5, constructorParameters[3].DefaultValue);
 
-        var constructorConvenience = typeof(UnsupportedDefaultCounter).GetConstructor([typeof(int), typeof(int)]);
-        Assert.Null(constructorConvenience);
+        var constructorConvenience = typeof(UnsupportedDefaultCounter).GetConstructor([typeof(int), typeof(int)])!;
+        Assert.Equal(2, constructorConvenience.GetParameters()[1].DefaultValue);
 
         var combine = typeof(UnsupportedDefaultCounter).GetMethod(nameof(UnsupportedDefaultCounter.Combine), [typeof(int), typeof(int), typeof(int?), typeof(int)])!;
         var combineParameters = combine.GetParameters();
@@ -151,8 +151,8 @@ public sealed class UnsupportedDefaultsTests
         Assert.Null(combineParameters[2].DefaultValue);
         Assert.Equal(2, combineParameters[3].DefaultValue);
 
-        var combineConvenience = typeof(UnsupportedDefaultCounter).GetMethod(nameof(UnsupportedDefaultCounter.Combine), [typeof(int), typeof(int)]);
-        Assert.Null(combineConvenience);
+        var combineConvenience = typeof(UnsupportedDefaultCounter).GetMethod(nameof(UnsupportedDefaultCounter.Combine), [typeof(int), typeof(int)])!;
+        Assert.Equal(3, combineConvenience.GetParameters()[1].DefaultValue);
 
         var add = typeof(UnsupportedDefaultCounter).GetMethod(nameof(UnsupportedDefaultCounter.Add), BindingFlags.Public | BindingFlags.Static, [typeof(int), typeof(int?), typeof(int)])!;
         var addParameters = add.GetParameters();
@@ -184,7 +184,7 @@ public sealed class UnsupportedDefaultsTests
             [typeof(int), typeof(int)])!;
         var firstParameters = firstUnexpressibleOverload.GetParameters();
         Assert.False(firstParameters[0].HasDefaultValue);
-        Assert.False(firstParameters[1].HasDefaultValue);
+        Assert.Equal(2, firstParameters[1].DefaultValue);
 
         var secondUnexpressibleOverload = typeof(E2EBindings).GetMethod(
             nameof(E2EBindings.CheckAlternatingDefaults),

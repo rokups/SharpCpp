@@ -138,6 +138,7 @@ public sealed partial class ClangSharpHeaderParser
 
     private static readonly IReadOnlyDictionary<string, BindingType> EmptyGenericParameters =
         new Dictionary<string, BindingType>(StringComparer.Ordinal);
+    private static readonly object ParseLock = new();
 
     private static readonly Dictionary<string, string> s_typeAliases = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, string> s_namespaceAliases = new(StringComparer.Ordinal);
@@ -164,6 +165,14 @@ public sealed partial class ClangSharpHeaderParser
     private static partial Regex InstantiateArgumentExpression();
 
     public BindingCompilation Parse(ClangSharpParseRequest request)
+    {
+        lock (ParseLock)
+        {
+            return ParseCore(request);
+        }
+    }
+
+    private static BindingCompilation ParseCore(ClangSharpParseRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.ProjectName);
@@ -708,6 +717,7 @@ public sealed partial class ClangSharpHeaderParser
     {
         if (record.GetMetadata<bool>(MetadataKeys.ForwardDeclaration) ||
             record.IsAbstract ||
+            recordDecl.Decls.OfType<CXXConstructorDecl>().Any() ||
             record.Members.OfType<FunctionBinding>().Any(static member => member.IsConstructor) ||
             record.Members.OfType<FieldBinding>().Any(static field => field.IsReference) ||
             !record.Members.OfType<FieldBinding>().Any())
@@ -1429,6 +1439,7 @@ public sealed partial class ClangSharpHeaderParser
             return false;
 
         var nativeName = fieldDecl.Name ?? fieldDecl.Spelling.ToString();
+        var accessModifier = MapAccessModifier(fieldDecl.Access);
 
         if (TryResolveNestedRecordDecl(ownerDecl, fieldDecl.Type.Handle, out var nestedRecordDecl, out var nestedAccessPrefix))
         {
@@ -1439,6 +1450,7 @@ public sealed partial class ClangSharpHeaderParser
                 ownerRecord,
                 nestedRecordDecl,
                 flattenedAccessPath,
+                accessModifier,
                 recordsByName,
                 enumsByName,
                 managedTypeOverrides,
@@ -1459,13 +1471,15 @@ public sealed partial class ClangSharpHeaderParser
         return AddFlattenedFieldsFromRecordBinding(
             ownerRecord,
             nestedRecord,
-            accessPath) > 0;
+            accessPath,
+            accessModifier) > 0;
     }
 
     private static int AddFlattenedFieldsFromRecordDecl(
         RecordBinding ownerRecord,
         RecordDecl sourceRecordDecl,
         string accessPath,
+        BindingAccessModifier inheritedAccessModifier,
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
@@ -1475,6 +1489,10 @@ public sealed partial class ClangSharpHeaderParser
         foreach (var child in sourceRecordDecl.Decls.OfType<FieldDecl>())
         {
             var childNativeName = child.Name ?? child.Spelling.ToString();
+            var accessModifier = GetMostRestrictiveAccessModifier(inheritedAccessModifier, MapAccessModifier(child.Access));
+            if (accessModifier == BindingAccessModifier.Private)
+                continue;
+
             if (IsIncompleteArrayType(child.Type.Handle.CanonicalType))
                 continue;
 
@@ -1489,6 +1507,7 @@ public sealed partial class ClangSharpHeaderParser
                         ownerRecord,
                         nestedRecordDecl,
                         nestedChildAccessPath,
+                        accessModifier,
                         recordsByName,
                         enumsByName,
                         managedTypeOverrides,
@@ -1506,7 +1525,8 @@ public sealed partial class ClangSharpHeaderParser
                     flattenedCount += AddFlattenedFieldsFromRecordBinding(
                         ownerRecord,
                         nestedRecord,
-                        childAccessPathForRecord);
+                        childAccessPathForRecord,
+                        accessModifier);
                     continue;
                 }
             }
@@ -1524,6 +1544,7 @@ public sealed partial class ClangSharpHeaderParser
                 childNativePrefix,
                 childManagedPrefix,
                 childAccessPath,
+                accessModifier,
                 recordsByName,
                 enumsByName,
                 managedTypeOverrides,
@@ -1538,11 +1559,16 @@ public sealed partial class ClangSharpHeaderParser
     private static int AddFlattenedFieldsFromRecordBinding(
         RecordBinding ownerRecord,
         RecordBinding sourceRecord,
-        string accessPath)
+        string accessPath,
+        BindingAccessModifier inheritedAccessModifier)
     {
         var flattenedCount = 0;
         foreach (var sourceField in sourceRecord.Members.OfType<FieldBinding>().Where(static field => !field.IsIgnored()))
         {
+            var accessModifier = GetMostRestrictiveAccessModifier(inheritedAccessModifier, sourceField.AccessModifier);
+            if (accessModifier == BindingAccessModifier.Private)
+                continue;
+
             if (sourceField.Type.Marshaller.CppIsRecordValue)
                 continue;
 
@@ -1561,7 +1587,7 @@ public sealed partial class ClangSharpHeaderParser
                 sourceField.IsReference,
                 sourceField.IsPointer)
             {
-                AccessModifier = sourceField.AccessModifier,
+                AccessModifier = accessModifier,
                 ReturnsOwnedHandle = sourceField.ReturnsOwnedHandle
             };
             flattenedField.SetMetadata(MetadataKeys.NativeFieldAccessExpression, flattenedAccessPath);
@@ -1581,6 +1607,7 @@ public sealed partial class ClangSharpHeaderParser
         string nativeName,
         string managedName,
         string accessPath,
+        BindingAccessModifier accessModifier,
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
@@ -1611,7 +1638,7 @@ public sealed partial class ClangSharpHeaderParser
             isReference: TypeIsAnyReference(leafFieldDecl.Type.Handle),
             isPointer: TypeIsPointer(leafFieldDecl.Type.Handle))
         {
-            AccessModifier = MapAccessModifier(leafFieldDecl.Access)
+            AccessModifier = accessModifier
         };
         field.ReturnsOwnedHandle = ShouldReturnOwnedHandle(leafFieldDecl.Type.Handle, field.Type, managedTypeOverrides, preferReturnOverride: false);
         field.SetMetadata(MetadataKeys.NativeFieldAccessExpression, accessPath);
@@ -1622,6 +1649,13 @@ public sealed partial class ClangSharpHeaderParser
             field.SetIgnoreReason(ignoreReason);
 
         return field;
+    }
+
+    private static BindingAccessModifier GetMostRestrictiveAccessModifier(
+        BindingAccessModifier left,
+        BindingAccessModifier right)
+    {
+        return (BindingAccessModifier)Math.Max((int)left, (int)right);
     }
 
     private static bool IsRecordValueField(CXType type)
@@ -4718,6 +4752,28 @@ public sealed partial class ClangSharpHeaderParser
         }
     }
 
+    private static string GetSourceTextWithTokenSpacing(CXTranslationUnit translationUnit, CXSourceRange sourceRange)
+    {
+        var tokens = translationUnit.Tokenize(sourceRange);
+
+        try
+        {
+            var builder = new StringBuilder();
+            foreach (var token in tokens)
+            {
+                if (builder.Length != 0)
+                    builder.Append(' ');
+                builder.Append(token.GetSpelling(translationUnit).ToString());
+            }
+
+            return builder.ToString().Trim();
+        }
+        finally
+        {
+            translationUnit.DisposeTokens(tokens);
+        }
+    }
+
     private static string GetDeclarationDisplayText(Decl decl)
     {
         if (!TryGetPrettyPrintedDeclarationText(decl, out var declarationText))
@@ -4928,7 +4984,7 @@ public sealed partial class ClangSharpHeaderParser
         expressionCursor = asWrittenCursor.Kind == CXCursorKind.CXCursor_FirstInvalid
             ? defaultArgumentCursor
             : asWrittenCursor;
-        expression = Regex.Replace(GetSourceText(expressionCursor.TranslationUnit, expressionCursor.Extent).Trim(), "\\s+", " ");
+        expression = GetSourceTextWithTokenSpacing(expressionCursor.TranslationUnit, expressionCursor.Extent);
         expression = expression.StartsWith("=", StringComparison.Ordinal)
             ? expression[1..].TrimStart()
             : expression;
@@ -4975,15 +5031,16 @@ public sealed partial class ClangSharpHeaderParser
 
     private static string NormalizeManagedEnumDefaultExpression(string managedTypeName, string expression)
     {
-        var separatorIndex = expression.LastIndexOf("::", StringComparison.Ordinal);
+        var normalizedExpression = Regex.Replace(expression, @"\s*::\s*", "::", RegexOptions.CultureInvariant);
+        var separatorIndex = normalizedExpression.LastIndexOf("::", StringComparison.Ordinal);
         if (separatorIndex < 0)
         {
-            return Regex.IsMatch(expression, "^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.CultureInvariant)
-                ? $"{managedTypeName}.{ToPascalCase(expression)}"
-                : expression;
+            return Regex.IsMatch(normalizedExpression, "^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.CultureInvariant)
+                ? $"{managedTypeName}.{ToPascalCase(normalizedExpression)}"
+                : normalizedExpression;
         }
 
-        var valueName = expression[(separatorIndex + 2)..];
+        var valueName = normalizedExpression[(separatorIndex + 2)..];
         return $"{managedTypeName}.{ToPascalCase(valueName)}";
     }
 

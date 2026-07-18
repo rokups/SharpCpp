@@ -1079,9 +1079,15 @@ public static partial class BindingOutputRenderer
 
         if (TryGetNativeFieldAccessExpression(field, selfExpression, out var accessExpression))
         {
-            return plan.BorrowsStorage
-                ? $"return &({accessExpression});"
-                : $"return {accessExpression};";
+            if (plan.BorrowsStorage)
+            {
+                return $"return &({accessExpression});";
+            }
+
+            return $$"""
+                ReturnMarshaller<{{plan.StorageCppType}}> marshaller;
+                return marshaller.ConvertToAbi({{accessExpression}});
+                """;
         }
 
         var fieldOwner = fieldOwnerCppTypeName ?? field.OwningRecordCppTypeName;
@@ -1134,6 +1140,27 @@ public static partial class BindingOutputRenderer
 
         if (TryGetNativeFieldAccessExpression(field, selfExpression, out var accessExpression))
         {
+            if (plan.SetterMode == FieldSetterMode.BorrowedStorage)
+            {
+                return $$"""
+                    if (value == nullptr)
+                    {
+                        if constexpr (detail::has_clear_v<{{plan.StorageCppType}}>)
+                        {
+                            {{accessExpression}}.clear();
+                        }
+                        else
+                        {
+                            throw std::runtime_error("SharpCpp borrowed field setter cannot clear this field type.");
+                        }
+                    }
+                    else
+                    {
+                        {{accessExpression}} = std::move(*value);
+                    }
+                    """;
+            }
+
             var valueExpression = plan.SetterMode == FieldSetterMode.ValuePointer ? "*value" : "value";
             if (ShouldCastDirectNativeFieldSetValue(field, plan))
             {
@@ -5482,6 +5509,12 @@ public static partial class BindingOutputRenderer
         for (var i = 0; i < keepParameters.Length; i++)
         {
             var parameter = keepParameters[i];
+            if (parameter.HasMetadata(MetadataKeys.UnexpressibleDefault))
+            {
+                parts.Add(RenderManagedPublicParameterNoDefault(parameter, compilation));
+                continue;
+            }
+
             parts.Add(localDefaultFlags[i]
                 ? RenderManagedPublicParameter(parameter, compilation)
                 : RenderManagedPublicParameterNoDefault(parameter, compilation));
@@ -6696,6 +6729,11 @@ public static partial class BindingOutputRenderer
 
     private static bool HasManagedUnexpressibleDefaultOverloadParameterDefault(FunctionBinding function, int keepCount, int parameterIndex)
     {
+        if (function.Parameters[parameterIndex].HasMetadata(MetadataKeys.UnexpressibleDefault))
+        {
+            return false;
+        }
+
         var prefixFlags = GetManagedPublicParameterDefaultFlags(function.Parameters.Take(keepCount).ToArray());
         return parameterIndex < prefixFlags.Count && prefixFlags[parameterIndex];
     }

@@ -21,8 +21,10 @@
     <NuGetAudit>false</NuGetAudit>
     <SharpCppOutputDir Condition="'$(SharpCppOutputDir)' == ''"></SharpCppOutputDir>
     <SharpCppIntermediateRoot Condition="'$(SharpCppIntermediateRoot)' == ''"></SharpCppIntermediateRoot>
+    <SharpCppIsTestProject Condition="$([System.String]::Copy('$(MSBuildProjectName)').Contains('.Tests.'))">true</SharpCppIsTestProject>
     <DefaultItemExcludes>$(DefaultItemExcludes);$(MSBuildProjectDirectory)/obj/**;$(MSBuildProjectDirectory)/bin/**</DefaultItemExcludes>
-    <OutputPath Condition="'$(SharpCppOutputDir)' != ''">$(SharpCppOutputDir)/</OutputPath>
+    <OutputPath Condition="'$(SharpCppOutputDir)' != '' and '$(SharpCppIsTestProject)' != 'true'">$(SharpCppOutputDir)/</OutputPath>
+    <OutputPath Condition="'$(SharpCppOutputDir)' != '' and '$(SharpCppIsTestProject)' == 'true'">$(SharpCppOutputDir)/SharpCpp.Tests/$(MSBuildProjectName)/</OutputPath>
     <BaseIntermediateOutputPath Condition="'$(SharpCppIntermediateRoot)' != ''">$(SharpCppIntermediateRoot)/$(MSBuildProjectName)/</BaseIntermediateOutputPath>
     <AppendTargetFrameworkToOutputPath Condition="'$(SharpCppOutputDir)' != ''">false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath Condition="'$(SharpCppOutputDir)' != ''">false</AppendRuntimeIdentifierToOutputPath>
