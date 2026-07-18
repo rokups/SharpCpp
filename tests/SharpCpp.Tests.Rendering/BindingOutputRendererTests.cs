@@ -1946,6 +1946,60 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Instance_methods_render_annotated_primitive_pointer_array_parameters_as_spans()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Graphics/DeviceContext.hpp" });
+        var deviceContext = new RecordBinding("record:Sample::DeviceContext", "DeviceContext", "DeviceContext", "Sample::DeviceContext");
+        var method = new FunctionBinding(
+            "method:Sample::DeviceContext:SetOffsets",
+            "SetOffsets",
+            "SetOffsets",
+            BindingType.Void,
+            "sharpcpp_sample_set_offsets",
+            "void",
+            "Sample::DeviceContext::SetOffsets")
+        {
+            IsStatic = false,
+            IsVirtual = true,
+            OwningRecordCppTypeName = "Sample::DeviceContext"
+        };
+        method.Parameters.Add(new ParameterBinding(
+            "parameter:Sample::DeviceContext:SetOffsets:count",
+            "count",
+            "count",
+            BindingType.UInt32,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "unsigned int"));
+        var offsets = new ParameterBinding(
+            "parameter:Sample::DeviceContext:SetOffsets:offsets",
+            "offsets",
+            "offsets",
+            BindingType.UInt64,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Pointer,
+            "const unsigned long long*");
+        offsets.SetMetadata(MetadataKeys.InputPointerArray, true);
+        method.Parameters.Add(offsets);
+        deviceContext.Members.Add(method);
+        compilation.Members.Add(deviceContext);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public virtual void SetOffsets(uint count, global::System.ReadOnlySpan<ulong> offsets)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("fixed (ulong* __abi_offsets_ptr = offsets)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static unsafe partial void SetOffsets(DeviceContext self, uint count, ulong* offsets);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("arg_t<const unsigned long long*> offsets", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Managed_output_uses_string_for_const_char_return()
     {
         var compilation = new BindingCompilation(

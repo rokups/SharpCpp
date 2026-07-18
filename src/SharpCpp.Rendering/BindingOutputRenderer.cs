@@ -1459,7 +1459,7 @@ public static partial class BindingOutputRenderer
         var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
         var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, ReturnsOwnedHandle(function));
         var importMethodName = GetManagedImportMethodName(function);
-        var unsafeModifier = function.Parameters.Any(IsInputHandlePointerArrayParameter) ? "unsafe " : string.Empty;
+        var unsafeModifier = parameterList.Contains('*', StringComparison.Ordinal) ? "unsafe " : string.Empty;
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static {unsafeModifier}partial {returnTypeName} {importMethodName}({parameterList});"
             : $"{returnAttribute}\ninternal static {unsafeModifier}partial {returnTypeName} {importMethodName}({parameterList});";
@@ -2938,7 +2938,7 @@ public static partial class BindingOutputRenderer
             return writer.ToString();
         }
 
-        if (function.Parameters.Any(IsInputHandlePointerArrayParameter))
+        if (function.Parameters.Any(IsInputPointerArrayParameter))
         {
             return RenderManagedPointerArrayInstanceMethod(compilation, record, function, returnTypeName, memberModifier, importMethodName);
         }
@@ -3058,8 +3058,8 @@ public static partial class BindingOutputRenderer
             {
             """);
 
-        var pointerArrayParameters = function.Parameters.Where(IsInputHandlePointerArrayParameter).ToArray();
-        foreach (var parameter in pointerArrayParameters)
+        var pointerArrayParameters = function.Parameters.Where(IsInputPointerArrayParameter).ToArray();
+        foreach (var parameter in pointerArrayParameters.Where(IsInputHandlePointerArrayParameter))
         {
             var abiSpanName = GetPointerArrayAbiSpanName(parameter);
             var indexName = $"{abiSpanName}_i";
@@ -3076,12 +3076,16 @@ public static partial class BindingOutputRenderer
         writer.WriteLine("{");
         foreach (var parameter in pointerArrayParameters)
         {
-            writer.WriteLine($"fixed (nint* {GetPointerArrayPointerName(parameter)} = {GetPointerArrayAbiSpanName(parameter)})");
+            var pointerTypeName = GetManagedImportTypeName(parameter.Type, compilation);
+            var spanName = IsInputHandlePointerArrayParameter(parameter)
+                ? GetPointerArrayAbiSpanName(parameter)
+                : parameter.ManagedName;
+            writer.WriteLine($"fixed ({pointerTypeName}* {GetPointerArrayPointerName(parameter)} = {spanName})");
         }
         writer.WriteLine("{");
 
         var invokeArguments = string.Join(", ", new[] { "this" }.Concat(function.Parameters.Select(parameter =>
-            IsInputHandlePointerArrayParameter(parameter)
+            IsInputPointerArrayParameter(parameter)
                 ? GetPointerArrayPointerName(parameter)
                 : RenderManagedInvocationArgument(compilation, parameter))));
 
@@ -3836,7 +3840,7 @@ public static partial class BindingOutputRenderer
         var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
         var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, ReturnsOwnedHandle(function));
         var importMethodName = GetManagedImportMethodName(function);
-        var unsafeModifier = function.Parameters.Any(IsInputHandlePointerArrayParameter) ? "unsafe " : string.Empty;
+        var unsafeModifier = parameterList.Contains('*', StringComparison.Ordinal) ? "unsafe " : string.Empty;
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static {unsafeModifier}partial {returnTypeName} {importMethodName}({parameterList});"
             : $"{returnAttribute}\ninternal static {unsafeModifier}partial {returnTypeName} {importMethodName}({parameterList});";
@@ -4040,7 +4044,7 @@ public static partial class BindingOutputRenderer
         var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
         var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, ReturnsOwnedHandle(function));
         var importMethodName = GetManagedImportMethodName(function);
-        var unsafeModifier = function.Parameters.Any(IsInputHandlePointerArrayParameter) ? "unsafe " : string.Empty;
+        var unsafeModifier = parameterList.Contains('*', StringComparison.Ordinal) ? "unsafe " : string.Empty;
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static {unsafeModifier}partial {returnTypeName} {importMethodName}({parameterList});"
             : $"{returnAttribute}\ninternal static {unsafeModifier}partial {returnTypeName} {importMethodName}({parameterList});";
@@ -5228,6 +5232,11 @@ public static partial class BindingOutputRenderer
             return $"nint* {parameter.ManagedName}";
         }
 
+        if (IsInputPrimitivePointerArrayParameter(parameter))
+        {
+            return $"{GetManagedImportTypeName(type, compilation)}* {parameter.ManagedName}";
+        }
+
         if (type.IsFixedArray)
         {
             var attribute = compilation is null ? string.Empty : GetManagedFixedArrayInMarshallerAttribute(compilation, type);
@@ -5544,6 +5553,11 @@ public static partial class BindingOutputRenderer
         if (IsInputHandlePointerArrayParameter(parameter))
         {
             return $"global::System.ReadOnlySpan<{GetManagedPublicReturnTypeName(parameter.Type, compilation)}?> {parameter.ManagedName}";
+        }
+
+        if (IsInputPrimitivePointerArrayParameter(parameter))
+        {
+            return $"global::System.ReadOnlySpan<{GetManagedPublicReturnTypeName(parameter.Type, compilation)}> {parameter.ManagedName}";
         }
 
         var modifier = parameter.Direction switch
@@ -7183,6 +7197,22 @@ public static partial class BindingOutputRenderer
             parameter.AbiKind == BindingParameterAbiKind.Pointer &&
             parameter.Type.Kind == BindingTypeKind.Handle &&
             IsPointerToPointerType(parameter.CppTypeName);
+    }
+
+    private static bool IsInputPrimitivePointerArrayParameter(ParameterBinding parameter)
+    {
+        ArgumentNullException.ThrowIfNull(parameter);
+
+        return parameter.HasMetadata(MetadataKeys.InputPointerArray) &&
+            parameter.Direction == BindingParameterDirection.In &&
+            parameter.AbiKind == BindingParameterAbiKind.Pointer &&
+            parameter.Type.Kind == BindingTypeKind.Primitive;
+    }
+
+    private static bool IsInputPointerArrayParameter(ParameterBinding parameter)
+    {
+        return IsInputHandlePointerArrayParameter(parameter) ||
+            IsInputPrimitivePointerArrayParameter(parameter);
     }
 
     private static bool RequiresArrayElementAccess(BindingCompilation compilation, RecordBinding record)
