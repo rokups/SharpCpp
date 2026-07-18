@@ -80,6 +80,7 @@ Current worktree verification passes with generic complex C++ values crossing ca
 
 ### Infrastructure
 - Structured logging (`ILogger` with elapsed timestamps)
+- The `SharpCpp.Native` dummy C# project can configure/build either SharpCpp's standalone CMake tree or a consumer-owned CMake tree through configurable source, preset, binary-directory, target, and optional-graph properties. Embedded consumers can disable the synthetic E2E and rbfx native graphs while building the exported `sharpcpp-native` target in their own tree.
 - Degradation pass: auto-ignores unsupported constructs with diagnostic reasons
 - Record reference return support (`T&` → handle ABI)
 - Type alias pipeline (`using` / `typedef` → metadata-backed C# using directives)

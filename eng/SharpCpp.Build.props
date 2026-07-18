@@ -7,8 +7,12 @@
     <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
 
     <SharpCppNativePreset Condition="'$(SharpCppNativePreset)' == ''">dev</SharpCppNativePreset>
+    <SharpCppCMakeSourceDir Condition="'$(SharpCppCMakeSourceDir)' == ''">$(SharpCppRoot)</SharpCppCMakeSourceDir>
     <SharpCppNativeBuildDir Condition="'$(SharpCppNativeBuildDir)' == ''">$(SharpCppBuildRoot)/native/$(SharpCppNativePreset)</SharpCppNativeBuildDir>
     <SharpCppNativeTarget Condition="'$(SharpCppNativeTarget)' == ''">sharpcpp-native</SharpCppNativeTarget>
+    <SharpCppConfigureNative Condition="'$(SharpCppConfigureNative)' == ''">true</SharpCppConfigureNative>
+    <SharpCppBuildE2E Condition="'$(SharpCppBuildE2E)' == ''">true</SharpCppBuildE2E>
+    <SharpCppBuildRbfx Condition="'$(SharpCppBuildRbfx)' == ''">true</SharpCppBuildRbfx>
     <SharpCppManagedOutputRoot Condition="'$(SharpCppManagedOutputRoot)' == ''">$(SharpCppBuildRoot)/bin</SharpCppManagedOutputRoot>
     <SharpCppOutputDir Condition="'$(SharpCppOutputDir)' == ''">$(SharpCppManagedOutputRoot)/$(Configuration)</SharpCppOutputDir>
     <SharpCppNativeOutputRoot Condition="'$(SharpCppNativeOutputRoot)' == ''">$(SharpCppBuildRoot)/bin</SharpCppNativeOutputRoot>

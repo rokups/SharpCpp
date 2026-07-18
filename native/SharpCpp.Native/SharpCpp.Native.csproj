@@ -8,14 +8,17 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/SharpCpp.Tool/SharpCpp.Tool.csproj"
+                      Condition="'$(SharpCppBuildE2E)' == 'true'"
                       ReferenceOutputAssembly="false"
                       Private="false"
                       PrivateAssets="all" />
     <ProjectReference Include="../../rbfx/SharpCpp.Rbfx.Generator/SharpCpp.Rbfx.Generator.csproj"
+                      Condition="'$(SharpCppBuildRbfx)' == 'true'"
                       ReferenceOutputAssembly="false"
                       Private="false"
                       PrivateAssets="all" />
     <ProjectReference Include="../../rbfx/Rbfx.UserCode/Rbfx.UserCode.Generator/Rbfx.UserCode.Generator.csproj"
+                      Condition="'$(SharpCppBuildRbfx)' == 'true'"
                       ReferenceOutputAssembly="false"
                       Private="false"
                       PrivateAssets="all" />
@@ -26,10 +29,13 @@
            Text="SharpCppNativePreset is not configured." />
     <Error Condition="'$(SharpCppNativeTarget)' == ''"
            Text="SharpCppNativeTarget is not configured." />
+    <Error Condition="'$(SharpCppCMakeSourceDir)' == ''"
+           Text="SharpCppCMakeSourceDir is not configured." />
     <MakeDir Directories="$(SharpCppBuildRoot);$(SharpCppOutputDir);$(SharpCppIntermediateRoot)" />
-    <Exec WorkingDirectory="$(SharpCppRoot)"
-          Command="cmake --preset &quot;$(SharpCppNativePreset)&quot; -DSHARPCPP_BUILD_E2E=ON -DSHARPCPP_BUILD_RBFX=ON -DSHARPCPP_MANAGED_OUTPUT_ROOT=&quot;$(SharpCppManagedOutputRoot)&quot; -DSHARPCPP_NATIVE_OUTPUT_ROOT=&quot;$(SharpCppNativeOutputRoot)&quot; $(SharpCppRbfxSdkRootArgument)" />
-    <Exec WorkingDirectory="$(SharpCppRoot)"
+    <Exec Condition="'$(SharpCppConfigureNative)' == 'true'"
+          WorkingDirectory="$(SharpCppCMakeSourceDir)"
+          Command="cmake --preset &quot;$(SharpCppNativePreset)&quot; -S &quot;$(SharpCppCMakeSourceDir)&quot; -B &quot;$(SharpCppNativeBuildDir)&quot; -DSHARPCPP_BUILD_E2E=$(SharpCppBuildE2E) -DSHARPCPP_BUILD_RBFX=$(SharpCppBuildRbfx) -DSHARPCPP_MANAGED_OUTPUT_ROOT=&quot;$(SharpCppManagedOutputRoot)&quot; -DSHARPCPP_NATIVE_OUTPUT_ROOT=&quot;$(SharpCppNativeOutputRoot)&quot; $(SharpCppRbfxSdkRootArgument) $(SharpCppNativeConfigureArguments)" />
+    <Exec WorkingDirectory="$(SharpCppCMakeSourceDir)"
           Command="cmake --build &quot;$(SharpCppNativeBuildDir)&quot; --config &quot;$(Configuration)&quot; --target &quot;$(SharpCppNativeTarget)&quot; --parallel 16" />
   </Target>
 </Project>
