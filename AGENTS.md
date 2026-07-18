@@ -36,12 +36,12 @@ Follow `PROGRESS.md` for active tasks, next steps, and local decisions.
 Until parser/renderers/E2E exist, completion means:
 
 1. relevant unit tests added or updated
-2. `cmake --build --preset Debug`
-3. `ctest --preset Debug` when tests are wired through CMake
+2. `dotnet build SharpCpp.slnx --configuration Debug`
+3. `dotnet test SharpCpp.slnx --configuration Debug --no-build`
 4. `PROGRESS.md` updated
 5. git commit created (user request is not required)
 
-When the generator and E2E pipeline land, extend the completion contract to include those targets instead of bypassing them.
+The solution build owns generator ordering and invokes the auxiliary native CMake aggregate through `SharpCpp.Native`.
 
 ## 5. Project Shape
 

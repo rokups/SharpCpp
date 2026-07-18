@@ -66,26 +66,21 @@ This exercises both Get and Set through the generated binding layer, confirming 
 | `SharpCpp.Rbfx.Bindings` (csproj) | Generated managed bindings for the rbfx SDK engine API (`Urho3D.*` types) |
 | `Rbfx.UserCode.Bindings` (csproj) | Generated managed bindings for user-authored C++ types (`RbfxUserCode.*` types) |
 
-Both are consumed as standard .NET project references, resolved by the `sharpcpp-rbfx-application` CMake target which depends on `sharpcpp-rbfx-usercode-managed` and `sharpcpp-rbfx-managed`.
+Both are consumed as standard .NET project references. Their generated/native
+prerequisites flow transitively through the binding projects' build-only
+reference to `SharpCpp.Native`.
 
 ### Build Integration
 
-Defined in `rbfx/Rbfx.Application/CMakeLists.txt`:
-
-```cmake
-sharpcpp_add_dotnet_build_target(
-  sharpcpp-rbfx-application
-  "${RBFX_APPLICATION_PROJECT}"
-  DEPENDS sharpcpp-rbfx-usercode-managed sharpcpp-rbfx-managed)
-```
-
-This ensures the complete generation and compilation cascade completes before the application is built:
+Defined entirely by ordinary `ProjectReference` items in
+`Rbfx.Application.csproj`. The resulting build cascade is:
 
 ```
-sharpcpp-rbfx-application
-  └── depends on sharpcpp-rbfx-usercode-managed
-        └── depends on sharpcpp-rbfx-managed
-              └── depends on sharpcpp-generate-rbfx + SharpCppRbfx_Native + sharpcpp-support
+Rbfx.Application
+  └── Rbfx.UserCode.Bindings
+        ├── SharpCpp.Rbfx.Bindings
+        └── SharpCpp.Native (build-only)
+              └── sharpcpp-native (auxiliary CMake aggregate)
 ```
 
 ### Runtime Configuration

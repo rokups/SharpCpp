@@ -1,5 +1,4 @@
-.CMakeLast.props
-out/
+build/
 .vs/
 **/bin/
 **/obj/

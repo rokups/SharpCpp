@@ -9,7 +9,7 @@ does not use new `.nuspec` files.
   and the rbfx source generator analyzer.
 - `SharpCpp.Rbfx.Bindings.runtime.<rid>` contains native runtime files for one
   runtime identifier, including `SharpCpp.Rbfx.Native` and the copied rbfx native
-  dependencies from the CMake output directory. It depends on
+  dependencies from the shared `build/bin` output directory. It depends on
   `SharpCpp.Rbfx.Bindings`, so applications may reference the RID package as the
   all-in-one dependency.
 - `SharpCpp.Rbfx.CoreData`, `SharpCpp.Rbfx.Data`, and
@@ -23,13 +23,16 @@ does not use new `.nuspec` files.
 ```
 
 The script downloads the matching prebuilt rbfx DLL SDK archive from
-`https://github.com/rbfx/rbfx/releases/download/latest`, configures CMake with
-that SDK, builds the package inputs, stages files, and runs `dotnet pack`.
+`https://github.com/rbfx/rbfx/releases/download/latest`, builds the binding
+project (which drives the auxiliary native CMake target through MSBuild), stages
+files, and runs `dotnet pack`.
 Package target-framework paths are derived from the repository `TargetFramework`
 property. Use `--target-framework TFM` only when explicitly overriding it.
 
-Use `--skip-fetch` when `packaging/nuget/in/<sdk-name>/` already exists. Use
-`--skip-build` to package an already-built CMake output tree.
+Use `--skip-fetch` when `build/package/nuget/in/<sdk-name>/` already exists. Use
+`--skip-build` to package an already-built `build/bin/<Configuration>` tree.
+Package staging, package output, downloaded SDKs, and the local repository all
+remain below `build/package/nuget/`.
 
 ## Runtime IDs
 
@@ -57,5 +60,5 @@ Known SDK archive mappings:
 ./packaging/nuget/package.sh local-repo
 ```
 
-This imports packages from `packaging/nuget/out/` into
-`packaging/nuget/local-repository/` for local restore tests.
+This imports packages from `build/package/nuget/out/` into
+`build/package/nuget/local-repository/` for local restore tests.

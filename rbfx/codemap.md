@@ -16,11 +16,17 @@ The integration implements a **phase-1 / phase-2** generation model:
 
 ### Build-Time Code Generation
 
-All code generation occurs at CMake build time via `add_custom_command`. The generator DLLs are built first (via `sharpcpp_add_dotnet_build_target`), then invoked as `.NET` tools that write `*.g.cs` and `*.g.cpp` files into the build tree. Generated C++ sources are compiled into shared libraries; generated C# sources are linked into managed assemblies via wildcard `Compile` items in `.csproj` files.
+`SharpCpp.slnx` is the primary build graph. The `SharpCpp.Native` SDK-style
+orchestration project references both rbfx generators, then invokes one
+`sharpcpp-native` CMake aggregate after those ordinary managed dependencies have
+built. CMake runs the prebuilt generator DLLs and compiles generated C++ thunks;
+the binding projects discover generated C# immediately before `CoreCompile`.
 
 ### Staleness Management
 
-A CMake script (`CheckGeneratedStaleness.cmake`) compares the generator DLL timestamp against a generation stamp file. If the generator has been rebuilt, the entire generated output directory is wiped before regeneration, preventing stale artifacts from surviving incremental builds.
+The shared `cmake/SharpCppGeneratedStaleness.cmake` helper compares each
+generator DLL timestamp against its generation stamp. If the tool changed, the
+corresponding generated directory is cleared before regeneration.
 
 ### Runtime Dependency Deployment
 
@@ -29,29 +35,18 @@ A CMake template (`CopyRbfxRuntimeDependencies.cmake.in`) uses `file(GET_RUNTIME
 ### CMake Target Topology
 
 ```
-sharpcpp-model,sharpcpp-metadata,sharpcpp-parsing,
-sharpcpp-pipeline,sharpcpp-rendering,sharpcpp-support
-      |
-      v
-sharpcpp-rbfx-generator  ---->  sharpcpp-generate-rbfx
-      |
-      v
-SharpCppRbfx_Native (C++ shared lib, generated .g.cpp + SDK)
-      |
-      v
-sharpcpp-rbfx-managed (C# assembly, generated .g.cs + Support)
-      |
-      +---> sharpcpp-rbfx-tests-e2e-managed
-      +---> sharpcpp-rbfx-application (via Rbfx.Application)
-      |
-      v
-sharpcpp-rbfx-usercode-generator  ---->  sharpcpp-generate-rbfx-usercode
-      |
-      v
-SharpCppRbfxUserCode_Native (C++ shared lib, user .cpp + generated .g.cpp + SDK)
-      |
-      v
-sharpcpp-rbfx-usercode-managed (C# assembly, generated .g.cs + Rbfx.Bindings + Support)
+SharpCpp.Rbfx.Generator ─┐
+Rbfx.UserCode.Generator ─┼─> SharpCpp.Native (MSBuild)
+SharpCpp.Tool ───────────┘             |
+                                      v
+                              sharpcpp-native (CMake)
+                               /       |        \
+              SharpCppTestsE2E_Native  |  sharpcpp-generate-rbfx-usercode
+                                       v        |
+                          sharpcpp-generate-rbfx v
+                                       |  SharpCppRbfxUserCode_Native
+                                       v
+                              SharpCppRbfx_Native
 ```
 
 ## Flow
@@ -75,7 +70,9 @@ sharpcpp-rbfx-usercode-managed (C# assembly, generated .g.cs + Rbfx.Bindings + S
 
 4. **Phase 1 Native Build**: `SharpCppRbfx_Native` compiles the generated `.g.cpp` files with Unity (Jumbo) build, links against `sharpcpp-native-support` and `Urho3D`, and copies SDK runtime dependencies post-build.
 
-5. **Phase 1 Managed Build**: `sharpcpp-rbfx-managed` compiles `SharpCpp.Rbfx.Bindings.csproj` which includes generated `.g.cs` files from the build tree.
+5. **Phase 1 Managed Build**: after the `SharpCpp.Native` dependency completes,
+   `SharpCpp.Rbfx.Bindings.csproj` includes generated `.g.cs` files immediately
+   before compilation.
 
 6. **Phase 2 Generation**: `Rbfx.UserCode.Generator.dll` is invoked with `--sdk-root`, `--flags-file`, `--user-code-root`, `--generated-root`, `--import-binding-metadata` (pointing to phase 1 metadata). It:
    - Loads phase-1 binding metadata as imports
@@ -83,22 +80,27 @@ sharpcpp-rbfx-usercode-managed (C# assembly, generated .g.cs + Rbfx.Bindings + S
    - Applies the bootstrap pipeline with phase-1 types available as imported references
    - Renders output and exports its own metadata
 
-7. **Phase 2 Native + Managed Build**: Same pattern as phase 1 but the managed assembly (`Rbfx.UserCode.Bindings`) references `SharpCpp.Rbfx.Bindings` and `SharpCpp.Support`.
+7. **Phase 2 Native + Managed Build**: same ordering as phase 1; the managed
+   assembly references `SharpCpp.Rbfx.Bindings`, `SharpCpp.Support`, and the
+   build-only native orchestrator.
 
-8. **E2E Tests**: `sharpcpp.rbfx.e2e` ctest target runs `dotnet test` on `SharpCpp.Rbfx.Tests.E2E` with `LD_LIBRARY_PATH` and `LD_PRELOAD` configured for Linux.
+8. **E2E Tests**: `dotnet test SharpCpp.slnx` runs the managed tests. Generated
+   runsettings point Linux tests at the shared `build/bin/<Configuration>` native
+   output directory.
 
-9. **Application Shell**: `sharpcpp-rbfx-application` builds `Rbfx.Application.exe` which references both binding assemblies.
+9. **Application Shell**: `Rbfx.Application` is an ordinary solution project
+   referencing both binding assemblies.
 
 ## Integration
 
 | Consumer | What it depends on | Mechanism |
 |---|---|---|
 | `SharpCpp.Rbfx.Generator` | `SharpCpp.Model`, `SharpCpp.Metadata`, `SharpCpp.Parsing`, `SharpCpp.Pipeline`, `SharpCpp.Rendering` | .NET project references |
-| `SharpCpp.Rbfx.Bindings` | `SharpCpp.Support`, generated `*.g.cs` | .NET project reference + wildcard Compile |
-| `SharpCppRbfx_Native` | `sharpcpp-native-support`, `Urho3D` SDK target, generated `*.g.cpp` | CMake `target_link_libraries` + Unity build |
+| `SharpCpp.Rbfx.Bindings` | `SharpCpp.Support`, `SharpCpp.Native`, generated `*.g.cs` | .NET project references + late generated-source inclusion |
+| `SharpCppRbfx_Native` | `SharpCpp::NativeSupport`, `Urho3D` SDK target, generated `*.g.cpp` | CMake `target_link_libraries` + Unity build |
 | `Rbfx.UserCode.Generator` | Same pipeline libraries as rbfx generator | .NET project references |
-| `Rbfx.UserCode.Bindings` | `SharpCpp.Support`, `SharpCpp.Rbfx.Bindings`, generated `*.g.cs` | .NET project references + wildcard Compile |
-| `SharpCppRbfxUserCode_Native` | `sharpcpp-native-support`, `Urho3D`, user `.cpp` files, generated `.g.cpp` | CMake `target_link_libraries` + Unity build |
+| `Rbfx.UserCode.Bindings` | `SharpCpp.Support`, `SharpCpp.Rbfx.Bindings`, `SharpCpp.Native`, generated `*.g.cs` | .NET project references + late generated-source inclusion |
+| `SharpCppRbfxUserCode_Native` | `SharpCpp::NativeSupport`, `Urho3D`, user `.cpp` files, generated `.g.cpp` | CMake `target_link_libraries` + Unity build |
 | `Rbfx.Application` | `SharpCpp.Rbfx.Bindings`, `Rbfx.UserCode.Bindings` | .NET project references |
 | `SharpCpp.Rbfx.Tests.E2E` | `SharpCpp.Rbfx.Bindings`, xUnit, .NET Test SDK | .NET project + package references |
 | `rbfx/CMakeLists.txt` | `rbfx-sdk` installed at `RBFX_SDK_ROOT` | `find_package(Urho3D CONFIG)` |

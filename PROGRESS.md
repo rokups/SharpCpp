@@ -128,6 +128,9 @@ Current worktree verification passes with generic complex C++ values crossing ca
 ## Key Decisions
 
 - `SharpCpp.*` managed assembly identities, `sharpcpp-*` CMake targets
+- `SharpCpp.slnx` is the primary build graph; CMake is a native-only auxiliary invoked by the SDK-style `SharpCpp.Native` project
+- all build outputs are rooted under `build/`, with CMake trees at `build/native/<preset>` and shared runtime artifacts at `build/bin/<Configuration>`
+- native consumers may embed SharpCpp with `add_subdirectory(...)` and link `SharpCpp::NativeSupport` without enabling the rbfx or E2E development graph
 - Independent from `../SharpCpp`; reuse is copy/adapt only
 - Project split follows `doc/11-project-shape-blueprint.md`
 - ClangSharp-backed parser (not permanently hardcoded model)
@@ -137,12 +140,18 @@ Current worktree verification passes with generic complex C++ values crossing ca
 
 ## Recently Fixed
 
+- **The build is C#-centric and directly consumable**:
+  - Central MSBuild properties place managed/native outputs, intermediates, restore state, generated files, and package artifacts below `build/`.
+  - Generated binding projects depend on one `SharpCpp.Native` orchestration project; ordinary `ProjectReference` edges build all generator tools before its single `sharpcpp-native` CMake invocation.
+  - CMake no longer restores or builds managed projects. Its root is small, build responsibilities live in directory-local `CMakeLists.txt` files, and embedded use exposes `SharpCpp::NativeSupport` without requiring .NET or an rbfx SDK.
+  - A clean `dotnet build SharpCpp.slnx --configuration Debug` now produces managed bindings plus synthetic, rbfx, and user-code native prerequisites in the correct order.
+
 - **Full generated-source builds and isolated test outputs are green**:
   - CMake now treats generated binding stamps as configure dependencies, so generated `.g.cpp` files are compiled in the same build instead of leaving stub-only native libraries with missing exports.
-  - Test projects use isolated output directories, the default build produces every assembly consumed by CTest, and E2E tests receive their generated-output roots explicitly.
+  - Test projects use isolated output directories, the default build stages their native runtime libraries, and E2E tests receive their generated-output roots explicitly.
   - Parser and renderer fixes cover concurrent Clang parsing, protected flattened-field access, explicit protected constructors, token-spaced lambda and enum defaults, and nested field ABI marshalling.
   - Unsupported-default convenience overloads preserve ordinary optional prefix parameters while retaining unexpressible parameters as required when necessary.
-  - Verification: `cmake --build --preset Debug` and `ctest --preset Debug --output-on-failure` pass all five suites.
+  - Verification: `dotnet build SharpCpp.slnx --configuration Debug` and `dotnet test SharpCpp.slnx --configuration Debug --no-build --no-restore` pass all five suites.
 
 - **Generic method defaults now preserve native `T()` semantics through nullable sentinels**:
   - Generic method wrappers now render unexpressible default parameters such as C++ `T default_value = T()` as nullable optional managed parameters, e.g. `T? defaultValue = default`.
@@ -496,11 +505,10 @@ Current worktree verification passes with generic complex C++ values crossing ca
   - Synthetic E2E fixtures now distinguish byte scalar out/ref coverage from byte pointer-token APIs so mutable byte pointers are not accidentally tested as scalar out parameters.
   - Verification: `cmake --build --preset Debug`, `dotnet test tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj --configuration Debug --filter Parse_defaults_managed_pointer_override_parameters_to_in_value_tokens`, `dotnet test tests/SharpCpp.Tests.E2E/SharpCpp.Tests.E2E.csproj --configuration Debug --filter BuiltinTests`, generated rbfx `rg -n "out global::System\.IntPtr" "out/build/dev/generated/rbfx"`, and `ctest --preset Debug --output-on-failure` with unrelated rbfx generator edits temporarily stashed all pass.
 
-- **Direct `dotnet test` / IDE runs now validate CMake-produced artifacts before compiling tests**:
-  - `.CMakeLast.props` now carries the last configured build/output/generated/native/runsettings artifact paths needed by direct MSBuild consumers.
-  - `SharpCpp.Build.targets` validates generated C# sources, generation stamps, native libraries, rbfx runsettings, and user-code runtime artifacts for projects that consume CMake-produced outputs.
-  - Direct MSBuild does not invoke CMake, avoiding CMake/MSBuild recursion; missing artifacts fail fast with actionable `cmake --build --preset <Configuration>` guidance.
-  - Verification: `cmake --preset dev`, `cmake --build --preset Debug`, direct `dotnet test` for synthetic E2E and rbfx E2E, root `dotnet test`, and `ctest --preset Debug --output-on-failure` all pass.
+- **Direct `dotnet test` / IDE runs validate generated and native prerequisites before compiling tests**:
+  - Central MSBuild properties carry deterministic build/output/generated/native/runsettings paths for direct consumers.
+  - `SharpCpp.Build.targets` validates generated C# sources, generation stamps, native libraries, rbfx runsettings, and user-code runtime artifacts after the `SharpCpp.Native` dependency has produced them.
+  - This earlier validation work is now subsumed by the C#-centric solution graph described above.
 
 - **Handle-typed field setters now marshal wrappers by value instead of by-ref**:
   - Generated field setter imports for handle fields now use the same by-value `[MarshalUsing]` shape as ordinary handle parameters, avoiding a test-host crash from `in` by-ref custom marshalling.
@@ -634,7 +642,7 @@ Current worktree verification passes with generic complex C++ values crossing ca
 ## Verification
 
 ```bash
-cmake --preset dev
-cmake --build --preset Debug
-ctest --preset Debug
+dotnet restore SharpCpp.slnx
+dotnet build SharpCpp.slnx --configuration Debug --no-restore
+dotnet test SharpCpp.slnx --configuration Debug --no-build --no-restore
 ```

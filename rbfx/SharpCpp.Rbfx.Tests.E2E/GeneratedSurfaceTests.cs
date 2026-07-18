@@ -190,7 +190,7 @@ public sealed class GeneratedSurfaceTests
             dir = Path.Combine(
                 Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? ".",
                 "..", "..", "..", "..", "..",
-                "out", "build", "dev", "generated", "rbfx");
+                "build", "native", "dev", "generated", "rbfx");
         }
 
         return Path.GetFullPath(dir);

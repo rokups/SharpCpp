@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <AssemblyName>SharpCpp.Native.Build</AssemblyName>
+    <SharpCppRbfxSdkRoot Condition="'$(SharpCppRbfxSdkRoot)' == '' and '$(RBFX_SDK_ROOT)' != ''">$(RBFX_SDK_ROOT)</SharpCppRbfxSdkRoot>
+    <SharpCppRbfxSdkRootArgument Condition="'$(SharpCppRbfxSdkRoot)' != ''">-DRBFX_SDK_ROOT=&quot;$(SharpCppRbfxSdkRoot)&quot;</SharpCppRbfxSdkRootArgument>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/SharpCpp.Tool/SharpCpp.Tool.csproj"
+                      ReferenceOutputAssembly="false"
+                      Private="false"
+                      PrivateAssets="all" />
+    <ProjectReference Include="../../rbfx/SharpCpp.Rbfx.Generator/SharpCpp.Rbfx.Generator.csproj"
+                      ReferenceOutputAssembly="false"
+                      Private="false"
+                      PrivateAssets="all" />
+    <ProjectReference Include="../../rbfx/Rbfx.UserCode/Rbfx.UserCode.Generator/Rbfx.UserCode.Generator.csproj"
+                      ReferenceOutputAssembly="false"
+                      Private="false"
+                      PrivateAssets="all" />
+  </ItemGroup>
+
+  <Target Name="SharpCppBuildNative" AfterTargets="Build">
+    <Error Condition="'$(SharpCppNativePreset)' == ''"
+           Text="SharpCppNativePreset is not configured." />
+    <Error Condition="'$(SharpCppNativeTarget)' == ''"
+           Text="SharpCppNativeTarget is not configured." />
+    <MakeDir Directories="$(SharpCppBuildRoot);$(SharpCppOutputDir);$(SharpCppIntermediateRoot)" />
+    <Exec WorkingDirectory="$(SharpCppRoot)"
+          Command="cmake --preset &quot;$(SharpCppNativePreset)&quot; -DSHARPCPP_BUILD_E2E=ON -DSHARPCPP_BUILD_RBFX=ON -DSHARPCPP_MANAGED_OUTPUT_ROOT=&quot;$(SharpCppManagedOutputRoot)&quot; -DSHARPCPP_NATIVE_OUTPUT_ROOT=&quot;$(SharpCppNativeOutputRoot)&quot; $(SharpCppRbfxSdkRootArgument)" />
+    <Exec WorkingDirectory="$(SharpCppRoot)"
+          Command="cmake --build &quot;$(SharpCppNativeBuildDir)&quot; --config &quot;$(Configuration)&quot; --target &quot;$(SharpCppNativeTarget)&quot; --parallel 16" />
+  </Target>
+</Project>

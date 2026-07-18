@@ -4,9 +4,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
-IN_DIR="$SCRIPT_DIR/in"
-STAGE_DIR="$SCRIPT_DIR/stage"
-OUT_DIR="$SCRIPT_DIR/out"
+PACKAGE_ROOT="$REPO_ROOT/build/package/nuget"
+IN_DIR="$PACKAGE_ROOT/in"
+STAGE_DIR="$PACKAGE_ROOT/stage"
+OUT_DIR="$PACKAGE_ROOT/out"
+LOCAL_REPOSITORY_DIR="$PACKAGE_ROOT/local-repository"
 RELEASE_DOWNLOAD_BASE="https://github.com/rbfx/rbfx/releases/download/latest"
 
 DOTNET="${DOTNET:-dotnet}"
@@ -131,7 +133,7 @@ fetch_sdk() {
         cat <<'EOF'
 Usage: package.sh fetch-sdk [--rid RID] [--sdk-asset ASSET] [--force]
 
-Downloads and extracts one rbfx prebuilt DLL SDK archive into packaging/nuget/in/.
+Downloads and extracts one rbfx prebuilt DLL SDK archive into build/package/nuget/in/.
 If --rid is omitted, the host RID is inferred.
 EOF
         return 0
@@ -200,32 +202,14 @@ copy_optional_related_files() {
   done
 }
 
-should_skip_native_file() {
-  local name="$1"
-  case "$name" in
-    SharpCpp.Rbfx.Bindings.dll|SharpCpp.Support.dll|SharpCpp.Rbfx.SourceGenerator.dll|Rbfx.UserCode.Bindings.dll)
-      return 0
-      ;;
-    *UserCode*|*TestsE2E*)
-      return 0
-      ;;
-  esac
-
-  return 1
-}
-
 copy_native_glob() {
   local pattern="$1"
   local destination="$2"
   local matched=0
-  local file name
+  local file
 
   shopt -s nullglob
   for file in $pattern; do
-    name="$(basename -- "$file")"
-    if should_skip_native_file "$name"; then
-      continue
-    fi
     cp -a "$file" "$destination/"
     matched=1
   done
@@ -253,14 +237,12 @@ detect_target_framework() {
 stage_packages() {
   local rid="$1"
   local configuration="$2"
-  local configure_preset="$3"
-  local sdk_root="$4"
-  local target_framework="$5"
-  local build_dir="$REPO_ROOT/out/build/$configure_preset"
-  local bin_dir="$build_dir/bin/$configuration"
+  local sdk_root="$3"
+  local target_framework="$4"
+  local bin_dir="$REPO_ROOT/build/bin/$configuration"
 
   if [ ! -d "$bin_dir" ]; then
-    echo "Error: CMake bin directory is missing: $bin_dir" >&2
+    echo "Error: SharpCpp output directory is missing: $bin_dir" >&2
     return 1
   fi
 
@@ -284,14 +266,20 @@ stage_packages() {
 
   case "$rid" in
     linux-*)
-      copy_native_glob "$bin_dir/*.so" "$STAGE_DIR/runtime/$rid/native" || true
-      copy_native_glob "$bin_dir/*.so.*" "$STAGE_DIR/runtime/$rid/native" || true
+      require_file "$bin_dir/libSharpCpp.Rbfx.Native.so"
+      cp -a "$bin_dir/libSharpCpp.Rbfx.Native.so" "$STAGE_DIR/runtime/$rid/native/"
+      copy_native_glob "$sdk_root/bin/*.so" "$STAGE_DIR/runtime/$rid/native" || true
+      copy_native_glob "$sdk_root/bin/*.so.*" "$STAGE_DIR/runtime/$rid/native" || true
       ;;
     osx-*)
-      copy_native_glob "$bin_dir/*.dylib" "$STAGE_DIR/runtime/$rid/native" || true
+      require_file "$bin_dir/libSharpCpp.Rbfx.Native.dylib"
+      cp -a "$bin_dir/libSharpCpp.Rbfx.Native.dylib" "$STAGE_DIR/runtime/$rid/native/"
+      copy_native_glob "$sdk_root/bin/*.dylib" "$STAGE_DIR/runtime/$rid/native" || true
       ;;
     win-*|uap-*)
-      copy_native_glob "$bin_dir/*.dll" "$STAGE_DIR/runtime/$rid/native" || true
+      require_file "$bin_dir/SharpCpp.Rbfx.Native.dll"
+      cp -a "$bin_dir/SharpCpp.Rbfx.Native.dll" "$STAGE_DIR/runtime/$rid/native/"
+      copy_native_glob "$sdk_root/bin/*.dll" "$STAGE_DIR/runtime/$rid/native" || true
       ;;
     *)
       echo "Error: unsupported runtime identifier '$rid'." >&2
@@ -387,13 +375,13 @@ Usage: package.sh create --version VERSION [options]
 Options:
   --version, -v VERSION      Package version. Suffix -alpha or -dev appends the git SHA.
   --rid RID                 Runtime package RID. Defaults to host RID.
-  --configuration, -c NAME   CMake/.NET configuration. Defaults to Release.
-  --configure-preset NAME    CMake configure preset. Defaults to dev.
+  --configuration, -c NAME   Build configuration. Defaults to Release.
+  --configure-preset NAME    Auxiliary CMake preset. Defaults to dev.
   --sdk-root PATH            Existing extracted rbfx SDK root.
   --sdk-asset NAME           Override rbfx SDK release asset name.
   --target-framework TFM     Override package target framework. Defaults to repo TargetFramework.
   --skip-fetch               Do not download/extract the SDK.
-  --skip-build               Do not configure/build CMake package inputs.
+  --skip-build               Do not build package inputs.
 EOF
         return 0
         ;;
@@ -442,8 +430,11 @@ EOF
   normalize_sdk_cmake_exports "$sdk_root"
 
   if [ "$skip_build" -eq 0 ]; then
-    cmake --preset "$configure_preset" -UUrho3D_DIR -DRBFX_SDK_ROOT="$sdk_root"
-    cmake --build --preset "$configuration" --target sharpcpp-package-rbfx-inputs
+    "$DOTNET" build "$REPO_ROOT/rbfx/SharpCpp.Rbfx.Bindings/SharpCpp.Rbfx.Bindings.csproj" \
+      --configuration "$configuration" \
+      --nologo \
+      -p:SharpCppNativePreset="$configure_preset" \
+      -p:SharpCppRbfxSdkRoot="$sdk_root"
   fi
 
   if [ -z "$target_framework" ]; then
@@ -451,7 +442,7 @@ EOF
   fi
 
   echo "Staging packages for $version ($rid, $configuration, $target_framework)"
-  stage_packages "$rid" "$configuration" "$configure_preset" "$sdk_root" "$target_framework"
+  stage_packages "$rid" "$configuration" "$sdk_root" "$target_framework"
 
   rm -rf "$OUT_DIR"
   mkdir -p "$OUT_DIR"
@@ -473,13 +464,13 @@ EOF
 }
 
 create_local_repository() {
-  rm -rf "$SCRIPT_DIR/local-repository"
-  mkdir -p "$SCRIPT_DIR/local-repository"
+  rm -rf "$LOCAL_REPOSITORY_DIR"
+  mkdir -p "$LOCAL_REPOSITORY_DIR"
 
   shopt -s nullglob
   local package
   for package in "$OUT_DIR"/*.nupkg; do
-    "$NUGET" add "$package" -source "$SCRIPT_DIR/local-repository"
+    "$NUGET" add "$package" -source "$LOCAL_REPOSITORY_DIR"
   done
   shopt -u nullglob
 }

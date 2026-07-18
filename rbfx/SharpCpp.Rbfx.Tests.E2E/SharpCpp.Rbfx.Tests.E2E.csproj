@@ -4,7 +4,7 @@
     <AssemblyName>SharpCpp.Rbfx.Tests.E2E</AssemblyName>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <RunSettingsFilePath>$(OutputPath)SharpCpp.Rbfx.Tests.runsettings</RunSettingsFilePath>
+    <RunSettingsFilePath>$(SharpCppRbfxRunSettingsPath)</RunSettingsFilePath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -12,10 +12,7 @@
     <ProjectReference Include="../SharpCpp.Rbfx.SourceGenerator/SharpCpp.Rbfx.SourceGenerator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
-    <Reference Include="Rbfx.UserCode.Bindings">
-      <HintPath>$(SharpCppRbfxUserCodeBindingsDll)</HintPath>
-      <Private>true</Private>
-    </Reference>
+    <ProjectReference Include="../Rbfx.UserCode/Rbfx.UserCode.Bindings/Rbfx.UserCode.Bindings.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio">

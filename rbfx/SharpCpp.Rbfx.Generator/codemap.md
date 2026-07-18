@@ -135,7 +135,7 @@ Dual-output logging (console + file) via `Log()` helper. Errors and exceptions a
 
 ### Entry Point
 
-Invoked from CMake via `dotnet SharpCpp.Rbfx.Generator.dll` with positional options. The `sharpcpp-rbfx-generator` CMake target builds the DLL and records its build stamp; `sharpcpp-generate-rbfx` invokes it as a custom command.
+MSBuild builds the generator DLL through a `ProjectReference` before invoking the auxiliary CMake graph. CMake's `sharpcpp-generate-rbfx` custom command then runs that already-built DLL with positional options and records the generated-source stamp.
 
 ### Associated Configuration
 

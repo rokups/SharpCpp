@@ -12,8 +12,9 @@ SharpCpp is a C++/C# binding generator for the **[rbfx game engine](https://gith
 
 | File | Purpose |
 |------|---------|
-| `CMakeLists.txt` | Root CMake build that wires the full managed + native build, test registration, and E2E generation |
-| `SharpCpp.slnx` | .NET solution file for managed projects |
+| `SharpCpp.slnx` | Primary build entry point for managed projects, generation, and native prerequisites |
+| `native/SharpCpp.Native/SharpCpp.Native.csproj` | MSBuild orchestration project that invokes the auxiliary native CMake aggregate |
+| `CMakeLists.txt` | Embeddable native-only CMake entry point; always exposes `SharpCpp::NativeSupport` |
 | `src/SharpCpp.Tool/Program.cs` | CLI composition root — `sample-metadata` and `generate-sample` commands |
 | `rbfx/SharpCpp.Rbfx.Generator/Program.cs` | rbfx-specific generator entry point (phase-1) |
 | `rbfx/Rbfx.UserCode/Rbfx.UserCode.Generator/Program.cs` | User-code generator (phase-2, imports phase-1 metadata) |
@@ -60,7 +61,8 @@ SharpCpp is a C++/C# binding generator for the **[rbfx game engine](https://gith
 | `src/SharpCpp.Tool/` | **Composition root** — CLI entry point that wires Model → Parsing → Pipeline → Rendering → Metadata export, drives the `generate-sample` and `sample-metadata` commands | [View Map](src/SharpCpp.Tool/codemap.md) |
 | `include/SharpCpp/` | **Native support headers** — header-only C++ interop layer: Marshaller<T> templates (cpp_type/abi_type mapping), MarshallerInvoker, P/Invoke export macros, OptionalValue<T> ABI bridge | [View Map](include/SharpCpp/codemap.md) |
 | `rbfx/` | **rbfx game engine integration** — Two-phase generation pipeline with staleness management, CMake target topology, runtime dependency deployment, and E2E validation against the SDK | [View Map](rbfx/codemap.md) |
-| `cmake/` | **Build infrastructure** — dotnet build props/targets consumed by `sharpcpp_add_dotnet_build_target` | [View Map](cmake/codemap.md) |
+| `cmake/` | **Native helpers** — shared output placement and generated-source staleness handling |
+| `eng/` | **Managed build infrastructure** — centralized output paths, native dependency wiring, and late generated-source inclusion |
 
 ## Native Integration Points
 
@@ -76,9 +78,21 @@ SharpCpp is a C++/C# binding generator for the **[rbfx game engine](https://gith
 ## Build & Test
 
 ```bash
-cmake --preset dev               # Configure
-cmake --build --preset Debug      # Build managed + native
-ctest --preset Debug              # Run all tests
+dotnet restore SharpCpp.slnx
+dotnet build SharpCpp.slnx --configuration Debug --no-restore
+dotnet test SharpCpp.slnx --configuration Debug --no-build --no-restore
+```
+
+All outputs stay below `build/`: managed/native runtime artifacts in
+`build/bin/<Configuration>`, managed state in `build/obj`, and CMake state plus
+generated sources in `build/native/<preset>`.
+
+Native consumers may embed only the reusable support target without enabling
+SharpCpp's development graph:
+
+```cmake
+add_subdirectory(SharpCpp "${CMAKE_CURRENT_BINARY_DIR}/SharpCpp" EXCLUDE_FROM_ALL)
+target_link_libraries(MyNativeBindings PRIVATE SharpCpp::NativeSupport)
 ```
 
 ## Reading Guide

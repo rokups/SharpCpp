@@ -80,7 +80,7 @@ public sealed class IgnoreTests
             dir = Path.Combine(
                 Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? ".",
                 "..", "..", "..", "..", "..",
-                "out", "build", "dev", "generated", "sharpcpp-e2e");
+                "build", "native", "dev", "generated", "sharpcpp-e2e");
         }
 
         return Path.GetFullPath(dir);

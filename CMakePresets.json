@@ -10,7 +10,11 @@
       "name": "dev",
       "displayName": "Dev",
       "generator": "Ninja Multi-Config",
-      "binaryDir": "${sourceDir}/out/build/${presetName}"
+      "binaryDir": "${sourceDir}/build/native/${presetName}",
+      "cacheVariables": {
+        "SHARPCPP_BUILD_E2E": "ON",
+        "SHARPCPP_BUILD_RBFX": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -19,7 +23,7 @@
       "configurePreset": "dev",
       "configuration": "Debug",
       "targets": [
-        "sharpcpp-all"
+        "sharpcpp-native"
       ]
     },
     {
@@ -27,58 +31,8 @@
       "configurePreset": "dev",
       "configuration": "Release",
       "targets": [
-        "sharpcpp-all"
+        "sharpcpp-native"
       ]
-    },
-    {
-      "name": "tests-debug",
-      "configurePreset": "dev",
-      "configuration": "Debug",
-      "targets": [
-        "sharpcpp-tests"
-      ]
-    },
-    {
-      "name": "tests-release",
-      "configurePreset": "dev",
-      "configuration": "Release",
-      "targets": [
-        "sharpcpp-tests"
-      ]
-    },
-    {
-      "name": "package-rbfx-debug",
-      "configurePreset": "dev",
-      "configuration": "Debug",
-      "targets": [
-        "sharpcpp-package-rbfx-inputs"
-      ]
-    },
-    {
-      "name": "package-rbfx-release",
-      "configurePreset": "dev",
-      "configuration": "Release",
-      "targets": [
-        "sharpcpp-package-rbfx-inputs"
-      ]
-    }
-  ],
-  "testPresets": [
-    {
-      "name": "Debug",
-      "configurePreset": "dev",
-      "configuration": "Debug",
-      "output": {
-        "outputOnFailure": true
-      }
-    },
-    {
-      "name": "Release",
-      "configurePreset": "dev",
-      "configuration": "Release",
-      "output": {
-        "outputOnFailure": true
-      }
     }
   ]
 }

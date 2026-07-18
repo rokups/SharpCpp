@@ -1,7 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <AssemblyName>SharpCpp.Rbfx.Bindings</AssemblyName>
-    <SharpCppGeneratedDir Condition="'$(SharpCppGeneratedDir)' == ''">$(BaseIntermediateOutputPath)generated/SharpCpp.Rbfx</SharpCppGeneratedDir>
     <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <NoWarn>$(NoWarn);CS0108;CS0109</NoWarn>
@@ -14,7 +13,4 @@
                       ReferenceOutputAssembly="false" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(SharpCppGeneratedDir)' != '' and Exists('$(SharpCppGeneratedDir)')">
-    <Compile Include="$(SharpCppGeneratedDir)/**/*.cs" LinkBase="Generated" Visible="false" />
-  </ItemGroup>
 </Project>

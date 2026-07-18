@@ -2,126 +2,21 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "CMake: Configure",
-      "type": "shell",
-      "command": "cmake",
-      "args": ["--preset", "dev"],
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "CMake: Build Debug",
-      "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "--preset", "Debug"],
-      "group": "build",
-      "dependsOn": "CMake: Configure",
-      "problemMatcher": []
-    },
-    {
-      "label": "CMake: Build Rbfx.Application (Debug)",
-      "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "--preset", "Debug", "--target", "sharpcpp-rbfx-application"],
-      "group": "build",
-      "dependsOn": "CMake: Configure",
-      "problemMatcher": []
-    },
-    {
-      "label": "Run: Rbfx.Application (Debug)",
-      "type": "shell",
+      "label": "Build: SharpCpp (Debug)",
+      "type": "process",
       "command": "dotnet",
-      "args": ["Rbfx.Application.dll"],
-      "options": {
-        "cwd": "${workspaceFolder}/out/build/dev/bin/Debug",
-        "env": {
-          "LD_LIBRARY_PATH": "${workspaceFolder}/out/build/dev/bin/Debug",
-          "LD_PRELOAD": "${workspaceFolder}/out/build/dev/bin/Debug/libUrho3D.so",
-          "URHO3D_PREFIX_PATH": "${workspaceFolder}/out/rbfx-sdk/bin"
-        }
-      },
-      "problemMatcher": []
+      "args": ["build", "SharpCpp.slnx", "--configuration", "Debug"],
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": "$msCompile"
     },
     {
-      "label": "CMake: Build Release",
-      "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "--preset", "Release"],
-      "group": "build",
-      "dependsOn": "CMake: Configure",
-      "problemMatcher": []
-    },
-    {
-      "label": "CMake: Build Model (Debug)",
-      "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "--preset", "Debug", "--target", "sharpcpp-model"],
-      "group": "build",
-      "dependsOn": "CMake: Configure",
-      "problemMatcher": []
-    },
-    {
-      "label": "CMake: Build Metadata (Debug)",
-      "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "--preset", "Debug", "--target", "sharpcpp-metadata"],
-      "group": "build",
-      "dependsOn": "CMake: Configure",
-      "problemMatcher": []
-    },
-    {
-      "label": "CMake: Build Tool (Debug)",
-      "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "--preset", "Debug", "--target", "sharpcpp-tool"],
-      "group": "build",
-      "dependsOn": "CMake: Configure",
-      "problemMatcher": []
-    },
-    {
-      "label": "CMake: Build Managed (Debug)",
-      "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "--preset", "Debug", "--target", "sharpcpp-managed"],
-      "group": "build",
-      "dependsOn": "CMake: Configure",
-      "problemMatcher": []
-    },
-    {
-      "label": "CMake: Build Tests (Debug)",
-      "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "--preset", "tests-debug"],
-      "group": "build",
-      "dependsOn": "CMake: Configure",
-      "problemMatcher": []
-    },
-    {
-      "label": "CMake: Build Tests (Release)",
-      "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "--preset", "tests-release"],
-      "group": "build",
-      "dependsOn": "CMake: Configure",
-      "problemMatcher": []
-    },
-    {
-      "label": "CTest: Run All (Debug)",
-      "type": "shell",
-      "command": "ctest",
-      "args": ["--preset", "Debug"],
-      "group": "test",
-      "dependsOn": "CMake: Build Tests (Debug)",
-      "problemMatcher": []
-    },
-    {
-      "label": "CTest: Run All (Release)",
-      "type": "shell",
-      "command": "ctest",
-      "args": ["--preset", "Release"],
-      "group": "test",
-      "dependsOn": "CMake: Build Tests (Release)",
-      "problemMatcher": []
+      "label": "Test: SharpCpp (Debug)",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["test", "SharpCpp.slnx", "--configuration", "Debug", "--no-build", "--no-restore"],
+      "group": { "kind": "test", "isDefault": true },
+      "dependsOn": "Build: SharpCpp (Debug)",
+      "problemMatcher": "$msCompile"
     }
   ]
 }

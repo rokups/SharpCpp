@@ -223,61 +223,66 @@ The native runtime support remains header-first under `include/SharpCpp/`:
 
 Rule: runtime support headers may expose fixed contracts the generator targets, but generator logic must not inspect arbitrary helper bodies.
 
-## CMake blueprint
+## Build-system blueprint
 
-CMake remains the outer build orchestrator for v2. It owns:
+MSBuild is the outer orchestrator. `SharpCpp.slnx` is the canonical restore,
+build, and test entry point. Ordinary `ProjectReference` edges build generator
+tools before the SDK-style `SharpCpp.Native` orchestration project invokes the
+auxiliary CMake graph. Generated binding projects reference that orchestration
+project with `ReferenceOutputAssembly="false"`, making generation and native
+compilation explicit prerequisites of managed compilation.
 
-- configure/build/test entrypoints
-- native target graph
-- .NET build orchestration
-- generated-output normalization
-- consumer integration helpers
-- install/export packaging of native headers, support assets, and metadata
+CMake owns only native concerns:
 
-Rule: CMake wires stages together. It must not become a second policy engine for binding semantics.
+- the reusable `SharpCpp::NativeSupport` interface target
+- generation commands that invoke already-built generator DLLs
+- generated native thunk libraries
+- native runtime dependency deployment
+
+CMake never restores or builds managed projects. Rule: CMake wires native
+stages together; it must not become a second policy engine for binding semantics.
 
 ### CMake target classes
 
-The build should distinguish these target classes explicitly:
+The combined build distinguishes these target classes explicitly:
 
-1. **managed library/tool targets**
-2. **generation targets**
-3. **native thunk library targets**
-4. **aggregate convenience targets**
-5. **test targets**
-6. **install/package targets**
+1. **managed library/tool projects** — ordinary SDK-style C# projects
+2. **native orchestration project** — `SharpCpp.Native`
+3. **generation targets** — CMake commands invoking prebuilt tools
+4. **native thunk library targets**
+5. **the `sharpcpp-native` aggregate**
 
 ### Proposed core targets
 
 ```text
-sharpcpp-model
-sharpcpp-parsing
-sharpcpp-pipeline
-sharpcpp-rendering-csharp
-sharpcpp-rendering-cpp
-sharpcpp-metadata
-sharpcpp-tool
-sharpcpp-support
-sharpcpp-native-support   (INTERFACE)
+SharpCpp.Model
+SharpCpp.Metadata
+SharpCpp.Parsing
+SharpCpp.Pipeline
+SharpCpp.Rendering
+SharpCpp.Tool
+SharpCpp.Support
+SharpCpp.Native
+SharpCpp::NativeSupport   (CMake INTERFACE target)
 ```
 
 Notes:
 
-- managed targets are built through `dotnet msbuild` orchestration targets
-- `sharpcpp-native-support` stays an `INTERFACE` target exporting include directories / compile features for native consumers
-- exact target names may change, but the split should remain visible in the target graph
-- while v1 and v2 coexist, these targets must use a v2-distinct prefix even if the long-term post-migration names later simplify
+- managed projects use ordinary `ProjectReference` dependencies
+- `SharpCpp.Native` is a build-only project reference from generated consumers
+- `SharpCpp::NativeSupport` exports native include directories and compile features
+- `add_subdirectory(SharpCpp ...)` exposes reusable native support without enabling tests or rbfx by default
 
 ### Proposed pipeline target pattern
 
 Each bindings pipeline should expand to a predictable trio plus optional test target:
 
 ```text
-<name>-generator     # build generator assembly/project
-<name>-generate      # run generator, emit .g.cs / .g.cpp / metadata
-<name>-managed       # build managed bindings assembly
-<name>-native        # compile generated native thunk library
-<name>-tests         # optional contract/E2E target
+<name>.Generator project   # MSBuild builds the generator assembly
+sharpcpp-generate-<name>   # CMake invokes the prebuilt generator
+<name> native target       # CMake compiles generated thunks
+<name>.Bindings project    # MSBuild includes generated C# before CoreCompile
+<name>.Tests project       # ordinary managed test project
 ```
 
 This preserves a clean separation between:
@@ -286,25 +291,15 @@ This preserves a clean separation between:
 - running generation
 - compiling generated outputs
 
-### Aggregate targets
-
-Keep a small number of human-facing aggregate targets:
-
-```text
-sharpcpp2-managed
-sharpcpp2-native
-sharpcpp2-all
-sharpcpp2-tests
-```
-
-Avoid convenience targets that encode experiments or one-off workflows. The removed playground should not reappear as a build target family.
+The only native aggregate required by MSBuild is `sharpcpp-native`. Managed and
+test aggregation belongs to `SharpCpp.slnx` rather than duplicate CMake targets.
 
 ## Generated output layout
 
 Generated outputs should stay under the build tree, not source tree:
 
 ```text
-${CMAKE_BINARY_DIR}/generated/<pipeline-name>/
+build/native/<preset>/generated/<pipeline-name>/
   <stem>.Bindings.g.cs
   <stem>.Bindings.g.cpp
   <stem>.Bindings.Aliases.g.cs
@@ -314,9 +309,10 @@ ${CMAKE_BINARY_DIR}/generated/<pipeline-name>/
 Other build-state roots should also stay explicit:
 
 ```text
-${CMAKE_BINARY_DIR}/bin/$<CONFIG>/          # runtime/load outputs
-${CMAKE_BINARY_DIR}/obj/managed/            # managed intermediates
-${CMAKE_BINARY_DIR}/cmake/dotnet/           # generated props/state/templates
+build/bin/<Configuration>/                  # managed and native runtime outputs
+build/obj/managed/<Configuration>/<Project>/# managed compiler intermediates
+build/obj/restore/<Project>/                # NuGet/MSBuild restore state
+build/native/<preset>/                      # CMake state and generated sources
 ```
 
 Rules:
@@ -330,84 +326,27 @@ The exact generated file contract and cross-module import rules are defined in [
 
 ## Configure/preset blueprint
 
-Presets should stay small and role-oriented.
+Presets are native-only conveniences. The `dev` preset enables the synthetic
+E2E and rbfx development subtrees and writes to `build/native/dev`. The
+`SharpCpp.Native` project configures that preset only when its CMake cache is
+missing, then builds `sharpcpp-native` with the active MSBuild configuration.
 
-### Configure presets
+## Consumer-facing build APIs
 
-Recommended baseline:
+Managed consumers use direct `ProjectReference` entries to SharpCpp projects.
+Central properties are overridable so a parent repository may place all SharpCpp
+outputs in its own build tree.
 
-```text
-dev        # local multi-config developer setup
-ci         # deterministic CI setup with minimal optional components
-release    # packaging / distribution configure shape when materially different
+Native consumers use the target API directly:
+
+```cmake
+add_subdirectory(SharpCpp "${CMAKE_CURRENT_BINARY_DIR}/SharpCpp" EXCLUDE_FROM_ALL)
+target_link_libraries(MyBindings PRIVATE SharpCpp::NativeSupport)
 ```
 
-### Build presets
-
-Recommended baseline:
-
-```text
-Debug
-Release
-tests-debug
-tests-release
-```
-
-Optional consumer-specific presets such as rbfx can remain, but they should layer on top of the same target model instead of introducing a different orchestration shape.
-
-### Test presets
-
-Keep `ctest` presets aligned with build presets (`Debug`, `Release`). E2E tests remain first-class.
-
-## Consumer-facing CMake API
-
-The current API shape is directionally correct and should remain responsibility-based:
-
-- `sharpcpp_initialize_consumer(...)`
-- `sharpcpp_add_dotnet_build_target(...)`
-- `sharpcpp_add_native_support_target(...)`
-- `sharpcpp_add_binding_pipeline(...)`
-
-Expected responsibilities:
-
-### `sharpcpp_initialize_consumer(...)`
-
-Owns global build roots and shared state:
-
-- package root
-- consumer root
-- output root
-- intermediate root
-- generated props/state files
-- template mode / shared build knobs
-
-### `sharpcpp_add_dotnet_build_target(...)`
-
-Owns managed build orchestration only:
-
-- restore/build inputs
-- stamp files
-- target dependencies
-- output assembly identity
-
-It must not know binding semantics.
-
-### `sharpcpp_add_native_support_target(...)`
-
-Owns native include/link usage requirements for support headers and support libraries.
-
-### `sharpcpp_add_binding_pipeline(...)`
-
-Owns the binding-pipeline composition contract:
-
-- generator project/target
-- bindings project/target
-- generated-root contract
-- imported metadata inputs
-- native include/link options
-- generated output normalization
-
-This function is the build-system mirror of the generator pipeline. It should stay declarative.
+When SharpCpp is embedded, the synthetic E2E and rbfx development graphs default
+off. Embedding does not require the rbfx SDK or .NET and does not alter the
+parent's `BUILD_SHARED_LIBS`, package-search paths, or imported configuration maps.
 
 ## Reuse rule for v1 build logic
 

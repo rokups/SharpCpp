@@ -1,4 +1,3 @@
 <Project>
-  <Import Project="$(MSBuildThisFileDirectory)cmake/dotnet/SharpCpp.Build.props"
-          Condition="'$(SharpCppBuildPropsImported)' != 'true' and Exists('$(MSBuildThisFileDirectory)cmake/dotnet/SharpCpp.Build.props')" />
+  <Import Project="$(MSBuildThisFileDirectory)eng/SharpCpp.Build.props" />
 </Project>
