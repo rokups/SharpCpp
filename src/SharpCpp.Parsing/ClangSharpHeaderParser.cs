@@ -1132,6 +1132,8 @@ public sealed partial class ClangSharpHeaderParser
             function.Parameters.Add(param);
         }
 
+        ApplyInferredInstanceMethodInputPointerArrayMetadata(function);
+
         function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(methodDecl, nativeName)}");
 
         if (ignoreReason is not null)
@@ -1222,6 +1224,8 @@ public sealed partial class ClangSharpHeaderParser
             ApplyCallbackDelegateAttribute(templatedFunction.Handle, parameter.Handle, templateParam, ref ignoreReason);
             function.Parameters.Add(templateParam);
         }
+
+        ApplyInferredInstanceMethodInputPointerArrayMetadata(function);
 
         function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(templateDecl, nativeName)}");
 
@@ -4010,6 +4014,65 @@ public sealed partial class ClangSharpHeaderParser
             _ => throw new NotSupportedException($"Unsupported pass-kind attribute '{match.Name}'.")
         };
         return true;
+    }
+
+    private static void ApplyInferredInstanceMethodInputPointerArrayMetadata(FunctionBinding function)
+    {
+        var countParameterSeen = false;
+        var handlePointerArraySeen = false;
+
+        foreach (var parameter in function.Parameters)
+        {
+            if (IsArrayCountParameter(parameter))
+                countParameterSeen = true;
+
+            if (countParameterSeen && IsInputHandlePointerArrayParameter(parameter))
+            {
+                handlePointerArraySeen = true;
+                continue;
+            }
+
+            if (!handlePointerArraySeen)
+                continue;
+
+            if (parameter.Direction == BindingParameterDirection.In &&
+                parameter.AbiKind == BindingParameterAbiKind.Pointer &&
+                parameter.Type.Kind == BindingTypeKind.Primitive)
+            {
+                parameter.SetMetadata(MetadataKeys.InputPointerArray, true);
+                continue;
+            }
+
+            handlePointerArraySeen = false;
+        }
+    }
+
+    private static bool IsArrayCountParameter(ParameterBinding parameter)
+    {
+        if (parameter.Direction != BindingParameterDirection.In ||
+            parameter.AbiKind != BindingParameterAbiKind.Value ||
+            parameter.Type.Kind != BindingTypeKind.Primitive ||
+            parameter.Type.PrimitiveKind is not (
+                BindingPrimitiveKind.Int8 or BindingPrimitiveKind.UInt8 or
+                BindingPrimitiveKind.Int16 or BindingPrimitiveKind.UInt16 or
+                BindingPrimitiveKind.Int32 or BindingPrimitiveKind.UInt32 or
+                BindingPrimitiveKind.Int64 or BindingPrimitiveKind.UInt64 or
+                BindingPrimitiveKind.NativeInt or BindingPrimitiveKind.NativeUInt))
+        {
+            return false;
+        }
+
+        return parameter.NativeName.StartsWith("Num", StringComparison.OrdinalIgnoreCase) ||
+            parameter.NativeName.Contains("Count", StringComparison.OrdinalIgnoreCase) ||
+            parameter.NativeName.EndsWith("Length", StringComparison.OrdinalIgnoreCase) ||
+            parameter.NativeName.EndsWith("Size", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsInputHandlePointerArrayParameter(ParameterBinding parameter)
+    {
+        return parameter.Direction == BindingParameterDirection.In &&
+            parameter.AbiKind == BindingParameterAbiKind.Pointer &&
+            parameter.Type.Kind == BindingTypeKind.Handle;
     }
 
     private static void ApplyCallbackDelegateAttribute(

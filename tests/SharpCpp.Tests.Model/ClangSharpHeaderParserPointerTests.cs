@@ -30,6 +30,37 @@ public sealed class ClangSharpHeaderParserPointerTests
         Assert.Equal("const char**", source.CppTypeName);
     }
 
+    [Fact]
+    public void Parse_infers_parallel_input_primitive_pointer_arrays()
+    {
+        var compilation = ParseTempHeader(
+            "Sample.hpp",
+            """
+            struct Buffer {};
+
+            struct DeviceContext
+            {
+                virtual void SetBuffers(
+                    unsigned int startSlot,
+                    unsigned int numBuffers,
+                    Buffer* const* buffers,
+                    const unsigned long long* offsets) = 0;
+
+                virtual void SetValue(const unsigned long long* value) = 0;
+            };
+            """,
+            ["-x", "c++", "-std=c++20"]);
+
+        var deviceContext = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "DeviceContext");
+        var setBuffers = Assert.Single(deviceContext.Members.OfType<FunctionBinding>(), static function => function.NativeName == "SetBuffers");
+        var bufferOffsets = Assert.Single(setBuffers.Parameters, static parameter => parameter.NativeName == "offsets");
+        var setValue = Assert.Single(deviceContext.Members.OfType<FunctionBinding>(), static function => function.NativeName == "SetValue");
+        var value = Assert.Single(setValue.Parameters);
+
+        Assert.True(bufferOffsets.HasMetadata(MetadataKeys.InputPointerArray));
+        Assert.False(value.HasMetadata(MetadataKeys.InputPointerArray));
+    }
+
     private static void AssertPointer(BindingType type, string cppTypeName)
     {
         Assert.Equal(BindingTypeKind.Handle, type.Kind);
