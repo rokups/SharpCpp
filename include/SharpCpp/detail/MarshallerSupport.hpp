@@ -401,6 +401,7 @@ struct MarshallerInvoker
     }
 
     template <typename FT, typename TCppArgumentTuple = typename detail::FunctionTraits<FT>::argument_tuple, typename TCallable, typename... TAbiArgs>
+        requires(!std::is_same_v<std::remove_cvref_t<TCallable>, std::add_pointer_t<FT>>)
     static auto invoke_owned_as(TCallable&& callable, TAbiArgs&&... abiArguments)
     {
         if constexpr (std::is_member_function_pointer_v<std::remove_reference_t<TCallable>>)
@@ -444,6 +445,7 @@ struct MarshallerInvoker
     }
 
     template <typename FT, typename TCppArgumentTuple = typename detail::FunctionTraits<FT>::argument_tuple, typename TCallable, typename... TAbiArgs>
+        requires(!std::is_same_v<std::remove_cvref_t<TCallable>, std::add_pointer_t<FT>>)
     static decltype(auto) invoke_as(TCallable&& callable, TAbiArgs&&... abiArguments)
     {
         // Detect member function pointers and route to the member-path.
