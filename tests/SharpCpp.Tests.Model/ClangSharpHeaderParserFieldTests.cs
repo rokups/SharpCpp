@@ -34,6 +34,33 @@ public sealed class ClangSharpHeaderParserFieldTests
         AssertCharPointerField(entryPoint);
     }
 
+    [Fact]
+    public void Parse_maps_function_pointer_fields_to_intptr_without_ignoring_them()
+    {
+        var compilation = ParseTempHeader(
+            "Sample.hpp",
+            """
+            namespace Test
+            {
+            typedef int (*Writer)(const unsigned char* data, unsigned long size);
+
+            struct Picture
+            {
+                Writer writer = nullptr;
+            };
+            }
+            """,
+            ["-x", "c++", "-std=c++20"]);
+
+        var record = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "Test::Picture");
+        var writer = Assert.Single(record.Members.OfType<FieldBinding>(), static field => field.NativeName == "writer");
+
+        Assert.False(writer.IsIgnored(), writer.GetIgnoreReason());
+        Assert.True(writer.IsPointer);
+        Assert.Equal(BindingPrimitiveKind.IntPtr, writer.Type.PrimitiveKind);
+        Assert.True(writer.GetMetadata<bool>(MetadataKeys.FunctionPointerField));
+    }
+
     private static void AssertCharPointerField(FieldBinding field)
     {
         Assert.False(field.IsIgnored(), field.GetIgnoreReason());

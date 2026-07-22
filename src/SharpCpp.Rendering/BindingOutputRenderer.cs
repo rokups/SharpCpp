@@ -301,6 +301,23 @@ public static partial class BindingOutputRenderer
                     writer.Write(RenderManagedWrapperMethod(compilation, function));
                     freeFunctionDeclarations.Add(RenderManagedImportDeclaration(compilation, function));
 
+                    if (function.GetMetadata<bool>(MetadataKeys.ExposeNativeFunctionPointer))
+                    {
+                        writer.WriteLine();
+                        writer.Write($$"""
+                            public static global::System.IntPtr {{function.ManagedName}}FunctionPointer
+                            {
+                                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                                get => __PInvoke.{{function.ImportMethodName}}_FunctionPointer();
+                            }
+                            """);
+                        freeFunctionDeclarations.Add($$"""
+                            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}_function_pointer", StringMarshalling = StringMarshalling.Utf8)]
+                            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                            internal static partial global::System.IntPtr {{function.ImportMethodName}}_FunctionPointer();
+                            """);
+                    }
+
                     if (HasNativeDefaultDispatchParams(function) || HasUndefaultableParams(function))
                         freeFunctionDeclarations.Add(RenderUnexpressibleDefaultFreeFunctionImport(compilation, function));
                 }
@@ -1079,6 +1096,9 @@ public static partial class BindingOutputRenderer
 
         if (TryGetNativeFieldAccessExpression(field, selfExpression, out var accessExpression))
         {
+            if (field.GetMetadata<bool>(MetadataKeys.FunctionPointerField))
+                return $"return reinterpret_cast<void*>({accessExpression});";
+
             if (plan.BorrowsStorage)
             {
                 return $"return &({accessExpression});";
@@ -1140,6 +1160,9 @@ public static partial class BindingOutputRenderer
 
         if (TryGetNativeFieldAccessExpression(field, selfExpression, out var accessExpression))
         {
+            if (field.GetMetadata<bool>(MetadataKeys.FunctionPointerField))
+                return $"{accessExpression} = reinterpret_cast<decltype({accessExpression})>(value);";
+
             if (plan.SetterMode == FieldSetterMode.BorrowedStorage)
             {
                 return $$"""
@@ -4653,6 +4676,18 @@ public static partial class BindingOutputRenderer
             writer.Write("""
                 }
                 """);
+
+            if (function.GetMetadata<bool>(MetadataKeys.ExposeNativeFunctionPointer))
+            {
+                writer.WriteLine();
+                writer.Write($$"""
+                    SHARPCPP_EXPORT ret_t<void*> {{function.EntryPointName}}_function_pointer()
+                    {
+                    using FT = {{signature}};
+                    return reinterpret_cast<void*>(static_cast<std::add_pointer_t<FT>>(&{{function.CppQualifiedName}}));
+                    }
+                    """);
+            }
 
             if (HasNativeDefaultDispatchParams(function) || HasUndefaultableParams(function))
             {

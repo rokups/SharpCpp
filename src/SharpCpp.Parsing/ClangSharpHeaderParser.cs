@@ -1394,6 +1394,14 @@ public sealed partial class ClangSharpHeaderParser
             ? "fixed-size array fields are not yet supported in this bootstrap surface"
             : null;
         var (fieldType, ignoreReason) = TryMapType(fieldDecl.Type.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        var canonicalFieldType = fieldDecl.Type.Handle.CanonicalType;
+        var isFunctionPointer = TypeIsPointer(canonicalFieldType)
+            && TypeIsFunctionProto(canonicalFieldType.PointeeType.CanonicalType);
+        if (isFunctionPointer)
+        {
+            fieldType = BindingType.IntPtr;
+            ignoreReason = null;
+        }
         if (ShouldExposeCharPointerFieldAsIntPtr(fieldDecl.Type.Handle))
         {
             fieldType = BindingType.IntPtr;
@@ -1410,11 +1418,13 @@ public sealed partial class ClangSharpHeaderParser
             record.CppQualifiedName,
             isReadOnly: fieldDecl.Type.Handle.IsConstQualified,
             isReference: TypeIsAnyReference(fieldDecl.Type.Handle),
-            isPointer: TypeIsPointer(fieldDecl.Type.Handle))
+            isPointer: TypeIsPointer(fieldDecl.Type.Handle.CanonicalType))
         {
             AccessModifier = MapAccessModifier(fieldDecl.Access)
         };
         field.ReturnsOwnedHandle = ShouldReturnOwnedHandle(fieldDecl.Type.Handle, field.Type, managedTypeOverrides, preferReturnOverride: false);
+        if (isFunctionPointer)
+            field.SetMetadata(MetadataKeys.FunctionPointerField, true);
 
         if (ignoreReason is not null)
         {
