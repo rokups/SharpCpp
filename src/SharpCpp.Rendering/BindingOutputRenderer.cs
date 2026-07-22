@@ -5769,6 +5769,7 @@ public static partial class BindingOutputRenderer
             var importExpression = BuildManagedPublicToImportExpression(compilation, parameter.Type, valueExpression);
             return parameter.Direction switch
             {
+                BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => $"in {valueExpression}",
                 BindingParameterDirection.Ref => $"ref {valueExpression}",
                 BindingParameterDirection.Out => $"out {valueExpression}",
                 _ => importExpression

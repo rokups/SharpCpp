@@ -4609,7 +4609,10 @@ public sealed partial class ClangSharpHeaderParser
     private static void RegisterEnum(EnumDecl enumDecl, BindingCompilation compilation, IDictionary<string, EnumBinding> enumsByName, string? headerIncludePath)
     {
         var nativeName = enumDecl.Name ?? enumDecl.Spelling.ToString();
-        if (string.IsNullOrWhiteSpace(nativeName) || enumsByName.ContainsKey(nativeName))
+        if (string.IsNullOrWhiteSpace(nativeName) ||
+            nativeName.Contains("(unnamed", StringComparison.Ordinal) ||
+            nativeName.Contains("(anonymous", StringComparison.Ordinal) ||
+            enumsByName.ContainsKey(nativeName))
         {
             return;
         }

@@ -141,6 +141,11 @@ Current worktree verification passes with generic complex C++ values crossing ca
 
 ## Recently Fixed
 
+- **Anonymous C enums and primitive input-pointer forwarding are generated correctly**:
+  - The parser skips Clang diagnostic spellings for anonymous enums instead of emitting invalid C# enum identifiers.
+  - Managed wrappers preserve `in` when forwarding primitive pointer parameters to their P/Invoke declarations, avoiding one-value temporaries when the native parameter addresses a buffer.
+  - Added focused parser and renderer regressions covering both cases.
+
 - **The build is C#-centric and directly consumable**:
   - Central MSBuild properties place managed/native outputs, intermediates, restore state, generated files, and package artifacts below `build/`.
   - Generated binding projects depend on one `SharpCpp.Native` orchestration project; ordinary `ProjectReference` edges build all generator tools before its single `sharpcpp-native` CMake invocation.

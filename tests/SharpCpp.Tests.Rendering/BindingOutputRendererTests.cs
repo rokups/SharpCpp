@@ -12,6 +12,32 @@ namespace SharpCpp.Tests.Rendering;
 public sealed class BindingOutputRendererTests
 {
     [Fact]
+    public void Managed_primitive_input_pointer_invocation_preserves_reference()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });
+        var function = new FunctionBinding(
+            "function:load_from_memory",
+            "load_from_memory",
+            "LoadFromMemory",
+            BindingType.IntPtr,
+            "load_from_memory");
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:load_from_memory:buffer",
+            "buffer",
+            "buffer",
+            BindingType.UInt8,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Pointer,
+            "const unsigned char*"));
+        compilation.Members.Add(function);
+
+        var managedOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample")
+            .Files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("__PInvoke.LoadFromMemory(in buffer)", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Managed_record_declarations_include_configured_static_interfaces()
     {
         var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });
