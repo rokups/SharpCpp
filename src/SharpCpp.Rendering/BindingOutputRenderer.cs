@@ -4650,6 +4650,7 @@ public static partial class BindingOutputRenderer
             var abiArguments = string.Join(", ", function.Parameters.Select(static p => p.NativeName));
             var signature = BuildNativeFunctionSignature(function);
             var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", function.Parameters.Select(static p => p.CppTypeName));
+            var useNativeDefaultArgumentAdapter = function.GetMetadata<bool>(MetadataKeys.NativeDefaultArgumentAdapter);
 
             writer.WriteLine();
             writer.Write($$"""
@@ -4658,7 +4659,23 @@ public static partial class BindingOutputRenderer
                 using FT = {{signature}};
                 """);
 
-            if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+            if (useNativeDefaultArgumentAdapter)
+            {
+                var cppParameterList = string.Join(", ", function.Parameters.Select(
+                    static parameter => $"{parameter.CppTypeName} {parameter.NativeName}"));
+                writer.Write($$"""
+                    auto fn = []({{cppParameterList}}) -> decltype(auto)
+                    {
+                    return {{function.CppQualifiedName}}({{abiArguments}});
+                    };
+                    {{(function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
+                        ? $"MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(fn{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
+                        : RequiresOwnedRecordValueReturn(function)
+                            ? $"return MarshallerInvoker::invoke_owned_as<{marshallerTemplateArguments}>(fn{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
+                            : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(fn{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
+                    """);
+            }
+            else if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
             {
                 writer.Write($$"""
                     MarshallerInvoker::invoke_as<{{marshallerTemplateArguments}}>(static_cast<std::add_pointer_t<FT>>(&{{function.CppQualifiedName}}){{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});

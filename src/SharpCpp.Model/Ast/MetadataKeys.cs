@@ -36,6 +36,7 @@ public static class MetadataKeys
     public const string ManagedStaticInterfacesAbstract = "managed_static_interfaces_abstract";
     public const string NativeFieldAccessExpression = "native_field_access_expression";
     public const string NativeDefaultValueExpression = "native_default_value_expression";
+    public const string NativeDefaultArgumentAdapter = "native_default_argument_adapter";
     public const string InputPointerArray = "input_pointer_array";
 }
 

@@ -4348,6 +4348,43 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Native_default_argument_adapter_calls_free_function_through_lambda()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Sample.hpp" });
+        var function = new FunctionBinding(
+            "function:input_text",
+            "InputText",
+            "InputText",
+            BindingType.Boolean,
+            "sharpcpp_sample_input_text",
+            "bool",
+            "Sample::InputText");
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:input_text:value",
+            "value",
+            "value",
+            BindingType.Int32,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "int"));
+        function.SetMetadata(MetadataKeys.NativeDefaultArgumentAdapter, true);
+        compilation.Members.Add(function);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("auto fn = [](int value) -> decltype(auto)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return Sample::InputText(value);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return MarshallerInvoker::invoke_as<FT, std::tuple<int>>(fn, value);", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("static_cast<std::add_pointer_t<FT>>(&Sample::InputText)", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Generic_array_helpers_honor_entrypoint_prefix()
     {
         var compilation = new BindingCompilation(
