@@ -7,6 +7,8 @@
     <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
 
     <SharpCppNativePreset Condition="'$(SharpCppNativePreset)' == ''">dev</SharpCppNativePreset>
+    <SharpCppCMakeCommand Condition="'$(SharpCppCMakeCommand)' == '' and $([MSBuild]::IsOSPlatform(`Linux`))">/usr/bin/cmake</SharpCppCMakeCommand>
+    <SharpCppCMakeCommand Condition="'$(SharpCppCMakeCommand)' == ''">cmake</SharpCppCMakeCommand>
     <SharpCppCMakeSourceDir Condition="'$(SharpCppCMakeSourceDir)' == ''">$(SharpCppRoot)</SharpCppCMakeSourceDir>
     <SharpCppNativeBuildDir Condition="'$(SharpCppNativeBuildDir)' == ''">$(SharpCppBuildRoot)/native/$(SharpCppNativePreset)</SharpCppNativeBuildDir>
     <SharpCppNativeLockFile Condition="'$(SharpCppNativeLockFile)' == ''">$(SharpCppNativeBuildDir)/sharpcpp-native.lock</SharpCppNativeLockFile>
