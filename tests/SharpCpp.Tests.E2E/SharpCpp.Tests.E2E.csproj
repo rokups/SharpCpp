@@ -4,6 +4,7 @@
     <AssemblyName>SharpCpp.Tests.E2E</AssemblyName>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <RunSettingsFilePath>$(MSBuildProjectDirectory)/source.runsettings</RunSettingsFilePath>
     <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <SharpCppBuildRbfx>false</SharpCppBuildRbfx>
