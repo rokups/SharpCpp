@@ -61,6 +61,7 @@ if(_configure_native)
     list(APPEND _configure_command ${_extra_configure_arguments})
   endif()
 
+  file(REMOVE "${_configure_signature_file}")
   execute_process(
     COMMAND ${_configure_command}
     WORKING_DIRECTORY "${SHARPCPP_SOURCE_DIR}"
