@@ -7,10 +7,12 @@
   <ItemGroup>
     <ProjectReference Include="../SharpCpp.Model/SharpCpp.Model.csproj" />
     <ProjectReference Include="../SharpCpp.Metadata/SharpCpp.Metadata.csproj" />
-    <PackageReference Include="ClangSharp" />
+    <PackageReference Include="ClangSharp" Version="20.1.2.4" />
     <PackageReference Include="libClang.runtime.linux-x64"
+                      Version="20.1.2"
                       Condition="'$(NETCoreSdkPortableRuntimeIdentifier)' == 'linux-x64'" />
     <PackageReference Include="libClangSharp.runtime.linux-x64"
+                      Version="20.1.2"
                       Condition="'$(NETCoreSdkPortableRuntimeIdentifier)' == 'linux-x64'" />
   </ItemGroup>
 </Project>

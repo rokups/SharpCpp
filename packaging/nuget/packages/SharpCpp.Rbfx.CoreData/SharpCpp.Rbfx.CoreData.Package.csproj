@@ -1,7 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework Condition="'$(SharpCppPackageTargetFramework)' != ''">$(SharpCppPackageTargetFramework)</TargetFramework>
-    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
     <PackageId>SharpCpp.Rbfx.CoreData</PackageId>
     <Title>SharpCpp.Rbfx.CoreData</Title>
     <Version>$(PackageVersion)</Version>
