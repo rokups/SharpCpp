@@ -13,7 +13,8 @@
     <SharpCppNativeBuildDir Condition="'$(SharpCppNativeBuildDir)' == ''">$(SharpCppBuildRoot)/native/$(SharpCppNativePreset)</SharpCppNativeBuildDir>
     <SharpCppNativeLockFile Condition="'$(SharpCppNativeLockFile)' == ''">$(SharpCppNativeBuildDir)/sharpcpp-native.lock</SharpCppNativeLockFile>
     <SharpCppNativeTarget Condition="'$(SharpCppNativeTarget)' == ''">sharpcpp-native</SharpCppNativeTarget>
-    <SharpCppConfigureNative Condition="'$(SharpCppConfigureNative)' == ''">true</SharpCppConfigureNative>
+    <SharpCppConfigureNative Condition="'$(SharpCppConfigureNative)' == '' and !Exists('$(SharpCppNativeBuildDir)/CMakeCache.txt')">true</SharpCppConfigureNative>
+    <SharpCppConfigureNative Condition="'$(SharpCppConfigureNative)' == ''">false</SharpCppConfigureNative>
     <SharpCppBuildE2E Condition="'$(SharpCppBuildE2E)' == ''">true</SharpCppBuildE2E>
     <SharpCppBuildRbfx Condition="'$(SharpCppBuildRbfx)' == ''">true</SharpCppBuildRbfx>
     <SharpCppManagedOutputRoot Condition="'$(SharpCppManagedOutputRoot)' == ''">$(SharpCppBuildRoot)/bin</SharpCppManagedOutputRoot>

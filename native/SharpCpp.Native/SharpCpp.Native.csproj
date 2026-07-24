@@ -2,6 +2,9 @@
   <PropertyGroup>
     <EnableDefaultItems>false</EnableDefaultItems>
     <AssemblyName>SharpCpp.Native.Build</AssemblyName>
+    <CopyBuildOutputToOutputDirectory>false</CopyBuildOutputToOutputDirectory>
+    <CopyOutputSymbolsToOutputDirectory>false</CopyOutputSymbolsToOutputDirectory>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
     <SharpCppRbfxSdkRoot Condition="'$(SharpCppRbfxSdkRoot)' == '' and '$(RBFX_SDK_ROOT)' != ''">$(RBFX_SDK_ROOT)</SharpCppRbfxSdkRoot>
     <SharpCppRbfxSdkRootArgument Condition="'$(SharpCppRbfxSdkRoot)' != ''">-DRBFX_SDK_ROOT=&quot;$(SharpCppRbfxSdkRoot)&quot;</SharpCppRbfxSdkRootArgument>
   </PropertyGroup>
@@ -11,17 +14,20 @@
                       Condition="'$(SharpCppBuildE2E)' == 'true'"
                       ReferenceOutputAssembly="false"
                       Private="false"
-                      PrivateAssets="all" />
+                      PrivateAssets="all"
+                      GlobalPropertiesToRemove="SharpCppBuildE2E;SharpCppBuildRbfx" />
     <ProjectReference Include="../../rbfx/SharpCpp.Rbfx.Generator/SharpCpp.Rbfx.Generator.csproj"
                       Condition="'$(SharpCppBuildRbfx)' == 'true'"
                       ReferenceOutputAssembly="false"
                       Private="false"
-                      PrivateAssets="all" />
+                      PrivateAssets="all"
+                      GlobalPropertiesToRemove="SharpCppBuildE2E;SharpCppBuildRbfx" />
     <ProjectReference Include="../../rbfx/Rbfx.UserCode/Rbfx.UserCode.Generator/Rbfx.UserCode.Generator.csproj"
                       Condition="'$(SharpCppBuildRbfx)' == 'true'"
                       ReferenceOutputAssembly="false"
                       Private="false"
-                      PrivateAssets="all" />
+                      PrivateAssets="all"
+                      GlobalPropertiesToRemove="SharpCppBuildE2E;SharpCppBuildRbfx" />
   </ItemGroup>
 
   <Target Name="SharpCppBuildNative" AfterTargets="Build">

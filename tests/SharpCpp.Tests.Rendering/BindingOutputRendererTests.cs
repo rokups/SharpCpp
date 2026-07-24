@@ -1083,27 +1083,27 @@ public sealed class BindingOutputRendererTests
             .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
         Assert.Contains(
-            "__PInvoke.PlotLike__Args7(label, value, count, offset, overlay_text, scale_min.Value, scale_max.Value);",
+            "__PInvoke.PlotLike__Args7(label, in value, count, offset, overlay_text, scale_min.Value, scale_max.Value);",
             managedOutput,
             StringComparison.Ordinal);
         Assert.Contains(
-            "__PInvoke.PlotLike__Args6(label, value, count, offset, overlay_text, scale_min.Value);",
+            "__PInvoke.PlotLike__Args6(label, in value, count, offset, overlay_text, scale_min.Value);",
             managedOutput,
             StringComparison.Ordinal);
         Assert.Contains(
-            "__PInvoke.PlotLike__Args5(label, value, count, offset, overlay_text);",
+            "__PInvoke.PlotLike__Args5(label, in value, count, offset, overlay_text);",
             managedOutput,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
-            "__PInvoke.PlotLike(label, value, count, offset, overlay_text, scale_min.Value, scale_max.Value);",
+            "__PInvoke.PlotLike(label, in value, count, offset, overlay_text, scale_min.Value, scale_max.Value);",
             managedOutput,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
-            "__PInvoke.PlotLike(label, value, count, offset, overlay_text, scale_min.Value);",
+            "__PInvoke.PlotLike(label, in value, count, offset, overlay_text, scale_min.Value);",
             managedOutput,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
-            "__PInvoke.PlotLike(label, value, count, offset, overlay_text);",
+            "__PInvoke.PlotLike(label, in value, count, offset, overlay_text);",
             managedOutput,
             StringComparison.Ordinal);
     }

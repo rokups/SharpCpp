@@ -6,6 +6,7 @@
     <IsTestProject>true</IsTestProject>
     <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <SharpCppBuildRbfx>false</SharpCppBuildRbfx>
   </PropertyGroup>
 
   <ItemGroup>

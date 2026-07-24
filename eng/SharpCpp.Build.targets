@@ -8,8 +8,21 @@
     <ProjectReference Include="$(SharpCppRoot)/native/SharpCpp.Native/SharpCpp.Native.csproj"
                       ReferenceOutputAssembly="false"
                       PrivateAssets="all"
-                      SkipGetTargetFrameworkProperties="true" />
+                      SkipGetTargetFrameworkProperties="true"
+                      SharpCppProperties="SharpCppBuildE2E=$(SharpCppBuildE2E);SharpCppBuildRbfx=$(SharpCppBuildRbfx)" />
   </ItemGroup>
+
+  <Target Name="SharpCppSetNativeProjectReferenceProperties"
+          AfterTargets="_SplitProjectReferencesByFileExistence"
+          BeforeTargets="_GetProjectReferenceTargetFrameworkProperties;ResolveProjectReferences"
+          Condition="'$(SharpCppIsGeneratedConsumer)' == 'true'">
+    <ItemGroup>
+      <_MSBuildProjectReferenceExistent Update="@(_MSBuildProjectReferenceExistent)"
+                                        Condition="'%(_MSBuildProjectReferenceExistent.SharpCppProperties)' != ''">
+        <SetConfiguration>%(_MSBuildProjectReferenceExistent.SetConfiguration);%(_MSBuildProjectReferenceExistent.SharpCppProperties)</SetConfiguration>
+      </_MSBuildProjectReferenceExistent>
+    </ItemGroup>
+  </Target>
 
   <Target Name="SharpCppIncludeGeneratedSources"
           BeforeTargets="CoreCompile"
