@@ -2965,7 +2965,7 @@ public static partial class BindingOutputRenderer
                 : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>({invokeArgs});";
 
         return $$"""
-            SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(concreteReturnType)}} {{entryPointName}}({{parameterList}})
+            SHARPCPP_EXPORT_NAMED({{entryPointName}}) {{GetNativeEntrypointReturnType(concreteReturnType)}} {{entryPointName}}({{parameterList}})
             {
             using FT = {{concreteReturnType.CppTypeName}}({{signatureParameterList}});
             auto fn = []({{lambdaParameterList}}) -> decltype(auto)

@@ -512,7 +512,8 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("#include \"SharpCpp/Export.hpp\"", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("extern \"C\"\n{", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("#include \"SharpCpp/Marshaller.hpp\"", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("SHARPCPP_EXPORT ret_t<int> sharpcpp_sample_add_numbers(arg_t<int> lhs, arg_t<int> rhs)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("ret_t<int> sharpcpp_sample_add_numbers(arg_t<int> lhs, arg_t<int> rhs) __asm__(\"sharpcpp_sample_add_numbers\");", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT_NAMED(sharpcpp_sample_add_numbers) ret_t<int> sharpcpp_sample_add_numbers(arg_t<int> lhs, arg_t<int> rhs)", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -636,7 +637,7 @@ public sealed class BindingOutputRendererTests
         Assert.DoesNotContain("public delegate* unmanaged[Cdecl]<nint, void> Release", aliasOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("private static void Release(nint state)", aliasOutput, StringComparison.Ordinal);
         Assert.Contains("[MarshalUsing(typeof(global::SharpCpp.Sample.SampleBindings.__CallbackMarshaller_void_int))] global::System.Action<int>? callback", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("SHARPCPP_EXPORT void sharpcpp_set_managed_callback_release(void (*release)(void*))", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT_NAMED(sharpcpp_set_managed_callback_release) void sharpcpp_set_managed_callback_release(void (*release)(void*))", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1914,7 +1915,7 @@ public sealed class BindingOutputRendererTests
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("SHARPCPP_EXPORT ret_t<void> sharpcpp_sample_set_name(arg_t<const char*> name)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT_NAMED(sharpcpp_sample_set_name) ret_t<void> sharpcpp_sample_set_name(arg_t<const char*> name)", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1969,7 +1970,7 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("global::System.Span<nint> __abi_views", managedOutput, StringComparison.Ordinal);
         Assert.Contains("fixed (nint* __abi_views_ptr = __abi_views)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("internal static unsafe partial void SetTargets(DeviceContext self, uint count, nint* views);", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("SHARPCPP_EXPORT ret_t<void> sharpcpp_sample_set_targets(arg_t<Sample::DeviceContext*> self, arg_t<unsigned int> count, arg_t<Sample::TextureView**> views)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT_NAMED(sharpcpp_sample_set_targets) ret_t<void> sharpcpp_sample_set_targets(arg_t<Sample::DeviceContext*> self, arg_t<unsigned int> count, arg_t<Sample::TextureView**> views)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("using FT = void(Sample::DeviceContext::*)(unsigned int, Sample::TextureView**);", nativeOutput, StringComparison.Ordinal);
     }
 
@@ -2584,7 +2585,7 @@ public sealed class BindingOutputRendererTests
 
         Assert.Contains("[return: MarshalUsing(typeof(global::SharpCpp.Sample.__VariantMarshaller<global::SharpCpp.Support.OwnedNativeHandle>))]", managedOutput, StringComparison.Ordinal);
         Assert.Contains("internal static partial global::SharpCpp.Sample.Variant GetPoint(Spline self);", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("SHARPCPP_EXPORT arg_t<Sample::Variant*>", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains(") arg_t<Sample::Variant*>", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("return MarshallerInvoker::invoke_owned<FT, std::tuple<>>(&Sample::Spline::GetPoint, self);", nativeOutput, StringComparison.Ordinal);
     }
 
@@ -2632,7 +2633,7 @@ public sealed class BindingOutputRendererTests
         var nativeOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample")
             .Files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("SHARPCPP_EXPORT ret_t<Sample::Variant*>", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains(") ret_t<Sample::Variant*>", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("return MarshallerInvoker::invoke<FT, std::tuple<>>(&eastl::vector<Sample::Variant*>::GetAtCore, self);", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("arg_t<Sample::Variant**>", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("invoke_owned<FT, std::tuple<>>(&eastl::vector<Sample::Variant*>::GetAtCore", nativeOutput, StringComparison.Ordinal);
@@ -3221,7 +3222,7 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("ret_t<SharedPtr<payload>> __get_Payload()", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("return MarshallerInvoker::get_field<SharedPtr<payload>>(&__protected_counter_director::payload_, this);", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("return this->payload_;", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_protected_counter_payload__set(arg_t<protected_counter*> self, arg_t<SharedPtr<payload>> value)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT_NAMED(sharpcpp_e2e_protected_counter_payload__set) ret_t<void> sharpcpp_e2e_protected_counter_payload__set(arg_t<protected_counter*> self, arg_t<SharedPtr<payload>> value)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("void __set_Payload(arg_t<SharedPtr<payload>> value)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("MarshallerInvoker::set_field<SharedPtr<payload>>(&__protected_counter_director::payload_, this, value);", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("void __set_Payload(field_t<SharedPtr<payload>> value)", nativeOutput, StringComparison.Ordinal);
@@ -3241,7 +3242,7 @@ public sealed class BindingOutputRendererTests
 
         Assert.Contains("ret_t<std::unordered_map<int, int>> __get_Payload()", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("return MarshallerInvoker::get_field<std::unordered_map<int, int>>(&__protected_counter_director::payload_, this, std::true_type{});", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_protected_counter_payload__set(arg_t<protected_counter*> self, field_t<std::unordered_map<int, int>> value)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT_NAMED(sharpcpp_e2e_protected_counter_payload__set) ret_t<void> sharpcpp_e2e_protected_counter_payload__set(arg_t<protected_counter*> self, field_t<std::unordered_map<int, int>> value)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("void __set_Payload(field_t<std::unordered_map<int, int>> value)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("MarshallerInvoker::set_field<std::unordered_map<int, int>>(&__protected_counter_director::payload_, this, value, std::true_type{});", nativeOutput, StringComparison.Ordinal);
     }
@@ -3313,7 +3314,7 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("protected new global::SharpCpp.Sample.Context Context", managedOutput, StringComparison.Ordinal);
         Assert.Contains("EntryPoint = \"sharpcpp_e2e_application_context__get\"", managedOutput, StringComparison.Ordinal);
         Assert.Contains("ret_t<context*> __get_Context()", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("SHARPCPP_EXPORT ret_t<context*> sharpcpp_e2e_application_context__get(arg_t<application*> self)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT_NAMED(sharpcpp_e2e_application_context__get) ret_t<context*> sharpcpp_e2e_application_context__get(arg_t<application*> self)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("if (auto* director_application = dynamic_cast<__application_director*>(self))", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("return director_application->__get_Context();", nativeOutput, StringComparison.Ordinal);
     }
@@ -3350,7 +3351,7 @@ public sealed class BindingOutputRendererTests
 
         Assert.Contains("ret_t<custom_map_like<int>> __get_Payload()", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("return MarshallerInvoker::get_field<custom_map_like<int>>(&__protected_counter_director::payload_, this);", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_protected_counter_payload__set(arg_t<protected_counter*> self, arg_t<custom_map_like<int>> value)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT_NAMED(sharpcpp_e2e_protected_counter_payload__set) ret_t<void> sharpcpp_e2e_protected_counter_payload__set(arg_t<protected_counter*> self, arg_t<custom_map_like<int>> value)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("void __set_Payload(arg_t<custom_map_like<int>> value)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("MarshallerInvoker::set_field<custom_map_like<int>>(&__protected_counter_director::payload_, this, value);", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("return &this->payload_;", nativeOutput, StringComparison.Ordinal);
@@ -4203,9 +4204,9 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("GetCountCore()", managedOutput, StringComparison.Ordinal);
         Assert.Contains("GetDataCore()", managedOutput, StringComparison.Ordinal);
         Assert.Contains("AddCore", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("SHARPCPP_EXPORT ret_t<std::size_t> sharpcpp_e2e_std_basic_string_size(arg_t<std::basic_string*> self)", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("SHARPCPP_EXPORT ret_t<const char*> sharpcpp_e2e_std_basic_string_data(arg_t<std::basic_string*> self)", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_std_basic_string_push_back(arg_t<std::basic_string*> self", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT_NAMED(sharpcpp_e2e_std_basic_string_size) ret_t<std::size_t> sharpcpp_e2e_std_basic_string_size(arg_t<std::basic_string*> self)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT_NAMED(sharpcpp_e2e_std_basic_string_data) ret_t<const char*> sharpcpp_e2e_std_basic_string_data(arg_t<std::basic_string*> self)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT_NAMED(sharpcpp_e2e_std_basic_string_push_back) ret_t<void> sharpcpp_e2e_std_basic_string_push_back(arg_t<std::basic_string*> self", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -4255,7 +4256,7 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("public static nint ConvertToUnmanaged(global::Ea.SharedArray<T> managed)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("public static global::Ea.SharedArray<T> ConvertToManaged(nint unmanaged)", managedOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("NativeArrayAbi", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("SHARPCPP_EXPORT ret_t<ea::shared_array<int>*> sharpcpp_e2e_ea_shared_array_dynamic_array_create_int(arg_t<std::size_t> length)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT_NAMED(sharpcpp_e2e_ea_shared_array_dynamic_array_create_int) ret_t<ea::shared_array<int>*> sharpcpp_e2e_ea_shared_array_dynamic_array_create_int(arg_t<std::size_t> length)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("return new ea::shared_array<int>(new int[length]{});", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("(*self)[index]", nativeOutput, StringComparison.Ordinal);
     }
@@ -4343,7 +4344,7 @@ public sealed class BindingOutputRendererTests
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("SHARPCPP_EXPORT ret_t<void> sharpcpp_sample_consume_pair(arg_t<int [2]> values)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT_NAMED(sharpcpp_sample_consume_pair) ret_t<void> sharpcpp_sample_consume_pair(arg_t<int [2]> values)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("MarshallerInvoker::invoke_as<FT, std::tuple<int [2]>>(static_cast<std::add_pointer_t<FT>>(&Sample::ConsumePair), values);", nativeOutput, StringComparison.Ordinal);
     }
 
@@ -4412,7 +4413,7 @@ public sealed class BindingOutputRendererTests
         var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
 
         Assert.Contains("EntryPoint = \"sample_prefix_NativeArray_array_create_float_3\"", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("SHARPCPP_EXPORT NativeArrayAbi sample_prefix_NativeArray_array_create_float_3()", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT_NAMED(sample_prefix_NativeArray_array_create_float_3) NativeArrayAbi sample_prefix_NativeArray_array_create_float_3()", nativeOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("sharpcpp_e2e_NativeArray_array_create_float_3", nativeOutput, StringComparison.Ordinal);
     }
 

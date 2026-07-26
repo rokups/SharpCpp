@@ -2,11 +2,15 @@ using SharpCpp.Model.Ast;
 using SharpCpp.Model.Utilities;
 
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace SharpCpp.Rendering;
 
 public static partial class BindingOutputRenderer
 {
+    private static readonly Regex NativeExportDeclarationRegex = new(
+        @"(?m)^(\s*)SHARPCPP_EXPORT(?:_NAMED\([A-Za-z_][A-Za-z0-9_]*\))?\s+(.+?)\s+([A-Za-z_][A-Za-z0-9_]*)(\([^\r\n]*\))\r?$",
+        RegexOptions.CultureInvariant);
     private const string ICloneableFullName = "global::System.ICloneable";
     private const string BorrowedNativeHandleFullName = "global::SharpCpp.Support.BorrowedNativeHandle";
     private const string OwnedNativeHandleFullName = "global::SharpCpp.Support.OwnedNativeHandle";
@@ -2511,6 +2515,15 @@ public static partial class BindingOutputRenderer
         var hidesStaticHelpers = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) && 
             !record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal);
         var staticHelperModifier = hidesStaticHelpers ? "new " : string.Empty;
+        var managedTypeIdHelperModifier = record.GetPrimaryBaseRecord(compilation) is { } primaryBase &&
+            primaryBase.IsPolymorphic &&
+            !IsNativeInterfaceWrapper(primaryBase)
+                ? "new "
+                : string.Empty;
+        var queryHelperModifier = record.GetPrimaryBaseRecord(compilation) is { } queryBase &&
+            TryGetNativeInterfaceQuery(queryBase, out _)
+                ? "new "
+                : string.Empty;
         var cacheFieldModifier = hidesStaticHelpers ? "new " : string.Empty;
         var interfaceNames = record.GetSecondaryBaseRecords(compilation)
             .Where(baseRecord => !baseRecord.IsIgnored() && baseRecord.GetRenderableInterfaceMethods(compilation).Count > 0)
@@ -2563,7 +2576,7 @@ public static partial class BindingOutputRenderer
                 string.Equals(candidate.CppQualifiedName, nativeInterfaceQuery.SourceRecordCppQualifiedName, StringComparison.Ordinal));
             writer.WriteLine();
             writer.Write($$"""
-                public static {{record.ManagedName}}? QueryManagedWrapper({{QualifyRecordTypeName(compilation, sourceRecord.ManagedName)}} source)
+                {{queryHelperModifier}}public static {{record.ManagedName}}? QueryManagedWrapper({{QualifyRecordTypeName(compilation, sourceRecord.ManagedName)}} source)
                 {
                 global::System.ArgumentNullException.ThrowIfNull(source);
                 var handle = __PInvoke.QueryInterface(source);
@@ -2774,7 +2787,11 @@ public static partial class BindingOutputRenderer
                     writer.Write(RenderManagedFixedArrayProxy(compilation, field, record.ManagedName));
                 }
 
-                writer.Write(RenderManagedProperty(compilation, field));
+                writer.Write(RenderManagedProperty(
+                    compilation,
+                    field,
+                    hidesInheritedMember: string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
+                        string.Equals(field.ManagedName, "Close", StringComparison.Ordinal)));
                 if (NeedsManagedFixedArrayProxy(field))
                 {
                     pinvokeDeclarations.Add(RenderManagedFieldItemGetterImportDeclaration(compilation, field, record.ManagedName, record.CppQualifiedName));
@@ -2831,7 +2848,7 @@ public static partial class BindingOutputRenderer
         writer.Write(
             $$"""
             {{(isRegistrationPolymorphic ? $$"""
-            {{staticHelperModifier}}internal static nuint GetManagedTypeId()
+            {{managedTypeIdHelperModifier}}internal static nuint GetManagedTypeId()
             {
             return __PInvoke.GetStaticTypeId();
             }
@@ -3159,16 +3176,46 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static bool ShouldUseNewModifier(BindingCompilation compilation, RecordBinding record, string managedName)
+    private static bool ShouldUseNewModifier(BindingCompilation compilation, RecordBinding record, FunctionBinding function)
     {
+        if (function.ManagedName switch
+            {
+                nameof(GetType) when function.Parameters.Count == 0 => true,
+                nameof(GetHashCode) when function.Parameters.Count == 0 => true,
+                nameof(Equals) when function.Parameters.Count == 1 => true,
+                _ => false
+            })
+        {
+            return true;
+        }
+
         if (string.IsNullOrWhiteSpace(record.ManagedBaseTypeName))
         {
             return false;
         }
 
-        var baseRecord = compilation.Records.FirstOrDefault(candidate => string.Equals(candidate.ManagedName, record.ManagedBaseTypeName, StringComparison.Ordinal));
-        return baseRecord is not null &&
-               baseRecord.Members.OfType<FunctionBinding>().Any(candidate => !candidate.IsIgnored() && string.Equals(candidate.ManagedName, managedName, StringComparison.Ordinal));
+        if (record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var visited = new HashSet<string>(StringComparer.Ordinal) { record.SymbolId };
+        for (var current = record.GetPrimaryBaseRecord(compilation); current is not null; current = current.GetPrimaryBaseRecord(compilation))
+        {
+            if (!visited.Add(current.SymbolId))
+            {
+                break;
+            }
+
+            if (current.Members.OfType<FunctionBinding>().Any(candidate =>
+                    !candidate.IsIgnored() &&
+                    ManagedSignaturesMatch(candidate, function)))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static string RenderManagedDispose(RecordBinding record, bool canEmitDeleteThunk)
@@ -4504,7 +4551,7 @@ public static partial class BindingOutputRenderer
         {
             writer.Write($$"""
 
-                SHARPCPP_EXPORT void {{GetManagedCallbackReleaseRegistrationEntryPointName()}}(void (*release)(void*))
+                SHARPCPP_EXPORT_NAMED({{GetManagedCallbackReleaseRegistrationEntryPointName()}}) void {{GetManagedCallbackReleaseRegistrationEntryPointName()}}(void (*release)(void*))
                 {
                     SharpCpp::detail::SetManagedCallbackRelease(release);
                 }
@@ -4654,7 +4701,7 @@ public static partial class BindingOutputRenderer
 
             writer.WriteLine();
             writer.Write($$"""
-                SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(function)}} {{function.EntryPointName}}({{parameterList}})
+                SHARPCPP_EXPORT_NAMED({{function.EntryPointName}}) {{GetNativeEntrypointReturnType(function)}} {{function.EntryPointName}}({{parameterList}})
                 {
                 using FT = {{signature}};
                 """);
@@ -4723,7 +4770,7 @@ public static partial class BindingOutputRenderer
             if (method.TryGetMetadata(MetadataKeys.MarshallerExposedMethod, out string? marshallerCppType))
             {
                 writer.Write($$"""
-                    SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(method)}} {{method.EntryPointName}}({{parameterList}})
+                    SHARPCPP_EXPORT_NAMED({{method.EntryPointName}}) {{GetNativeEntrypointReturnType(method)}} {{method.EntryPointName}}({{parameterList}})
                     {
                     {{RenderNativeMarshallerExposedInvocation(method, marshallerCppType!, abiArguments)}}
                     }
@@ -4732,7 +4779,7 @@ public static partial class BindingOutputRenderer
             else
             {
             writer.Write($$"""
-                SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(method)}} {{method.EntryPointName}}({{parameterList}})
+                SHARPCPP_EXPORT_NAMED({{method.EntryPointName}}) {{GetNativeEntrypointReturnType(method)}} {{method.EntryPointName}}({{parameterList}})
                 {
                 using FT = {{memberSignature}};
                 """);
@@ -4775,7 +4822,7 @@ public static partial class BindingOutputRenderer
 
             writer.WriteLine();
             writer.Write($$"""
-                SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(method)}} {{method.EntryPointName}}({{parameterList}})
+                SHARPCPP_EXPORT_NAMED({{method.EntryPointName}}) {{GetNativeEntrypointReturnType(method)}} {{method.EntryPointName}}({{parameterList}})
                 {
                 using FT = {{signature}};
                 """);
@@ -4815,7 +4862,7 @@ public static partial class BindingOutputRenderer
 
             writer.WriteLine();
             writer.Write($$"""
-                SHARPCPP_EXPORT ret_t<{{constructor.CppReturnTypeName}}> {{constructor.EntryPointName}}({{parameterList}})
+                SHARPCPP_EXPORT_NAMED({{constructor.EntryPointName}}) ret_t<{{constructor.CppReturnTypeName}}> {{constructor.EntryPointName}}({{parameterList}})
                 {
                 {{(owningRecord is not null && owningRecord.RequiresDirector(compilation)
                     ? $"return new {GetNativeDirectorClassName(owningRecord)}({abiArguments});"
@@ -4967,7 +5014,12 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
-        return writer.ToString();
+        return NativeExportDeclarationRegex.Replace(
+            writer.ToString(),
+            "$1#if defined(__EMSCRIPTEN__)\n" +
+            "$1$2 $3$4 __asm__(\"$3\");\n" +
+            "$1#endif\n" +
+            "$1SHARPCPP_EXPORT_NAMED($3) $2 $3$4");
     }
 
     private static string GetManagedWrapperTypeName(BindingType type, BindingCompilation? compilation = null)
@@ -5955,7 +6007,7 @@ public static partial class BindingOutputRenderer
 
         if (IsNativeInterfaceWrapper(record) && IsManagedAbstractMethod(function))
         {
-            return hidingModifier + "virtual ";
+            return hidingModifier + (ShouldUseNewModifier(compilation, record, function) ? "new virtual " : "virtual ");
         }
 
         if (IsManagedAbstractMethod(function) && primaryBaseVirtualMatch is null)
@@ -5968,7 +6020,7 @@ public static partial class BindingOutputRenderer
             string modifier;
             if (primaryBaseVirtualMatch is null)
             {
-                modifier = ShouldUseNewModifier(compilation, record, function.ManagedName)
+                modifier = ShouldUseNewModifier(compilation, record, function)
                     ? "new virtual "
                     : (function.IsOverride && !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
                         record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal) ? "override " : "virtual ");
@@ -5992,7 +6044,7 @@ public static partial class BindingOutputRenderer
             return "override ";
         }
 
-        return hidingModifier.Length > 0 || ShouldUseNewModifier(compilation, record, function.ManagedName) ? "new " : string.Empty;
+        return hidingModifier.Length > 0 || ShouldUseNewModifier(compilation, record, function) ? "new " : string.Empty;
     }
 
     private static string GetManagedVisibility(BindingAccessModifier accessModifier)
@@ -7020,7 +7072,7 @@ public static partial class BindingOutputRenderer
             : $"fn{(abiArgs.Length > 0 ? $", {abiArgs}" : string.Empty)}";
 
         writer.Write($$"""
-            SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(function)}} {{entrypointName}}({{parameterList}})
+            SHARPCPP_EXPORT_NAMED({{entrypointName}}) {{GetNativeEntrypointReturnType(function)}} {{entrypointName}}({{parameterList}})
             {
                 using FT = {{signature}};
                 auto fn = []({{cppParamDecls}}) -> decltype(auto)
