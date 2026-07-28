@@ -30,6 +30,40 @@ public sealed class ClangSharpHeaderParserEnumTests
         Assert.Equal("named_value", @enum.NativeName);
     }
 
+    [Fact]
+    public void Parse_preserves_enums_with_duplicate_short_names()
+    {
+        var compilation = ParseTempHeader(
+            "Sample.hpp",
+            """
+            namespace First
+            {
+                enum Type
+                {
+                    FirstValue
+                };
+            }
+
+            namespace Second
+            {
+                class Log
+                {
+                public:
+                    enum Type
+                    {
+                        SecondValue
+                    };
+                };
+            }
+            """,
+            ["-x", "c++", "-std=c++20"]);
+
+        Assert.Collection(
+            compilation.Enums.OrderBy(static @enum => @enum.CppQualifiedName, StringComparer.Ordinal),
+            @enum => Assert.Equal("First::Type", @enum.CppQualifiedName),
+            @enum => Assert.Equal("Second::Log::Type", @enum.CppQualifiedName));
+    }
+
     private static BindingCompilation ParseTempHeader(string fileName, string source, string[] clangArgs)
     {
         var fixtureDir = Path.Combine(Path.GetTempPath(), "sharpcpp-enums-" + Guid.NewGuid().ToString("N"));

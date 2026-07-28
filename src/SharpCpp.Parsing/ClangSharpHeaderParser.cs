@@ -218,7 +218,7 @@ public sealed partial class ClangSharpHeaderParser
             new[] { request.HeaderIncludePath });
         compilation.EntryPointPrefix = request.EntryPointPrefix;
         var recordsByName = new BindingIndex<RecordBinding>(static record => record.NativeName);
-        var enumsByName = new BindingIndex<EnumBinding>(static @enum => @enum.NativeName);
+        var enumsByName = new BindingIndex<EnumBinding>(static @enum => @enum.CppQualifiedName);
         var managedTypeOverrides = MarshallerConfigExtractor.ExtractManagedTypeOverrides(
             request.MarshallerConfigurationFiles,
             request.MarshallerClangArguments ?? request.ClangArguments);
@@ -4619,20 +4619,21 @@ public sealed partial class ClangSharpHeaderParser
     private static void RegisterEnum(EnumDecl enumDecl, BindingCompilation compilation, IDictionary<string, EnumBinding> enumsByName, string? headerIncludePath)
     {
         var nativeName = enumDecl.Name ?? enumDecl.Spelling.ToString();
+        var cppQualifiedName = GetCppQualifiedName(enumDecl);
         if (string.IsNullOrWhiteSpace(nativeName) ||
             nativeName.Contains("(unnamed", StringComparison.Ordinal) ||
             nativeName.Contains("(anonymous", StringComparison.Ordinal) ||
-            enumsByName.ContainsKey(nativeName))
+            enumsByName.ContainsKey(cppQualifiedName))
         {
             return;
         }
 
         var @enum = new EnumBinding(
-            $"enum:{nativeName}",
+            $"enum:{cppQualifiedName}",
             nativeName,
             ToPascalCase(nativeName),
             NormalizeTypeName(enumDecl.IntegerType.AsString),
-            GetCppQualifiedName(enumDecl),
+            cppQualifiedName,
             underlyingPrimitiveKind: GetPrimitiveKindFromTypeSpelling(enumDecl.IntegerType.AsString))
         {
             IsFlags = HasSharpCppAttribute(GetSourceText(enumDecl.TranslationUnit.Handle, enumDecl.Extent), "flags")
