@@ -141,6 +141,12 @@ Current worktree verification passes with generic complex C++ values crossing ca
 
 ## Recently Fixed
 
+- **Forced directors with implicit default constructors are constructible**:
+  - Synthetic default-constructor generation now uses Clang's user-declared-constructor fact instead of treating compiler-generated constructor declarations as explicit declarations.
+  - Forced director records may receive a synthetic constructor even when abstract or fieldless, while ordinary abstract and fieldless records retain the existing materialization gate.
+  - Added parser regression coverage for an abstract, fieldless forced director with no user-declared constructor.
+  - Verification: `dotnet build SharpCpp.slnx --configuration Debug --no-restore -m:1` and `dotnet test SharpCpp.slnx --configuration Debug --no-build --no-restore -m:1` pass all five suites.
+
 - **Anonymous C enums and primitive input-pointer forwarding are generated correctly**:
   - The parser skips Clang diagnostic spellings for anonymous enums instead of emitting invalid C# enum identifiers.
   - Managed wrappers preserve `in` when forwarding primitive pointer parameters to their P/Invoke declarations, avoiding one-value temporaries when the native parameter addresses a buffer.

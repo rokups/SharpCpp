@@ -19,4 +19,12 @@ protected:
     int seed_{};
 };
 
+class ForcedImplicitAbstract
+{
+public:
+    virtual ~ForcedImplicitAbstract() = default;
+
+    virtual int Compute() const = 0;
+};
+
 }

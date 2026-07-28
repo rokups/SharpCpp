@@ -111,6 +111,39 @@ public sealed class ClangSharpHeaderParserIgnoreTests
         Assert.False(forcedConstructor.IsIgnored(), forcedConstructor.GetIgnoreReason());
     }
 
+    [Fact]
+    public void Parse_forced_director_records_adds_implicit_abstract_constructors()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "ForcedDirectors");
+        var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+
+        var parser = new ClangSharpHeaderParser();
+        var compilation = parser.Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test.Namespace",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: ["-x", "c++", "-std=c++20", $"-I{fixtureDir}"],
+            MarshallerConfigurationFiles: Array.Empty<string>(),
+            EntryPointPrefix: "Test_",
+            DirectorRecordCppTypeNames: new HashSet<string>(StringComparer.Ordinal)
+            {
+                "Test::ForcedImplicitAbstract"
+            }));
+        var record = Assert.Single(compilation.Records,
+            static record => record.CppQualifiedName == "Test::ForcedImplicitAbstract");
+        var constructor = Assert.Single(record.Members.OfType<FunctionBinding>(),
+            static function => function.IsConstructor);
+
+        Assert.True(record.IsAbstract);
+        Assert.True(record.IsDirector);
+        Assert.Empty(constructor.Parameters);
+        Assert.False(constructor.IsIgnored(), constructor.GetIgnoreReason());
+    }
+
     private static string FindRepositoryRoot([CallerFilePath] string sourceFilePath = "")
     {
         var startPath = string.IsNullOrWhiteSpace(sourceFilePath)

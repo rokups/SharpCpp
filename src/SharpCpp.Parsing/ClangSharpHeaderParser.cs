@@ -699,7 +699,7 @@ public sealed partial class ClangSharpHeaderParser
         ApplyDestructorMetadata(cxxRecord, record);
         PopulateRecordBases(cxxRecord, record, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
         PopulateRecordMembers(recordDecl, record, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters, entryPointPrefix, compilation, headerIncludePath);
-        AddSyntheticDefaultConstructorForPlainRecord(recordDecl, record, entryPointPrefix);
+        AddSyntheticDefaultConstructor(recordDecl, record, entryPointPrefix);
 
         UpdatePolymorphism(record, recordsByName);
     }
@@ -710,17 +710,17 @@ public sealed partial class ClangSharpHeaderParser
             !recordDecl.Decls.Any();
     }
 
-    private static void AddSyntheticDefaultConstructorForPlainRecord(
+    private static void AddSyntheticDefaultConstructor(
         RecordDecl recordDecl,
         RecordBinding record,
         string entryPointPrefix)
     {
         if (record.GetMetadata<bool>(MetadataKeys.ForwardDeclaration) ||
-            record.IsAbstract ||
-            recordDecl.Decls.OfType<CXXConstructorDecl>().Any() ||
+            recordDecl.Handle.HasUserDeclaredConstructor ||
             record.Members.OfType<FunctionBinding>().Any(static member => member.IsConstructor) ||
             record.Members.OfType<FieldBinding>().Any(static field => field.IsReference) ||
-            !record.Members.OfType<FieldBinding>().Any())
+            (!record.IsDirector &&
+                (record.IsAbstract || !record.Members.OfType<FieldBinding>().Any())))
         {
             return;
         }
