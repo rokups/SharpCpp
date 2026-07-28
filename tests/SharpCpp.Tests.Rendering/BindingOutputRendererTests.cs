@@ -12,6 +12,41 @@ namespace SharpCpp.Tests.Rendering;
 public sealed class BindingOutputRendererTests
 {
     [Fact]
+    public void Managed_handle_type_format_override_preserves_nullable_suffix()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });
+        var widget = new RecordBinding("record:widget", "Widget", "Widget", "Widget");
+        var nullableWidget = widget.HandleType.WithManagedTypeFormatOverride("Widget?");
+        var getWidget = new FunctionBinding(
+            "function:get_widget", "get_widget", "GetWidget", nullableWidget, "get_widget");
+        var setWidget = new FunctionBinding(
+            "function:set_widget", "set_widget", "SetWidget", BindingType.Void, "set_widget");
+        setWidget.Parameters.Add(new ParameterBinding(
+            "parameter:set_widget:widget", "widget", "widget", nullableWidget));
+        compilation.Members.Add(widget);
+        compilation.Members.Add(getWidget);
+        compilation.Members.Add(setWidget);
+
+        var managedOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample")
+            .Files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains(
+            "public static global::SharpCpp.Sample.Widget? GetWidget()",
+            managedOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "return __result is { IsNull: false } __nullableResult ? __nullableResult : null;",
+            managedOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "public static void SetWidget(global::SharpCpp.Sample.Widget? widget)",
+            managedOutput,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("Widget??", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Managed_primitive_input_pointer_invocation_preserves_reference()
     {
         var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });

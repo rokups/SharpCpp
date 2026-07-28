@@ -2224,9 +2224,12 @@ public static partial class BindingOutputRenderer
             : head.Contains('.', StringComparison.Ordinal)
                 ? $"global::{head}"
                 : $"global::{GetManagedNamespace(compilation, record)}.{head}";
+        var nullableSuffix = type.ManagedTypeFormatOverride?.EndsWith("?", StringComparison.Ordinal) == true
+            ? "?"
+            : string.Empty;
         if (type.GenericArguments.Count == 0 || (!record.IsGeneric && managedName.Contains('{', StringComparison.Ordinal) != true))
         {
-            return qualifiedHead;
+            return qualifiedHead + nullableSuffix;
         }
 
         var renderedArguments = type.GenericArguments.Select(argument => publicSurface
@@ -2241,10 +2244,10 @@ public static partial class BindingOutputRenderer
                 : formattedHead.Contains('.', StringComparison.Ordinal)
                     ? $"global::{formattedHead}"
                     : $"global::{GetManagedNamespace(compilation, record)}.{formattedHead}";
-            return qualifiedFormattedHead + formattedName[formattedHead.Length..];
+            return qualifiedFormattedHead + formattedName[formattedHead.Length..] + nullableSuffix;
         }
 
-        return $"{qualifiedHead}<{string.Join(", ", renderedArguments)}>";
+        return $"{qualifiedHead}<{string.Join(", ", renderedArguments)}>{nullableSuffix}";
     }
 
     private static string FormatManagedTypeNameWithPlaceholders(string managedTypeFormat, IReadOnlyList<string> renderedArguments)
@@ -5217,7 +5220,15 @@ public static partial class BindingOutputRenderer
             return resultExpression;
         }
 
-        return CanUseManagedHandleReturnMarshaller(compilation, type)
+        var usesManagedMarshaller = CanUseManagedHandleReturnMarshaller(compilation, type);
+        if (type.ManagedTypeFormatOverride?.EndsWith("?", StringComparison.Ordinal) == true)
+        {
+            return usesManagedMarshaller
+                ? $"{resultExpression} is {{ IsNull: false }} __nullableResult ? __nullableResult : null"
+                : $"{resultExpression} is var __nullableHandle && __nullableHandle != 0 ? {BuildManagedHandleWrap(compilation, type, "__nullableHandle", ownsHandle)} : null";
+        }
+
+        return usesManagedMarshaller
             ? resultExpression
             : BuildManagedHandleWrap(compilation, type, resultExpression, ownsHandle);
     }
@@ -5383,7 +5394,10 @@ public static partial class BindingOutputRenderer
             };
             var attribute = GetManagedParameterAttribute(parameter, type, compilation);
             var marshallerAttribute = compilation is null ? string.Empty : GetManagedHandleInMarshallerAttribute(compilation, type);
-            var typeName = $"{GetManagedWrapperTypeName(type, compilation)}?";
+            var wrapperTypeName = GetManagedWrapperTypeName(type, compilation);
+            var typeName = wrapperTypeName.EndsWith("?", StringComparison.Ordinal)
+                ? wrapperTypeName
+                : $"{wrapperTypeName}?";
             return $"{marshallerAttribute}{attribute}{modifier}{typeName} {parameter.ManagedName}";
         }
 

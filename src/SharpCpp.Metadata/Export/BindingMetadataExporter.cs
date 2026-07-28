@@ -256,13 +256,16 @@ public static class BindingMetadataExporter
             : head.Contains('.', StringComparison.Ordinal)
                 ? $"global::{head}"
                 : $"global::{GetManagedNamespace(compilation, record) ?? compilation.ManagedNamespace}.{head}";
+        var nullableSuffix = type.ManagedTypeFormatOverride?.EndsWith("?", StringComparison.Ordinal) == true
+            ? "?"
+            : string.Empty;
         if (type.GenericArguments.Count == 0)
         {
-            return qualifiedHead;
+            return qualifiedHead + nullableSuffix;
         }
 
         var visibleArguments = SelectManagedVisibleGenericArguments(managedName, type.GenericArguments);
-        return $"{qualifiedHead}<{string.Join(", ", visibleArguments.Select(argument => FormatQualifiedConcreteManagedTypeName(compilation, argument)))}>";
+        return $"{qualifiedHead}<{string.Join(", ", visibleArguments.Select(argument => FormatQualifiedConcreteManagedTypeName(compilation, argument)))}>{nullableSuffix}";
     }
 
     private static IReadOnlyList<BindingType> SelectManagedVisibleGenericArguments(string managedTypeFormat, IReadOnlyList<BindingType> genericArguments)
