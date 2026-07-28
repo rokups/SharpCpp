@@ -7,6 +7,7 @@
     <GenerateDependencyFile>false</GenerateDependencyFile>
     <SharpCppRbfxSdkRoot Condition="'$(SharpCppRbfxSdkRoot)' == '' and '$(RBFX_SDK_ROOT)' != ''">$(RBFX_SDK_ROOT)</SharpCppRbfxSdkRoot>
     <SharpCppRbfxSdkRootArgument Condition="'$(SharpCppRbfxSdkRoot)' != ''">-DRBFX_SDK_ROOT=&quot;$(SharpCppRbfxSdkRoot)&quot;</SharpCppRbfxSdkRootArgument>
+    <SharpCppBuildRbfx Condition="'$(SharpCppRbfxSdkRoot)' == ''">false</SharpCppBuildRbfx>
   </PropertyGroup>
 
   <ItemGroup>
