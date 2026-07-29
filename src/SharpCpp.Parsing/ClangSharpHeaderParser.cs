@@ -1201,6 +1201,10 @@ public sealed partial class ClangSharpHeaderParser
             OwningRecordCppTypeName = record.CppQualifiedName
         };
         function.ReturnsOwnedHandle = ShouldReturnOwnedHandle(templatedFunction.ReturnType.Handle, returnType, managedTypeOverrides);
+        if (templatedFunction is CXXConstructorDecl)
+        {
+            function.SetIgnoreReason("generic constructors are not supported");
+        }
 
         foreach (var templateParameter in methodTemplateParameters)
         {
@@ -2301,6 +2305,15 @@ public sealed partial class ClangSharpHeaderParser
         {
             var sourcePointeeType = type.PointeeType;
             var normalizedPointeeType = normalizedType.PointeeType.CanonicalType;
+            var sourcePointeeTypeName = NormalizeTypeName(sourcePointeeType.Spelling.ToString());
+
+            if (TryMapGenericParameterType(sourcePointeeTypeName, genericParameters, out var genericParameterType))
+            {
+                return (
+                    genericParameterType,
+                    explicitDirection ?? (sourcePointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Ref),
+                    BindingParameterAbiKind.Reference);
+            }
 
             if (TypeIsRecord(normalizedPointeeType))
             {
@@ -2322,9 +2335,8 @@ public sealed partial class ClangSharpHeaderParser
                     abiKind);
             }
 
-            var pointeeTypeName = NormalizeTypeName(sourcePointeeType.Spelling.ToString());
             if (TypeIsPointer(normalizedPointeeType) &&
-                managedTypeOverrides.TryGetValue(pointeeTypeName, out var pointeeOverride) &&
+                managedTypeOverrides.TryGetValue(sourcePointeeTypeName, out var pointeeOverride) &&
                 IsManagedRefStruct(pointeeOverride.PublicTypeName))
             {
                 return (
@@ -5152,6 +5164,21 @@ public sealed partial class ClangSharpHeaderParser
     private static bool TryMapGenericParameterType(string normalizedTypeName, IReadOnlyDictionary<string, BindingType> genericParameters, out BindingType type)
     {
         if (genericParameters.TryGetValue(normalizedTypeName, out type!))
+        {
+            return true;
+        }
+
+        var unqualifiedTypeName = normalizedTypeName;
+        if (unqualifiedTypeName.StartsWith("const ", StringComparison.Ordinal))
+        {
+            unqualifiedTypeName = unqualifiedTypeName["const ".Length..];
+        }
+        unqualifiedTypeName = unqualifiedTypeName.TrimEnd('&').TrimEnd();
+        if (unqualifiedTypeName.EndsWith(" const", StringComparison.Ordinal))
+        {
+            unqualifiedTypeName = unqualifiedTypeName[..^" const".Length].TrimEnd();
+        }
+        if (genericParameters.TryGetValue(unqualifiedTypeName, out type!))
         {
             return true;
         }

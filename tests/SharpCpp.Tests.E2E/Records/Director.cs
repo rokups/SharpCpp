@@ -50,6 +50,17 @@ public sealed class DirectorTests
     }
 
     [Fact]
+    public void Managed_director_instances_are_reused_after_ownership_round_trip()
+    {
+        using var counter = new ManagedCallbackCounter(10);
+        var handle = NativeObject.TransferHandleOwnership(counter);
+
+        Assert.False(counter.OwnsNativeHandle);
+        Assert.Same(counter, CallbackCounter.CreateManagedWrapper(handle, ownsHandle: true));
+        Assert.True(counter.OwnsNativeHandle);
+    }
+
+    [Fact]
     public void Managed_subclasses_without_overrides_fall_back_to_native_virtual_implementation()
     {
         using var counter = new PassthroughCallbackCounter(10);

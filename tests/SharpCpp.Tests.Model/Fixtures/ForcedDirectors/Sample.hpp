@@ -27,4 +27,24 @@ public:
     virtual int Compute() const = 0;
 };
 
+class ImplicitDefaultAbstract
+{
+public:
+    virtual ~ImplicitDefaultAbstract() = default;
+
+    virtual int Compute() const = 0;
+};
+
+class CopyableBase
+{
+};
+
+class ImplicitDefaultDerivedAbstract : public CopyableBase
+{
+public:
+    virtual ~ImplicitDefaultDerivedAbstract() = default;
+
+    virtual int Compute() const = 0;
+};
+
 }

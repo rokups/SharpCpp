@@ -1944,7 +1944,7 @@ public static partial class BindingOutputRenderer
         return RenderManagedPublicParameter(concreteParameter, compilation);
     }
 
-    private static ParameterBinding CreateConcreteParameter(ParameterBinding parameter, BindingType concreteType)
+    private static ParameterBinding CreateConcreteParameter(ParameterBinding parameter, BindingType concreteType, bool useConcreteAbi = false)
     {
         return new ParameterBinding(
             parameter.SymbolId,
@@ -1952,12 +1952,18 @@ public static partial class BindingOutputRenderer
             parameter.ManagedName,
             concreteType,
             parameter.Direction,
-            parameter.AbiKind,
+            useConcreteAbi && parameter.Type.IsGenericParameter
+                ? concreteType.Marshaller.CppIsReference &&
+                    concreteType.Marshaller.ManagedMarshaller is null
+                    ? BindingParameterAbiKind.Reference
+                    : BindingParameterAbiKind.Value
+                : parameter.AbiKind,
             concreteType.CppTypeName)
         {
             ManagedDefaultValueExpression = parameter.ManagedDefaultValueExpression,
             UseCallbackDelegate = parameter.UseCallbackDelegate,
-            CallbackDelegateTypeName = parameter.CallbackDelegateTypeName
+            CallbackDelegateTypeName = parameter.CallbackDelegateTypeName,
+            CallbackTakesOwnership = parameter.CallbackTakesOwnership
         };
     }
 
@@ -2320,7 +2326,7 @@ public static partial class BindingOutputRenderer
 
     private static string RenderConcreteManagedParameter(BindingCompilation compilation, ParameterBinding parameter, BindingType concreteType)
     {
-        var concreteParameter = CreateConcreteParameter(parameter, concreteType);
+        var concreteParameter = CreateConcreteParameter(parameter, concreteType, useConcreteAbi: true);
         var callbackMarshallerParameter = parameter.Type.IsCallback && concreteType.IsCallback
             ? parameter
             : null;
@@ -2795,8 +2801,10 @@ public static partial class BindingOutputRenderer
         var concreteReturnType = SubstituteGenericType(record, method.ReturnType, instantiation);
         var parameterList = string.Join(", ", new[] { $"arg_t<{concreteRecordType}*> self" }.Concat(method.Parameters.Select((parameter, index) => $"arg_t<{concreteParameters[index].CppTypeName}> {parameter.NativeName}")));
         var abiArguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
-        var memberSignature = $"{concreteReturnType.CppTypeName}({concreteRecordType}::*)({string.Join(", ", concreteParameters.Select(static parameter => parameter.CppTypeName))}){(method.IsConstMethod ? " const" : string.Empty)}";
-        var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", concreteParameters.Select(static parameter => parameter.CppTypeName));
+        var signatureParameterTypes = method.Parameters.Select((parameter, index) => FormatConcreteGenericParameterCppType(parameter, concreteParameters[index])).ToArray();
+        var marshallerParameterTypes = method.Parameters.Select((parameter, index) => FormatConcreteGenericMarshallerCppType(parameter, concreteParameters[index])).ToArray();
+        var memberSignature = $"{concreteReturnType.CppTypeName}({concreteRecordType}::*)({string.Join(", ", signatureParameterTypes)}){(method.IsConstMethod ? " const" : string.Empty)}";
+        var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", marshallerParameterTypes);
 
         if (method.TryGetMetadata(MetadataKeys.MarshallerExposedMethod, out string? _))
         {
@@ -2828,8 +2836,10 @@ public static partial class BindingOutputRenderer
         var concreteReturnType = SubstituteGenericType(record, method.ReturnType, instantiation);
         var parameterList = string.Join(", ", method.Parameters.Select((parameter, index) => $"arg_t<{concreteParameters[index].CppTypeName}> {parameter.NativeName}"));
         var abiArguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
-        var signature = $"{concreteReturnType.CppTypeName}({string.Join(", ", concreteParameters.Select(static parameter => parameter.CppTypeName))})";
-        var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", concreteParameters.Select(static parameter => parameter.CppTypeName));
+        var signatureParameterTypes = method.Parameters.Select((parameter, index) => FormatConcreteGenericParameterCppType(parameter, concreteParameters[index])).ToArray();
+        var marshallerParameterTypes = method.Parameters.Select((parameter, index) => FormatConcreteGenericMarshallerCppType(parameter, concreteParameters[index])).ToArray();
+        var signature = $"{concreteReturnType.CppTypeName}({string.Join(", ", signatureParameterTypes)})";
+        var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", marshallerParameterTypes);
 
         return $$"""
             SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(concreteReturnType)}} {{GetGenericEntryPointName(method, instantiation)}}({{parameterList}})
@@ -2851,9 +2861,11 @@ public static partial class BindingOutputRenderer
         var concreteReturnType = SubstituteFunctionGenericType(function.ReturnType, methodParams, instantiation);
         var parameterList = string.Join(", ", function.Parameters.Select((parameter, index) => $"arg_t<{concreteParameters[index].CppTypeName}> {parameter.NativeName}"));
         var abiArguments = string.Join(", ", function.Parameters.Select(static parameter => parameter.NativeName));
-        var signature = $"{concreteReturnType.CppTypeName}({string.Join(", ", concreteParameters.Select(static parameter => parameter.CppTypeName))})";
+        var signatureParameterTypes = function.Parameters.Select((parameter, index) => FormatConcreteGenericParameterCppType(parameter, concreteParameters[index])).ToArray();
+        var marshallerParameterTypes = function.Parameters.Select((parameter, index) => FormatConcreteGenericMarshallerCppType(parameter, concreteParameters[index])).ToArray();
+        var signature = $"{concreteReturnType.CppTypeName}({string.Join(", ", signatureParameterTypes)})";
         var methodCppTypeArgs = string.Join(", ", instantiation.TypeArguments.Select(static argument => argument.CppTypeName));
-        var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", concreteParameters.Select(static parameter => parameter.CppTypeName));
+        var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", marshallerParameterTypes);
 
         return $$"""
             SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(concreteReturnType)}} {{GetGenericEntryPointName(function, instantiation)}}({{parameterList}})
@@ -2893,20 +2905,23 @@ public static partial class BindingOutputRenderer
         var concreteReturnType = SubstituteGenericType(record, method.ReturnType, recordInstantiation, methodParams, methodInstantiation);
         var parameterList = string.Join(", ", new[] { $"arg_t<{concreteRecordType}*> self" }.Concat(method.Parameters.Select((parameter, index) => $"arg_t<{concreteParameters[index].CppTypeName}> {parameter.NativeName}")));
         var abiArguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
-        var marshallerParameterTypes = method.Parameters.Select((parameter, index) => FormatConcreteGenericParameterCppType(parameter, concreteParameters[index])).ToArray();
-        var memberSignature = $"{concreteReturnType.CppTypeName}({concreteRecordType}::*)({string.Join(", ", marshallerParameterTypes)}){(method.IsConstMethod ? " const" : string.Empty)}";
+        var signatureParameterTypes = method.Parameters.Select((parameter, index) => FormatConcreteGenericParameterCppType(parameter, concreteParameters[index])).ToArray();
+        var marshallerParameterTypes = method.Parameters.Select((parameter, index) => FormatConcreteGenericMarshallerCppType(parameter, concreteParameters[index])).ToArray();
+        var memberSignature = $"{concreteReturnType.CppTypeName}({concreteRecordType}::*)({string.Join(", ", signatureParameterTypes)}){(method.IsConstMethod ? " const" : string.Empty)}";
         var methodCppTypeArgs = string.Join(", ", methodInstantiation.TypeArguments.Select(static argument => argument.CppTypeName));
         var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", marshallerParameterTypes);
 
         writer.Write($$"""
-            SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(concreteReturnType)}} {{GetGenericMethodEntryPointName(method, recordInstantiation, methodInstantiation)}}({{parameterList}})
+            SHARPCPP_EXPORT {{GetNativeGenericEntrypointReturnType(concreteReturnType)}} {{GetGenericMethodEntryPointName(method, recordInstantiation, methodInstantiation)}}({{parameterList}})
             {
             using FT = {{memberSignature}};
             {{(concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void
                 ? $"MarshallerInvoker::invoke<{marshallerTemplateArguments}>(&{concreteRecordType}::{method.NativeName}<{methodCppTypeArgs}>, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
                 : RequiresOwnedRecordValueReturn(concreteReturnType)
                     ? $"return MarshallerInvoker::invoke_owned<{marshallerTemplateArguments}>(&{concreteRecordType}::{method.NativeName}<{methodCppTypeArgs}>, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
-                    : $"return MarshallerInvoker::invoke<{marshallerTemplateArguments}>(&{concreteRecordType}::{method.NativeName}<{methodCppTypeArgs}>, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
+                    : RequiresDirectGenericRecordValueReturn(concreteReturnType)
+                        ? $"return MarshallerInvoker::invoke_value<{marshallerTemplateArguments}>(&{concreteRecordType}::{method.NativeName}<{methodCppTypeArgs}>, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
+                        : $"return MarshallerInvoker::invoke<{marshallerTemplateArguments}>(&{concreteRecordType}::{method.NativeName}<{methodCppTypeArgs}>, self{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
             }
             """);
 
@@ -2962,10 +2977,12 @@ public static partial class BindingOutputRenderer
             ? $"MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>({invokeArgs});"
             : RequiresOwnedRecordValueReturn(concreteReturnType)
                 ? $"return MarshallerInvoker::invoke_owned_as<{marshallerTemplateArguments}>({invokeArgs});"
-                : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>({invokeArgs});";
+                : RequiresDirectGenericRecordValueReturn(concreteReturnType)
+                    ? $"return MarshallerInvoker::invoke_value_as<{marshallerTemplateArguments}>({invokeArgs});"
+                    : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>({invokeArgs});";
 
         return $$"""
-            SHARPCPP_EXPORT_NAMED({{entryPointName}}) {{GetNativeEntrypointReturnType(concreteReturnType)}} {{entryPointName}}({{parameterList}})
+            SHARPCPP_EXPORT_NAMED({{entryPointName}}) {{GetNativeGenericEntrypointReturnType(concreteReturnType)}} {{entryPointName}}({{parameterList}})
             {
             using FT = {{concreteReturnType.CppTypeName}}({{signatureParameterList}});
             auto fn = []({{lambdaParameterList}}) -> decltype(auto)
@@ -2977,14 +2994,40 @@ public static partial class BindingOutputRenderer
             """;
     }
 
+    private static bool RequiresDirectGenericRecordValueReturn(BindingType returnType)
+    {
+        return returnType.Kind == BindingTypeKind.Primitive &&
+            returnType.Marshaller.CppIsRecordValue &&
+            !returnType.Marshaller.CppIsReference &&
+            !IsPointerOrReferenceCppType(returnType.CppTypeName);
+    }
+
+    private static string GetNativeGenericEntrypointReturnType(BindingType returnType)
+    {
+        return RequiresDirectGenericRecordValueReturn(returnType)
+            ? returnType.CppTypeName
+            : GetNativeEntrypointReturnType(returnType);
+    }
+
     private static string FormatConcreteGenericParameterCppType(ParameterBinding parameter, BindingType concreteType)
     {
+        if (ReferenceEquals(parameter.Type, concreteType))
+        {
+            return parameter.CppTypeName;
+        }
+
         if (!parameter.Type.IsGenericParameter || string.IsNullOrWhiteSpace(parameter.Type.GenericParameterName))
         {
             return concreteType.CppTypeName;
         }
 
         var genericName = parameter.Type.GenericParameterName;
+        if (string.Equals(parameter.CppTypeName, $"const {genericName}&", StringComparison.Ordinal))
+        {
+            return concreteType.CppTypeName.TrimEnd().EndsWith('*')
+                ? $"{concreteType.CppTypeName} const&"
+                : $"const {concreteType.CppTypeName}&";
+        }
         if (string.Equals(parameter.CppTypeName, genericName + "&&", StringComparison.Ordinal) &&
             concreteType.Marshaller.CppIsReference)
         {
@@ -2992,6 +3035,13 @@ public static partial class BindingOutputRenderer
         }
 
         return parameter.CppTypeName.Replace(genericName, concreteType.CppTypeName, StringComparison.Ordinal);
+    }
+
+    private static string FormatConcreteGenericMarshallerCppType(ParameterBinding parameter, BindingType concreteType)
+    {
+        return parameter.Type.IsGenericParameter
+            ? concreteType.CppTypeName
+            : FormatConcreteGenericParameterCppType(parameter, concreteType);
     }
 
     private static string RenderNativeGenericMarshallerExposedInvocation(

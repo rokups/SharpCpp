@@ -2699,7 +2699,7 @@ public static partial class BindingOutputRenderer
             {
                 var isDirectorVirtual = requiresDirector && method.IsVirtual;
                 writer.Write(RenderManagedInstanceMethod(compilation, record, method, isDirectorVirtual));
-                if (isDirectorVirtual)
+                if (isDirectorVirtual && !method.IsPureVirtual)
                 {
                     pinvokeDeclarations.Add(RenderManagedCallbaseImportDeclaration(compilation, method, record.ManagedName));
                     if (HasNativeDefaultDispatchParams(method) || HasUndefaultableParams(method))
@@ -2707,7 +2707,7 @@ public static partial class BindingOutputRenderer
                         pinvokeDeclarations.Add(RenderManagedUnexpressibleDefaultInstanceImports(compilation, method, record.ManagedName, useCallbase: true));
                     }
                 }
-                else
+                else if (!isDirectorVirtual)
                 {
                     if (!ShouldRenderPureVirtualManagedStub(method))
                     {
@@ -3814,9 +3814,12 @@ public static partial class BindingOutputRenderer
 
         if (method.ReturnType.Kind == BindingTypeKind.Handle)
         {
+            var handleExpression = ReturnsOwnedHandle(method)
+                ? "global::SharpCpp.Support.NativeObject.TransferHandleOwnership(__result)"
+                : "global::SharpCpp.Support.NativeObject.GetHandle(__result)";
             writer.Write($$"""
                 var __result = {{invocation}};
-                return global::SharpCpp.Support.NativeObject.GetHandle(__result);
+                return {{handleExpression}};
             }
             """);
             return writer.ToString();
@@ -5086,7 +5089,8 @@ public static partial class BindingOutputRenderer
 
             if (type.Kind == BindingTypeKind.Handle)
             {
-                return FormatQualifiedRecordTypeName(compilation, type, publicSurface: true);
+                var typeName = FormatQualifiedRecordTypeName(compilation, type, publicSurface: true);
+                return type.ManagedTypeName.EndsWith("?", StringComparison.Ordinal) ? typeName + "?" : typeName;
             }
 
             if (type.Kind == BindingTypeKind.Enum)
@@ -6178,7 +6182,7 @@ public static partial class BindingOutputRenderer
         ValidateVirtualCallbackSupport(parameter);
 
         return parameter.Type.IsPointerType
-            ? BuildManagedHandleWrap(compilation, parameter.Type, parameter.ManagedName, ownsHandle: false)
+            ? BuildManagedHandleWrap(compilation, parameter.Type, parameter.ManagedName, parameter.CallbackTakesOwnership)
             : parameter.ManagedName;
     }
 
@@ -6239,10 +6243,6 @@ public static partial class BindingOutputRenderer
             ValidateVirtualCallbackSupport(parameter);
         }
 
-        if (method.ReturnType.Kind == BindingTypeKind.Handle && ReturnsOwnedHandle(method))
-        {
-            throw new NotSupportedException($"Director callback '{method.ManagedName}' does not support owned-handle returns yet.");
-        }
     }
 
     private static void ValidateVirtualCallbackSupport(ParameterBinding parameter)

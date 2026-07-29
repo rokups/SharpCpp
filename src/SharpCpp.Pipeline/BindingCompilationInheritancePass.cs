@@ -118,7 +118,8 @@ public static class BindingCompilationInheritancePass
             {
                 ManagedDefaultValueExpression = parameter.ManagedDefaultValueExpression,
                 UseCallbackDelegate = parameter.UseCallbackDelegate,
-                CallbackDelegateTypeName = parameter.CallbackDelegateTypeName
+                CallbackDelegateTypeName = parameter.CallbackDelegateTypeName,
+                CallbackTakesOwnership = parameter.CallbackTakesOwnership
             });
         }
 

@@ -51,4 +51,6 @@ public sealed class ParameterBinding : BindingNamedNode
     public bool UseCallbackDelegate { get; set; }
 
     public string? CallbackDelegateTypeName { get; set; }
+
+    public bool CallbackTakesOwnership { get; set; }
 }

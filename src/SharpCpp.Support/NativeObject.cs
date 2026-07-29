@@ -365,6 +365,34 @@ public abstract class NativeObject : SafeHandle
         return native.DangerousGetHandle();
     }
 
+    public static nint TransferHandleOwnership(object? value)
+    {
+        var native = GetObject(value);
+
+        if (native is null)
+        {
+            return 0;
+        }
+
+        lock (native._ownershipSync)
+        {
+            if (native.IsClosed || native.IsInvalid)
+            {
+                throw new ObjectDisposedException(native.GetType().FullName);
+            }
+
+            if (!native.OwnsNativeHandle)
+            {
+                throw new InvalidOperationException("Cannot transfer ownership from a non-owning native wrapper.");
+            }
+
+            var nativeHandle = native.DangerousGetHandle();
+            native._ownsNativeHandle = false;
+            native._preparedOwnedRegistration = false;
+            return nativeHandle;
+        }
+    }
+
     /// <summary>
     /// Extracts the native handle from a wrapper, throwing if the input is <see langword="null"/> or the wrapper is disposed.
     /// </summary>

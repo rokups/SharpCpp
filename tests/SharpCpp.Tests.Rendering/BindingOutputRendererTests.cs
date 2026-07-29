@@ -2589,6 +2589,33 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Managed_output_maps_nullable_null_handle_returns_to_null()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/Factory.hpp" });
+        var record = new RecordBinding("record:widget", "widget", "Widget");
+        var find = new FunctionBinding(
+            "function:find_widget",
+            "find_widget",
+            "FindWidget",
+            record.HandleType.WithManagedTypeFormatOverride("Widget?"),
+            "entry_find_widget");
+        compilation.Members.Add(record);
+        compilation.Members.Add(find);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file =>
+            file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public static global::SharpCpp.Sample.Widget? FindWidget()", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("return __result is null || __result.IsNull ? null : __result;", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Output_treats_wrapped_record_value_returns_as_owned_handles()
     {
         var compilation = new BindingCompilation(
@@ -2695,6 +2722,12 @@ public sealed class BindingOutputRendererTests
             marshallerTypeName: null,
             managedMarshaller: "global::Ea.__StringMarshaller<global::SharpCpp.Support.BorrowedNativeHandle>",
             cppIsReference: true);
+        var vector3Type = BindingType.CreateConfigured(
+                "Rml::Vector3f",
+                "global::SharpCpp.Sample.Vector3f",
+                marshallerTypeName: null,
+                managedMarshaller: "global::SharpCpp.Sample.Vector3fMarshaller")
+            .WithCppIsRecordValue(true);
         var get = new FunctionBinding(
             "method:variant:get",
             "Get",
@@ -2718,6 +2751,34 @@ public sealed class BindingOutputRendererTests
         defaultValue.SetMetadata(MetadataKeys.UnexpressibleDefault, true);
         get.Parameters.Add(defaultValue);
         get.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding([stringType]));
+        get.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding([vector3Type]));
+        var set = new FunctionBinding(
+            "method:variant:set",
+            "Set",
+            "Set",
+            BindingType.Void,
+            entryPointName: "sample_variant_set",
+            cppReturnTypeName: "void",
+            cppQualifiedName: "Rml::Variant::Set")
+        {
+            IsStatic = false,
+            OwningRecordCppTypeName = "Rml::Variant"
+        };
+        set.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        set.Parameters.Add(new ParameterBinding(
+            "parameter:variant:set:name",
+            "name",
+            "name",
+            stringType,
+            cppTypeName: "const Rml::String&"));
+        set.Parameters.Add(new ParameterBinding(
+            "parameter:variant:set:value",
+            "value",
+            "value",
+            BindingType.CreateGenericParameter("T"),
+            cppTypeName: "const T&"));
+        set.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding([BindingType.Boolean]));
+        set.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding([BindingType.IntPtr]));
         var assign = new FunctionBinding(
             "method:variant:assign",
             "operator=",
@@ -2738,7 +2799,10 @@ public sealed class BindingOutputRendererTests
             BindingType.CreateGenericParameter("T"),
             cppTypeName: "T&&"));
         assign.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding([constStringRefType]));
+        assign.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding(
+            [vector3Type.WithCppTypeName("const Rml::Vector3f&").WithCppIsReference(true)]));
         variant.Members.Add(get);
+        variant.Members.Add(set);
         variant.Members.Add(assign);
         compilation.Members.Add(variant);
 
@@ -2757,8 +2821,63 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("typeof(T) == typeof(global::Ea.String)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("using FT = Rml::String(Rml::Variant::*)(Rml::String) const;", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("->template Get<Rml::String>()", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("Rml::Vector3f sample_variant_get", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("return MarshallerInvoker::invoke_value<FT, std::tuple<Rml::Vector3f>>", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("using FT = Rml::Variant&(Rml::Variant::*)(const Rml::String&);", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("&Rml::Variant::operator=<const Rml::String&>", nativeOutput, StringComparison.Ordinal);
+        Assert.Matches(@"internal static partial .* Assign[^(]*\(.*global::Ea.String value\);", managedOutput);
+        Assert.DoesNotMatch(@"internal static partial .* Assign[^(]*\(.*in global::Ea.String value\);", managedOutput);
+        Assert.Matches(@"internal static partial .* Assign[^(]*\(.*global::SharpCpp.Sample.Vector3f value\);", managedOutput);
+        Assert.DoesNotMatch(@"internal static partial .* Assign[^(]*\(.*in global::SharpCpp.Sample.Vector3f value\);", managedOutput);
+        Assert.Contains("using FT = void(Rml::Variant::*)(const Rml::String&, const bool&);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("using FT = void(Rml::Variant::*)(const Rml::String&, void* const&);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("std::tuple<const Rml::String&, bool>", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("std::tuple<const Rml::String&, void*>", nativeOutput, StringComparison.Ordinal);
+        Assert.Matches(@"internal static partial void Set[^(]*\(.*bool value\);", managedOutput);
+        Assert.Matches(@"internal static partial void Set[^(]*\(.*global::System.IntPtr value\);", managedOutput);
+    }
+
+    [Fact]
+    public void Output_preserves_reference_signatures_on_generic_records()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Records/Range.hpp" });
+        var range = new RecordBinding("record:range", "Range", "Range", "Sample::Range")
+        {
+            ManagedNamespace = "SharpCpp.Sample",
+            ManagedTypeFormat = "global::SharpCpp.Sample.Range<{0}>"
+        };
+        range.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        range.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding([BindingType.Single]));
+        var contains = new FunctionBinding(
+            "method:range:contains",
+            "Contains",
+            "Contains",
+            BindingType.Boolean,
+            "sample_range_contains")
+        {
+            IsStatic = false,
+            IsConstMethod = true,
+            OwningRecordCppTypeName = "Sample::Range"
+        };
+        contains.Parameters.Add(new ParameterBinding(
+            "parameter:range:contains:value",
+            "value",
+            "value",
+            BindingType.CreateGenericParameter("T"),
+            cppTypeName: "const T&"));
+        range.Members.Add(contains);
+        compilation.Members.Add(range);
+
+        var nativeOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample")
+            .Files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("using FT = bool(Sample::Range<float>::*)(const float&) const;", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("MarshallerInvoker::invoke<FT, std::tuple<float>>", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2993,12 +3112,36 @@ public sealed class BindingOutputRendererTests
             IsStatic = false,
             IsVirtual = true,
             IsConstMethod = true,
+            OwningRecordCppTypeName = "callback_counter",
+            ReturnsOwnedHandle = true
+        };
+        var releaseChild = new FunctionBinding("method:callback_counter:release_child", "release_child", "ReleaseChild", BindingType.Void, "entry_release_child")
+        {
+            IsStatic = false,
+            IsVirtual = true,
+            OwningRecordCppTypeName = "callback_counter"
+        };
+        releaseChild.Parameters.Add(new ParameterBinding(
+            "parameter:callback_counter:release_child:child",
+            "child",
+            "child",
+            childRecord.HandleType)
+        {
+            CallbackTakesOwnership = true
+        });
+        var requiredValue = new FunctionBinding("method:callback_counter:required_value", "required_value", "RequiredValue", BindingType.Int32, "entry_required_value")
+        {
+            IsStatic = false,
+            IsVirtual = true,
+            IsPureVirtual = true,
             OwningRecordCppTypeName = "callback_counter"
         };
         record.Members.Add(ctor);
         record.Members.Add(getValue);
         record.Members.Add(callTwice);
         record.Members.Add(getChild);
+        record.Members.Add(releaseChild);
+        record.Members.Add(requiredValue);
         compilation.Members.Add(childRecord);
         compilation.Members.Add(record);
 
@@ -3015,7 +3158,11 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("auto __abi_arg0 = __arg0_marshaller.ConvertToAbi(amount);", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("ReturnMarshaller<int> __return_marshaller;", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("return __return_marshaller.ConvertToCpp(__abi_result);", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("return global::SharpCpp.Support.NativeObject.GetHandle(__result);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("return global::SharpCpp.Support.NativeObject.TransferHandleOwnership(__result);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("CallbackChild.CreateManagedWrapper(child, ownsHandle: true)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public abstract int RequiredValue();", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("sharpcpp_e2e_callback_counter_callbase_RequiredValue", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("sharpcpp_e2e_callback_counter_callbase_RequiredValue", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("class __callback_counter_director : public callback_counter", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("sharpcpp_e2e_callback_counter_connect_director", nativeOutput, StringComparison.Ordinal);
     }

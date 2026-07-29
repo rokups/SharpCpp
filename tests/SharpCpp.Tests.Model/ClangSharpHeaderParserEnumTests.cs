@@ -64,6 +64,67 @@ public sealed class ClangSharpHeaderParserEnumTests
             @enum => Assert.Equal("Second::Log::Type", @enum.CppQualifiedName));
     }
 
+    [Fact]
+    public void Parse_includes_nested_enums()
+    {
+        var compilation = ParseTempHeader(
+            "Sample.hpp",
+            """
+            namespace Test
+            {
+            class Variant
+            {
+            public:
+                enum Type : unsigned long
+                {
+                    None,
+                    Integer
+                };
+
+                Type GetType() const;
+            };
+            }
+            """,
+            ["-x", "c++", "-std=c++20"]);
+
+        var @enum = Assert.Single(compilation.Enums);
+        Assert.Equal("Type", @enum.NativeName);
+        Assert.Equal("Test::Variant::Type", @enum.CppQualifiedName);
+    }
+
+    [Fact]
+    public void Parse_distinguishes_same_named_nested_enums()
+    {
+        var compilation = ParseTempHeader(
+            "Sample.hpp",
+            """
+            namespace Test
+            {
+            class Log
+            {
+            public:
+                enum Type
+                {
+                    Error
+                };
+            };
+
+            class Variant
+            {
+            public:
+                enum Type
+                {
+                    None
+                };
+            };
+            }
+            """,
+            ["-x", "c++", "-std=c++20"]);
+
+        Assert.Contains(compilation.Enums, static @enum => @enum.CppQualifiedName == "Test::Log::Type");
+        Assert.Contains(compilation.Enums, static @enum => @enum.CppQualifiedName == "Test::Variant::Type");
+    }
+
     private static BindingCompilation ParseTempHeader(string fileName, string source, string[] clangArgs)
     {
         var fixtureDir = Path.Combine(Path.GetTempPath(), "sharpcpp-enums-" + Guid.NewGuid().ToString("N"));
