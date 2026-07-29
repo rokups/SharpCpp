@@ -1143,7 +1143,7 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         LowerDirectorIndirectParameters(record, function);
-        ApplyInferredInstanceMethodInputPointerArrayMetadata(function);
+        ApplyInferredInputPointerArrayMetadata(function);
 
         function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(methodDecl, nativeName)}");
 
@@ -1271,7 +1271,7 @@ public sealed partial class ClangSharpHeaderParser
             function.Parameters.Add(templateParam);
         }
 
-        ApplyInferredInstanceMethodInputPointerArrayMetadata(function);
+        ApplyInferredInputPointerArrayMetadata(function);
 
         function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(templateDecl, nativeName)}");
 
@@ -1341,6 +1341,8 @@ public sealed partial class ClangSharpHeaderParser
             ApplyCallbackDelegateAttribute(methodDecl.Handle, parameter.Handle, staticParam, ref ignoreReason);
             function.Parameters.Add(staticParam);
         }
+
+        ApplyInferredInputPointerArrayMetadata(function);
 
         function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(methodDecl, nativeName)}");
 
@@ -1954,6 +1956,8 @@ public sealed partial class ClangSharpHeaderParser
             ApplyCallbackDelegateAttribute(functionDecl.Handle, parameter.Handle, freeParam, ref ignoreReason);
             function.Parameters.Add(freeParam);
         }
+
+        ApplyInferredInputPointerArrayMetadata(function);
 
         function.EntryPointName = BuildEntrypointName(entryPointPrefix, SanitizeEntrypointNamePart(function.CppQualifiedName));
 
@@ -4176,8 +4180,18 @@ public sealed partial class ClangSharpHeaderParser
         return true;
     }
 
-    private static void ApplyInferredInstanceMethodInputPointerArrayMetadata(FunctionBinding function)
+    private static void ApplyInferredInputPointerArrayMetadata(FunctionBinding function)
     {
+        for (var index = 0; index < function.Parameters.Count - 1; ++index)
+        {
+            var first = function.Parameters[index];
+            var second = function.Parameters[index + 1];
+            if (IsArrayCountParameter(second))
+                ApplyAdjacentInputPointerArrayMetadata(first);
+            else if (IsArrayCountParameter(first))
+                ApplyAdjacentInputPointerArrayMetadata(second);
+        }
+
         var countParameterSeen = false;
         var handlePointerArraySeen = false;
 
@@ -4205,6 +4219,43 @@ public sealed partial class ClangSharpHeaderParser
 
             handlePointerArraySeen = false;
         }
+    }
+
+    private static void ApplyAdjacentInputPointerArrayMetadata(ParameterBinding parameter)
+    {
+        if (parameter.AbiKind != BindingParameterAbiKind.Pointer)
+            return;
+
+        if (parameter.Direction == BindingParameterDirection.In &&
+            parameter.Type.Kind == BindingTypeKind.Primitive)
+        {
+            parameter.SetMetadata(MetadataKeys.InputPointerArray, true);
+        }
+        else if (parameter.Type.Kind == BindingTypeKind.Primitive &&
+            !parameter.CppTypeName.Contains("const", StringComparison.Ordinal))
+        {
+            parameter.Direction = BindingParameterDirection.In;
+            parameter.SetMetadata(MetadataKeys.InputPointerArray, true);
+            parameter.SetMetadata(MetadataKeys.WritablePointerArray, true);
+        }
+        else if (IsConstPointerToPointer(parameter) && IsRawPointerHandle(parameter.Type))
+        {
+            parameter.Direction = BindingParameterDirection.In;
+            parameter.SetMetadata(MetadataKeys.InputPointerArray, true);
+        }
+    }
+
+    private static bool IsRawPointerHandle(BindingType type)
+    {
+        return type.Kind == BindingTypeKind.Handle &&
+            string.IsNullOrEmpty(type.RecordId) &&
+            string.Equals(type.ManagedTypeName, "global::System.IntPtr", StringComparison.Ordinal);
+    }
+
+    private static bool IsConstPointerToPointer(ParameterBinding parameter)
+    {
+        return parameter.CppTypeName.IndexOf('*') != parameter.CppTypeName.LastIndexOf('*') &&
+            parameter.CppTypeName.Contains("const", StringComparison.Ordinal);
     }
 
     private static bool IsArrayCountParameter(ParameterBinding parameter)

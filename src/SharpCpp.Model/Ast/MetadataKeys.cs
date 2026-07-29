@@ -39,6 +39,7 @@ public static class MetadataKeys
     public const string NativeDefaultValueExpression = "native_default_value_expression";
     public const string NativeDefaultArgumentAdapter = "native_default_argument_adapter";
     public const string InputPointerArray = "input_pointer_array";
+    public const string WritablePointerArray = "writable_pointer_array";
 }
 
 public sealed record NativeInterfaceQueryAnnotation(string SourceRecordCppQualifiedName, string InterfaceIdExpression);

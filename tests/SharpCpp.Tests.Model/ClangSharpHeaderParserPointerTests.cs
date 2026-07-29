@@ -62,6 +62,38 @@ public sealed class ClangSharpHeaderParserPointerTests
     }
 
     [Fact]
+    public void Parse_infers_adjacent_input_pointer_arrays()
+    {
+        var compilation = ParseTempHeader(
+            "Sample.h",
+            """
+            typedef unsigned long size_t;
+
+            void optimize(const unsigned int* words, size_t word_count);
+            void register_flags(const char** flags, size_t flag_count);
+            void read_values(unsigned int* values, size_t value_count);
+            """,
+            ["-x", "c", "-std=c17"]);
+
+        var optimize = Assert.Single(compilation.Functions, static function => function.NativeName == "optimize");
+        var words = Assert.Single(optimize.Parameters, static parameter => parameter.NativeName == "words");
+        var registerFlags = Assert.Single(compilation.Functions, static function => function.NativeName == "register_flags");
+        var flags = Assert.Single(registerFlags.Parameters, static parameter => parameter.NativeName == "flags");
+        var readValues = Assert.Single(compilation.Functions, static function => function.NativeName == "read_values");
+        var values = Assert.Single(readValues.Parameters, static parameter => parameter.NativeName == "values");
+
+        Assert.True(words.HasMetadata(MetadataKeys.InputPointerArray));
+        Assert.Equal(BindingParameterDirection.In, words.Direction);
+        Assert.True(
+            flags.HasMetadata(MetadataKeys.InputPointerArray),
+            $"{flags.Direction}, {flags.AbiKind}, {flags.Type.Kind}, {flags.Type.ManagedTypeName}, {flags.Type.CppTypeName}, {flags.Type.RecordId}, {flags.CppTypeName}");
+        Assert.Equal(BindingParameterDirection.In, flags.Direction);
+        Assert.True(values.HasMetadata(MetadataKeys.InputPointerArray));
+        Assert.True(values.HasMetadata(MetadataKeys.WritablePointerArray));
+        Assert.Equal(BindingParameterDirection.In, values.Direction);
+    }
+
+    [Fact]
     public void Parse_maps_raw_function_pointer_parameters_to_intptr()
     {
         var compilation = ParseTempHeader(

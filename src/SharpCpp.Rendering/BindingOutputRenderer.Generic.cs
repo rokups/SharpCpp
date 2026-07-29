@@ -694,46 +694,81 @@ public static partial class BindingOutputRenderer
         var result = new Dictionary<string, BindingType>(StringComparer.Ordinal);
         foreach (var owner in compilation.Records.Where(static record => !record.IsIgnored()))
         {
-            var fields = owner.Members.OfType<FieldBinding>().Where(static field => !field.IsIgnored()).ToArray();
-            var fieldNames = fields.Select(static field => field.NativeName).ToHashSet(StringComparer.Ordinal);
-            foreach (var field in fields)
+            foreach (var field in owner.Members.OfType<FieldBinding>().Where(static field => !field.IsIgnored()))
             {
-                var elementType = field.Type;
-                if (elementType.Kind != BindingTypeKind.Handle || elementType.RecordId is null ||
-                    !elementType.CppTypeName.TrimEnd().EndsWith('*'))
+                if (!TryGetPointerCountNativeArrayShape(compilation, field, out var shape))
                     continue;
-                if (!HasMatchingCountField(field.NativeName, fieldNames))
-                    continue;
-
-                var elementRecord = compilation.FindRecordBySymbolId(elementType.RecordId);
-                if (elementRecord is null || elementRecord.IsIgnored() || elementRecord.IsGeneric ||
-                    elementRecord.IsAbstract || elementRecord.IsPolymorphic)
-                    continue;
-                var arrayElementType = BindingType.CreateHandle(
-                    elementRecord.CppQualifiedName,
-                    elementType.ManagedTypeName,
-                    elementRecord.SymbolId,
-                    elementRecord.HandleMarshallerTypeName,
-                    cppIsRecordValue: true);
-                result.TryAdd(elementType.RecordId, arrayElementType);
+                result.TryAdd(shape.ElementType.RecordId!, shape.ElementType);
             }
         }
         return result.Values.OrderBy(static type => type.CppTypeName, StringComparer.Ordinal).ToArray();
     }
 
-    private static bool HasMatchingCountField(string pointerFieldName, IReadOnlySet<string> fieldNames)
+    private sealed record PointerCountNativeArrayShape(BindingType ElementType, FieldBinding CountField);
+
+    private static bool TryGetPointerCountNativeArrayShape(
+        BindingCompilation compilation,
+        FieldBinding field,
+        out PointerCountNativeArrayShape shape)
     {
-        if (fieldNames.Contains($"Num{pointerFieldName}"))
-            return true;
+        shape = null!;
+        if (field.Parent is not RecordBinding owner ||
+            field.AccessModifier != BindingAccessModifier.Public ||
+            owner.HasOwnManagedNonFieldMemberNamed($"Get{field.ManagedName}At") ||
+            field.Type.Kind != BindingTypeKind.Handle ||
+            field.Type.RecordId is null ||
+            field.Type.CppTypeName.IndexOf('*') != field.Type.CppTypeName.LastIndexOf('*') ||
+            !field.Type.CppTypeName.TrimEnd().EndsWith('*'))
+        {
+            return false;
+        }
+
+        var countField = FindMatchingCountField(
+            field.NativeName,
+            owner.Members.OfType<FieldBinding>().Where(static candidate => !candidate.IsIgnored()));
+        if (countField is null ||
+            countField.AccessModifier != BindingAccessModifier.Public ||
+            !IsIntegerCountField(countField))
+        {
+            return false;
+        }
+
+        var elementRecord = compilation.FindRecordBySymbolId(field.Type.RecordId);
+        if (elementRecord is null || elementRecord.IsIgnored() ||
+            elementRecord.HasMetadata(MetadataKeys.ForwardDeclaration) || elementRecord.IsGeneric ||
+            elementRecord.IsAbstract || elementRecord.IsPolymorphic)
+        {
+            return false;
+        }
+
+        shape = new PointerCountNativeArrayShape(
+            BindingType.CreateHandle(
+                elementRecord.CppQualifiedName,
+                field.Type.ManagedTypeName,
+                elementRecord.SymbolId,
+                elementRecord.HandleMarshallerTypeName,
+                cppIsRecordValue: true),
+            countField);
+        return true;
+    }
+
+    private static FieldBinding? FindMatchingCountField(
+        string pointerFieldName,
+        IEnumerable<FieldBinding> fields)
+    {
+        var fieldsByName = fields.ToDictionary(static field => field.NativeName, StringComparer.Ordinal);
+        if (fieldsByName.TryGetValue($"Num{pointerFieldName}", out var countField))
+            return countField;
         for (var i = pointerFieldName.Length - 1; i > 0; --i)
         {
             if (!char.IsUpper(pointerFieldName[i]))
                 continue;
-            if (fieldNames.Contains($"Num{pointerFieldName[i..]}"))
-                return true;
+            if (fieldsByName.TryGetValue($"Num{pointerFieldName[i..]}", out countField))
+                return countField;
         }
-        foreach (var fieldName in fieldNames)
+        foreach (var field in fieldsByName.Values)
         {
+            var fieldName = field.NativeName;
             if (!fieldName.EndsWith("Count", StringComparison.Ordinal) || fieldName.Length == "Count".Length)
                 continue;
             var countedName = fieldName[..^"Count".Length];
@@ -741,9 +776,20 @@ public static partial class BindingOutputRenderer
                 pointerFieldName == $"{countedName}Array" ||
                 pointerFieldName == $"{countedName}s" ||
                 pointerFieldName == $"{countedName}es")
-                return true;
+                return field;
         }
-        return false;
+        return null;
+    }
+
+    private static bool IsIntegerCountField(FieldBinding field)
+    {
+        return field.Type.Kind == BindingTypeKind.Primitive &&
+            field.Type.PrimitiveKind is
+                BindingPrimitiveKind.Int8 or BindingPrimitiveKind.UInt8 or
+                BindingPrimitiveKind.Int16 or BindingPrimitiveKind.UInt16 or
+                BindingPrimitiveKind.Int32 or BindingPrimitiveKind.UInt32 or
+                BindingPrimitiveKind.Int64 or BindingPrimitiveKind.UInt64 or
+                BindingPrimitiveKind.NativeInt or BindingPrimitiveKind.NativeUInt;
     }
 
     private static string GetDynamicNativeArrayToken(BindingType elementType) =>

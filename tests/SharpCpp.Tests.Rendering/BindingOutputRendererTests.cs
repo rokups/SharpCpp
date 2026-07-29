@@ -420,10 +420,15 @@ public sealed class BindingOutputRendererTests
 
         Assert.Contains("NativeArray<global::SharpCpp.Sample.Attachment>.__RegisterDynamic", managedOutput, StringComparison.Ordinal);
         Assert.Contains("__DynamicNativeArray_Create_record_Sample__Attachment", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("public global::SharpCpp.Sample.Attachment GetAttachmentsAt(nuint index)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("var result = __PInvoke.Get_Attachments_Item(this, index);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static partial global::SharpCpp.Sample.Attachment Get_Attachments_Item(Pipeline self, nuint index);", managedOutput, StringComparison.Ordinal);
         Assert.Contains("dynamic_native_array_record_Sample__Attachment_create", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("new Sample::Attachment[length]{}", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("delete[] static_cast<Sample::Attachment*>(self.handle)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("index >= self.length", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains($"self->{pointerFieldName} == nullptr || index >= static_cast<std::size_t>(self->{countFieldName})", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains($"return marshaller.ConvertToAbi(&(self->{pointerFieldName}[index]));", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1230,6 +1235,50 @@ public sealed class BindingOutputRendererTests
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "__PInvoke.PlotLike(label, in value, count, offset, overlay_text);",
+            managedOutput,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Undefaultable_default_imports_with_pointer_parameters_are_unsafe()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Sample.hpp" });
+        var function = new FunctionBinding(
+            "function:plot_like",
+            "PlotLike",
+            "PlotLike",
+            BindingType.Void,
+            "sharpcpp_sample_plot_like");
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:plot_like:values",
+            "values",
+            "values",
+            BindingType.CreateConfigured("const float*", "float*"),
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "const float*"));
+        var scale = new ParameterBinding(
+            "parameter:plot_like:scale",
+            "scale",
+            "scale",
+            BindingType.Single,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "float");
+        scale.SetMetadata(MetadataKeys.UnexpressibleDefault, true);
+        function.Parameters.Add(scale);
+        compilation.Members.Add(function);
+
+        var managedOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains(
+            "internal static unsafe partial void PlotLike__Args1(float* values);",
             managedOutput,
             StringComparison.Ordinal);
     }
@@ -2151,6 +2200,238 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("fixed (ulong* __abi_offsets_ptr = offsets)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("internal static unsafe partial void SetOffsets(DeviceContext self, uint count, ulong* offsets);", managedOutput, StringComparison.Ordinal);
         Assert.Contains("arg_t<const unsigned long long*> offsets", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Free_functions_render_annotated_primitive_pointer_array_parameters_as_spans()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Optimizer.hpp" });
+        var function = new FunctionBinding(
+            "function:optimize",
+            "optimize",
+            "Optimize",
+            BindingType.Boolean,
+            "sharpcpp_sample_optimize",
+            "bool",
+            "optimize");
+        var words = new ParameterBinding(
+            "parameter:optimize:words",
+            "words",
+            "words",
+            BindingType.UInt32,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Pointer,
+            "const unsigned int*");
+        words.SetMetadata(MetadataKeys.InputPointerArray, true);
+        function.Parameters.Add(words);
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:optimize:word_count",
+            "word_count",
+            "wordCount",
+            BindingType.NativeUInt,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "size_t"));
+        compilation.Members.Add(function);
+        var registerFlags = new FunctionBinding(
+            "function:register_flags",
+            "register_flags",
+            "RegisterFlags",
+            BindingType.Boolean,
+            "sharpcpp_sample_register_flags",
+            "bool",
+            "register_flags");
+        var flags = new ParameterBinding(
+            "parameter:register_flags:flags",
+            "flags",
+            "flags",
+            BindingType.CreateHandle("const char*", "global::System.IntPtr"),
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Pointer,
+            "const char**");
+        flags.SetMetadata(MetadataKeys.InputPointerArray, true);
+        registerFlags.Parameters.Add(flags);
+        registerFlags.Parameters.Add(new ParameterBinding(
+            "parameter:register_flags:flag_count",
+            "flag_count",
+            "flagCount",
+            BindingType.NativeUInt,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "size_t"));
+        compilation.Members.Add(registerFlags);
+        var decode = new FunctionBinding(
+            "function:decode",
+            "decode",
+            "Decode",
+            BindingType.Int32,
+            "sharpcpp_sample_decode",
+            "int",
+            "decode");
+        var samples = new ParameterBinding(
+            "parameter:decode:samples",
+            "samples",
+            "samples",
+            BindingType.Int16,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Pointer,
+            "short*");
+        samples.SetMetadata(MetadataKeys.InputPointerArray, true);
+        samples.SetMetadata(MetadataKeys.WritablePointerArray, true);
+        decode.Parameters.Add(samples);
+        decode.Parameters.Add(new ParameterBinding(
+            "parameter:decode:sample_count",
+            "sample_count",
+            "sampleCount",
+            BindingType.Int32,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "int"));
+        compilation.Members.Add(decode);
+        var resultRecord = new RecordBinding("record:Result", "Result", "Result", "Result");
+        var parse = new FunctionBinding(
+            "function:parse",
+            "parse",
+            "Parse",
+            BindingType.Boolean,
+            "sharpcpp_sample_parse",
+            "bool",
+            "parse");
+        var input = new ParameterBinding(
+            "parameter:parse:input",
+            "input",
+            "input",
+            BindingType.UInt32,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Pointer,
+            "const unsigned int*");
+        input.SetMetadata(MetadataKeys.InputPointerArray, true);
+        parse.Parameters.Add(input);
+        parse.Parameters.Add(new ParameterBinding(
+            "parameter:parse:input_count",
+            "input_count",
+            "inputCount",
+            BindingType.NativeUInt,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "size_t"));
+        parse.Parameters.Add(new ParameterBinding(
+            "parameter:parse:result",
+            "result",
+            "result",
+            BindingType.CreateHandle("Result*", "Result", resultRecord.SymbolId),
+            BindingParameterDirection.Out,
+            BindingParameterAbiKind.Pointer,
+            "Result**"));
+        compilation.Members.Add(resultRecord);
+        compilation.Members.Add(parse);
+
+        var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
+        var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("public static bool Optimize(global::System.ReadOnlySpan<uint> words, nuint wordCount)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("fixed (uint* __abi_words_ptr = words)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke.Optimize(__abi_words_ptr, wordCount)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static unsafe partial bool Optimize(uint* words, nuint wordCount);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("arg_t<const unsigned int*> words", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("public static bool RegisterFlags(global::System.ReadOnlySpan<global::System.IntPtr> flags, nuint flagCount)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("fixed (nint* __abi_flags_ptr = flags)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static unsafe partial bool RegisterFlags(nint* flags, nuint flagCount);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("arg_t<const char**> flags", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("public static int Decode(global::System.Span<short> samples, int sampleCount)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("fixed (short* __abi_samples_ptr = samples)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("internal static unsafe partial int Decode(short* samples, int sampleCount);", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("arg_t<short*> samples", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("public static bool Parse(global::System.ReadOnlySpan<uint> input, nuint inputCount, out global::SharpCpp.Sample.Result result)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("nint __abi_result;", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("__PInvoke.Parse(__abi_input_ptr, inputCount, out __abi_result)", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("result = global::SharpCpp.Sample.Result.CreateManagedWrapper(__abi_result, ownsHandle: false);", managedOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Pointer_array_functions_preserve_native_default_dispatch()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Plot.hpp" });
+        var function = new FunctionBinding(
+            "function:plot",
+            "plot",
+            "Plot",
+            BindingType.Void,
+            "sharpcpp_sample_plot");
+        var values = new ParameterBinding(
+            "parameter:plot:values",
+            "values",
+            "values",
+            BindingType.Single,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Pointer,
+            "const float*");
+        values.SetMetadata(MetadataKeys.InputPointerArray, true);
+        function.Parameters.Add(values);
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:plot:count",
+            "count",
+            "count",
+            BindingType.Int32,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "int"));
+        var overlay = new ParameterBinding(
+            "parameter:plot:overlay",
+            "overlay",
+            "overlay",
+            BindingType.CreateConfigured("const char*", "global::System.ReadOnlySpan<byte>"),
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "const char*");
+        overlay.SetMetadata(MetadataKeys.UndefaultableParam, true);
+        function.Parameters.Add(overlay);
+        var scale = new ParameterBinding(
+            "parameter:plot:scale",
+            "scale",
+            "scale",
+            BindingType.Single,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "float");
+        scale.SetMetadata(MetadataKeys.UnexpressibleDefault, true);
+        function.Parameters.Add(scale);
+        compilation.Members.Add(function);
+
+        var managedOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains(
+            "public static void Plot(global::System.ReadOnlySpan<float> values, int count)",
+            managedOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "__PInvoke.Plot__Args2(__abi_values_ptr, count);",
+            managedOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "public static void Plot(global::System.ReadOnlySpan<float> values, int count, global::System.ReadOnlySpan<byte> overlay, float? scale = default)",
+            managedOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "__PInvoke.Plot(__abi_values_ptr, count, overlay, scale.Value);",
+            managedOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "__PInvoke.Plot__Args3(__abi_values_ptr, count, overlay);",
+            managedOutput,
+            StringComparison.Ordinal);
     }
 
     [Fact]

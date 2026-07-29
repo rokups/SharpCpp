@@ -1423,6 +1423,18 @@ public static partial class BindingOutputRenderer
         var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType, compilation);
         var importMethodName = GetManagedImportMethodName(function);
 
+        if (function.Parameters.Any(IsInputPointerArrayParameter))
+        {
+            writer.Write(RenderManagedPointerArrayFunction(
+                compilation,
+                function,
+                "public static",
+                returnTypeName,
+                importMethodName,
+                []));
+            return writer.ToString();
+        }
+
         if (HasUndefaultableParams(function))
         {
             WriteUndefaultableOverloads(compilation, writer, function, importMethodName, []);
@@ -2810,6 +2822,17 @@ public static partial class BindingOutputRenderer
                     field,
                     hidesInheritedMember: string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
                         string.Equals(field.ManagedName, "Close", StringComparison.Ordinal)));
+                if (TryGetPointerCountNativeArrayShape(compilation, field, out var pointerCountShape))
+                {
+                    writer.WriteLine();
+                    writer.Write(RenderManagedPointerCountFieldAccessor(compilation, field, pointerCountShape.ElementType));
+                    pinvokeDeclarations.Add(RenderManagedPointerCountFieldItemGetterImportDeclaration(
+                        compilation,
+                        field,
+                        pointerCountShape.ElementType,
+                        record.ManagedName,
+                        record.CppQualifiedName));
+                }
                 if (NeedsManagedFixedArrayProxy(field))
                 {
                     pinvokeDeclarations.Add(RenderManagedFieldItemGetterImportDeclaration(compilation, field, record.ManagedName, record.CppQualifiedName));
@@ -2937,6 +2960,21 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
+    private static string RenderManagedPointerCountFieldAccessor(
+        BindingCompilation compilation,
+        FieldBinding field,
+        BindingType elementType)
+    {
+        return $$"""
+            public {{GetManagedPublicReturnTypeName(elementType, compilation)}} Get{{field.ManagedName}}At(nuint index)
+            {
+                var result = __PInvoke.Get_{{field.ManagedName}}_Item(this, index);
+                global::System.GC.KeepAlive(this);
+                return result;
+            }
+            """;
+    }
+
     private static IReadOnlyList<string> GetConfiguredManagedStaticInterfaces(BindingCompilation compilation, RecordBinding record)
     {
         var interfaces = new List<string>();
@@ -3025,7 +3063,14 @@ public static partial class BindingOutputRenderer
 
         if (function.Parameters.Any(IsInputPointerArrayParameter))
         {
-            return RenderManagedPointerArrayInstanceMethod(compilation, record, function, returnTypeName, memberModifier, importMethodName);
+            writer.Write(RenderManagedPointerArrayFunction(
+                compilation,
+                function,
+                $"{GetManagedVisibilityNormalized(compilation, record, function)} {memberModifier}".TrimEnd(),
+                returnTypeName,
+                importMethodName,
+                ["this"]));
+            return writer.ToString();
         }
 
         if (HasUndefaultableParams(function))
@@ -3123,13 +3168,13 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string RenderManagedPointerArrayInstanceMethod(
+    private static string RenderManagedPointerArrayFunction(
         BindingCompilation compilation,
-        RecordBinding record,
         FunctionBinding function,
+        string declarationPrefix,
         string returnTypeName,
-        string memberModifier,
-        string importMethodName)
+        string importMethodName,
+        IReadOnlyList<string> invocationPrefix)
     {
         if (function.ReturnType.MarshallerTypeName is not null)
         {
@@ -3137,13 +3182,55 @@ public static partial class BindingOutputRenderer
         }
 
         var writer = new CodeWriter();
-        var parameterList = RenderManagedPublicParameterList(function.Parameters, compilation);
+        var firstUndefaultable = GetFirstUndefaultableParamIndex(function);
+        if (firstUndefaultable >= 0)
+        {
+            var prefixParameters = function.Parameters.Take(firstUndefaultable).ToArray();
+            writer.Write(RenderManagedPointerArrayFunctionCore(
+                compilation,
+                function,
+                declarationPrefix,
+                returnTypeName,
+                importMethodName,
+                GetUnexpressibleVariantImportName(importMethodName, firstUndefaultable),
+                invocationPrefix,
+                prefixParameters,
+                firstUndefaultable));
+            writer.WriteLine();
+        }
+
+        writer.Write(RenderManagedPointerArrayFunctionCore(
+            compilation,
+            function,
+            declarationPrefix,
+            returnTypeName,
+            importMethodName,
+            importMethodName,
+            invocationPrefix,
+            function.Parameters.ToArray(),
+            function.Parameters.Count));
+        return writer.ToString();
+    }
+
+    private static string RenderManagedPointerArrayFunctionCore(
+        BindingCompilation compilation,
+        FunctionBinding function,
+        string declarationPrefix,
+        string returnTypeName,
+        string importMethodName,
+        string directImportMethodName,
+        IReadOnlyList<string> invocationPrefix,
+        IReadOnlyList<ParameterBinding> parameters,
+        int parameterCount)
+    {
+        var writer = new CodeWriter();
+        var parameterList = RenderManagedPublicParameterList(parameters, compilation);
         writer.Write($$"""
-            {{GetManagedVisibilityNormalized(compilation, record, function)}} {{memberModifier}}{{returnTypeName}} {{function.ManagedName}}({{parameterList}})
+            {{declarationPrefix}} {{returnTypeName}} {{function.ManagedName}}({{parameterList}})
             {
             """);
 
-        var pointerArrayParameters = function.Parameters.Where(IsInputPointerArrayParameter).ToArray();
+        var pointerArrayParameters = parameters.Where(IsInputPointerArrayParameter).ToArray();
         foreach (var parameter in pointerArrayParameters.Where(IsInputHandlePointerArrayParameter))
         {
             var abiSpanName = GetPointerArrayAbiSpanName(parameter);
@@ -3157,39 +3244,76 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
-        writer.WriteLine("unsafe");
-        writer.WriteLine("{");
-        foreach (var parameter in pointerArrayParameters)
+        var invocationPlan = BuildManagedInvocationPlan(compilation, parameters);
+        var hasNativeDefaultDispatch = GetNativeDefaultDispatchParameterIndices(function)
+            .Any(index => index < parameterCount);
+        if (!hasNativeDefaultDispatch)
         {
-            var pointerTypeName = GetManagedImportTypeName(parameter.Type, compilation);
-            var spanName = IsInputHandlePointerArrayParameter(parameter)
-                ? GetPointerArrayAbiSpanName(parameter)
-                : parameter.ManagedName;
-            writer.WriteLine($"fixed ({pointerTypeName}* {GetPointerArrayPointerName(parameter)} = {spanName})");
+            foreach (var statement in invocationPlan.PreCallStatements)
+            {
+                writer.Write(statement);
+            }
         }
-        writer.WriteLine("{");
 
-        var invokeArguments = string.Join(", ", new[] { "this" }.Concat(function.Parameters.Select(parameter =>
-            IsInputPointerArrayParameter(parameter)
-                ? GetPointerArrayPointerName(parameter)
-                : RenderManagedInvocationArgument(compilation, parameter))));
-
-        if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+        if (pointerArrayParameters.Length > 0)
         {
-            writer.WriteLine($"__PInvoke.{importMethodName}({invokeArguments});");
+            writer.WriteLine("unsafe");
+            writer.WriteLine("{");
+            foreach (var parameter in pointerArrayParameters)
+            {
+                var pointerTypeName = GetManagedImportTypeName(parameter.Type, compilation);
+                var spanName = IsInputHandlePointerArrayParameter(parameter)
+                    ? GetPointerArrayAbiSpanName(parameter)
+                    : parameter.ManagedName;
+                writer.WriteLine($"fixed ({pointerTypeName}* {GetPointerArrayPointerName(parameter)} = {spanName})");
+            }
+            writer.WriteLine("{");
+        }
+
+        var invokeArguments = string.Join(", ", invocationPrefix.Concat(invocationPlan.Arguments));
+
+        if (hasNativeDefaultDispatch)
+        {
+            WriteUnexpressibleDefaultCascade(
+                compilation,
+                writer,
+                function,
+                importMethodName,
+                invocationPrefix,
+                parameterCount);
+        }
+        else if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+        {
+            writer.WriteLine($"__PInvoke.{directImportMethodName}({invokeArguments});");
+            foreach (var statement in invocationPlan.PostCallStatements)
+            {
+                writer.Write(statement);
+            }
         }
         else if (function.ReturnType.Kind == BindingTypeKind.Handle)
         {
-            writer.WriteLine($"var __result = __PInvoke.{importMethodName}({invokeArguments});");
+            writer.WriteLine($"var __result = __PInvoke.{directImportMethodName}({invokeArguments});");
+            foreach (var statement in invocationPlan.PostCallStatements)
+            {
+                writer.Write(statement);
+            }
             writer.WriteLine($"return {BuildManagedHandleReturnResultExpression(compilation, function.ReturnType, "__result", ReturnsOwnedHandle(function))};");
         }
         else
         {
-            writer.WriteLine($"return __PInvoke.{importMethodName}({invokeArguments});");
+            writer.WriteLine($"var __result = __PInvoke.{directImportMethodName}({invokeArguments});");
+            foreach (var statement in invocationPlan.PostCallStatements)
+            {
+                writer.Write(statement);
+            }
+            writer.WriteLine("return __result;");
         }
 
-        writer.WriteLine("}");
-        writer.WriteLine("}");
+        if (pointerArrayParameters.Length > 0)
+        {
+            writer.WriteLine("}");
+            writer.WriteLine("}");
+        }
         writer.WriteLine("}");
         return writer.ToString();
     }
@@ -3846,6 +3970,18 @@ public static partial class BindingOutputRenderer
         var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType, compilation);
         var importMethodName = GetManagedImportMethodName(function);
 
+        if (function.Parameters.Any(IsInputPointerArrayParameter))
+        {
+            writer.Write(RenderManagedPointerArrayFunction(
+                compilation,
+                function,
+                $"{GetManagedVisibility(function.AccessModifier)} static",
+                returnTypeName,
+                importMethodName,
+                []));
+            return writer.ToString();
+        }
+
         if (HasUndefaultableParams(function))
         {
             WriteUndefaultableOverloads(compilation, writer, function, importMethodName, []);
@@ -4489,6 +4625,28 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
+    private static string RenderManagedPointerCountFieldItemGetterImportDeclaration(
+        BindingCompilation compilation,
+        FieldBinding field,
+        BindingType elementType,
+        string recordManagedName,
+        string entryPointRecordCppTypeName)
+    {
+        var writer = new CodeWriter();
+        var returnTypeName = GetManagedImportReturnTypeName(compilation, elementType);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, elementType, ownsHandle: false);
+        var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
+            ? $"internal static partial {returnTypeName} Get_{field.ManagedName}_Item({recordManagedName} self, nuint index);"
+            : $"{returnAttribute}\ninternal static partial {returnTypeName} Get_{field.ManagedName}_Item({recordManagedName} self, nuint index);";
+
+        writer.Write($$"""
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetNativeFieldItemGetterEntrypointName(entryPointRecordCppTypeName, field)}}", StringMarshalling = StringMarshalling.Utf8)]
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            {{importMethodLine}}
+            """);
+        return writer.ToString();
+    }
+
     private static string RenderManagedFieldItemSetterImportDeclaration(BindingCompilation compilation, FieldBinding field, string recordManagedName, string entryPointRecordCppTypeName)
     {
         var writer = new CodeWriter();
@@ -4896,6 +5054,17 @@ public static partial class BindingOutputRenderer
                      .Where(static entry => !entry.Field.HasMetadata(MetadataKeys.IgnoreReason))
                      .OrderBy(static entry => entry.Field.ManagedName, StringComparer.Ordinal))
         {
+            if (TryGetPointerCountNativeArrayShape(compilation, field, out var pointerCountShape))
+            {
+                writer.WriteLine();
+                writer.Write($$"""
+                    SHARPCPP_EXPORT ret_t<{{field.CppTypeName}}> {{GetNativeFieldItemGetterEntrypointName(accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self, std::size_t index)
+                    {
+                    {{RenderNativePointerCountFieldItemGetInvocation(field, pointerCountShape.CountField, "self")}}
+                    }
+                    """);
+            }
+
             if (NeedsManagedFixedArrayProxy(field))
             {
                 writer.WriteLine();
@@ -5033,6 +5202,24 @@ public static partial class BindingOutputRenderer
             "$1$2 $3$4 __asm__(\"$3\");\n" +
             "$1#endif\n" +
             "$1SHARPCPP_EXPORT_NAMED($3) $2 $3$4");
+    }
+
+    private static string RenderNativePointerCountFieldItemGetInvocation(
+        FieldBinding field,
+        FieldBinding countField,
+        string selfExpression)
+    {
+        var pointerExpression = GetNativeFixedArrayFieldAccessExpression(field, selfExpression);
+        var countExpression = GetNativeFixedArrayFieldAccessExpression(countField, selfExpression);
+        return $$"""
+            if ({{pointerExpression}} == nullptr || index >= static_cast<std::size_t>({{countExpression}}))
+            {
+                throw std::out_of_range("SharpCpp pointer-count field access is out of range.");
+            }
+
+            ReturnMarshaller<{{field.CppTypeName}}> marshaller;
+            return marshaller.ConvertToAbi(&({{pointerExpression}}[index]));
+            """;
     }
 
     private static string GetManagedWrapperTypeName(BindingType type, BindingCompilation? compilation = null)
@@ -5385,7 +5572,7 @@ public static partial class BindingOutputRenderer
             return $"nint* {parameter.ManagedName}";
         }
 
-        if (IsInputPrimitivePointerArrayParameter(parameter))
+        if (IsInputRawPointerArrayParameter(parameter))
         {
             return $"{GetManagedImportTypeName(type, compilation)}* {parameter.ManagedName}";
         }
@@ -5722,9 +5909,10 @@ public static partial class BindingOutputRenderer
             return $"global::System.ReadOnlySpan<{GetManagedPublicReturnTypeName(parameter.Type, compilation)}?> {parameter.ManagedName}";
         }
 
-        if (IsInputPrimitivePointerArrayParameter(parameter))
+        if (IsInputRawPointerArrayParameter(parameter))
         {
-            return $"global::System.ReadOnlySpan<{GetManagedPublicReturnTypeName(parameter.Type, compilation)}> {parameter.ManagedName}";
+            var spanType = parameter.HasMetadata(MetadataKeys.WritablePointerArray) ? "Span" : "ReadOnlySpan";
+            return $"global::System.{spanType}<{GetManagedPublicReturnTypeName(parameter.Type, compilation)}> {parameter.ManagedName}";
         }
 
         var modifier = parameter.Direction switch
@@ -5938,6 +6126,12 @@ public static partial class BindingOutputRenderer
 
         foreach (var parameter in parameters)
         {
+            if (IsInputPointerArrayParameter(parameter))
+            {
+                arguments.Add(GetPointerArrayPointerName(parameter));
+                continue;
+            }
+
             if (parameter.Type.IsFixedArray)
             {
                 var expectedLength = parameter.Type.FixedArrayLength ?? 0;
@@ -6961,9 +7155,10 @@ public static partial class BindingOutputRenderer
             var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, ReturnsOwnedHandle(function));
             var importName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
             var entrypointName = GetUnexpressibleVariantEntrypointName(function.EntryPointName, keepCount);
+            var unsafeModifier = parameterList.Contains('*', StringComparison.Ordinal) ? "unsafe " : string.Empty;
             var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
-                ? $"internal static partial {returnTypeName} {importName}({parameterList});"
-                : $"{returnAttribute}\ninternal static partial {returnTypeName} {importName}({parameterList});";
+                ? $"internal static {unsafeModifier}partial {returnTypeName} {importName}({parameterList});"
+                : $"{returnAttribute}\ninternal static {unsafeModifier}partial {returnTypeName} {importName}({parameterList});";
 
             writer.Write($$"""
                 [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{entrypointName}}", StringMarshalling = StringMarshalling.Utf8)]
@@ -6986,9 +7181,10 @@ public static partial class BindingOutputRenderer
             var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, ReturnsOwnedHandle(function));
             var variantImportName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
             var variantEntrypointName = GetUnexpressibleVariantEntrypointName(function.EntryPointName, keepCount);
+            var unsafeModifier = parameterList.Contains('*', StringComparison.Ordinal) ? "unsafe " : string.Empty;
             var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
-                ? $"internal static partial {returnTypeName} {variantImportName}({parameterList});"
-                : $"{returnAttribute}\ninternal static partial {returnTypeName} {variantImportName}({parameterList});";
+                ? $"internal static {unsafeModifier}partial {returnTypeName} {variantImportName}({parameterList});"
+                : $"{returnAttribute}\ninternal static {unsafeModifier}partial {returnTypeName} {variantImportName}({parameterList});";
 
             writer.Write($$"""
                 [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{variantEntrypointName}}", StringMarshalling = StringMarshalling.Utf8)]
@@ -7019,9 +7215,10 @@ public static partial class BindingOutputRenderer
             var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, ReturnsOwnedHandle(function));
             var variantImportName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
             var variantEntrypointName = GetUnexpressibleVariantEntrypointName(entryPointName, keepCount);
+            var unsafeModifier = parameterList.Contains('*', StringComparison.Ordinal) ? "unsafe " : string.Empty;
             var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
-                ? $"internal static partial {returnTypeName} {variantImportName}({parameterList});"
-                : $"{returnAttribute}\ninternal static partial {returnTypeName} {variantImportName}({parameterList});";
+                ? $"internal static {unsafeModifier}partial {returnTypeName} {variantImportName}({parameterList});"
+                : $"{returnAttribute}\ninternal static {unsafeModifier}partial {returnTypeName} {variantImportName}({parameterList});";
 
             writer.Write($$"""
                 [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{variantEntrypointName}}", StringMarshalling = StringMarshalling.Utf8)]
@@ -7043,11 +7240,12 @@ public static partial class BindingOutputRenderer
             var parameterList = string.Join(", ", variantParams.Select(parameter => RenderManagedImportParameter(parameter, compilation)));
             var variantImportName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
             var variantEntrypointName = GetUnexpressibleVariantEntrypointName(function.EntryPointName, keepCount);
+            var unsafeModifier = parameterList.Contains('*', StringComparison.Ordinal) ? "unsafe " : string.Empty;
 
             writer.Write($$"""
                 [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{variantEntrypointName}}", StringMarshalling = StringMarshalling.Utf8)]
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                internal static partial nint {{variantImportName}}({{parameterList}});
+                internal static {{unsafeModifier}}partial nint {{variantImportName}}({{parameterList}});
                 """);
         }
 
@@ -7356,26 +7554,30 @@ public static partial class BindingOutputRenderer
     {
         ArgumentNullException.ThrowIfNull(parameter);
 
-        return parameter.Direction == BindingParameterDirection.In &&
+        return !parameter.HasMetadata(MetadataKeys.InputPointerArray) &&
+            parameter.Direction == BindingParameterDirection.In &&
             parameter.AbiKind == BindingParameterAbiKind.Pointer &&
             parameter.Type.Kind == BindingTypeKind.Handle &&
             IsPointerToPointerType(parameter.CppTypeName);
     }
 
-    private static bool IsInputPrimitivePointerArrayParameter(ParameterBinding parameter)
+    private static bool IsInputRawPointerArrayParameter(ParameterBinding parameter)
     {
         ArgumentNullException.ThrowIfNull(parameter);
 
         return parameter.HasMetadata(MetadataKeys.InputPointerArray) &&
             parameter.Direction == BindingParameterDirection.In &&
             parameter.AbiKind == BindingParameterAbiKind.Pointer &&
-            parameter.Type.Kind == BindingTypeKind.Primitive;
+            (parameter.Type.Kind == BindingTypeKind.Primitive ||
+                parameter.Type.Kind == BindingTypeKind.Handle &&
+                string.IsNullOrEmpty(parameter.Type.RecordId) &&
+                string.Equals(parameter.Type.ManagedTypeName, "global::System.IntPtr", StringComparison.Ordinal));
     }
 
     private static bool IsInputPointerArrayParameter(ParameterBinding parameter)
     {
         return IsInputHandlePointerArrayParameter(parameter) ||
-            IsInputPrimitivePointerArrayParameter(parameter);
+            IsInputRawPointerArrayParameter(parameter);
     }
 
     private static bool RequiresArrayElementAccess(BindingCompilation compilation, RecordBinding record)
