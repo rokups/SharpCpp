@@ -592,7 +592,10 @@ public static partial class BindingOutputRenderer
         var method = slot.Method;
         var parameterList = string.Join(", ", method.Parameters.Select(parameter => $"{parameter.CppTypeName} {parameter.NativeName}"));
         var arguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
-        var callbackArguments = string.Join(", ", new[] { "const_cast<void*>(static_cast<const void*>(this))" }.Concat(method.Parameters.Select((_, parameterIndex) => $"__abi_arg{parameterIndex}")));
+        var callbackArguments = string.Join(", ", new[] { "const_cast<void*>(static_cast<const void*>(this))" }.Concat(method.Parameters.Select((parameter, parameterIndex) =>
+            parameter.Type.PrimitiveKind == BindingPrimitiveKind.Boolean
+                ? $"static_cast<std::uint8_t>(__abi_arg{parameterIndex})"
+                : $"__abi_arg{parameterIndex}")));
         var writer = new CodeWriter();
 
         writer.Write($$"""
@@ -803,8 +806,14 @@ public static partial class BindingOutputRenderer
 
     private static string BuildNativeDirectorCallbackSignature(FunctionBinding method)
     {
-        var parameterList = string.Join(", ", new[] { "void* self" }.Concat(method.Parameters.Select(parameter => $"arg_t<{GetNativeParameterMarshallerCppTypeName(parameter)}>")));
-        return $"ret_t<{method.CppReturnTypeName}> (*)({parameterList})";
+        var parameterList = string.Join(", ", new[] { "void* self" }.Concat(method.Parameters.Select(parameter =>
+            parameter.Type.PrimitiveKind == BindingPrimitiveKind.Boolean
+                ? "std::uint8_t"
+                : $"arg_t<{GetNativeParameterMarshallerCppTypeName(parameter)}>")));
+        var returnType = method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Boolean
+            ? "std::uint8_t"
+            : $"ret_t<{method.CppReturnTypeName}>";
+        return $"{returnType} (*)({parameterList})";
     }
 
     private static string GetNativeDirectorCallbackTypeName(int index)
@@ -3761,42 +3770,31 @@ public static partial class BindingOutputRenderer
             ? $"\"{method.ManagedName}\""
             : $"nameof({ownerTypeName}.{method.ManagedName})";
         var writer = new CodeWriter();
-        var callbackReturnType = GetManagedImportTypeName(method.ReturnType, compilation);
-        var returnAttribute = GetManagedReturnAttribute(method.ReturnType);
+        var callbackReturnType = GetManagedVirtualCallbackAbiTypeName(compilation, method.ReturnType);
         var callbackParameterList = string.Join(
             ", ",
             new[] { "nint self" }.Concat(method.Parameters.Select(parameter => RenderManagedCallbackParameter(compilation, parameter))));
+        var callbackFunctionPointerTypes = string.Join(
+            ", ",
+            new[] { "nint" }
+                .Concat(method.Parameters.Select(parameter => GetManagedVirtualCallbackAbiTypeName(compilation, parameter.Type)))
+                .Append(callbackReturnType));
         var invocationArguments = string.Join(
             ", ",
             method.Parameters.Select(parameter => BuildManagedCallbackInvocationArgument(compilation, parameter)));
 
-        if (!string.IsNullOrWhiteSpace(returnAttribute))
-        {
-            writer.WriteLine(returnAttribute);
-        }
-
         writer.Write($$"""
-            [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-            private delegate {{callbackReturnType}} {{GetVirtualCallbackDelegateName(method)}}({{callbackParameterList}});
-
-            private static readonly {{GetVirtualCallbackDelegateName(method)}} {{GetVirtualCallbackFieldName(method)}} = {{GetVirtualCallbackDispatchName(method)}};
-            private static readonly nint {{GetVirtualCallbackPointerFieldName(method)}} = Marshal.GetFunctionPointerForDelegate({{GetVirtualCallbackFieldName(method)}});
-
-            internal static nint {{GetVirtualCallbackPointerAccessorName(method)}}(Type runtimeType)
+            internal static unsafe nint {{GetVirtualCallbackPointerAccessorName(method)}}(Type runtimeType)
             {
             return HasManagedOverride(runtimeType, typeof({{ownerTypeName}}), {{methodNameExpression}}, {{FormatReflectionParameterTypes(compilation, method)}})
-                ? {{GetVirtualCallbackPointerFieldName(method)}}
+                ? (nint)(delegate* unmanaged[Cdecl]<{{callbackFunctionPointerTypes}}>)&{{GetVirtualCallbackDispatchName(method)}}
                 : 0;
             }
 
             """);
 
-        if (!string.IsNullOrWhiteSpace(returnAttribute))
-        {
-            writer.WriteLine(returnAttribute);
-        }
-
         writer.Write($$"""
+            [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
             private static {{callbackReturnType}} {{GetVirtualCallbackDispatchName(method)}}({{callbackParameterList}})
             {
             var owner = {{dispatchTypeName}}.CreateManagedWrapper(self, ownsHandle: false);
@@ -3825,8 +3823,11 @@ public static partial class BindingOutputRenderer
             return writer.ToString();
         }
 
+        var returnExpression = method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Boolean
+            ? $"{invocation} ? (byte)1 : (byte)0"
+            : invocation;
         writer.Write($$"""
-            return {{invocation}};
+            return {{returnExpression}};
             }
             """);
         return writer.ToString();
@@ -6174,16 +6175,25 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedCallbackParameter(BindingCompilation compilation, ParameterBinding parameter)
     {
         ValidateVirtualCallbackSupport(parameter);
-        return $"{GetManagedParameterAttribute(parameter.Type, compilation)}{GetManagedImportTypeName(parameter.Type, compilation)} {parameter.ManagedName}";
+        return $"{GetManagedVirtualCallbackAbiTypeName(compilation, parameter.Type)} {parameter.ManagedName}";
     }
 
     private static string BuildManagedCallbackInvocationArgument(BindingCompilation compilation, ParameterBinding parameter)
     {
         ValidateVirtualCallbackSupport(parameter);
 
-        return parameter.Type.IsPointerType
+        return parameter.Type.PrimitiveKind == BindingPrimitiveKind.Boolean
+            ? $"{parameter.ManagedName} != 0"
+            : parameter.Type.IsPointerType
             ? BuildManagedHandleWrap(compilation, parameter.Type, parameter.ManagedName, parameter.CallbackTakesOwnership)
             : parameter.ManagedName;
+    }
+
+    private static string GetManagedVirtualCallbackAbiTypeName(BindingCompilation compilation, BindingType type)
+    {
+        return type.PrimitiveKind == BindingPrimitiveKind.Boolean
+            ? "byte"
+            : GetManagedImportTypeName(type, compilation);
     }
 
     private static string FormatReflectionParameterTypes(BindingCompilation compilation, FunctionBinding method)
@@ -6191,21 +6201,6 @@ public static partial class BindingOutputRenderer
         return method.Parameters.Count == 0
             ? "System.Array.Empty<global::System.Type>()"
             : $"new global::System.Type[] {{ {string.Join(", ", method.Parameters.Select(parameter => $"typeof({GetManagedWrapperTypeName(parameter.Type, compilation)})"))} }}";
-    }
-
-    private static string GetVirtualCallbackDelegateName(FunctionBinding method)
-    {
-        return $"__{GetVirtualCallbackTokenPrefix(method)}_Delegate";
-    }
-
-    private static string GetVirtualCallbackFieldName(FunctionBinding method)
-    {
-        return $"s_{GetVirtualCallbackTokenPrefix(method)}_Callback";
-    }
-
-    private static string GetVirtualCallbackPointerFieldName(FunctionBinding method)
-    {
-        return $"s_{GetVirtualCallbackTokenPrefix(method)}_Pointer";
     }
 
     private static string GetVirtualCallbackPointerAccessorName(FunctionBinding method)

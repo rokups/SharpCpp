@@ -3153,7 +3153,9 @@ public sealed class BindingOutputRendererTests
 
         Assert.Contains("public virtual int GetValue(int amount)", managedOutput, StringComparison.Ordinal);
         Assert.Contains("private void ConnectDirector()", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("Marshal.GetFunctionPointerForDelegate", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("[UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]", managedOutput, StringComparison.Ordinal);
+        Assert.Contains("delegate* unmanaged[Cdecl]<nint, int, int>", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("Marshal.GetFunctionPointerForDelegate", managedOutput, StringComparison.Ordinal);
         Assert.Contains("ParameterMarshaller<int> __arg0_marshaller;", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("auto __abi_arg0 = __arg0_marshaller.ConvertToAbi(amount);", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("ReturnMarshaller<int> __return_marshaller;", nativeOutput, StringComparison.Ordinal);
@@ -4345,7 +4347,7 @@ public sealed class BindingOutputRendererTests
         };
 
         var getCountCore = new FunctionBinding("method:std::basic_string:size", "size", "GetCountCore",
-            BindingType.UInt64, "sharpcpp_e2e_std_basic_string_size", "std::size_t", "std::basic_string::size")
+            BindingType.UInt64, "sharpcpp_e2e_std_basic_string_size", "unsigned long long", "std::basic_string::size")
         {
             IsStatic = false,
             AccessModifier = BindingAccessModifier.Protected,
@@ -4386,7 +4388,7 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("GetCountCore()", managedOutput, StringComparison.Ordinal);
         Assert.Contains("GetDataCore()", managedOutput, StringComparison.Ordinal);
         Assert.Contains("AddCore", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("SHARPCPP_EXPORT_NAMED(sharpcpp_e2e_std_basic_string_size) ret_t<std::size_t> sharpcpp_e2e_std_basic_string_size(arg_t<std::basic_string*> self)", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("SHARPCPP_EXPORT_NAMED(sharpcpp_e2e_std_basic_string_size) ret_t<unsigned long long> sharpcpp_e2e_std_basic_string_size(arg_t<std::basic_string*> self)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("SHARPCPP_EXPORT_NAMED(sharpcpp_e2e_std_basic_string_data) ret_t<const char*> sharpcpp_e2e_std_basic_string_data(arg_t<std::basic_string*> self)", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("SHARPCPP_EXPORT_NAMED(sharpcpp_e2e_std_basic_string_push_back) ret_t<void> sharpcpp_e2e_std_basic_string_push_back(arg_t<std::basic_string*> self", nativeOutput, StringComparison.Ordinal);
     }

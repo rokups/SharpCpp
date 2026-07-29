@@ -186,7 +186,7 @@ struct OwnedStringMarshallerBase
     }
 
     [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
-    static std::size_t GetCountCore(const cpp_type& self)
+    static unsigned long long GetCountCore(const cpp_type& self)
     {
         return self.size();
     }
