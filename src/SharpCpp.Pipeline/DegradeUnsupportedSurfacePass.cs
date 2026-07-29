@@ -25,9 +25,14 @@ public static class DegradeUnsupportedSurfacePass
                          .GroupBy(GetCallableSignatureKey, StringComparer.Ordinal)
                          .Where(static group => group.Count() > 1))
             {
-                foreach (var function in duplicateGroup)
+                var declarations = duplicateGroup
+                    .OrderByDescending(static function => function.CppQualifiedName.Count(static character => character == ':'))
+                    .ThenBy(static function => function.SymbolId, StringComparer.Ordinal)
+                    .ToArray();
+                declarations[0].SetWarning($"selected canonical declaration from {declarations.Length} equivalent callable declarations");
+                foreach (var function in declarations.Skip(1))
                 {
-                    function.SetIgnoreReason($"callable signature '{duplicateGroup.Key}' is declared multiple times in this bootstrap surface");
+                    function.SetSilentExclusionReason($"callable signature '{duplicateGroup.Key}' duplicates an equivalent declaration");
                     changed = true;
                 }
             }
@@ -37,9 +42,14 @@ public static class DegradeUnsupportedSurfacePass
                           .GroupBy(GetManagedCallableSignatureKey, StringComparer.Ordinal)
                           .Where(static group => group.Count() > 1))
             {
-                foreach (var function in duplicateGroup)
+                var declarations = duplicateGroup
+                    .OrderByDescending(static function => function.CppQualifiedName.Count(static character => character == ':'))
+                    .ThenBy(static function => function.SymbolId, StringComparer.Ordinal)
+                    .ToArray();
+                declarations[0].SetWarning($"selected canonical declaration from {declarations.Length} equivalent managed declarations");
+                foreach (var function in declarations.Skip(1))
                 {
-                    function.SetIgnoreReason($"managed callable signature '{duplicateGroup.Key}' is declared multiple times in this bootstrap surface");
+                    function.SetSilentExclusionReason($"managed callable signature '{duplicateGroup.Key}' duplicates an equivalent managed declaration");
                     changed = true;
                 }
             }
@@ -245,7 +255,8 @@ public static class DegradeUnsupportedSurfacePass
         if (!function.IsConstructor &&
             function.NativeName.StartsWith("operator", StringComparison.Ordinal) &&
             function.OperatorToken is null &&
-            !function.IsConversionOperator)
+            !function.IsConversionOperator &&
+            !function.GetMetadata<bool>(MetadataKeys.ExplicitManagedRename))
         {
             reason = $"operator '{function.NativeName}' is not supported in this bootstrap surface";
             return true;
@@ -298,13 +309,6 @@ public static class DegradeUnsupportedSurfacePass
             }
         }
 
-        if (function.ReturnType.Kind == BindingTypeKind.Handle &&
-            (function.ReturnsOwnedHandle || function.ReturnType.Marshaller.CppIsRecordValue))
-        {
-            reason = "owned-handle returns are not yet supported";
-            return true;
-        }
-
         reason = string.Empty;
         return false;
     }
@@ -336,7 +340,7 @@ public static class DegradeUnsupportedSurfacePass
         if (string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
             (record.ManagedTypeFormat is null || record.ManagedTypeFormat == record.ManagedName) &&
             !record.GetMetadata<bool>(MetadataKeys.OpaqueNativeHandle) &&
-            !record.Members.OfType<FunctionBinding>().Any(static m => !m.IsConstructor && !m.IsStatic && !m.HasMetadata(MetadataKeys.IgnoreReason)) &&
+            !record.Members.OfType<FunctionBinding>().Any(static m => !m.IsConstructor && !m.HasMetadata(MetadataKeys.IgnoreReason)) &&
             !record.Members.OfType<FieldBinding>().Any() &&
             !record.Members.OfType<FunctionBinding>().Any(static m => m.IsConstructor && !m.HasMetadata(MetadataKeys.IgnoreReason)))
         {
@@ -456,7 +460,7 @@ public static class DegradeUnsupportedSurfacePass
                 return true;
             }
 
-            if (TryGetUnsupportedTypeReason(type.CallbackReturnType, type.CallbackReturnType.CppTypeName, recordsById, enumsById, disallowNonPointerHandles: true, out var callbackReturnReason))
+            if (TryGetUnsupportedTypeReason(type.CallbackReturnType, type.CallbackReturnType.CppTypeName, recordsById, enumsById, disallowNonPointerHandles: false, out var callbackReturnReason))
             {
                 reason = $"callback return type is unsupported: {callbackReturnReason}";
                 return true;

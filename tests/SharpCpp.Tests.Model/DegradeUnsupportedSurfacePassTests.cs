@@ -220,6 +220,58 @@ public sealed class DegradeUnsupportedSurfacePassTests
     }
 
     [Fact]
+    public void Apply_keeps_director_owned_handle_returns()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Callbacks.h"]);
+        var result = new RecordBinding("record:Test::Result", "Result", "Result", "Test::Result");
+        result.Members.Add(new FieldBinding("field:Result::value", "value", "Value", BindingType.Int32, "int", result.CppQualifiedName));
+        var director = new RecordBinding("record:Test::Factory", "Factory", "Factory", "Test::Factory")
+        {
+            IsDirector = true,
+            IsAbstract = true
+        };
+        var create = new FunctionBinding(
+            "method:Test::Factory::Create",
+            "Create",
+            "Create",
+            result.HandleType,
+            cppReturnTypeName: "Test::Result*",
+            cppQualifiedName: "Test::Factory::Create")
+        {
+            IsVirtual = true,
+            IsPureVirtual = true,
+            ReturnsOwnedHandle = true,
+            OwningRecordCppTypeName = director.CppQualifiedName
+        };
+        director.Members.Add(create);
+        compilation.Members.Add(result);
+        compilation.Members.Add(director);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.False(create.IsIgnored(), create.GetIgnoreReason());
+        Assert.False(director.IsIgnored(), director.GetIgnoreReason());
+    }
+
+    [Fact]
+    public void Apply_keeps_static_only_records()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Callbacks.h"]);
+        var utility = new RecordBinding("record:Test::Utility", "Utility", "Utility", "Test::Utility");
+        utility.Members.Add(new FunctionBinding(
+            "method:Test::Utility::Run",
+            "Run",
+            "Run",
+            BindingType.Void,
+            cppQualifiedName: "Test::Utility::Run"));
+        compilation.Members.Add(utility);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.False(utility.IsIgnored(), utility.GetIgnoreReason());
+    }
+
+    [Fact]
     public void Apply_keeps_in_value_callback_parameters()
     {
         var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Callbacks.h"]);
@@ -231,6 +283,67 @@ public sealed class DegradeUnsupportedSurfacePassTests
         DegradeUnsupportedSurfacePass.Apply(compilation);
 
         Assert.False(function.IsIgnored(), function.GetIgnoreReason());
+    }
+
+    [Fact]
+    public void Apply_keeps_record_value_callback_returns()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Callbacks.h"]);
+        var result = new RecordBinding("record:Test::Result", "Result", "Result", "Test::Result");
+        result.Members.Add(new FieldBinding("field:Test::Result::value", "value", "Value", BindingType.Int32, "int", result.CppQualifiedName));
+        var resultType = result.HandleType
+            .WithCppTypeName("Test::Result")
+            .WithCppIsRecordValue(true);
+        var callbackType = BindingType.CreateCallback(
+            "ResultCallback",
+            "global::System.Func<Result>",
+            null,
+            resultType,
+            []);
+        var function = new FunctionBinding("function:UseCallback", "UseCallback", "UseCallback", BindingType.Void, "UseCallback");
+        function.Parameters.Add(new ParameterBinding("parameter:callback", "callback", "callback", callbackType));
+        compilation.Members.Add(result);
+        compilation.Members.Add(function);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.False(function.IsIgnored(), function.GetIgnoreReason());
+    }
+
+    [Fact]
+    public void Apply_keeps_one_equivalent_global_declaration()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Functions.h"]);
+        var first = new FunctionBinding("function:First", "Shutdown", "Shutdown", BindingType.Void, cppQualifiedName: "Shutdown");
+        var second = new FunctionBinding("function:Second", "Shutdown", "Shutdown", BindingType.Void, cppQualifiedName: "Test::Shutdown");
+        compilation.Members.Add(first);
+        compilation.Members.Add(second);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.Single(compilation.Functions, static function => !function.IsIgnored());
+        Assert.Single(compilation.Functions, static function => function.IsSilentlyExcluded());
+        Assert.False(second.IsIgnored(), second.GetIgnoreReason());
+    }
+
+    [Fact]
+    public void Apply_keeps_explicitly_renamed_operators_as_methods()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Operators.h"]);
+        var record = new RecordBinding("record:Test::Value", "Value", "Value", "Test::Value");
+        var assign = new FunctionBinding(
+            "method:Test::Value::operator=",
+            "operator=",
+            "Assign",
+            record.HandleType,
+            cppQualifiedName: "Test::Value::operator=");
+        assign.SetMetadata(MetadataKeys.ExplicitManagedRename, true);
+        record.Members.Add(assign);
+        compilation.Members.Add(record);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.False(assign.IsIgnored(), assign.GetIgnoreReason());
     }
 
     [Fact]

@@ -174,6 +174,23 @@ public sealed class ClangSharpHeaderParserFlattenedFieldTests
         Assert.Equal("DefaultMode.Active", parameter.ManagedDefaultValueExpression);
     }
 
+    [Fact]
+    public void Parse_evaluates_managed_floating_point_defaults()
+    {
+        var compilation = ParseTempHeader(
+            "FloatingDefaults.hpp",
+            """
+            void sample(float delay = -1.f, float alpha = .5f, double ratio = 1.25);
+            """,
+            ["-x", "c++", "-std=c++20"]);
+
+        var function = Assert.Single(compilation.Members.OfType<FunctionBinding>());
+
+        Assert.Equal("-1f", function.Parameters[0].ManagedDefaultValueExpression);
+        Assert.Equal("0.5f", function.Parameters[1].ManagedDefaultValueExpression);
+        Assert.Equal("1.25", function.Parameters[2].ManagedDefaultValueExpression);
+    }
+
     private static BindingCompilation ParseTempHeader(string fileName, string source, string[] clangArgs)
     {
         var fixtureDir = Path.Combine(Path.GetTempPath(), "sharpcpp-flattened-fields-" + Guid.NewGuid().ToString("N"));

@@ -8,6 +8,39 @@ namespace SharpCpp.Tests.Model;
 public sealed class ClangSharpHeaderParserEnumTests
 {
     [Fact]
+    public void Parse_names_nested_enum_wrapper_after_its_record()
+    {
+        var compilation = ParseTempHeader(
+            "Sample.hpp",
+            """
+            namespace Sample
+            {
+            struct IndexFormat
+            {
+                enum Enum
+                {
+                    UInt16,
+                    UInt32
+                };
+            };
+
+            IndexFormat::Enum get_index_format();
+            }
+            """,
+            ["-x", "c++", "-std=c++20"]);
+
+        var indexFormat = Assert.Single(
+            compilation.Enums,
+            static enumBinding => enumBinding.CppQualifiedName == "Sample::IndexFormat::Enum");
+        var function = Assert.Single(compilation.Functions);
+
+        Assert.Equal("IndexFormat", indexFormat.ManagedName);
+        Assert.Equal(indexFormat.SymbolId, function.ReturnType.EnumId);
+        Assert.Equal("IndexFormat", function.ReturnType.ManagedTypeName);
+        Assert.Equal("Sample::IndexFormat::Enum", function.CppReturnTypeName);
+    }
+
+    [Fact]
     public void Parse_skips_anonymous_enums()
     {
         var compilation = ParseTempHeader(

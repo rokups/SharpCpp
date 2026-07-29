@@ -27,7 +27,14 @@ public static class NormalizeManagedNamespacesPass
                 continue;
             }
 
-            @enum.ManagedNamespace = ResolveManagedNamespace(@enum.CppQualifiedName, compilation.ManagedNamespace, namespaceMappings, @enum.NativeName);
+            var cppQualifiedName = @enum.NativeName == "Enum"
+                ? GetWrapperEnumOwnerName(@enum.CppQualifiedName)
+                : @enum.CppQualifiedName;
+            @enum.ManagedNamespace = ResolveManagedNamespace(
+                cppQualifiedName,
+                compilation.ManagedNamespace,
+                namespaceMappings,
+                @enum.NativeName);
         }
 
         foreach (var alias in compilation.TypeAliases)
@@ -69,6 +76,14 @@ public static class NormalizeManagedNamespacesPass
     {
         var genericStart = name.IndexOf('<');
         return genericStart >= 0 ? name[..genericStart] : name;
+    }
+
+    private static string GetWrapperEnumOwnerName(string cppQualifiedName)
+    {
+        const string enumSuffix = "::Enum";
+        return cppQualifiedName.EndsWith(enumSuffix, StringComparison.Ordinal)
+            ? cppQualifiedName[..^enumSuffix.Length]
+            : cppQualifiedName;
     }
 
     private static string ToPascalCase(string name)

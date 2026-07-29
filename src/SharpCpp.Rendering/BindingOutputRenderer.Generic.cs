@@ -729,7 +729,19 @@ public static partial class BindingOutputRenderer
         {
             if (!char.IsUpper(pointerFieldName[i]))
                 continue;
-            return fieldNames.Contains($"Num{pointerFieldName[i..]}");
+            if (fieldNames.Contains($"Num{pointerFieldName[i..]}"))
+                return true;
+        }
+        foreach (var fieldName in fieldNames)
+        {
+            if (!fieldName.EndsWith("Count", StringComparison.Ordinal) || fieldName.Length == "Count".Length)
+                continue;
+            var countedName = fieldName[..^"Count".Length];
+            if (pointerFieldName == countedName ||
+                pointerFieldName == $"{countedName}Array" ||
+                pointerFieldName == $"{countedName}s" ||
+                pointerFieldName == $"{countedName}es")
+                return true;
         }
         return false;
     }

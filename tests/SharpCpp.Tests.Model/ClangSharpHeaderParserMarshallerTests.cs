@@ -423,6 +423,14 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         Assert.Equal("Urho3D::WeakPtr<sample_payload>", weakReturn.ReturnType.CppTypeName);
         Assert.True(weakReturn.ReturnsOwnedHandle);
 
+        var uniqueReturn = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "get_payload_unique"));
+        Assert.Equal(BindingTypeKind.Handle, uniqueReturn.ReturnType.Kind);
+        Assert.Equal(payloadRecord.SymbolId, uniqueReturn.ReturnType.RecordId);
+        Assert.Equal(
+            "Urho3D::UniquePtr<sample_payload, Urho3D::Releaser<sample_payload>>",
+            uniqueReturn.ReturnType.CppTypeName);
+        Assert.True(uniqueReturn.ReturnsOwnedHandle);
+
         var sharedParameter = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "use_payload_shared"));
         Assert.Equal(BindingTypeKind.Handle, sharedParameter.Parameters[0].Type.Kind);
         Assert.Equal(payloadRecord.SymbolId, sharedParameter.Parameters[0].Type.RecordId);

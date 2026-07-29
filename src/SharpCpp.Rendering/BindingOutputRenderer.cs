@@ -1311,6 +1311,12 @@ public static partial class BindingOutputRenderer
 
     private static bool TryGetNativeFieldAccessExpression(FieldBinding field, string selfExpression, out string accessExpression)
     {
+        if (field.GetMetadata<bool>(MetadataKeys.BitField))
+        {
+            accessExpression = $"{selfExpression}->{field.NativeName}";
+            return true;
+        }
+
         if (field.TryGetMetadata<string>(MetadataKeys.NativeFieldAccessExpression, out var fieldAccessPath) &&
             !string.IsNullOrWhiteSpace(fieldAccessPath))
         {
@@ -5648,6 +5654,11 @@ public static partial class BindingOutputRenderer
 
     private static string GetManagedOmittedDefaultArgument(ParameterBinding parameter, BindingCompilation? compilation = null)
     {
+        if (parameter.Direction == BindingParameterDirection.Out)
+        {
+            return "out _";
+        }
+
         if (parameter.HasMetadata(MetadataKeys.UnexpressibleDefault) || parameter.ManagedDefaultValueExpression == "null")
         {
             return $"default({GetManagedOmittedDefaultTypeName(parameter, compilation)})";
@@ -7741,6 +7752,7 @@ public static partial class BindingOutputRenderer
             ? importMethodName
             : GetUnexpressibleVariantImportName(importMethodName, keepCount);
 
+        WriteOmittedOutParameterAssignments(writer, function, keepCount);
         if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
         {
             writer.Write($$"""
@@ -7859,6 +7871,7 @@ public static partial class BindingOutputRenderer
         var resultVar = "__result";
         var args = BuildManagedDispatchArguments(function, plan, leadingArguments, keepCount);
 
+        WriteOmittedOutParameterAssignments(writer, function, keepCount);
         if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
         {
             writer.Write($$"""
@@ -7993,6 +8006,7 @@ public static partial class BindingOutputRenderer
     {
         var args = BuildManagedDispatchArguments(function, plan, [], keepCount);
 
+        WriteOmittedOutParameterAssignments(writer, function, keepCount);
         writer.Write($$"""
             var __handle = __PInvoke.{{importName}}({{args}});
             """);
@@ -8006,6 +8020,18 @@ public static partial class BindingOutputRenderer
             """
             return __handle;
             """);
+    }
+
+    private static void WriteOmittedOutParameterAssignments(
+        CodeWriter writer,
+        FunctionBinding function,
+        int keepCount)
+    {
+        foreach (var parameter in function.Parameters.Skip(keepCount)
+                     .Where(static parameter => parameter.Direction == BindingParameterDirection.Out))
+        {
+            writer.WriteLine($"{parameter.ManagedName} = default!;");
+        }
     }
 
 }

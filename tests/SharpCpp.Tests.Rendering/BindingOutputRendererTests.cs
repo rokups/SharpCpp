@@ -235,6 +235,24 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Native_bit_field_accessors_use_direct_field_access()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });
+        var record = new RecordBinding("record:sample", "sample", "Sample");
+        var field = new FieldBinding("field:sample:visible", "visible", "Visible", BindingType.UInt32, "unsigned int", "sample");
+        field.SetMetadata(MetadataKeys.BitField, true);
+        record.Members.Add(field);
+        compilation.Members.Add(record);
+
+        var nativeOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains("return marshaller.ConvertToAbi(self->visible);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("self->visible = *value;", nativeOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("&sample::visible", nativeOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Native_field_access_metadata_casts_opaque_pointer_setters_to_declared_field_type()
     {
         var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });
@@ -365,8 +383,13 @@ public sealed class BindingOutputRendererTests
         Assert.DoesNotContain("Set_Attachments(Pipeline self", managedOutput, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void Pointer_count_record_fields_register_runtime_length_native_arrays()
+    [Theory]
+    [InlineData("Attachments", "NumAttachments")]
+    [InlineData("attachments", "attachmentCount")]
+    [InlineData("attachmentArray", "attachmentCount")]
+    [InlineData("meshes", "meshCount")]
+    public void Pointer_count_record_fields_register_runtime_length_native_arrays(
+        string pointerFieldName, string countFieldName)
     {
         var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native",
             new[] { "Sample.hpp", "SharpCpp/Marshaller.hpp" });
@@ -385,9 +408,9 @@ public sealed class BindingOutputRendererTests
         var attachmentType = BindingType.CreateHandle("const Sample::Attachment*", "global::SharpCpp.Sample.Attachment",
             attachment.SymbolId, cppIsRecordValue: true);
         var pipeline = new RecordBinding("record:Sample::Pipeline", "Pipeline", "Pipeline", "Sample::Pipeline");
-        pipeline.Members.Add(new FieldBinding("field:Sample::Pipeline:Attachments", "Attachments", "Attachments",
+        pipeline.Members.Add(new FieldBinding($"field:Sample::Pipeline:{pointerFieldName}", pointerFieldName, "Attachments",
             attachmentType, "const Sample::Attachment*", "Sample::Pipeline", isReadOnly: false, isPointer: true));
-        pipeline.Members.Add(new FieldBinding("field:Sample::Pipeline:NumAttachments", "NumAttachments", "NumAttachments",
+        pipeline.Members.Add(new FieldBinding($"field:Sample::Pipeline:{countFieldName}", countFieldName, "NumAttachments",
             BindingType.UInt32, "unsigned int", "Sample::Pipeline", isReadOnly: false));
         compilation.Members.Add(pipeline);
 
@@ -1018,6 +1041,73 @@ public sealed class BindingOutputRendererTests
             "return Selectable(label, p_selected, flags, default(",
             managedOutput,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Unexpressible_default_convenience_overloads_initialize_omitted_out_parameters()
+    {
+        var compilation = new BindingCompilation(
+            "SharpCpp.Sample",
+            "SharpCpp.Sample",
+            "SampleBindings",
+            "SharpCpp.Sample.Native",
+            new[] { "Sample.hpp" });
+        var function = new FunctionBinding(
+            "function:find",
+            "Find",
+            "Find",
+            BindingType.Single,
+            "sharpcpp_sample_find");
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:find:point",
+            "point",
+            "point",
+            BindingType.Single,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "float"));
+        var extents = new ParameterBinding(
+            "parameter:find:extents",
+            "extents",
+            "extents",
+            BindingType.CreateConfigured("Sample::Extents", "global::Sample.Extents"),
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Reference,
+            "const Sample::Extents&");
+        extents.SetMetadata(MetadataKeys.UnexpressibleDefault, true);
+        function.Parameters.Add(extents);
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:find:filter",
+            "filter",
+            "filter",
+            BindingType.IntPtr,
+            BindingParameterDirection.In,
+            BindingParameterAbiKind.Value,
+            "const void*")
+        {
+            ManagedDefaultValueExpression = "default"
+        });
+        function.Parameters.Add(new ParameterBinding(
+            "parameter:find:result",
+            "result",
+            "result",
+            BindingType.UInt32,
+            BindingParameterDirection.Out,
+            BindingParameterAbiKind.Value,
+            "unsigned int*")
+        {
+            ManagedDefaultValueExpression = "default"
+        });
+        compilation.Members.Add(function);
+
+        var managedOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+
+        Assert.Contains(
+            "return Find(point, default(global::Sample.Extents?), default, out _);",
+            managedOutput,
+            StringComparison.Ordinal);
+        Assert.Contains("result = default!;", managedOutput, StringComparison.Ordinal);
     }
 
     [Fact]

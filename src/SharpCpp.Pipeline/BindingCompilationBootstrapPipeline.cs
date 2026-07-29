@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using SharpCpp.Model.Ast;
+using SharpCpp.Model.Diagnostics;
 using SharpCpp.Model.Logging;
 using SharpCpp.Parsing;
 
@@ -22,11 +23,15 @@ public static class BindingCompilationBootstrapPipeline
     /// <param name="clangArgs">Clang compiler arguments (same as used in Phase 1 parse).</param>
     /// <param name="marshallerClangArgs">Optional Clang compiler arguments for marshaller configuration parsing.
     /// Use this when the API surface and marshaller headers need different language modes.</param>
+    /// <param name="configureBeforeValidation">Optional target configuration applied before unsupported-shape validation.</param>
+    /// <param name="configureAfterValidation">Optional target configuration applied after validation and before diagnostics.</param>
     public static void Apply(
         BindingCompilation compilation,
         IEnumerable<string> marshallerConfigFiles,
         IReadOnlyList<string> clangArgs,
-        IReadOnlyList<string>? marshallerClangArgs = null)
+        IReadOnlyList<string>? marshallerClangArgs = null,
+        Action<BindingCompilation>? configureBeforeValidation = null,
+        Action<BindingCompilation>? configureAfterValidation = null)
     {
         ArgumentNullException.ThrowIfNull(compilation);
         ArgumentNullException.ThrowIfNull(marshallerConfigFiles);
@@ -35,6 +40,9 @@ public static class BindingCompilationBootstrapPipeline
         RunTimed("MarshallerMetadataPhase2", () => MarshallerMetadataPhase2.ApplyWithClang(compilation, marshallerConfigFiles, marshallerClangArgs ?? clangArgs));
         RunTimed("SilentlyExcludeExternalDeclarations", () => SilentlyExcludeExternalDeclarationsPass.Apply(compilation));
         RunTimed("GenericInstantiation", () => BindingCompilationGenericInstantiationPass.Apply(compilation));
+        RunTimed("LowerForwardDeclaredHandles", () => LowerForwardDeclaredHandlesPass.Apply(compilation));
+        if (configureBeforeValidation is not null)
+            RunTimed("ConfigureBeforeValidation", () => configureBeforeValidation(compilation));
         RunTimed("DegradeUnsupportedSurface", () => DegradeUnsupportedSurfacePass.Apply(compilation));
         RunTimed("Inheritance", () => BindingCompilationInheritancePass.Apply(compilation));
         RunTimed("InheritManagedRuntimePolicy", () => InheritManagedRuntimePolicyPass.Apply(compilation));
@@ -47,10 +55,13 @@ public static class BindingCompilationBootstrapPipeline
         // any of the pipeline passes (e.g. records outside configured
         // namespace mappings, unsupported surface, etc.).
         RunTimed("PruneDegradedAliases", () => PruneAliasesTargetingDegradedRecords(compilation));
+        if (configureAfterValidation is not null)
+            RunTimed("ConfigureAfterValidation", () => configureAfterValidation(compilation));
 
         // Invalidate cached member lookups so rendering picks up any members
         // added by pipeline passes (MI projections, generic instantiations, etc.)
         compilation.InvalidateCaches();
+        BindingDiagnosticLog.WriteToConfiguredLog(compilation);
     }
 
     private static void RunTimed(string name, Action action)

@@ -3,6 +3,7 @@ namespace SharpCpp.Model.Ast;
 public static class MetadataKeys
 {
     public const string FunctionPointerField = "function_pointer_field";
+    public const string BitField = "bit_field";
     public const string ExposeNativeFunctionPointer = "expose_native_function_pointer";
     public const string CanonicalCppIdentity = "canonical_cpp_identity";
     public const string ManagedTypeIdentity = "managed_type_identity";

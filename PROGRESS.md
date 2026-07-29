@@ -80,8 +80,16 @@ Current worktree verification passes with generic complex C++ values crossing ca
 
 ### Infrastructure
 - Structured logging (`ILogger` with elapsed timestamps)
+- Configured file logs permanently include every ignored or silently excluded
+  binding node and every warning, with node kind, source location, qualified
+  name, reason, and a final count.
 - The `SharpCpp.Native` dummy C# project can configure/build either SharpCpp's standalone CMake tree or a consumer-owned CMake tree through configurable source, preset, binary-directory, target, and optional-graph properties. Embedded consumers can disable the synthetic E2E and rbfx native graphs while building the exported `sharpcpp-native` target in their own tree. Native configure/build invocations share a cross-process lock so multi-platform solution builds cannot race in shared dependency sources.
 - Degradation pass: auto-ignores unsupported constructs with diagnostic reasons
+- Generic-shape support includes direct raw function pointers, primitive pointer
+  fields, external opaque pointer typedefs, nested wrapper enums, static-only
+  records, record-value callback returns, explicit renamed operators, canonical
+  duplicate declarations, C++ floating-point defaults, bit-field accessors, and
+  record-pointer arrays paired with native `Count` fields.
 - Record reference return support (`T&` → handle ABI)
 - Type alias pipeline (`using` / `typedef` → metadata-backed C# using directives)
 - rbfx `FlagSet<TEnum>` lowering to public `[Flags]` enum surfaces

@@ -1142,6 +1142,7 @@ public sealed partial class ClangSharpHeaderParser
             function.Parameters.Add(param);
         }
 
+        LowerDirectorIndirectParameters(record, function);
         ApplyInferredInstanceMethodInputPointerArrayMetadata(function);
 
         function.EntryPointName = BuildEntrypointName(entryPointPrefix, $"{SanitizeEntrypointNamePart(record.CppQualifiedName)}_{GetEntrypointSuffix(methodDecl, nativeName)}");
@@ -1154,6 +1155,37 @@ public sealed partial class ClangSharpHeaderParser
         function.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(methodDecl));
 
         return function;
+    }
+
+    private static void LowerDirectorIndirectParameters(RecordBinding record, FunctionBinding function)
+    {
+        if (!record.IsDirector || !function.IsVirtual)
+        {
+            return;
+        }
+
+        foreach (var parameter in function.Parameters)
+        {
+            var isPrimitivePointer =
+                parameter.AbiKind == BindingParameterAbiKind.Pointer &&
+                parameter.Type.Kind == BindingTypeKind.Primitive;
+            var isPrimitiveReference =
+                parameter.CppTypeName.Contains('&', StringComparison.Ordinal) &&
+                parameter.Type.Kind == BindingTypeKind.Primitive &&
+                parameter.Type.PrimitiveKind != BindingPrimitiveKind.Unsupported &&
+                string.IsNullOrWhiteSpace(parameter.Type.ManagedMarshaller);
+            if (!isPrimitivePointer && !isPrimitiveReference)
+            {
+                continue;
+            }
+
+            parameter.Type = BindingType.CreateConfigured(
+                parameter.CppTypeName,
+                BindingType.IntPtr.ManagedTypeName,
+                primitiveKind: BindingPrimitiveKind.IntPtr);
+            parameter.Direction = BindingParameterDirection.In;
+            parameter.AbiKind = BindingParameterAbiKind.Value;
+        }
     }
 
     private static FunctionBinding? CreateTemplateMethod(
@@ -1397,7 +1429,13 @@ public sealed partial class ClangSharpHeaderParser
         var initialIgnoreReason = IsIncompleteArrayType(fieldDecl.Type.Handle.CanonicalType)
             ? "fixed-size array fields are not yet supported in this bootstrap surface"
             : null;
-        var (fieldType, ignoreReason) = TryMapType(fieldDecl.Type.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        var (fieldType, ignoreReason) = TryMapType(
+            fieldDecl.Type.Handle,
+            recordsByName,
+            enumsByName,
+            managedTypeOverrides,
+            genericParameters,
+            allowPrimitivePointer: true);
         var canonicalFieldType = fieldDecl.Type.Handle.CanonicalType;
         var isFunctionPointer = TypeIsPointer(canonicalFieldType)
             && TypeIsFunctionProto(canonicalFieldType.PointeeType.CanonicalType);
@@ -1429,6 +1467,8 @@ public sealed partial class ClangSharpHeaderParser
         field.ReturnsOwnedHandle = ShouldReturnOwnedHandle(fieldDecl.Type.Handle, field.Type, managedTypeOverrides, preferReturnOverride: false);
         if (isFunctionPointer)
             field.SetMetadata(MetadataKeys.FunctionPointerField, true);
+        if (fieldDecl.IsBitField)
+            field.SetMetadata(MetadataKeys.BitField, true);
 
         if (ignoreReason is not null)
         {
@@ -1627,7 +1667,13 @@ public sealed partial class ClangSharpHeaderParser
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         IReadOnlyDictionary<string, BindingType> genericParameters)
     {
-        var (fieldType, ignoreReason) = TryMapType(leafFieldDecl.Type.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        var (fieldType, ignoreReason) = TryMapType(
+            leafFieldDecl.Type.Handle,
+            recordsByName,
+            enumsByName,
+            managedTypeOverrides,
+            genericParameters,
+            allowPrimitivePointer: true);
         var cppTypeName = ResolveQualifiedTypeName(leafFieldDecl.Type.Handle, recordsByName);
         if (ShouldExposeCharPointerFieldAsIntPtr(leafFieldDecl.Type.Handle))
         {
@@ -2024,16 +2070,32 @@ public sealed partial class ClangSharpHeaderParser
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         IReadOnlyDictionary<string, BindingType> genericParameters,
-        bool isReturn = false)
+        bool isReturn = false,
+        bool allowPrimitivePointer = false)
     {
-        if (TryGetUnsupportedFunctionPointerReason(type, isReturn ? "return type" : "type") is { } functionPointerReason)
+        if (IsFunctionPointerType(type))
         {
-            return (CreateIgnoredFallbackType(type), functionPointerReason);
+            var normalizedType = type.CanonicalType;
+            var isDirectFunctionPointer =
+                TypeIsFunctionProto(normalizedType) ||
+                TypeIsPointer(normalizedType) && TypeIsFunctionProto(normalizedType.PointeeType.CanonicalType);
+            return (
+                CreateIgnoredFallbackType(type),
+                isDirectFunctionPointer
+                    ? null
+                    : "type is unsupported in this bootstrap surface: nested function pointer types are not yet supported");
         }
 
         try
         {
-            return (MapType(type, recordsByName, enumsByName, managedTypeOverrides, genericParameters, isReturn), null);
+            return (MapType(
+                type,
+                recordsByName,
+                enumsByName,
+                managedTypeOverrides,
+                genericParameters,
+                isReturn,
+                allowPrimitivePointer: allowPrimitivePointer), null);
         }
         catch (NotSupportedException exception)
         {
@@ -2049,10 +2111,10 @@ public sealed partial class ClangSharpHeaderParser
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         IReadOnlyDictionary<string, BindingType> genericParameters)
     {
-        if (TryGetUnsupportedFunctionPointerReason(parameterCursor.Type, $"parameter '{parameterCursor.Spelling}'") is { } functionPointerReason)
+        if (IsFunctionPointerType(parameterCursor.Type))
         {
             var (direction, abiKind) = InferFallbackParameterPassing(functionCursor, parameterCursor);
-            return (CreateIgnoredFallbackType(parameterCursor.Type), direction, abiKind, functionPointerReason);
+            return (CreateIgnoredFallbackType(parameterCursor.Type), direction, abiKind, null);
         }
 
         try
@@ -2521,9 +2583,9 @@ public sealed partial class ClangSharpHeaderParser
             }
 
             if (TemplateHeadsEquivalent(candidateHead, patternHead) &&
-                patternArguments.Count == expectedArgumentCount &&
+                patternArguments.Count >= expectedArgumentCount &&
                 candidateArguments.Count >= visibleArgumentCount &&
-                candidateArguments.Count <= expectedArgumentCount)
+                candidateArguments.Count <= patternArguments.Count)
             {
                 return true;
             }
@@ -2740,6 +2802,16 @@ public sealed partial class ClangSharpHeaderParser
                     enumsByName);
             }
 
+            if (ownedAliasInfo is null &&
+                TypeIsRecord(pointeeType) &&
+                !spelledTypeName.Contains('*', StringComparison.Ordinal))
+            {
+                return BindingType.CreateConfigured(
+                    spelledTypeName,
+                    BindingType.IntPtr.ManagedTypeName,
+                    primitiveKind: BindingPrimitiveKind.IntPtr);
+            }
+
             if (TryCreateSpecializedRecordHandleType(
                     spelledTypeName,
                     concretePointeeTypeName,
@@ -2794,7 +2866,7 @@ public sealed partial class ClangSharpHeaderParser
                 return TryApplyManagedAliasSurface(type, recordHandleType, preserveAliasSurface, enumsByName);
             }
 
-            if (isReturn || allowPrimitivePointer)
+            if (isReturn || allowPrimitivePointer && IsPrimitiveValueType(pointeeType))
             {
                 return TryApplyManagedAliasSurface(
                     type,
@@ -3271,14 +3343,14 @@ public sealed partial class ClangSharpHeaderParser
             string.Equals(overrideValue?.ReturnOwnership, "owning", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string? TryGetUnsupportedFunctionPointerReason(CXType type, string label)
+    private static bool IsFunctionPointerType(CXType type)
     {
         var normalized = type.CanonicalType;
         var normalizedText = NormalizeTypeName(normalized.Spelling.ToString());
         var underlyingText = GetUnderlyingTypeName(type);
         var aliasText = ResolveAliasTypeName(NormalizeTypeName(type.Spelling.ToString()));
         var canonicalAliasText = ResolveAliasTypeName(NormalizeTypeName(type.CanonicalType.Spelling.ToString()));
-        if (TypeIsFunctionProto(normalized) ||
+        return TypeIsFunctionProto(normalized) ||
             (TypeIsPointer(normalized) && TypeIsFunctionProto(normalized.PointeeType.CanonicalType)) ||
             normalizedText.Contains("(*)", StringComparison.Ordinal) ||
             underlyingText.Contains("(*)", StringComparison.Ordinal) ||
@@ -3287,12 +3359,27 @@ public sealed partial class ClangSharpHeaderParser
             normalizedText.Contains(")(", StringComparison.Ordinal) ||
             underlyingText.Contains(")(", StringComparison.Ordinal) ||
             aliasText.Contains(")(", StringComparison.Ordinal) ||
-            canonicalAliasText.Contains(")(", StringComparison.Ordinal))
-        {
-            return $"{label} is unsupported in this bootstrap surface: function pointer types are not yet supported";
-        }
+            canonicalAliasText.Contains(")(", StringComparison.Ordinal);
+    }
 
-        return null;
+    private static bool IsPrimitiveValueType(CXType type)
+    {
+        return type.CanonicalType.kind is
+            CXTypeKind.CXType_Bool or
+            CXTypeKind.CXType_Char_S or
+            CXTypeKind.CXType_SChar or
+            CXTypeKind.CXType_Char_U or
+            CXTypeKind.CXType_UChar or
+            CXTypeKind.CXType_Short or
+            CXTypeKind.CXType_UShort or
+            CXTypeKind.CXType_Int or
+            CXTypeKind.CXType_UInt or
+            CXTypeKind.CXType_LongLong or
+            CXTypeKind.CXType_ULongLong or
+            CXTypeKind.CXType_Float or
+            CXTypeKind.CXType_Double or
+            CXTypeKind.CXType_Long or
+            CXTypeKind.CXType_ULong;
     }
 
     private static IReadOnlyList<BindingType> ProjectVisibleTemplateArguments(
@@ -3685,6 +3772,19 @@ public sealed partial class ClangSharpHeaderParser
 
         if (TryGetQualifiedNamedType(type, out var unqualifiedName, out var qualifiedName))
         {
+            var surfaceNamedType = NormalizeNamedTypeName(spelling)
+                .TrimEnd('*', '&')
+                .TrimEnd();
+            if (qualifiedName.EndsWith($"::{surfaceNamedType}", StringComparison.Ordinal))
+            {
+                var surfacePattern = $@"(?<![:\w]){Regex.Escape(surfaceNamedType)}(?![:\w])";
+                spelling = Regex.Replace(
+                    spelling,
+                    surfacePattern,
+                    qualifiedName,
+                    RegexOptions.CultureInvariant);
+            }
+
             var replacementSource = qualifiedName.Contains('<', StringComparison.Ordinal)
                 ? StripGenericArguments(unqualifiedName)
                 : unqualifiedName;
@@ -4647,7 +4747,7 @@ public sealed partial class ClangSharpHeaderParser
         var @enum = new EnumBinding(
             $"enum:{cppQualifiedName}",
             nativeName,
-            ToPascalCase(nativeName),
+            GetManagedEnumName(enumDecl, nativeName),
             NormalizeTypeName(enumDecl.IntegerType.AsString),
             cppQualifiedName,
             underlyingPrimitiveKind: GetPrimitiveKindFromTypeSpelling(enumDecl.IntegerType.AsString))
@@ -4675,6 +4775,18 @@ public sealed partial class ClangSharpHeaderParser
         IndexEnumKeys(enumsByName, @enum);
         @enum.HeaderIncludePath = headerIncludePath;
         compilation.Members.Add(@enum);
+    }
+
+    private static string GetManagedEnumName(EnumDecl enumDecl, string nativeName)
+    {
+        if (nativeName == "Enum" &&
+            enumDecl.SemanticParentCursor is RecordDecl parentRecord &&
+            !string.IsNullOrWhiteSpace(parentRecord.Name))
+        {
+            return ToPascalCase(parentRecord.Name);
+        }
+
+        return ToPascalCase(nativeName);
     }
 
     private static void IndexRecordKeys(IDictionary<string, RecordBinding> recordsByName, RecordBinding record)
@@ -4914,6 +5026,23 @@ public sealed partial class ClangSharpHeaderParser
             return NormalizeManagedEnumDefaultExpression(parameterType.ManagedTypeName, expression);
         }
 
+        if (TryGetEvaluatedManagedPrimitiveDefaultValueExpression(
+                parameterDecl,
+                expressionCursor,
+                parameterType,
+                out var evaluatedExpression))
+        {
+            return evaluatedExpression;
+        }
+
+        if (TryNormalizeManagedFloatingPointDefaultValueExpression(
+                expression,
+                parameterType,
+                out evaluatedExpression))
+        {
+            return evaluatedExpression;
+        }
+
         if (expression.Contains("::", StringComparison.Ordinal))
         {
             return null;
@@ -4938,6 +5067,114 @@ public sealed partial class ClangSharpHeaderParser
             CXCursorKind.CXCursor_CXXBoolLiteralExpr => expression.ToLowerInvariant(),
             _ => expression
         };
+    }
+
+    private static bool TryGetEvaluatedManagedPrimitiveDefaultValueExpression(
+        ParmVarDecl parameterDecl,
+        CXCursor expressionCursor,
+        BindingType parameterType,
+        out string expression)
+    {
+        expression = string.Empty;
+        if (parameterType.Kind != BindingTypeKind.Primitive ||
+            parameterType.PrimitiveKind is BindingPrimitiveKind.Unsupported
+                or BindingPrimitiveKind.Void
+                or BindingPrimitiveKind.Boolean
+                or BindingPrimitiveKind.IntPtr)
+        {
+            return false;
+        }
+
+        if (TryGetEvaluatedManagedPrimitiveDefaultValueExpression(expressionCursor, parameterType, out expression))
+            return true;
+
+        if (TryGetEvaluatedManagedPrimitiveDefaultValueExpression(
+                parameterDecl.DefaultArg.Handle,
+                parameterType,
+                out expression))
+        {
+            return true;
+        }
+
+        return parameterDecl.HasUninstantiatedDefaultArg &&
+            TryGetEvaluatedManagedPrimitiveDefaultValueExpression(
+                parameterDecl.UninstantiatedDefaultArg.Handle,
+                parameterType,
+                out expression);
+    }
+
+    private static bool TryGetEvaluatedManagedPrimitiveDefaultValueExpression(
+        CXCursor expressionCursor,
+        BindingType parameterType,
+        out string expression)
+    {
+        expression = string.Empty;
+        if (!expressionCursor.IsPotentiallyEvaluated)
+            return false;
+
+        using var evaluation = expressionCursor.Evaluate;
+        if (evaluation.Kind == CXEvalResultKind.CXEval_Int)
+        {
+            expression = evaluation.IsUnsignedInt
+                ? $"{evaluation.AsUnsigned.ToString(CultureInfo.InvariantCulture)}u"
+                : evaluation.AsInt.ToString(CultureInfo.InvariantCulture);
+            return true;
+        }
+
+        if (evaluation.Kind != CXEvalResultKind.CXEval_Float)
+            return false;
+
+        if (parameterType.PrimitiveKind == BindingPrimitiveKind.Single)
+        {
+            var value = (float)evaluation.AsDouble;
+            if (!float.IsFinite(value))
+                return false;
+
+            expression = $"{value.ToString("R", CultureInfo.InvariantCulture)}f";
+            return true;
+        }
+
+        if (parameterType.PrimitiveKind != BindingPrimitiveKind.Double ||
+            !double.IsFinite(evaluation.AsDouble))
+        {
+            return false;
+        }
+
+        expression = evaluation.AsDouble.ToString("R", CultureInfo.InvariantCulture);
+        return true;
+    }
+
+    private static bool TryNormalizeManagedFloatingPointDefaultValueExpression(
+        string sourceExpression,
+        BindingType parameterType,
+        out string expression)
+    {
+        expression = string.Empty;
+        if (parameterType.PrimitiveKind is not (BindingPrimitiveKind.Single or BindingPrimitiveKind.Double))
+            return false;
+
+        var literal = string.Concat(sourceExpression.Where(static character => !char.IsWhiteSpace(character)));
+        if (literal.EndsWith('f') || literal.EndsWith('F') || literal.EndsWith('l') || literal.EndsWith('L'))
+            literal = literal[..^1];
+
+        if (!double.TryParse(literal, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ||
+            !double.IsFinite(value))
+        {
+            return false;
+        }
+
+        if (parameterType.PrimitiveKind == BindingPrimitiveKind.Single)
+        {
+            var singleValue = (float)value;
+            if (!float.IsFinite(singleValue))
+                return false;
+
+            expression = $"{singleValue.ToString("R", CultureInfo.InvariantCulture)}f";
+            return true;
+        }
+
+        expression = value.ToString("R", CultureInfo.InvariantCulture);
+        return true;
     }
 
     private static string? GetNativeDefaultValueExpression(ParmVarDecl parameterDecl)

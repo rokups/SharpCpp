@@ -31,6 +31,17 @@ struct [[sharpcpp::managed_type(
     using abi_type = TCpp*;
 };
 
+template <class T>
+struct [[sharpcpp::managed_type(
+    public_type = "{0}",
+    projection = true,
+    return_ownership = "owning"
+)]] Marshaller<Urho3D::UniquePtr<T, Urho3D::Releaser<T>>>
+{
+    using cpp_type = Urho3D::UniquePtr<T, Urho3D::Releaser<T>>;
+    using abi_type = T*;
+};
+
 template <class TCpp, class TRefCounted>
 struct Marshaller<const Urho3D::SharedPtr<TCpp, TRefCounted>&>
 {
