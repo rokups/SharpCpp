@@ -1208,6 +1208,7 @@ public sealed class ClangSharpHeaderParserMarshallerTests
                 SDL_GLContext SDL_GL_CreateContext(SDL_Window* window);
                 void SDL_GL_DeleteContext(SDL_GLContext context);
                 void* SDL_GL_GetCurrentContext(void);
+                void SDL_free(void* memory);
                 int SDL_PollEvent(SDL_Event* event);
                 """);
 
@@ -1256,6 +1257,12 @@ public sealed class ClangSharpHeaderParserMarshallerTests
             Assert.Equal(BindingPrimitiveKind.IntPtr, currentContext.ReturnType.PrimitiveKind);
             Assert.False(currentContext.IsIgnored(), currentContext.GetIgnoreReason());
 
+            var free = Assert.Single(compilation.Functions, static function => function.NativeName == "SDL_free");
+            Assert.Equal("void*", free.Parameters[0].CppTypeName);
+            Assert.Null(free.Parameters[0].Type.AliasCppQualifiedName);
+            Assert.Equal(BindingPrimitiveKind.IntPtr, free.Parameters[0].Type.PrimitiveKind);
+            Assert.False(free.IsIgnored(), free.GetIgnoreReason());
+
             var sdlEvent = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "SDL_Event");
             Assert.False(sdlEvent.IsIgnored(), sdlEvent.GetIgnoreReason());
             Assert.Contains(sdlEvent.Members.OfType<FunctionBinding>(), static member => member.IsConstructor && member.Parameters.Count == 0);
@@ -1265,6 +1272,85 @@ public sealed class ClangSharpHeaderParserMarshallerTests
             Assert.Equal(BindingParameterAbiKind.Value, pollEvent.Parameters[0].AbiKind);
             Assert.Equal(sdlEvent.SymbolId, pollEvent.Parameters[0].Type.RecordId);
             Assert.False(pollEvent.IsIgnored(), pollEvent.GetIgnoreReason());
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Parse_preserves_c_primitive_types_without_unusable_aliases_or_constructors()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), "sharpcpp-c-primitives-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(fixtureDir);
+        try
+        {
+            var headerPath = Path.Combine(fixtureDir, "Sample.h");
+            File.WriteAllText(headerPath,
+                """
+                typedef unsigned char sample_byte;
+                typedef void sample_void;
+
+                typedef struct SampleOptions
+                {
+                    const int version;
+                    _Bool enabled;
+                } SampleOptions;
+
+                _Bool sample_accept(_Bool value);
+                void sample_signed(signed char value);
+                void sample_unsigned(unsigned char value);
+                void sample_alias(sample_byte value);
+                """);
+
+            var parser = new ClangSharpHeaderParser();
+            var compilation = parser.Parse(new ClangSharpParseRequest(
+                ProjectName: "TestProject",
+                ManagedNamespace: "Test.Namespace",
+                ManagedClassName: "Bindings",
+                NativeLibraryName: "Test.Native",
+                HeaderFilePath: headerPath,
+                HeaderIncludePath: "Sample.h",
+                ClangArguments: ["-xc", "-std=c17", $"-I{fixtureDir}"],
+                MarshallerConfigurationFiles: Array.Empty<string>(),
+                EntryPointPrefix: "Test_"));
+
+            BindingCompilationBootstrapPipeline.Apply(
+                compilation,
+                Array.Empty<string>(),
+                ["-xc", "-std=c17", $"-I{fixtureDir}"]);
+
+            var byteAlias = Assert.Single(compilation.TypeAliases, static alias => alias.CppQualifiedName == "sample_byte");
+            Assert.Equal(BindingPrimitiveKind.UInt8, byteAlias.TargetType.PrimitiveKind);
+            Assert.DoesNotContain(compilation.TypeAliases, static alias => alias.CppQualifiedName == "sample_void");
+
+            var options = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "SampleOptions");
+            Assert.DoesNotContain(options.Members.OfType<FunctionBinding>(), static function => function.IsConstructor);
+            var enabled = Assert.Single(options.Members.OfType<FieldBinding>(), static field => field.NativeName == "enabled");
+            Assert.Equal(BindingPrimitiveKind.Boolean, enabled.Type.PrimitiveKind);
+            Assert.Equal("bool", enabled.CppTypeName);
+
+            var accept = Assert.Single(compilation.Functions, static function => function.NativeName == "sample_accept");
+            Assert.Equal(BindingPrimitiveKind.Boolean, accept.ReturnType.PrimitiveKind);
+            Assert.Equal("bool", accept.CppReturnTypeName);
+            Assert.Equal(BindingPrimitiveKind.Boolean, accept.Parameters[0].Type.PrimitiveKind);
+            Assert.Equal("bool", accept.Parameters[0].CppTypeName);
+
+            var signed = Assert.Single(compilation.Functions, static function => function.NativeName == "sample_signed");
+            Assert.Equal(BindingPrimitiveKind.Int8, signed.Parameters[0].Type.PrimitiveKind);
+            Assert.Null(signed.Parameters[0].Type.AliasCppQualifiedName);
+            Assert.Equal("signed char", signed.Parameters[0].CppTypeName);
+
+            var unsigned = Assert.Single(compilation.Functions, static function => function.NativeName == "sample_unsigned");
+            Assert.Equal(BindingPrimitiveKind.UInt8, unsigned.Parameters[0].Type.PrimitiveKind);
+            Assert.Null(unsigned.Parameters[0].Type.AliasCppQualifiedName);
+            Assert.Equal("unsigned char", unsigned.Parameters[0].CppTypeName);
+
+            var alias = Assert.Single(compilation.Functions, static function => function.NativeName == "sample_alias");
+            Assert.Equal(BindingPrimitiveKind.UInt8, alias.Parameters[0].Type.PrimitiveKind);
+            Assert.Equal("sample_byte", alias.Parameters[0].Type.AliasCppQualifiedName);
+            Assert.Equal("sample_byte", alias.Parameters[0].CppTypeName);
         }
         finally
         {

@@ -147,6 +147,12 @@ Current worktree verification passes with generic complex C++ values crossing ca
   - Added parser regression coverage for an abstract, fieldless forced director with no user-declared constructor.
   - Verification: `dotnet build SharpCpp.slnx --configuration Debug --no-restore -m:1` and `dotnet test SharpCpp.slnx --configuration Debug --no-build --no-restore -m:1` pass all five suites.
 
+- **C primitive and alias identity no longer requires consumer rewrites**:
+  - Plain primitive uses no longer inherit an unrelated typedef only because both types share the same canonical primitive representation.
+  - `void` typedefs are not emitted as unusable managed aliases, C `_Bool` is rendered as C++ `bool` in native thunks, and C records with const or reference fields do not receive invalid synthetic default constructors.
+  - Added parser regressions for SDL opaque handles, direct `void*`, signed and unsigned character primitives, unsigned-character aliases, C `_Bool`, `void` aliases, and const-field records.
+  - Verification: `dotnet build SharpCpp.slnx --configuration Debug` and `dotnet test SharpCpp.slnx --configuration Debug` pass all five suites with 548 tests.
+
 - **Anonymous C enums and primitive input-pointer forwarding are generated correctly**:
   - The parser skips Clang diagnostic spellings for anonymous enums instead of emitting invalid C# enum identifiers.
   - Managed wrappers preserve `in` when forwarding primitive pointer parameters to their P/Invoke declarations, avoiding one-value temporaries when the native parameter addresses a buffer.

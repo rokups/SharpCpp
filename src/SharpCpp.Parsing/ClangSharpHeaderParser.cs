@@ -263,44 +263,44 @@ public sealed partial class ClangSharpHeaderParser
                     break;
 
                 case FunctionTemplateDecl funcTemplateDecl:
-                {
-                    // Skip out-of-line template member definitions — the class-body
-                    // declaration is authoritative for access and static/virtual status.
-                    if (funcTemplateDecl.TemplatedDecl is CXXMethodDecl)
-                        break;
-                    var function = CreateTemplateFunction(funcTemplateDecl, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
-                    if (function is not null)
                     {
-                        CheckAndApplyIgnoreAttribute(funcTemplateDecl, function);
-                        TryApplyRename(funcTemplateDecl, function);
-                        ExtractAndApplyDocumentation(funcTemplateDecl, function);
-                        ApplyCallableDefinitionMetadata(funcTemplateDecl, function);
-                        ApplyDeletedCallableIgnore(funcTemplateDecl.TemplatedDecl, function);
-                        function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, request.HeaderIncludePath);
-                        compilation.Members.Add(function);
+                        // Skip out-of-line template member definitions — the class-body
+                        // declaration is authoritative for access and static/virtual status.
+                        if (funcTemplateDecl.TemplatedDecl is CXXMethodDecl)
+                            break;
+                        var function = CreateTemplateFunction(funcTemplateDecl, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
+                        if (function is not null)
+                        {
+                            CheckAndApplyIgnoreAttribute(funcTemplateDecl, function);
+                            TryApplyRename(funcTemplateDecl, function);
+                            ExtractAndApplyDocumentation(funcTemplateDecl, function);
+                            ApplyCallableDefinitionMetadata(funcTemplateDecl, function);
+                            ApplyDeletedCallableIgnore(funcTemplateDecl.TemplatedDecl, function);
+                            function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, request.HeaderIncludePath);
+                            compilation.Members.Add(function);
+                        }
+                        break;
                     }
-                    break;
-                }
 
                 case FunctionDecl functionDecl:
-                {
-                    // Out-of-line member definitions (CXXMethodDecl) at translation-unit
-                    // scope belong to a record — the class-body declaration (inside
-                    // RecordDecl.Decls) is the authoritative source for access and
-                    // virtual/static status. Skip to avoid generating invalid thunks
-                    // for non-public members.
-                    if (functionDecl is CXXMethodDecl)
+                    {
+                        // Out-of-line member definitions (CXXMethodDecl) at translation-unit
+                        // scope belong to a record — the class-body declaration (inside
+                        // RecordDecl.Decls) is the authoritative source for access and
+                        // virtual/static status. Skip to avoid generating invalid thunks
+                        // for non-public members.
+                        if (functionDecl is CXXMethodDecl)
+                            break;
+                        var function = CreateFunction(functionDecl, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
+                        CheckAndApplyIgnoreAttribute(functionDecl, function);
+                        TryApplyRename(functionDecl, function);
+                        ExtractAndApplyDocumentation(functionDecl, function);
+                        ApplyCallableDefinitionMetadata(functionDecl, function);
+                        ApplyDeletedCallableIgnore(functionDecl, function);
+                        function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, request.HeaderIncludePath);
+                        compilation.Members.Add(function);
                         break;
-                    var function = CreateFunction(functionDecl, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
-                    CheckAndApplyIgnoreAttribute(functionDecl, function);
-                    TryApplyRename(functionDecl, function);
-                    ExtractAndApplyDocumentation(functionDecl, function);
-                    ApplyCallableDefinitionMetadata(functionDecl, function);
-                    ApplyDeletedCallableIgnore(functionDecl, function);
-                    function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, request.HeaderIncludePath);
-                    compilation.Members.Add(function);
-                    break;
-                }
+                    }
             }
         }
 
@@ -395,37 +395,37 @@ public sealed partial class ClangSharpHeaderParser
                     break;
 
                 case FunctionTemplateDecl funcTemplateDecl:
-                {
-                    if (funcTemplateDecl.TemplatedDecl is CXXMethodDecl)
-                        break;
-                    var function = CreateTemplateFunction(funcTemplateDecl, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
-                    if (function is not null)
                     {
-                        CheckAndApplyIgnoreAttribute(funcTemplateDecl, function);
-                        TryApplyRename(funcTemplateDecl, function);
-                        ExtractAndApplyDocumentation(funcTemplateDecl, function);
-                        ApplyCallableDefinitionMetadata(funcTemplateDecl, function);
-                        ApplyDeletedCallableIgnore(funcTemplateDecl.TemplatedDecl, function);
-                        function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty);
-                        compilation.Members.Add(function);
+                        if (funcTemplateDecl.TemplatedDecl is CXXMethodDecl)
+                            break;
+                        var function = CreateTemplateFunction(funcTemplateDecl, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
+                        if (function is not null)
+                        {
+                            CheckAndApplyIgnoreAttribute(funcTemplateDecl, function);
+                            TryApplyRename(funcTemplateDecl, function);
+                            ExtractAndApplyDocumentation(funcTemplateDecl, function);
+                            ApplyCallableDefinitionMetadata(funcTemplateDecl, function);
+                            ApplyDeletedCallableIgnore(funcTemplateDecl.TemplatedDecl, function);
+                            function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty);
+                            compilation.Members.Add(function);
+                        }
+                        break;
                     }
-                    break;
-                }
 
                 case FunctionDecl functionDecl:
-                {
-                    if (functionDecl is CXXMethodDecl)
+                    {
+                        if (functionDecl is CXXMethodDecl)
+                            break;
+                        var function = CreateFunction(functionDecl, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
+                        CheckAndApplyIgnoreAttribute(functionDecl, function);
+                        TryApplyRename(functionDecl, function);
+                        ExtractAndApplyDocumentation(functionDecl, function);
+                        ApplyCallableDefinitionMetadata(functionDecl, function);
+                        ApplyDeletedCallableIgnore(functionDecl, function);
+                        function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty);
+                        compilation.Members.Add(function);
                         break;
-                    var function = CreateFunction(functionDecl, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
-                    CheckAndApplyIgnoreAttribute(functionDecl, function);
-                    TryApplyRename(functionDecl, function);
-                    ExtractAndApplyDocumentation(functionDecl, function);
-                    ApplyCallableDefinitionMetadata(functionDecl, function);
-                    ApplyDeletedCallableIgnore(functionDecl, function);
-                    function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty);
-                    compilation.Members.Add(function);
-                    break;
-                }
+                    }
             }
         }
     }
@@ -718,7 +718,7 @@ public sealed partial class ClangSharpHeaderParser
         if (record.GetMetadata<bool>(MetadataKeys.ForwardDeclaration) ||
             recordDecl.Handle.HasUserDeclaredConstructor ||
             record.Members.OfType<FunctionBinding>().Any(static member => member.IsConstructor) ||
-            record.Members.OfType<FieldBinding>().Any(static field => field.IsReference) ||
+            record.Members.OfType<FieldBinding>().Any(static field => field.IsReadOnly || field.IsReference) ||
             (!record.IsDirector &&
                 (record.IsAbstract || !record.Members.OfType<FieldBinding>().Any())))
         {
@@ -918,113 +918,113 @@ public sealed partial class ClangSharpHeaderParser
                     continue;
 
                 case CXXConstructorDecl ctorDecl:
-                {
-                    var ctor = CreateConstructor(record, ctorDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
-                    CheckAndApplyIgnoreAttribute(ctorDecl, ctor);
-                    ExtractAndApplyDocumentation(ctorDecl, ctor);
-                    ApplyCallableDefinitionMetadata(ctorDecl, ctor);
-
-                    if (record.IsAbstract && !record.IsDirector)
                     {
-                        ctor.SetIgnoreReason($"constructors on abstract record '{record.CppQualifiedName}' are not materializable in this bootstrap surface");
-                    }
-                    else if (record.GetMetadata<bool>(MetadataKeys.NonPublicDestructor))
-                    {
-                        ctor.SetIgnoreReason($"constructors on record '{record.CppQualifiedName}' with a non-public destructor are not materializable in this bootstrap surface");
-                    }
+                        var ctor = CreateConstructor(record, ctorDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
+                        CheckAndApplyIgnoreAttribute(ctorDecl, ctor);
+                        ExtractAndApplyDocumentation(ctorDecl, ctor);
+                        ApplyCallableDefinitionMetadata(ctorDecl, ctor);
 
-                    ApplyDeletedCallableIgnore(ctorDecl, ctor);
-                    record.Members.Add(ctor);
-                    break;
-                }
+                        if (record.IsAbstract && !record.IsDirector)
+                        {
+                            ctor.SetIgnoreReason($"constructors on abstract record '{record.CppQualifiedName}' are not materializable in this bootstrap surface");
+                        }
+                        else if (record.GetMetadata<bool>(MetadataKeys.NonPublicDestructor))
+                        {
+                            ctor.SetIgnoreReason($"constructors on record '{record.CppQualifiedName}' with a non-public destructor are not materializable in this bootstrap surface");
+                        }
+
+                        ApplyDeletedCallableIgnore(ctorDecl, ctor);
+                        record.Members.Add(ctor);
+                        break;
+                    }
 
                 case CXXConversionDecl conversionMethod:
-                {
-                    if (conversionMethod.Handle.CXXMethod_IsStatic)
-                        continue;
-                    var method = CreateMethod(record, conversionMethod, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
-                    CheckAndApplyIgnoreAttribute(conversionMethod, method);
-                    TryApplyRename(conversionMethod, method);
-                    ExtractAndApplyDocumentation(conversionMethod, method);
-                    ApplyCallableDefinitionMetadata(conversionMethod, method);
-                    ApplyDeletedCallableIgnore(conversionMethod, method);
-                    ApplyVirtualSpecifiers(conversionMethod, method);
-                    record.Members.Add(method);
-                    break;
-                }
+                    {
+                        if (conversionMethod.Handle.CXXMethod_IsStatic)
+                            continue;
+                        var method = CreateMethod(record, conversionMethod, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
+                        CheckAndApplyIgnoreAttribute(conversionMethod, method);
+                        TryApplyRename(conversionMethod, method);
+                        ExtractAndApplyDocumentation(conversionMethod, method);
+                        ApplyCallableDefinitionMetadata(conversionMethod, method);
+                        ApplyDeletedCallableIgnore(conversionMethod, method);
+                        ApplyVirtualSpecifiers(conversionMethod, method);
+                        record.Members.Add(method);
+                        break;
+                    }
 
                 case CXXMethodDecl methodDecl when !methodDecl.Handle.CXXMethod_IsStatic:
-                {
-                    // Prefer class-body declarations over out-of-line definitions.
-                    // Decl.Decls may include both; only class-body declarations
-                    // (with the RecordDecl as lexical parent) have correct access.
-                    if (methodDecl.Handle.Kind != CXCursorKind.CXCursor_CXXMethod)
-                        continue;
+                    {
+                        // Prefer class-body declarations over out-of-line definitions.
+                        // Decl.Decls may include both; only class-body declarations
+                        // (with the RecordDecl as lexical parent) have correct access.
+                        if (methodDecl.Handle.Kind != CXCursorKind.CXCursor_CXXMethod)
+                            continue;
 
-                    var method = CreateMethod(record, methodDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
-                    CheckAndApplyIgnoreAttribute(methodDecl, method);
-                    TryApplyRename(methodDecl, method);
-                    ExtractAndApplyDocumentation(methodDecl, method);
-                    ApplyCallableDefinitionMetadata(methodDecl, method);
-                    ApplyDeletedCallableIgnore(methodDecl, method);
-                    ApplyVirtualSpecifiers(methodDecl, method);
-                    record.Members.Add(method);
-                    break;
-                }
+                        var method = CreateMethod(record, methodDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
+                        CheckAndApplyIgnoreAttribute(methodDecl, method);
+                        TryApplyRename(methodDecl, method);
+                        ExtractAndApplyDocumentation(methodDecl, method);
+                        ApplyCallableDefinitionMetadata(methodDecl, method);
+                        ApplyDeletedCallableIgnore(methodDecl, method);
+                        ApplyVirtualSpecifiers(methodDecl, method);
+                        record.Members.Add(method);
+                        break;
+                    }
 
                 case CXXMethodDecl staticMethod when staticMethod.Handle.CXXMethod_IsStatic:
-                {
-                    // Decl.Decls may include out-of-line inline definitions
-                    // (CXCursor_FunctionDecl) in addition to class-body
-                    // declarations (CXCursor_CXXMethod). Only the class-body
-                    // declarations have correct access specifiers. Out-of-
-                    // line definitions are for the linker, not the class API.
-                    if (staticMethod.Handle.Kind != CXCursorKind.CXCursor_CXXMethod)
-                        continue;
+                    {
+                        // Decl.Decls may include out-of-line inline definitions
+                        // (CXCursor_FunctionDecl) in addition to class-body
+                        // declarations (CXCursor_CXXMethod). Only the class-body
+                        // declarations have correct access specifiers. Out-of-
+                        // line definitions are for the linker, not the class API.
+                        if (staticMethod.Handle.Kind != CXCursorKind.CXCursor_CXXMethod)
+                            continue;
 
-                    // Protected static methods can't be called from a
-                    // standalone function (not a friend or derived class).
-                    if (staticMethod.Access == CX_CXXAccessSpecifier.CX_CXXProtected ||
-                        staticMethod.Handle.CXXAccessSpecifier == CX_CXXAccessSpecifier.CX_CXXProtected)
-                        continue;
-                    
-                    var method = CreateStaticMethod(record, staticMethod, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
-                    CheckAndApplyIgnoreAttribute(staticMethod, method);
-                    TryApplyRename(staticMethod, method);
-                    ExtractAndApplyDocumentation(staticMethod, method);
-                    ApplyCallableDefinitionMetadata(staticMethod, method);
-                    ApplyDeletedCallableIgnore(staticMethod, method);
-                    record.Members.Add(method);
-                    break;
-                }
+                        // Protected static methods can't be called from a
+                        // standalone function (not a friend or derived class).
+                        if (staticMethod.Access == CX_CXXAccessSpecifier.CX_CXXProtected ||
+                            staticMethod.Handle.CXXAccessSpecifier == CX_CXXAccessSpecifier.CX_CXXProtected)
+                            continue;
+
+                        var method = CreateStaticMethod(record, staticMethod, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
+                        CheckAndApplyIgnoreAttribute(staticMethod, method);
+                        TryApplyRename(staticMethod, method);
+                        ExtractAndApplyDocumentation(staticMethod, method);
+                        ApplyCallableDefinitionMetadata(staticMethod, method);
+                        ApplyDeletedCallableIgnore(staticMethod, method);
+                        record.Members.Add(method);
+                        break;
+                    }
 
                 case FunctionTemplateDecl funcTemplate:
-                {
-                    var templateMethod = CreateTemplateMethod(record, funcTemplate, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
-                    if (templateMethod is not null)
                     {
-                        CheckAndApplyIgnoreAttribute(funcTemplate, templateMethod);
-                        TryApplyRename(funcTemplate, templateMethod);
-                        ExtractAndApplyDocumentation(funcTemplate, templateMethod);
-                        ApplyCallableDefinitionMetadata(funcTemplate, templateMethod);
-                        ApplyDeletedCallableIgnore(funcTemplate.TemplatedDecl, templateMethod);
-                        record.Members.Add(templateMethod);
+                        var templateMethod = CreateTemplateMethod(record, funcTemplate, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
+                        if (templateMethod is not null)
+                        {
+                            CheckAndApplyIgnoreAttribute(funcTemplate, templateMethod);
+                            TryApplyRename(funcTemplate, templateMethod);
+                            ExtractAndApplyDocumentation(funcTemplate, templateMethod);
+                            ApplyCallableDefinitionMetadata(funcTemplate, templateMethod);
+                            ApplyDeletedCallableIgnore(funcTemplate.TemplatedDecl, templateMethod);
+                            record.Members.Add(templateMethod);
+                        }
+                        break;
                     }
-                    break;
-                }
 
                 case FieldDecl fieldDecl:
-                {
-                    if (TryAddFlattenedRecordFields(recordDecl, record, fieldDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters))
-                        break;
+                    {
+                        if (TryAddFlattenedRecordFields(recordDecl, record, fieldDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters))
+                            break;
 
-                    var field = CreateField(record, fieldDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
-                    CheckAndApplyIgnoreAttribute(fieldDecl, field);
-                    TryApplyRename(fieldDecl, field);
-                    ExtractAndApplyDocumentation(fieldDecl, field);
-                    record.Members.Add(field);
-                    break;
-                }
+                        var field = CreateField(record, fieldDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+                        CheckAndApplyIgnoreAttribute(fieldDecl, field);
+                        TryApplyRename(fieldDecl, field);
+                        ExtractAndApplyDocumentation(fieldDecl, field);
+                        record.Members.Add(field);
+                        break;
+                    }
 
                 case EnumDecl enumDecl:
                     if (!string.IsNullOrEmpty(enumDecl.Name) &&
@@ -1984,7 +1984,7 @@ public sealed partial class ClangSharpHeaderParser
             function.Parameters.Add(freeTemplateParam);
         }
 
-                function.EntryPointName = BuildEntrypointName(entryPointPrefix, SanitizeEntrypointNamePart(function.CppQualifiedName));
+        function.EntryPointName = BuildEntrypointName(entryPointPrefix, SanitizeEntrypointNamePart(function.CppQualifiedName));
 
         if (ignoreReason is not null)
         {
@@ -3714,7 +3714,11 @@ public sealed partial class ClangSharpHeaderParser
         // Rml::Vector3 instead of Urho3D::Vector3 inside container signatures.
         spelling = RewriteTopLevelTemplateArgumentsFromCanonical(spelling, canonicalTypeName);
 
-        return spelling;
+        return Regex.Replace(
+            spelling,
+            @"(?<![:\w])_Bool(?![:\w])",
+            "bool",
+            RegexOptions.CultureInvariant);
     }
 
     private static string ResolveParameterCppTypeName(CXType type, IDictionary<string, RecordBinding> recordsByName)
@@ -5117,44 +5121,44 @@ public sealed partial class ClangSharpHeaderParser
                     break;
 
                 case FunctionTemplateDecl funcTemplateDecl:
-                {
-                    // Skip out-of-line template member definitions — the class-body
-                    // declaration is authoritative for access and static/virtual status.
-                    if (funcTemplateDecl.TemplatedDecl is CXXMethodDecl)
-                        break;
-                    var function = CreateTemplateFunction(funcTemplateDecl, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
-                    if (function is not null)
                     {
-                        CheckAndApplyIgnoreAttribute(funcTemplateDecl, function);
-                        TryApplyRename(funcTemplateDecl, function);
-                        ExtractAndApplyDocumentation(funcTemplateDecl, function);
-                        ApplyCallableDefinitionMetadata(funcTemplateDecl, function);
-                        ApplyDeletedCallableIgnore(funcTemplateDecl.TemplatedDecl, function);
-                        function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty);
-                        compilation.Members.Add(function);
+                        // Skip out-of-line template member definitions — the class-body
+                        // declaration is authoritative for access and static/virtual status.
+                        if (funcTemplateDecl.TemplatedDecl is CXXMethodDecl)
+                            break;
+                        var function = CreateTemplateFunction(funcTemplateDecl, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides);
+                        if (function is not null)
+                        {
+                            CheckAndApplyIgnoreAttribute(funcTemplateDecl, function);
+                            TryApplyRename(funcTemplateDecl, function);
+                            ExtractAndApplyDocumentation(funcTemplateDecl, function);
+                            ApplyCallableDefinitionMetadata(funcTemplateDecl, function);
+                            ApplyDeletedCallableIgnore(funcTemplateDecl.TemplatedDecl, function);
+                            function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty);
+                            compilation.Members.Add(function);
+                        }
+                        break;
                     }
-                    break;
-                }
 
                 case FunctionDecl functionDecl:
-                {
-                    // Out-of-line member definitions (CXXMethodDecl) at namespace
-                    // scope belong to a record — the class-body declaration (inside
-                    // RecordDecl.Decls) is the authoritative source for access and
-                    // virtual/static status. Skip to avoid generating invalid thunks
-                    // for non-public members.
-                    if (functionDecl is CXXMethodDecl)
+                    {
+                        // Out-of-line member definitions (CXXMethodDecl) at namespace
+                        // scope belong to a record — the class-body declaration (inside
+                        // RecordDecl.Decls) is the authoritative source for access and
+                        // virtual/static status. Skip to avoid generating invalid thunks
+                        // for non-public members.
+                        if (functionDecl is CXXMethodDecl)
+                            break;
+                        var function = CreateFunction(functionDecl, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
+                        CheckAndApplyIgnoreAttribute(functionDecl, function);
+                        TryApplyRename(functionDecl, function);
+                        ExtractAndApplyDocumentation(functionDecl, function);
+                        ApplyCallableDefinitionMetadata(functionDecl, function);
+                        ApplyDeletedCallableIgnore(functionDecl, function);
+                        function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty);
+                        compilation.Members.Add(function);
                         break;
-                    var function = CreateFunction(functionDecl, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
-                    CheckAndApplyIgnoreAttribute(functionDecl, function);
-                    TryApplyRename(functionDecl, function);
-                    ExtractAndApplyDocumentation(functionDecl, function);
-                    ApplyCallableDefinitionMetadata(functionDecl, function);
-                    ApplyDeletedCallableIgnore(functionDecl, function);
-                    function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty);
-                    compilation.Members.Add(function);
-                    break;
-                }
+                    }
             }
         }
     }
@@ -6006,16 +6010,6 @@ public sealed partial class ClangSharpHeaderParser
                 return true;
             }
 
-            var resolvedTypeName = SelectConcreteTemplateTypeName(
-                NormalizeTypeName(resolvedType.Spelling.ToString()),
-                NormalizeTypeName(resolvedType.CanonicalType.Spelling.ToString()));
-            if (TryGetQualifiedAliasOriginName(resolvedTypeName, out qualifiedAliasName))
-            {
-                var lastColons = qualifiedAliasName.LastIndexOf("::", StringComparison.Ordinal);
-                unqualifiedAliasName = lastColons >= 0 ? qualifiedAliasName[(lastColons + 2)..] : qualifiedAliasName;
-                return true;
-            }
-
             unqualifiedAliasName = string.Empty;
             qualifiedAliasName = string.Empty;
             return false;
@@ -6037,7 +6031,8 @@ public sealed partial class ClangSharpHeaderParser
             return false;
         }
 
-        return type.Kind is BindingTypeKind.Primitive or BindingTypeKind.Handle or BindingTypeKind.Enum;
+        return type.Kind is BindingTypeKind.Handle or BindingTypeKind.Enum ||
+            type.Kind == BindingTypeKind.Primitive && type.PrimitiveKind != BindingPrimitiveKind.Void;
     }
 
     private static bool TryGetOwnedManagedAliasInfo(CXType sourceType, out OwnedAliasInfo aliasInfo)
