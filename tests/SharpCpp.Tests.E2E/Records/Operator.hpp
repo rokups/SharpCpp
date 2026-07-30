@@ -1,5 +1,13 @@
 #pragma once
 
+namespace e2e::records
+{
+struct operator_value
+{
+    int value{};
+};
+}
+
 struct operator_box
 {
     explicit operator_box(int value)
@@ -20,6 +28,11 @@ struct operator_box
     explicit operator bool() const
     {
         return value_ != 0;
+    }
+
+    operator e2e::records::operator_value() const
+    {
+        return { value_ };
     }
 
     int operator+(int value) const

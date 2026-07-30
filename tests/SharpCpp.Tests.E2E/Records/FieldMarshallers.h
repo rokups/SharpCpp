@@ -28,4 +28,17 @@ template <>
 struct Marshaller<projected_field_value&>
     : ProjectedValueReferenceMarshallerBase<projected_field_value> {};
 
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "int",
+    suppress_emission = true
+)]] Marshaller<offset_projected_field_value>
+{
+    using cpp_type = offset_projected_field_value;
+    using abi_type = int;
+
+    abi_type ConvertToAbi(cpp_type value) noexcept { return value.value - 1; }
+    cpp_type ConvertToCpp(abi_type value) noexcept { return {value + 1}; }
+};
+
 } // namespace SharpCpp

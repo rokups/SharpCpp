@@ -119,6 +119,16 @@ public sealed class FieldTests
     }
 
     [Fact]
+    public void Projected_value_fields_use_the_projected_abi()
+    {
+        using var box = E2EBindings.CreateProjectedFieldBox();
+
+        box.Value = 41;
+
+        Assert.Equal(41, box.Value);
+    }
+
+    [Fact]
     public void Readonly_fields_are_exposed_as_get_only_properties()
     {
         var fixedValue = typeof(FieldBox).GetProperty(nameof(FieldBox.FixedValue))!;

@@ -149,6 +149,16 @@ Current worktree verification passes with generic complex C++ values crossing ca
 
 ## Recently Fixed
 
+- **Projected-value field setters now use their configured ABI conversion**:
+  - Value-pointer field setters receive `arg_t<T>*` and convert through `ParameterMarshaller<T>` before native assignment; borrowed native-storage fields keep their separate `field_t<T>` path.
+  - Added generated-binding E2E coverage with a projected field whose ABI value differs from its native storage value.
+  - Verification: `SharpCpp.Tests.E2E` passes 214 tests and `SharpCpp.Rbfx.Tests.E2E` passes 18 tests.
+
+- **Conversion-operator targets now use qualified return types**:
+  - Native member pointers render conversion names from the qualified C++ return type.
+  - Added generated-binding E2E coverage for conversion to a namespaced record type.
+  - Verification: `SharpCpp.Tests.E2E` passes 214 tests and `SharpCpp.Rbfx.Tests.E2E` passes 18 tests.
+
 - **Common Jolt API shapes no longer require target-generator ownership policy**:
   - The bootstrap pipeline now detects public `AddRef()` / `Release()` intrusive-reference targets through their base hierarchy, configures native release, and marks returned pointers and fields as owned.
   - Shared projected-value marshaller bases now preserve distinct C++ by-value, `const T&`, `T&`, and reference-return ABI semantics, including deterministic `ref` sync-back.

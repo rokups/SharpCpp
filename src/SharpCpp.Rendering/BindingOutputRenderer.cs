@@ -714,19 +714,20 @@ public static partial class BindingOutputRenderer
     {
         var argumentsSuffix = abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty;
         var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", method.Parameters.Select(static parameter => parameter.CppTypeName));
+        var nativeName = method.IsConversionOperator ? $"operator {method.CppReturnTypeName}" : method.NativeName;
 
         if (string.IsNullOrWhiteSpace(method.NativeDispatchRecordCppTypeName))
         {
             return method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
                 ? $$"""
-                    MarshallerInvoker::invoke<{{marshallerTemplateArguments}}>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}, self{{argumentsSuffix}});
+                    MarshallerInvoker::invoke<{{marshallerTemplateArguments}}>(&{{method.OwningRecordCppTypeName}}::{{nativeName}}, self{{argumentsSuffix}});
                     """
                 : RequiresOwnedRecordValueReturn(method)
                     ? $$"""
-                        return MarshallerInvoker::invoke_owned<{{marshallerTemplateArguments}}>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}, self{{argumentsSuffix}});
+                        return MarshallerInvoker::invoke_owned<{{marshallerTemplateArguments}}>(&{{method.OwningRecordCppTypeName}}::{{nativeName}}, self{{argumentsSuffix}});
                         """
                 : $$"""
-                    return MarshallerInvoker::invoke<{{marshallerTemplateArguments}}>(&{{method.OwningRecordCppTypeName}}::{{method.NativeName}}, self{{argumentsSuffix}});
+                    return MarshallerInvoker::invoke<{{marshallerTemplateArguments}}>(&{{method.OwningRecordCppTypeName}}::{{nativeName}}, self{{argumentsSuffix}});
                     """;
         }
 
@@ -741,10 +742,10 @@ public static partial class BindingOutputRenderer
 
                 using DispatchFT = {{memberSignature.Replace(method.OwningRecordCppTypeName + "::*", method.NativeDispatchRecordCppTypeName + "::*", StringComparison.Ordinal)}};
                 {{(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
-                    ? $"MarshallerInvoker::invoke_instance<{BuildMarshallerInvokerTemplateArguments("DispatchFT", method.Parameters.Select(static parameter => parameter.CppTypeName))}>(static_cast<DispatchFT>(&{method.NativeDispatchRecordCppTypeName}::{method.NativeName}), dispatch{argumentsSuffix});"
+                    ? $"MarshallerInvoker::invoke_instance<{BuildMarshallerInvokerTemplateArguments("DispatchFT", method.Parameters.Select(static parameter => parameter.CppTypeName))}>(static_cast<DispatchFT>(&{method.NativeDispatchRecordCppTypeName}::{nativeName}), dispatch{argumentsSuffix});"
                     : RequiresOwnedRecordValueReturn(method)
-                        ? $"return MarshallerInvoker::invoke_owned_instance<{BuildMarshallerInvokerTemplateArguments("DispatchFT", method.Parameters.Select(static parameter => parameter.CppTypeName))}>(static_cast<DispatchFT>(&{method.NativeDispatchRecordCppTypeName}::{method.NativeName}), dispatch{argumentsSuffix});"
-                        : $"return MarshallerInvoker::invoke_instance<{BuildMarshallerInvokerTemplateArguments("DispatchFT", method.Parameters.Select(static parameter => parameter.CppTypeName))}>(static_cast<DispatchFT>(&{method.NativeDispatchRecordCppTypeName}::{method.NativeName}), dispatch{argumentsSuffix});")}}
+                        ? $"return MarshallerInvoker::invoke_owned_instance<{BuildMarshallerInvokerTemplateArguments("DispatchFT", method.Parameters.Select(static parameter => parameter.CppTypeName))}>(static_cast<DispatchFT>(&{method.NativeDispatchRecordCppTypeName}::{nativeName}), dispatch{argumentsSuffix});"
+                        : $"return MarshallerInvoker::invoke_instance<{BuildMarshallerInvokerTemplateArguments("DispatchFT", method.Parameters.Select(static parameter => parameter.CppTypeName))}>(static_cast<DispatchFT>(&{method.NativeDispatchRecordCppTypeName}::{nativeName}), dispatch{argumentsSuffix});")}}
                 """;
     }
 
@@ -1067,9 +1068,12 @@ public static partial class BindingOutputRenderer
         bool BorrowsStorage,
         FieldSetterMode SetterMode)
     {
-        public string SetterParameterCppType => SetterMode == FieldSetterMode.HandleAbi
-            ? $"arg_t<{StorageCppType}>"
-            : $"field_t<{StorageCppType}>";
+        public string SetterParameterCppType => SetterMode switch
+        {
+            FieldSetterMode.ValuePointer => $"arg_t<{StorageCppType}>*",
+            FieldSetterMode.HandleAbi => $"arg_t<{StorageCppType}>",
+            _ => $"field_t<{StorageCppType}>"
+        };
     }
 
     private static NativeFieldInteropPlan CreateNativeFieldInteropPlan(BindingCompilation compilation, FieldBinding field)
@@ -1181,13 +1185,17 @@ public static partial class BindingOutputRenderer
             if (plan.SetterMode == FieldSetterMode.BorrowedStorage)
                 return $"detail::AssignBorrowedStorage({accessExpression}, value);";
 
-            var valueExpression = plan.SetterMode == FieldSetterMode.ValuePointer ? "*value" : "value";
+            var valueExpression = plan.SetterMode == FieldSetterMode.ValuePointer
+                ? "marshaller.ConvertToCpp(*value)"
+                : "value";
             if (ShouldCastDirectNativeFieldSetValue(field, plan))
             {
                 valueExpression = $"static_cast<decltype({accessExpression})>({valueExpression})";
             }
 
-            return $"{accessExpression} = {valueExpression};";
+            return plan.SetterMode == FieldSetterMode.ValuePointer
+                ? $"ParameterMarshaller<{plan.StorageCppType}> marshaller;\n{accessExpression} = {valueExpression};"
+                : $"{accessExpression} = {valueExpression};";
         }
 
         var fieldOwner = fieldOwnerCppTypeName ?? field.OwningRecordCppTypeName;

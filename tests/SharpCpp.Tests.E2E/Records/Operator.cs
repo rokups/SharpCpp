@@ -1,5 +1,7 @@
 using System.Reflection;
 
+using E2e.Records;
+
 using SharpCpp.Tests.E2E.Generated;
 
 using Xunit;
@@ -15,7 +17,10 @@ public sealed class OperatorTests
 
         Assert.NotNull(typeof(OperatorBox).GetMethod("op_Addition", flags, [typeof(OperatorBox), typeof(int)]));
         Assert.NotNull(typeof(OperatorBox).GetMethod("op_UnaryNegation", flags, [typeof(OperatorBox)]));
-        Assert.NotNull(typeof(OperatorBox).GetMethod("op_Implicit", flags, [typeof(OperatorBox)]));
+        Assert.Contains(typeof(OperatorBox).GetMethods(flags), method =>
+            method.Name == "op_Implicit" && method.ReturnType == typeof(int));
+        Assert.Contains(typeof(OperatorBox).GetMethods(flags), method =>
+            method.Name == "op_Implicit" && method.ReturnType == typeof(OperatorValue));
         Assert.NotNull(typeof(OperatorBox).GetMethod("op_Explicit", flags, [typeof(OperatorBox)]));
         Assert.NotNull(typeof(OperatorBox).GetMethod("op_Equality", flags, [typeof(OperatorBox), typeof(OperatorBox)]));
         Assert.NotNull(typeof(OperatorBox).GetMethod("op_Inequality", flags, [typeof(OperatorBox), typeof(OperatorBox)]));
@@ -43,6 +48,9 @@ public sealed class OperatorTests
         Assert.Equal(10, (int)value);
         Assert.True((bool)value);
         Assert.False((bool)zero);
+
+        using var converted = (OperatorValue)value;
+        Assert.Equal(10, converted.Value);
     }
 
     [Fact]

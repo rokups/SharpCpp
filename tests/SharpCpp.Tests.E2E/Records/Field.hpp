@@ -89,6 +89,21 @@ struct projected_field_value
     int value{};
 };
 
+struct offset_projected_field_value
+{
+    int value{};
+};
+
+struct projected_field_box
+{
+    offset_projected_field_value value{};
+};
+
+inline projected_field_box* create_projected_field_box()
+{
+    return new projected_field_box;
+}
+
 inline int read_projected_field_value(const projected_field_value& value)
 {
     return value.value;

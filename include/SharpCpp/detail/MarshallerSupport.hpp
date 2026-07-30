@@ -774,10 +774,11 @@ struct MarshallerInvoker
     }
 
     template <typename TValue, typename TClass>
-    static void set_field(TValue TClass::*field, arg_t<TClass*> self, SharpCpp::field_t<TValue> value)
+    static void set_field(TValue TClass::*field, arg_t<TClass*> self, arg_t<TValue>* value)
     {
         Marshaller<TClass*> self_marshaller;
-        std::invoke(field, self_marshaller.ConvertToCpp(self)) = *value;
+        ParameterMarshaller<TValue> marshaller;
+        std::invoke(field, self_marshaller.ConvertToCpp(self)) = marshaller.ConvertToCpp(*value);
     }
 
     template <typename TValue, typename TClass>
