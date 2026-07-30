@@ -32,6 +32,7 @@ public static class MetadataKeys
     public const string MarshallerConfiguredRecord = "marshaller_configured_record";
     public const string UndefaultableParam = "undefaultable_param";
     public const string ManagedBindingProjection = "managed_binding_projection";
+    public const string ManagedMarshaller = "managed_marshaller";
     public const string ExplicitManagedRename = "explicit_managed_rename";
     public const string ManagedStaticInterfaces = "managed_static_interfaces";
     public const string ManagedStaticInterfacesAbstract = "managed_static_interfaces_abstract";

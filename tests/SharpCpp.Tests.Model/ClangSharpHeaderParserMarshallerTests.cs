@@ -88,7 +88,7 @@ public sealed class ClangSharpHeaderParserMarshallerTests
     }
 
     [Fact]
-    public void Parse_recognizes_alias_spelled_string_view_marshaller()
+    public void Parse_recognizes_alias_spelled_marshallers()
     {
         var repoRoot = FindRepositoryRoot();
         var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "AliasStringViewMarshaller");
@@ -123,6 +123,18 @@ public sealed class ClangSharpHeaderParserMarshallerTests
         var returnFunction = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "get_ea_string_view"));
         Assert.Equal("global::System.ReadOnlySpan<byte>", returnFunction.ReturnType.ManagedTypeName);
         Assert.Equal("global::SharpCpp.Support.Utf8SpanAbiReturnMarshaller", returnFunction.ReturnType.ManagedMarshaller);
+
+        var valueFunction = Assert.Single(compilation.Functions.Where(static function => function.NativeName == "consume_value3"));
+        Assert.Equal("Value3Arg", valueFunction.Parameters[0].Type.ManagedTypeName);
+        Assert.Equal("global::Test.Vector3", valueFunction.Parameters[0].Type.UnaliasedManagedTypeName);
+        Assert.Equal("global::Test.Vector3Marshaller", valueFunction.Parameters[0].Type.ManagedMarshaller);
+
+        MarshallerMetadataPhase2.ApplyWithClang(compilation, marshallerFiles, clangArgs);
+
+        var valueBox = Assert.Single(compilation.Records.Where(static record => record.NativeName == "value3_box"));
+        var valueField = Assert.Single(valueBox.Members.OfType<FieldBinding>());
+        Assert.Equal("global::Test.Vector3", valueField.Type.UnaliasedManagedTypeName);
+        Assert.Equal("global::Test.Vector3Marshaller", valueField.Type.ManagedMarshaller);
     }
 
     [Fact]

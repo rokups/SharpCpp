@@ -208,6 +208,11 @@ public static class MarshallerMetadataPhase2
                 record.HandleMarshallerTypeName = marshallerTypeMatch.Groups["value"].Value;
             }
 
+            if (!string.IsNullOrWhiteSpace(config.ManagedMarshaller))
+            {
+                record.SetMetadata(MetadataKeys.ManagedMarshaller, config.ManagedMarshaller);
+            }
+
             // suppress_emission = true → SuppressEmission metadata
             if (SuppressEmissionExpression.IsMatch(body))
             {
@@ -1055,7 +1060,8 @@ public static class MarshallerMetadataPhase2
             return BindingType.CreateConfigured(
                 type.CppTypeName,
                 publicName,
-                record.HandleMarshallerTypeName);
+                record.HandleMarshallerTypeName,
+                record.GetMetadata<string>(MetadataKeys.ManagedMarshaller));
         }
 
         type = ProjectManagedGenericArguments(type, record, recordsByNativeName);

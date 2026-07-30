@@ -2738,6 +2738,9 @@ public sealed partial class ClangSharpHeaderParser
         var overrideLookupTypeName = ownedAliasInfo is not null ? spelledTypeName : aliasResolvedTypeName;
         var resolvedTypeName = SelectConcreteTemplateTypeName(aliasResolvedTypeName, canonicalTypeName);
         var surfaceCppTypeName = resolvedTypeName;
+        var managedOverrideTypeName = normalizedType.IsConstQualified && TypeIsRecord(normalizedType)
+            ? canonicalTypeName
+            : resolvedTypeName;
 
         // When the resolved type contains template arguments, use the
         // canonical type's fully-qualified argument names.  This keeps
@@ -2780,7 +2783,7 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         if (isReturn &&
-            TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, qualifiedSpelledTypeName, managedTypeOverrides, isReturn: true, out var returnOverride) &&
+            TryGetManagedTypeOverride(overrideLookupTypeName, managedOverrideTypeName, qualifiedSpelledTypeName, managedTypeOverrides, isReturn: true, out var returnOverride) &&
             returnOverride!.HasPublicTypeMapping)
         {
             var mapped = CreateConfiguredOrWrapperType(returnOverride!, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName)
@@ -2791,7 +2794,7 @@ public sealed partial class ClangSharpHeaderParser
                 : mapped;
         }
 
-        TryGetManagedTypeOverride(overrideLookupTypeName, resolvedTypeName, qualifiedSpelledTypeName, managedTypeOverrides, isReturn: false, out var managedTypeOverride);
+        TryGetManagedTypeOverride(overrideLookupTypeName, managedOverrideTypeName, qualifiedSpelledTypeName, managedTypeOverrides, isReturn: false, out var managedTypeOverride);
 
         if (managedTypeOverride is { HasPublicTypeMapping: true })
         {

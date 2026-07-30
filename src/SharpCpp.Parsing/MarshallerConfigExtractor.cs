@@ -137,6 +137,7 @@ internal static class MarshallerConfigExtractor
         string AttributeBody,
         IReadOnlyList<ExposedMemberInfo> ExposedMembers,
         IReadOnlyList<string> TemplateParameterNames,
+        string? ManagedMarshaller = null,
         string? ManagedInstanceCacheFactoryExpression = null,
         string? ManagedInstanceCacheTypeName = null,
         bool EmitDefaultNativeReleaseOverride = true);
@@ -405,6 +406,7 @@ internal static class MarshallerConfigExtractor
         }
 
         var body = attrMatch.Body;
+        var managedMarshallerMatch = ManagedMarshallerInAttributeExpression.Match(body);
         var managedInstanceCacheFactoryMatch = ManagedInstanceCacheFactoryExpression.Match(body);
         var managedInstanceCacheTypeMatch = ManagedInstanceCacheTypeExpression.Match(body);
         var releaseStrategyMatch = ReleaseStrategyExpression.Match(body);
@@ -424,6 +426,7 @@ internal static class MarshallerConfigExtractor
             AttributeBody: body,
             ExposedMembers: exposedMembers,
             TemplateParameterNames: ExtractTemplateParameterNames(decl, cppTypeName),
+            ManagedMarshaller: managedMarshallerMatch.Success ? managedMarshallerMatch.Groups["value"].Value : null,
             ManagedInstanceCacheFactoryExpression: managedInstanceCacheFactoryMatch.Success ? managedInstanceCacheFactoryMatch.Groups["value"].Value : null,
             ManagedInstanceCacheTypeName: managedInstanceCacheTypeMatch.Success ? managedInstanceCacheTypeMatch.Groups["value"].Value : null,
             EmitDefaultNativeReleaseOverride: !releaseStrategyMatch.Success ||

@@ -94,9 +94,11 @@ struct offset_projected_field_value
     int value{};
 };
 
+using offset_projected_field_alias = offset_projected_field_value;
+
 struct projected_field_box
 {
-    offset_projected_field_value value{};
+    offset_projected_field_alias value{};
 };
 
 inline projected_field_box* create_projected_field_box()

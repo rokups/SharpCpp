@@ -1059,6 +1059,7 @@ public static partial class BindingOutputRenderer
     private enum FieldSetterMode
     {
         ValuePointer,
+        ProjectedValuePointer,
         HandleAbi,
         BorrowedStorage
     }
@@ -1070,7 +1071,7 @@ public static partial class BindingOutputRenderer
     {
         public string SetterParameterCppType => SetterMode switch
         {
-            FieldSetterMode.ValuePointer => $"arg_t<{StorageCppType}>*",
+            FieldSetterMode.ProjectedValuePointer => $"arg_t<{StorageCppType}>*",
             FieldSetterMode.HandleAbi => $"arg_t<{StorageCppType}>",
             _ => $"field_t<{StorageCppType}>"
         };
@@ -1084,9 +1085,28 @@ public static partial class BindingOutputRenderer
             ? FieldSetterMode.BorrowedStorage
             : field.Type.Kind == BindingTypeKind.Handle
                 ? FieldSetterMode.HandleAbi
-                : FieldSetterMode.ValuePointer;
+                : RequiresNativeFieldValueConversion(compilation, field)
+                    ? FieldSetterMode.ProjectedValuePointer
+                    : FieldSetterMode.ValuePointer;
 
         return new NativeFieldInteropPlan(storageCppType, borrowsStorage, setterMode);
+    }
+
+    private static bool RequiresNativeFieldValueConversion(BindingCompilation compilation, FieldBinding field)
+    {
+        if (field.Type.ManagedMarshaller is not null)
+        {
+            return true;
+        }
+
+        var declaredCppTypeName = NormalizeCppTypeName(field.CppTypeName);
+        var mappedCppTypeName = NormalizeCppTypeName(field.Type.CppTypeName);
+        return compilation.Records.Any(record =>
+            record.GetMetadata<bool>(MetadataKeys.SuppressEmission) &&
+            (string.Equals(record.CppQualifiedName, declaredCppTypeName, StringComparison.Ordinal) ||
+                string.Equals(record.NativeName, declaredCppTypeName, StringComparison.Ordinal) ||
+                string.Equals(record.CppQualifiedName, mappedCppTypeName, StringComparison.Ordinal) ||
+                string.Equals(record.NativeName, mappedCppTypeName, StringComparison.Ordinal)));
     }
 
     private static string RenderNativeFieldGetInvocation(BindingCompilation compilation, FieldBinding field, NativeFieldInteropPlan plan, string selfExpression, string? fieldOwnerCppTypeName = null)
@@ -1185,15 +1205,15 @@ public static partial class BindingOutputRenderer
             if (plan.SetterMode == FieldSetterMode.BorrowedStorage)
                 return $"detail::AssignBorrowedStorage({accessExpression}, value);";
 
-            var valueExpression = plan.SetterMode == FieldSetterMode.ValuePointer
+            var valueExpression = plan.SetterMode == FieldSetterMode.ProjectedValuePointer
                 ? "marshaller.ConvertToCpp(*value)"
-                : "value";
+                : plan.SetterMode == FieldSetterMode.ValuePointer ? "*value" : "value";
             if (ShouldCastDirectNativeFieldSetValue(field, plan))
             {
                 valueExpression = $"static_cast<decltype({accessExpression})>({valueExpression})";
             }
 
-            return plan.SetterMode == FieldSetterMode.ValuePointer
+            return plan.SetterMode == FieldSetterMode.ProjectedValuePointer
                 ? $"ParameterMarshaller<{plan.StorageCppType}> marshaller;\n{accessExpression} = {valueExpression};"
                 : $"{accessExpression} = {valueExpression};";
         }
