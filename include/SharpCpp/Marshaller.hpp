@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <concepts>
 #include <exception>
 #include <functional>
 #include <iterator>
@@ -65,6 +66,13 @@ template <class T>
 inline constexpr bool DefaultPassesByValue =
     !std::is_reference_v<T> &&
     (std::is_scalar_v<remove_cvref_t<T>> || std::is_enum_v<remove_cvref_t<T>>);
+
+template <class T>
+concept IntrusiveReferenceTarget = requires(T* value)
+{
+    { value->AddRef() } -> std::same_as<void>;
+    { value->Release() } -> std::same_as<void>;
+};
 
 template <class T>
 using DefaultPointerAbi = std::conditional_t<
@@ -874,6 +882,66 @@ struct Marshaller<void>
     using abi_type = void;
 };
 
+template <class TValue>
+struct ProjectedValueConstReferenceMarshallerBase
+{
+    using cpp_type = const TValue&;
+    using value_marshaller_type = Marshaller<TValue>;
+    using value_abi_type = typename value_marshaller_type::abi_type;
+    using abi_type = const value_abi_type*;
+
+    abi_type ConvertToAbi(cpp_type value) noexcept
+    {
+        abi_storage_ = value_marshaller_.ConvertToAbi(value);
+        return &abi_storage_;
+    }
+
+    cpp_type ConvertToCpp(abi_type value) noexcept
+    {
+        storage_ = value_marshaller_.ConvertToCpp(*value);
+        return storage_;
+    }
+
+private:
+    value_marshaller_type value_marshaller_;
+    value_abi_type abi_storage_{};
+    TValue storage_{};
+};
+
+template <class TValue>
+struct ProjectedValueReferenceMarshallerBase
+{
+    using cpp_type = TValue&;
+    using value_marshaller_type = Marshaller<TValue>;
+    using value_abi_type = typename value_marshaller_type::abi_type;
+    using abi_type = value_abi_type*;
+
+    abi_type ConvertToAbi(cpp_type value) noexcept
+    {
+        abi_storage_ = value_marshaller_.ConvertToAbi(value);
+        return &abi_storage_;
+    }
+
+    cpp_type ConvertToCpp(abi_type value) noexcept
+    {
+        abi_argument_ = value;
+        storage_ = value_marshaller_.ConvertToCpp(*value);
+        return storage_;
+    }
+
+    void Sync() noexcept
+    {
+        if (abi_argument_ != nullptr)
+            *abi_argument_ = value_marshaller_.ConvertToAbi(storage_);
+    }
+
+private:
+    value_marshaller_type value_marshaller_;
+    value_abi_type abi_storage_{};
+    abi_type abi_argument_{};
+    TValue storage_{};
+};
+
 template <class TSignature>
 struct [[sharpcpp::managed_type(callback = true)]] Marshaller<std::function<TSignature>>
     : ManagedCallbackMarshallerBase<std::function<TSignature>, TSignature>
@@ -1178,18 +1246,26 @@ template <class T>
 struct Marshaller<const T>
 {
     using cpp_type = const T;
+    using value_marshaller_type = Marshaller<T>;
     using reference_marshaller_type = Marshaller<const T&>;
-    using abi_type = typename reference_marshaller_type::abi_type;
+    using marshaller_type = std::conditional_t<
+        std::is_pointer_v<typename value_marshaller_type::abi_type>,
+        reference_marshaller_type,
+        value_marshaller_type>;
+    using abi_type = typename marshaller_type::abi_type;
 
     abi_type ConvertToAbi(const cpp_type& value) noexcept
     {
-        return reference_marshaller_type{}.ConvertToAbi(value);
+        return marshaller_.ConvertToAbi(value);
     }
 
     cpp_type ConvertToCpp(abi_type value) noexcept
     {
-        return reference_marshaller_type{}.ConvertToCpp(value);
+        return marshaller_.ConvertToCpp(value);
     }
+
+private:
+    marshaller_type marshaller_;
 };
 
 template <class T>
@@ -1506,17 +1582,42 @@ template <class T>
 struct IsDefaultMarshaller<T, std::void_t<typename Marshaller<T>::is_default_marshaller>> : std::true_type {};
 
 template <class T>
+using ConfiguredReferenceReturnMarshallerBase = std::conditional_t<
+    std::is_pointer_v<typename Marshaller<remove_cvref_t<T>>::abi_type>,
+    Marshaller<T>,
+    Marshaller<remove_cvref_t<T>>>;
+
+template <class T>
 using ConfiguredReturnMarshallerBase = std::conditional_t<
     IsDefaultMarshaller<remove_cvref_t<T>>::value,
     DefaultReturnMarshallerBase<T>,
     std::conditional_t<
         std::is_lvalue_reference_v<T>,
-        Marshaller<T>,
+        ConfiguredReferenceReturnMarshallerBase<T>,
         Marshaller<std::remove_cv_t<T>>>>;
 }
 
 template <class T>
 struct ReturnMarshaller : detail::ConfiguredReturnMarshallerBase<T> {};
+
+template <detail::IntrusiveReferenceTarget T>
+struct ReturnMarshaller<T*>
+{
+    using cpp_type = T*;
+    using abi_type = T*;
+
+    abi_type ConvertToAbi(cpp_type value) noexcept
+    {
+        if (value != nullptr)
+            value->AddRef();
+        return value;
+    }
+
+    cpp_type ConvertToCpp(abi_type value) noexcept
+    {
+        return value;
+    }
+};
 
 template <>
 struct ReturnMarshaller<void> : Marshaller<void> {};

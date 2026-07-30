@@ -79,6 +79,46 @@ public sealed class FieldTests
     }
 
     [Fact]
+    public void Static_fields_are_exposed_as_static_properties()
+    {
+        var payload = E2EBindings.CreateFieldPayload(42);
+
+        FieldPayload.SharedValue = 17;
+        FieldPayload.SharedPayload = payload;
+
+        Assert.Equal(17, FieldPayload.SharedValue);
+        Assert.False(FieldPayload.SharedPayload.OwnsHandle);
+        Assert.Equal(42, FieldPayload.SharedPayload.Value);
+    }
+
+    [Fact]
+    public void Intrusive_reference_counted_returns_are_owned_and_released()
+    {
+        var destroyedCount = IntrusiveFieldPayload.GetDestroyedCount();
+
+        using (var payload = E2EBindings.CreateIntrusiveFieldPayload())
+        {
+            Assert.True(payload.OwnsHandle);
+            Assert.Equal(1, payload.GetRefCount());
+        }
+
+        Assert.Equal(destroyedCount + 1, IntrusiveFieldPayload.GetDestroyedCount());
+    }
+
+    [Fact]
+    public void Projected_value_references_preserve_in_and_ref_abi()
+    {
+        var value = 41;
+
+        Assert.Equal(41, E2EBindings.ReadProjectedFieldValue(in value));
+        Assert.Equal(41, E2EBindings.ReadProjectedFieldValueCopy(value));
+        Assert.Equal(42, E2EBindings.GetProjectedFieldValueReference());
+        E2EBindings.IncrementProjectedFieldValue(ref value);
+
+        Assert.Equal(42, value);
+    }
+
+    [Fact]
     public void Readonly_fields_are_exposed_as_get_only_properties()
     {
         var fixedValue = typeof(FieldBox).GetProperty(nameof(FieldBox.FixedValue))!;

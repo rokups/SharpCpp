@@ -235,6 +235,30 @@ public sealed class BindingOutputRendererTests
     }
 
     [Fact]
+    public void Native_readonly_borrowed_field_access_normalizes_const_storage_pointer()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });
+        var payload = new RecordBinding("record:payload", "payload", "Payload");
+        var payloadValueType = payload.HandleType
+            .WithCppTypeName("const payload")
+            .WithCppIsRecordValue(true);
+        var owner = new RecordBinding("record:owner", "owner", "Owner");
+        var field = new FieldBinding("field:owner:nested_payload", "nested_payload", "NestedPayload", payloadValueType, "const payload", "owner", isReadOnly: true);
+        field.SetMetadata(MetadataKeys.NativeFieldAccessExpression, "nested.payload");
+        owner.Members.Add(field);
+        compilation.Members.Add(payload);
+        compilation.Members.Add(owner);
+
+        var nativeOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
+            .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
+
+        Assert.Contains(
+            "return const_cast<std::remove_const_t<std::remove_reference_t<const payload>>*>(&(self->nested.payload));",
+            nativeOutput,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Native_bit_field_accessors_use_direct_field_access()
     {
         var compilation = new BindingCompilation("SharpCpp.Sample", "SharpCpp.Sample", "SampleBindings", "SharpCpp.Sample.Native", new[] { "Sample.hpp" });
@@ -3819,9 +3843,7 @@ public sealed class BindingOutputRendererTests
         var nativeOutput = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files
             .Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
 
-        Assert.Contains("if (value == nullptr)", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("this->nested.payload_.clear();", nativeOutput, StringComparison.Ordinal);
-        Assert.Contains("this->nested.payload_ = std::move(*value);", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains("detail::AssignBorrowedStorage(this->nested.payload_, value);", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -4052,7 +4074,7 @@ public sealed class BindingOutputRendererTests
             IsConstructor = true,
             OwningRecordCppTypeName = "value_box"
         };
-        ctor.Parameters.Add(new ParameterBinding("parameter:value", "value", "value", BindingType.CreateGenericParameter("T"), cppTypeName: "T"));
+        ctor.Parameters.Add(new ParameterBinding("parameter:value", "value", "value", BindingType.CreateGenericParameter("T"), cppTypeName: "const T&"));
 
         var getValue = new FunctionBinding("method:value_box:get_value", "get_value", "GetValue", BindingType.CreateGenericParameter("T"), "entry_get")
         {
@@ -4097,6 +4119,8 @@ public sealed class BindingOutputRendererTests
         AssertAllLibraryImportsAreAggressivelyInlined(managedOutput);
         Assert.Contains($"entry_get{intInstantiation.Suffix}", nativeOutput, StringComparison.Ordinal);
         Assert.Contains($"entry_get{floatInstantiation.Suffix}", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains($"arg_t<int> value", nativeOutput, StringComparison.Ordinal);
+        Assert.Contains($"MarshallerInvoker::construct<value_box<int>, int>(value)", nativeOutput, StringComparison.Ordinal);
     }
 
     [Fact]

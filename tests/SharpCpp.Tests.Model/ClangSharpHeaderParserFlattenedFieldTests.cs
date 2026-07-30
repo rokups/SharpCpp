@@ -83,6 +83,69 @@ public sealed class ClangSharpHeaderParserFlattenedFieldTests
     }
 
     [Fact]
+    public void Parse_does_not_flatten_static_members_into_instance_paths()
+    {
+        var compilation = ParseTempHeader(
+            "StaticNestedField.hpp",
+            """
+            struct nested
+            {
+                int value;
+                inline static int shared_value = 1;
+            };
+
+            struct owner
+            {
+                nested state;
+            };
+            """,
+            ["-x", "c++", "-std=c++20"]);
+
+        var record = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "owner");
+
+        Assert.Contains(record.Members.OfType<FieldBinding>(), static field => field.NativeName == "state_value");
+        Assert.DoesNotContain(record.Members.OfType<FieldBinding>(), static field => field.NativeName == "state_shared_value");
+    }
+
+    [Fact]
+    public void Parse_preserves_named_marshaller_backed_record_field()
+    {
+        var compilation = ParseTempHeader(
+            "MarshallerBackedField.hpp",
+            """
+            struct vector3
+            {
+                float x;
+                float y;
+                float z;
+            };
+
+            struct body_settings
+            {
+                vector3 position;
+            };
+
+            namespace SharpCpp
+            {
+            template <class T> struct Marshaller;
+            template <>
+            struct [[sharpcpp::managed_type(public_type = "Vector3")]] Marshaller<vector3>
+            {
+            };
+            }
+            """,
+            ["-x", "c++", "-std=c++20"],
+            useHeaderAsMarshallerConfiguration: true);
+
+        var record = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "body_settings");
+        var field = Assert.Single(record.Members.OfType<FieldBinding>(), static field => field.NativeName == "position");
+
+        Assert.Equal("Position", field.ManagedName);
+        Assert.Equal("Vector3", field.Type.ManagedTypeName);
+        Assert.DoesNotContain(record.Members.OfType<FieldBinding>(), static field => field.NativeName == "position_x");
+    }
+
+    [Fact]
     public void Parse_preserves_protected_access_from_flattened_root_field()
     {
         var compilation = ParseTempHeader(
@@ -191,7 +254,8 @@ public sealed class ClangSharpHeaderParserFlattenedFieldTests
         Assert.Equal("1.25", function.Parameters[2].ManagedDefaultValueExpression);
     }
 
-    private static BindingCompilation ParseTempHeader(string fileName, string source, string[] clangArgs)
+    private static BindingCompilation ParseTempHeader(
+        string fileName, string source, string[] clangArgs, bool useHeaderAsMarshallerConfiguration = false)
     {
         var fixtureDir = Path.Combine(Path.GetTempPath(), "sharpcpp-flattened-fields-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(fixtureDir);
@@ -209,7 +273,7 @@ public sealed class ClangSharpHeaderParserFlattenedFieldTests
                 HeaderFilePath: headerPath,
                 HeaderIncludePath: fileName,
                 ClangArguments: [.. clangArgs, $"-I{fixtureDir}"],
-                MarshallerConfigurationFiles: Array.Empty<string>(),
+                MarshallerConfigurationFiles: useHeaderAsMarshallerConfiguration ? [headerPath] : Array.Empty<string>(),
                 EntryPointPrefix: "Test_"));
         }
         finally

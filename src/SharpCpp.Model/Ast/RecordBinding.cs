@@ -79,7 +79,12 @@ public sealed class RecordBinding : BindingNamedContainerNode
         var arguments = (typeArguments ?? Array.Empty<BindingType>()).ToArray();
         return arguments.Length == 0
             ? CppQualifiedName
-            : $"{CppQualifiedName}<{string.Join(", ", arguments.Select(static argument => argument.CppTypeName))}>";
+            : $"{CppQualifiedName}<{string.Join(", ", arguments.Select(FormatCppTemplateArgument))}>";
+    }
+
+    public static string FormatCppTemplateArgument(BindingType type)
+    {
+        return type.CppTypeName;
     }
 
     public string FormatManagedTypeName(IEnumerable<BindingType>? typeArguments = null)

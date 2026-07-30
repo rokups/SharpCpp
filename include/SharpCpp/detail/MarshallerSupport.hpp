@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 #include <cstddef>
+#include <stdexcept>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -25,6 +26,24 @@ inline constexpr bool has_clear_v = has_clear<T>::value;
 
 template <typename T>
 using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
+
+template <typename T>
+void AssignBorrowedStorage(T& target, T* value)
+{
+    if (value == nullptr)
+    {
+        if constexpr (has_clear_v<T>)
+            target.clear();
+        else
+            throw std::runtime_error("SharpCpp borrowed field setter cannot clear this field type.");
+    }
+    else if constexpr (std::is_assignable_v<T&, T&&>)
+        target = std::move(*value);
+    else if constexpr (std::is_assignable_v<T&, const T&>)
+        target = *value;
+    else
+        throw std::runtime_error("SharpCpp borrowed field setter cannot assign this field type.");
+}
 
 template <typename TTuple>
 struct MarshallerTupleForTuple;
@@ -220,8 +239,7 @@ auto InvokeWithMarshallersOwnedImpl(
     }
     else
     {
-        auto result = invoke_fn();
-        return new owned_type(std::move(result));
+        return new owned_type(invoke_fn());
     }
 }
 
@@ -312,10 +330,9 @@ auto InvokeMemberWithMarshallersOwnedImpl(
     }
     else
     {
-        auto result =
+        return new owned_type(
             (std::forward<TObject>(instance).*m)(
-                std::get<TIndices>(marshallers).ConvertToCpp(std::forward<TAbiArgs>(abiArguments))...);
-        return new owned_type(std::move(result));
+                std::get<TIndices>(marshallers).ConvertToCpp(std::forward<TAbiArgs>(abiArguments))...));
     }
 }
 

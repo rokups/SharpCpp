@@ -149,6 +149,12 @@ Current worktree verification passes with generic complex C++ values crossing ca
 
 ## Recently Fixed
 
+- **Common Jolt API shapes no longer require target-generator ownership policy**:
+  - The bootstrap pipeline now detects public `AddRef()` / `Release()` intrusive-reference targets through their base hierarchy, configures native release, and marks returned pointers and fields as owned.
+  - Shared projected-value marshaller bases now preserve distinct C++ by-value, `const T&`, `T&`, and reference-return ABI semantics, including deterministic `ref` sync-back.
+  - Static data members, marshaller-backed record-value fields, concrete generic C++ signatures, incomplete generic instantiation pruning, and generated field-name collisions are handled by the common parser, model, validation, and renderer pipeline.
+  - Verification: `SharpCpp.Tests.E2E` passes 213 tests and `SharpCpp.Rbfx.Tests.E2E` passes 18 tests.
+
 - **Forced directors with implicit default constructors are constructible**:
   - Synthetic default-constructor generation now uses Clang's user-declared-constructor fact instead of treating compiler-generated constructor declarations as explicit declarations.
   - Forced director records may receive a synthetic constructor even when abstract or fieldless, while ordinary abstract and fieldless records retain the existing materialization gate.

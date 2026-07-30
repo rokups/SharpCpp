@@ -245,6 +245,8 @@ public sealed partial class ClangSharpHeaderParser
                     VisitLinkageSpec(linkageSpecDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix, ownedFileRoots, ownedFileRootIncludePrefixes, request.HeaderIncludePath, request.DirectorRecordCppTypeNames);
                     break;
 
+                case ClassTemplateSpecializationDecl:
+                    break;
                 case RecordDecl recordDecl:
                     RegisterRecord(recordDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix,
                         ResolveDeclIncludePath(recordDecl, ownedFileRoots, ownedFileRootIncludePrefixes, request.HeaderIncludePath), request.DirectorRecordCppTypeNames);
@@ -377,6 +379,8 @@ public sealed partial class ClangSharpHeaderParser
                     VisitLinkageSpec(nestedLinkageSpecDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath, directorRecordCppTypeNames);
                     break;
 
+                case ClassTemplateSpecializationDecl:
+                    break;
                 case RecordDecl recordDecl:
                     RegisterRecord(recordDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix,
                         ResolveDeclIncludePath(recordDecl, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty), directorRecordCppTypeNames);
@@ -1013,6 +1017,16 @@ public sealed partial class ClangSharpHeaderParser
                         break;
                     }
 
+                case VarDecl variableDecl when variableDecl.IsStaticDataMember:
+                    {
+                        var field = CreateField(record, variableDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters, isStatic: true);
+                        CheckAndApplyIgnoreAttribute(variableDecl, field);
+                        TryApplyRename(variableDecl, field);
+                        ExtractAndApplyDocumentation(variableDecl, field);
+                        record.Members.Add(field);
+                        break;
+                    }
+
                 case FieldDecl fieldDecl:
                     {
                         if (TryAddFlattenedRecordFields(recordDecl, record, fieldDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters))
@@ -1421,11 +1435,12 @@ public sealed partial class ClangSharpHeaderParser
 
     private static FieldBinding CreateField(
         RecordBinding record,
-        FieldDecl fieldDecl,
+        ValueDecl fieldDecl,
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
-        IReadOnlyDictionary<string, BindingType> genericParameters)
+        IReadOnlyDictionary<string, BindingType> genericParameters,
+        bool isStatic = false)
     {
         var nativeName = fieldDecl.Name ?? fieldDecl.Spelling.ToString();
         var initialIgnoreReason = IsIncompleteArrayType(fieldDecl.Type.Handle.CanonicalType)
@@ -1453,6 +1468,8 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         ignoreReason ??= initialIgnoreReason;
+        if (isStatic && fieldType.IsFixedArray)
+            ignoreReason ??= "static fixed-size array fields are not yet supported in this bootstrap surface";
         var field = new FieldBinding(
             $"field:{record.NativeName}:{nativeName}",
             nativeName,
@@ -1464,12 +1481,13 @@ public sealed partial class ClangSharpHeaderParser
             isReference: TypeIsAnyReference(fieldDecl.Type.Handle),
             isPointer: TypeIsPointer(fieldDecl.Type.Handle.CanonicalType))
         {
-            AccessModifier = MapAccessModifier(fieldDecl.Access)
+            AccessModifier = MapAccessModifier(fieldDecl.Access),
+            IsStatic = isStatic
         };
         field.ReturnsOwnedHandle = ShouldReturnOwnedHandle(fieldDecl.Type.Handle, field.Type, managedTypeOverrides, preferReturnOverride: false);
         if (isFunctionPointer)
             field.SetMetadata(MetadataKeys.FunctionPointerField, true);
-        if (fieldDecl.IsBitField)
+        if (fieldDecl is FieldDecl { IsBitField: true })
             field.SetMetadata(MetadataKeys.BitField, true);
 
         if (ignoreReason is not null)
@@ -1496,7 +1514,12 @@ public sealed partial class ClangSharpHeaderParser
 
         var nativeName = fieldDecl.Name ?? fieldDecl.Spelling.ToString();
         var accessModifier = MapAccessModifier(fieldDecl.Access);
-
+        var recordTypeName = GetRecordQualifiedName(fieldDecl.Type.Handle, recordsByName);
+        if (HasManagedTypeOverride(fieldDecl.Type.Handle, managedTypeOverrides) ||
+            recordsByName.TryGetValue(recordTypeName, out var recordValue) && IsMarshallerBackedRecordValue(recordValue))
+        {
+            return false;
+        }
         if (TryResolveNestedRecordDecl(ownerDecl, fieldDecl.Type.Handle, out var nestedRecordDecl, out var nestedAccessPrefix))
         {
             var flattenedAccessPath = IsAnonymousFieldName(nativeName)
@@ -1520,7 +1543,6 @@ public sealed partial class ClangSharpHeaderParser
 
         var accessPath = nativeName;
 
-        var recordTypeName = GetRecordQualifiedName(fieldDecl.Type.Handle, recordsByName);
         if (!recordsByName.TryGetValue(recordTypeName, out var nestedRecord) || IsMarshallerBackedRecordValue(nestedRecord))
             return false;
 
@@ -1619,7 +1641,8 @@ public sealed partial class ClangSharpHeaderParser
         BindingAccessModifier inheritedAccessModifier)
     {
         var flattenedCount = 0;
-        foreach (var sourceField in sourceRecord.Members.OfType<FieldBinding>().Where(static field => !field.IsIgnored()))
+        foreach (var sourceField in sourceRecord.Members.OfType<FieldBinding>()
+                     .Where(static field => !field.IsIgnored() && !field.IsStatic))
         {
             var accessModifier = GetMostRestrictiveAccessModifier(inheritedAccessModifier, sourceField.AccessModifier);
             if (accessModifier == BindingAccessModifier.Private)
@@ -1846,6 +1869,17 @@ public sealed partial class ClangSharpHeaderParser
         return string.IsNullOrWhiteSpace(name) ||
             name.Contains("(unnamed", StringComparison.Ordinal) ||
             name.Contains("(anonymous", StringComparison.Ordinal);
+    }
+
+    private static bool HasManagedTypeOverride(
+        CXType type, IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
+    {
+        var spelledTypeName = NormalizeTypeName(type.Spelling.ToString());
+        var canonicalTypeName = NormalizeTypeName(type.CanonicalType.Spelling.ToString());
+        var qualifiedSpelledTypeName = GetQualifiedTypeName(type, spelledTypeName);
+        return TryGetManagedTypeOverride(
+            spelledTypeName, canonicalTypeName, qualifiedSpelledTypeName, managedTypeOverrides, isReturn: false, out var typeOverride) &&
+            typeOverride!.HasPublicTypeMapping;
     }
 
     private static bool IsMarshallerBackedRecordValue(RecordBinding record)
@@ -2392,13 +2426,15 @@ public sealed partial class ClangSharpHeaderParser
                         BindingParameterAbiKind.Value);
                 }
 
-                var abiKind = mappedType.Kind == BindingTypeKind.Primitive
+                var isProjectedValue = mappedType.Kind == BindingTypeKind.Primitive;
+                var abiKind = isProjectedValue
                     ? BindingParameterAbiKind.Reference
                     : BindingParameterAbiKind.Value;
-                return (
-                    mappedType,
-                    explicitDirection ?? BindingParameterDirection.In,
-                    abiKind);
+                var direction = explicitDirection ??
+                    (isProjectedValue && !sourcePointeeType.IsConstQualified
+                        ? BindingParameterDirection.Ref
+                        : BindingParameterDirection.In);
+                return (mappedType, direction, abiKind);
             }
 
             if (TypeIsPointer(normalizedPointeeType) &&
@@ -2893,6 +2929,9 @@ public sealed partial class ClangSharpHeaderParser
                     genericParameters,
                     out var specializedRecordHandleType))
             {
+                specializedRecordHandleType = specializedRecordHandleType
+                    .WithCppIsRecordValue(true)
+                    .WithCppPointerIsRecordValueProjection(true);
                 return TryApplyManagedAliasSurface(type, specializedRecordHandleType, preserveAliasSurface, enumsByName);
             }
 
@@ -2909,8 +2948,10 @@ public sealed partial class ClangSharpHeaderParser
                 ? Array.Empty<BindingType>()
                 : ParseVisibleRecordTemplateArguments(record, concreteRecordTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
             var recordValueType = genericArguments.Count == 0
-                ? record.HandleType.WithCppIsRecordValue(true)
-                : BindingType.CreateHandle($"{spelledTypeName}*", record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments, cppIsRecordValue: true);
+                ? record.HandleType.WithCppIsRecordValue(true).WithCppPointerIsRecordValueProjection(true)
+                : BindingType.CreateHandle($"{spelledTypeName}*", record.ManagedName, record.SymbolId,
+                    record.HandleMarshallerTypeName, genericArguments, cppIsRecordValue: true,
+                    cppPointerIsRecordValueProjection: true);
             var isFixedArray = IsFixedArrayRecordOrConfigured(record, concreteRecordTypeName, managedTypeOverrides);
             var isDynamicArray = IsDynamicArrayRecordOrConfigured(record, concreteRecordTypeName, managedTypeOverrides);
             recordValueType = ApplyFixedArrayMetadata(
@@ -5391,6 +5432,8 @@ public sealed partial class ClangSharpHeaderParser
                     VisitNamespace(nsChild, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath, directorRecordCppTypeNames);
                     break;
 
+                case ClassTemplateSpecializationDecl:
+                    break;
                 case RecordDecl recordDecl:
                     RegisterRecord(recordDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix,
                         ResolveDeclIncludePath(recordDecl, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty), directorRecordCppTypeNames);
@@ -5606,15 +5649,18 @@ public sealed partial class ClangSharpHeaderParser
             _ when normalized.Contains("::", StringComparison.Ordinal) && enumsByName.TryGetValue(NormalizeNamedTypeName(StripGenericArguments(normalized[(normalized.LastIndexOf("::", StringComparison.Ordinal) + 2)..])), out var shortEnum) => BindingType.CreateEnum(shortEnum.NativeName, shortEnum.ManagedName, enumId: shortEnum.SymbolId),
             _ when recordsByName.TryGetValue(NormalizeNamedTypeName(StripGenericArguments(normalized)), out var record) =>
                 TryCreateSpecializedRecordHandleType($"{normalized}*", normalized, recordsByName, enumsByName, managedTypeOverrides, genericParameters, out var concreteHandleType)
-                    ? concreteHandleType
-                    : record.HandleType,
+                    ? AsRecordValueProjection(concreteHandleType)
+                    : AsRecordValueProjection(record.HandleType),
             _ when normalized.Contains("::", StringComparison.Ordinal) && recordsByName.TryGetValue(NormalizeNamedTypeName(StripGenericArguments(normalized[(normalized.LastIndexOf("::", StringComparison.Ordinal) + 2)..])), out var shortRecord) =>
                 TryCreateSpecializedRecordHandleType($"{normalized}*", normalized, recordsByName, enumsByName, managedTypeOverrides, genericParameters, out var concreteHandleType)
-                    ? concreteHandleType
-                    : shortRecord.HandleType,
+                    ? AsRecordValueProjection(concreteHandleType)
+                    : AsRecordValueProjection(shortRecord.HandleType),
             _ => throw new NotSupportedException($"ClangSharp sample parser does not support generic argument token '{normalized}'.")
         };
     }
+
+    private static BindingType AsRecordValueProjection(BindingType type) =>
+        type.WithCppIsRecordValue(true).WithCppPointerIsRecordValueProjection(true);
 
     private static bool TryCreateCallbackPointerLikeType(
         string normalized,

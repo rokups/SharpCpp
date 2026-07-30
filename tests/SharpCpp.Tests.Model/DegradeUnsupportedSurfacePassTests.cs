@@ -8,6 +8,40 @@ namespace SharpCpp.Tests.Model;
 public sealed class DegradeUnsupportedSurfacePassTests
 {
     [Fact]
+    public void Apply_renames_static_field_that_collides_with_instance_field()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Fields.h"]);
+        var record = new RecordBinding("record:Settings", "Settings", "Settings", "Test::Settings");
+        var maximum = new FieldBinding(
+            "field:Settings::MaxBounces",
+            "MaxBounces",
+            "MaxBounces",
+            BindingType.UInt32,
+            "const unsigned int",
+            record.CppQualifiedName,
+            isReadOnly: true)
+        {
+            IsStatic = true
+        };
+        var value = new FieldBinding(
+            "field:Settings::maxBounces_",
+            "maxBounces_",
+            "MaxBounces",
+            BindingType.UInt32,
+            "unsigned int",
+            record.CppQualifiedName);
+        record.Members.Add(maximum);
+        record.Members.Add(value);
+        compilation.Members.Add(record);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.Equal("MaxBouncesConstant", maximum.ManagedName);
+        Assert.Equal("MaxBounces", value.ManagedName);
+    }
+
+    [Fact]
     public void Apply_keeps_generic_enum_arguments_resolved_by_enum_identity()
     {
         var compilation = new BindingCompilation("SharpCpp.Tests", "Urho3D", "Bindings", "Native", ["Attribute.h"]);

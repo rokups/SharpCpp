@@ -184,7 +184,7 @@ public static class BindingMetadataExporter
                 CreateTypeReference(compilation, field.Type, fullyQualifyConcrete: true),
                 Parameters: null,
                 field.IsReadOnly,
-                IsStatic: false,
+                field.IsStatic,
                 IsConstructor: false,
                 GetterReturnsOwnedHandle: field.ReturnsOwnedHandle),
             _ => throw new NotSupportedException($"Metadata export does not support member kind '{member.Kind}'.")

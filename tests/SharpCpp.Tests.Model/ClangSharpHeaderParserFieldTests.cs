@@ -126,6 +126,25 @@ public sealed class ClangSharpHeaderParserFieldTests
         Assert.True(visible.GetMetadata<bool>(MetadataKeys.BitField));
     }
 
+    [Fact]
+    public void Parse_preserves_static_data_member_shape()
+    {
+        var compilation = ParseTempHeader(
+            "Sample.hpp",
+            """
+            struct Globals
+            {
+                inline static int value = 3;
+            };
+            """,
+            ["-x", "c++", "-std=c++20"]);
+
+        var record = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "Globals");
+        var value = Assert.Single(record.Members.OfType<FieldBinding>());
+
+        Assert.True(value.IsStatic);
+        Assert.False(value.IsIgnored(), value.GetIgnoreReason());
+    }
     private static void AssertCharPointerField(FieldBinding field)
     {
         Assert.False(field.IsIgnored(), field.GetIgnoreReason());

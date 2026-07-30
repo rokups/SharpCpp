@@ -1114,7 +1114,9 @@ public static partial class BindingOutputRenderer
 
             if (plan.BorrowsStorage)
             {
-                return $"return &({accessExpression});";
+                return field.IsReadOnly
+                    ? $"return const_cast<std::remove_const_t<std::remove_reference_t<{plan.StorageCppType}>>*>(&({accessExpression}));"
+                    : $"return &({accessExpression});";
             }
 
             return $$"""
@@ -1177,25 +1179,7 @@ public static partial class BindingOutputRenderer
                 return $"{accessExpression} = reinterpret_cast<decltype({accessExpression})>(value);";
 
             if (plan.SetterMode == FieldSetterMode.BorrowedStorage)
-            {
-                return $$"""
-                    if (value == nullptr)
-                    {
-                        if constexpr (detail::has_clear_v<{{plan.StorageCppType}}>)
-                        {
-                            {{accessExpression}}.clear();
-                        }
-                        else
-                        {
-                            throw std::runtime_error("SharpCpp borrowed field setter cannot clear this field type.");
-                        }
-                    }
-                    else
-                    {
-                        {{accessExpression}} = std::move(*value);
-                    }
-                    """;
-            }
+                return $"detail::AssignBorrowedStorage({accessExpression}, value);";
 
             var valueExpression = plan.SetterMode == FieldSetterMode.ValuePointer ? "*value" : "value";
             if (ShouldCastDirectNativeFieldSetValue(field, plan))
@@ -1311,6 +1295,12 @@ public static partial class BindingOutputRenderer
 
     private static bool TryGetNativeFieldAccessExpression(FieldBinding field, string selfExpression, out string accessExpression)
     {
+        if (field.IsStatic)
+        {
+            accessExpression = $"{field.OwningRecordCppTypeName}::{field.NativeName}";
+            return true;
+        }
+
         if (field.GetMetadata<bool>(MetadataKeys.BitField))
         {
             accessExpression = $"{selfExpression}->{field.NativeName}";
@@ -2093,7 +2083,9 @@ public static partial class BindingOutputRenderer
         bool includeRegistry = false,
         bool includeSharedCallbackHelpers = false)
     {
-        var aliases = compilation?.TypeAliases.ToArray() ?? Array.Empty<BindingTypeAlias>();
+        var aliases = compilation?.TypeAliases
+            .Where(alias => IsRenderableAliasTarget(compilation, alias.TargetType))
+            .ToArray() ?? Array.Empty<BindingTypeAlias>();
         var needsRegistry = compilation is not null && includeRegistry;
         var callbackParameters = compilation is not null && includeSharedCallbackHelpers
             ? CollectCallbackParameters(
@@ -2178,6 +2170,23 @@ public static partial class BindingOutputRenderer
             }
             """);
         return writer.ToString();
+    }
+
+    private static bool IsRenderableAliasTarget(BindingCompilation compilation, BindingType type)
+    {
+        if (type.RecordId is not null)
+        {
+            var record = compilation.FindRecordBySymbolId(type.RecordId);
+            if (record is null || record.IsIgnored() || record.GetMetadata<bool>(MetadataKeys.SuppressEmission))
+                return false;
+        }
+        if (type.EnumId is not null)
+        {
+            var @enum = compilation.FindEnumBySymbolId(type.EnumId);
+            if (@enum is null || @enum.IsIgnored())
+                return false;
+        }
+        return type.GenericArguments.All(argument => IsRenderableAliasTarget(compilation, argument));
     }
 
     /// <summary>
@@ -4401,8 +4410,11 @@ public static partial class BindingOutputRenderer
         var writer = new CodeWriter();
         WriteDocumentationComment(writer, field);
         var propertyTypeName = GetManagedFieldPropertyTypeName(compilation, field);
+        var getterInvocation = field.IsStatic
+            ? $"__PInvoke.Get_{field.ManagedName}()"
+            : $"__PInvoke.Get_{field.ManagedName}(this)";
         writer.Write($$"""
-            {{GetManagedVisibility(field.AccessModifier)}} {{(hidesInheritedMember ? "new " : string.Empty)}}{{propertyTypeName}} {{field.ManagedName}}
+            {{GetManagedVisibility(field.AccessModifier)}} {{(hidesInheritedMember ? "new " : string.Empty)}}{{(field.IsStatic ? "static " : string.Empty)}}{{propertyTypeName}} {{field.ManagedName}}
             {
             get
             {
@@ -4417,13 +4429,13 @@ public static partial class BindingOutputRenderer
         else if (field.Type.Kind == BindingTypeKind.Handle)
         {
             writer.Write($$"""
-                return {{BuildManagedHandleReturnResultExpression(compilation, field.Type, $"__PInvoke.Get_{field.ManagedName}(this)", field.ReturnsOwnedHandle)}};
+                return {{BuildManagedHandleReturnResultExpression(compilation, field.Type, getterInvocation, field.ReturnsOwnedHandle)}};
                 """);
         }
         else
         {
             writer.Write($$"""
-                return {{BuildManagedImportToPublicExpression(compilation, field.Type, $"__PInvoke.Get_{field.ManagedName}(this)")}};
+                return {{BuildManagedImportToPublicExpression(compilation, field.Type, getterInvocation)}};
                 """);
         }
 
@@ -4483,11 +4495,14 @@ public static partial class BindingOutputRenderer
                 var setterKeepAlive = field.Type.IsFixedArray || RequiresHandleWrapping(field.Type)
                     ? "\n            global::System.GC.KeepAlive(value);"
                     : string.Empty;
+                var setterInvocation = field.IsStatic
+                    ? $"__PInvoke.Set_{field.ManagedName}({setterArgument})"
+                    : $"__PInvoke.Set_{field.ManagedName}(this, {setterArgument})";
                 writer.Write($$"""
                     set
                     {
                     {{setterPrecondition}}
-                    __PInvoke.Set_{{field.ManagedName}}(this, {{setterArgument}});{{setterKeepAlive}}
+                    {{setterInvocation}};{{setterKeepAlive}}
                     }
                     """);
             }
@@ -4572,9 +4587,10 @@ public static partial class BindingOutputRenderer
         var writer = new CodeWriter();
         var returnTypeName = GetManagedImportReturnTypeName(compilation, field.Type);
         var returnAttribute = GetManagedImportReturnAttribute(compilation, field.Type, field.ReturnsOwnedHandle);
+        var parameters = field.IsStatic ? string.Empty : $"{recordManagedName} self";
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
-            ? $"internal static partial {returnTypeName} Get_{field.ManagedName}({recordManagedName} self);"
-            : $"{returnAttribute}\ninternal static partial {returnTypeName} Get_{field.ManagedName}({recordManagedName} self);";
+            ? $"internal static partial {returnTypeName} Get_{field.ManagedName}({parameters});"
+            : $"{returnAttribute}\ninternal static partial {returnTypeName} Get_{field.ManagedName}({parameters});";
 
         writer.Write($$"""
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetNativeFieldGetterEntrypointName(entryPointRecordCppTypeName, field)}}", StringMarshalling = StringMarshalling.Utf8)]
@@ -4597,11 +4613,12 @@ public static partial class BindingOutputRenderer
                 field.Type.Kind == BindingTypeKind.Handle ? BindingParameterAbiKind.Value : BindingParameterAbiKind.Pointer,
                 field.CppTypeName),
             compilation);
+        var parameters = field.IsStatic ? parameter : $"{recordManagedName} self, {parameter}";
 
         writer.Write($$"""
             [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetNativeFieldSetterEntrypointName(entryPointRecordCppTypeName, field)}}", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            internal static partial void Set_{{field.ManagedName}}({{recordManagedName}} self, {{parameter}});
+            internal static partial void Set_{{field.ManagedName}}({{parameters}});
             """);
         return writer.ToString();
     }
@@ -5096,9 +5113,12 @@ public static partial class BindingOutputRenderer
                 var nativeFieldCppType = plan.StorageCppType;
                 var isNativeFixedArrayField = IsNativeFixedArrayType(compilation, field.Type);
                 var getterReturnType = isNativeFixedArrayField ? "NativeArrayAbi" : $"ret_t<{nativeFieldCppType}>";
+                var getterParameters = field.IsStatic
+                    ? string.Empty
+                    : $"arg_t<{accessorRecord.CppQualifiedName}*> self";
                 writer.WriteLine();
                 writer.Write($$"""
-                    SHARPCPP_EXPORT {{getterReturnType}} {{GetNativeFieldGetterEntrypointName(accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self)
+                    SHARPCPP_EXPORT {{getterReturnType}} {{GetNativeFieldGetterEntrypointName(accessorRecord.CppQualifiedName, field)}}({{getterParameters}})
                     {
                     {{(field.AccessModifier == BindingAccessModifier.Protected
                         ? RenderNativeProtectedFieldGetInvocation(accessorRecord, field)
@@ -5109,9 +5129,12 @@ public static partial class BindingOutputRenderer
                 if (!field.IsReadOnly)
                 {
                     var setterParameterType = isNativeFixedArrayField ? "NativeArrayAbi" : plan.SetterParameterCppType;
+                    var setterParameters = field.IsStatic
+                        ? $"{setterParameterType} value"
+                        : $"arg_t<{accessorRecord.CppQualifiedName}*> self, {setterParameterType} value";
                     writer.WriteLine();
                     writer.Write($$"""
-                        SHARPCPP_EXPORT ret_t<void> {{GetNativeFieldSetterEntrypointName(accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self, {{setterParameterType}} value)
+                        SHARPCPP_EXPORT ret_t<void> {{GetNativeFieldSetterEntrypointName(accessorRecord.CppQualifiedName, field)}}({{setterParameters}})
                         {
                         {{(field.AccessModifier == BindingAccessModifier.Protected
                             ? RenderNativeProtectedFieldSetInvocation(accessorRecord, field)
@@ -6873,7 +6896,7 @@ public static partial class BindingOutputRenderer
             return false;
         }
 
-        return IsMarshallerBackedStorageWrapper(compilation, field.Type);
+        return field.Type.Marshaller.CppIsRecordValue || IsMarshallerBackedStorageWrapper(compilation, field.Type);
     }
 
     private static bool IsMarshallerBackedStorageWrapper(BindingCompilation compilation, BindingType type)

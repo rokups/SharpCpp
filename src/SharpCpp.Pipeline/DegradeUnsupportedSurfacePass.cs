@@ -7,6 +7,7 @@ public static class DegradeUnsupportedSurfacePass
     public static void Apply(BindingCompilation compilation)
     {
         ArgumentNullException.ThrowIfNull(compilation);
+        ResolveManagedFieldNameCollisions(compilation);
 
         var changed = true;
         while (changed)
@@ -179,6 +180,37 @@ public static class DegradeUnsupportedSurfacePass
                     field.SetIgnoreReason(reason);
                     changed = true;
                 }
+            }
+        }
+    }
+
+    private static void ResolveManagedFieldNameCollisions(BindingCompilation compilation)
+    {
+        foreach (var record in compilation.Records)
+        {
+            var usedNames = record.Members
+                .OfType<BindingNamedNode>()
+                .Where(static member => member is not FieldBinding && !member.IsIgnored())
+                .Select(static member => member.ManagedName)
+                .ToHashSet(StringComparer.Ordinal);
+
+            foreach (var field in record.Members
+                         .OfType<FieldBinding>()
+                         .Where(static field => !field.IsIgnored())
+                         .OrderBy(static field => field.IsStatic)
+                         .ThenBy(static field => field.SymbolId, StringComparer.Ordinal))
+            {
+                if (usedNames.Add(field.ManagedName))
+                    continue;
+
+                var suffix = field.IsStatic
+                    ? field.IsReadOnly ? "Constant" : "Static"
+                    : "Value";
+                var baseName = field.ManagedName + suffix;
+                var managedName = baseName;
+                for (var index = 2; !usedNames.Add(managedName); ++index)
+                    managedName = baseName + index;
+                field.ManagedName = managedName;
             }
         }
     }

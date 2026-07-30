@@ -99,10 +99,9 @@ public static class ValidateBootstrapSurfacePass
             return;
         }
 
-        FilterUnsupportedInstantiations(function.SupportedGenericInstantiations, recordsById, configuredNativeNamespaces);
+        FilterUnsupportedInstantiations(function, function.SupportedGenericInstantiations, recordsById, configuredNativeNamespaces);
 
-        if (function.SupportedGenericInstantiations.Count == 0 &&
-            !function.HasMetadata(MetadataKeys.ExplicitGenericInstantiations))
+        if (function.SupportedGenericInstantiations.Count == 0)
         {
             function.SetIgnoreReason($"generic function '{function.ManagedName}' has no supported concrete instantiations");
         }
@@ -201,14 +200,18 @@ public static class ValidateBootstrapSurfacePass
     }
 
     private static void FilterUnsupportedInstantiations(
+        FunctionBinding function,
         IList<RecordGenericInstantiationBinding> instantiations,
         IReadOnlyDictionary<string, RecordBinding> recordsById,
         IReadOnlyCollection<string> configuredNativeNamespaces)
     {
         for (var i = instantiations.Count - 1; i >= 0; i--)
         {
-            if (!ValidateInstantiationKinds(instantiations[i], recordsById, configuredNativeNamespaces))
+            if (instantiations[i].TypeArguments.Count != function.GenericParameters.Count ||
+                !ValidateInstantiationKinds(instantiations[i], recordsById, configuredNativeNamespaces))
+            {
                 instantiations.RemoveAt(i);
+            }
         }
     }
 
@@ -218,12 +221,23 @@ public static class ValidateBootstrapSurfacePass
         IReadOnlyDictionary<string, RecordBinding> recordsById,
         IReadOnlyCollection<string> configuredNativeNamespaces)
     {
+        var supportsRecordValueArguments =
+            !string.IsNullOrWhiteSpace(record.ManagedTypeFormat) ||
+            !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ||
+            record.Members.OfType<FunctionBinding>()
+                .Any(static method => method.HasMetadata(MetadataKeys.MarshallerExposedMethod));
         for (var i = instantiations.Count - 1; i >= 0; i--)
         {
-            if (!ValidateInstantiationKinds(record, instantiations[i], recordsById, configuredNativeNamespaces))
+            if (!ValidateInstantiationKinds(record, instantiations[i], recordsById, configuredNativeNamespaces) ||
+                !supportsRecordValueArguments && instantiations[i].TypeArguments.Any(ContainsAbiProjectedRecordValue))
+            {
                 instantiations.RemoveAt(i);
+            }
         }
     }
+
+    private static bool ContainsAbiProjectedRecordValue(BindingType type) =>
+        type.Marshaller.CppPointerIsRecordValueProjection || type.GenericArguments.Any(ContainsAbiProjectedRecordValue);
 
     private static IEnumerable<BindingType> SelectManagedVisibleNestedTypeArguments(
         BindingType type,

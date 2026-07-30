@@ -41,6 +41,7 @@ public static class BindingCompilationBootstrapPipeline
         RunTimed("SilentlyExcludeExternalDeclarations", () => SilentlyExcludeExternalDeclarationsPass.Apply(compilation));
         RunTimed("GenericInstantiation", () => BindingCompilationGenericInstantiationPass.Apply(compilation));
         RunTimed("LowerForwardDeclaredHandles", () => LowerForwardDeclaredHandlesPass.Apply(compilation));
+        RunTimed("ConfigureIntrusiveReferenceCounting", () => ConfigureIntrusiveReferenceCountingPass.Apply(compilation));
         if (configureBeforeValidation is not null)
             RunTimed("ConfigureBeforeValidation", () => configureBeforeValidation(compilation));
         RunTimed("DegradeUnsupportedSurface", () => DegradeUnsupportedSurfacePass.Apply(compilation));

@@ -208,6 +208,27 @@ public sealed class BindingCompilationGenericInstantiationPassTests
     }
 
     [Fact]
+    public void ValidateBootstrapSurface_removes_generic_function_instantiations_with_incomplete_arity()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["BitCast.h"]);
+        var bitCast = new FunctionBinding(
+            "function:BitCast",
+            "BitCast",
+            "BitCast",
+            BindingType.CreateGenericParameter("To"),
+            cppQualifiedName: "Test::BitCast");
+        bitCast.GenericParameters.Add(new BindingGenericParameter("To", 0));
+        bitCast.GenericParameters.Add(new BindingGenericParameter("From", 1));
+        bitCast.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding([BindingType.UInt32]));
+        compilation.Members.Add(bitCast);
+
+        ValidateBootstrapSurfacePass.Apply(compilation);
+
+        Assert.Empty(bitCast.SupportedGenericInstantiations);
+        Assert.Equal("generic function 'BitCast' has no supported concrete instantiations", bitCast.GetIgnoreReason());
+    }
+
+    [Fact]
     public void ValidateBootstrapSurface_keeps_suppressed_placeholder_instantiations_under_configured_namespace()
     {
         var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Vector.h"])

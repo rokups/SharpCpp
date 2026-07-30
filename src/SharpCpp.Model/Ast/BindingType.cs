@@ -37,6 +37,7 @@ public sealed record MarshallerDescriptor(
 {
     public bool CppIsRecordValue { get; init; }
 
+    public bool CppPointerIsRecordValueProjection { get; init; }
     public bool CppIsReference { get; init; }
 
     public bool IsRefStruct => PublicTypeName is "global::System.ReadOnlySpan<byte>";
@@ -346,14 +347,16 @@ public sealed class BindingType
         string? recordId = null,
         string? marshallerTypeName = null,
         IEnumerable<BindingType>? genericArguments = null,
-        bool cppIsRecordValue = false)
+        bool cppIsRecordValue = false,
+        bool cppPointerIsRecordValueProjection = false)
     {
         return new BindingType(
             BindingTypeKind.Handle,
             BindingPrimitiveKind.Unsupported,
             new MarshallerDescriptor(cppTypeName, publicTypeName, marshallerTypeName)
             {
-                CppIsRecordValue = cppIsRecordValue
+                CppIsRecordValue = cppIsRecordValue,
+                CppPointerIsRecordValueProjection = cppPointerIsRecordValueProjection
             },
             recordId: recordId,
             genericArguments: genericArguments);
@@ -468,6 +471,28 @@ public sealed class BindingType
             Kind,
             PrimitiveKind,
             Marshaller with { CppIsRecordValue = value },
+            RecordId,
+            EnumId,
+            AliasCppQualifiedName,
+            AliasNativeName,
+            GenericParameterName,
+            GenericArguments,
+            IsCallback,
+            CallbackReturnType,
+            CallbackParameterTypes,
+            FixedArrayElementType,
+            FixedArrayLength,
+            DynamicArrayElementType);
+    }
+
+    public BindingType WithCppPointerIsRecordValueProjection(bool value)
+    {
+        if (Marshaller.CppPointerIsRecordValueProjection == value)
+            return this;
+        return new BindingType(
+            Kind,
+            PrimitiveKind,
+            Marshaller with { CppPointerIsRecordValueProjection = value },
             RecordId,
             EnumId,
             AliasCppQualifiedName,
