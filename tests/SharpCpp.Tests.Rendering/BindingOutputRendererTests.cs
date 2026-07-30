@@ -2983,7 +2983,10 @@ public sealed class BindingOutputRendererTests
             file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
 
         Assert.Contains("public static global::SharpCpp.Sample.Widget? FindWidget()", managedOutput, StringComparison.Ordinal);
-        Assert.Contains("return __result is null || __result.IsNull ? null : __result;", managedOutput, StringComparison.Ordinal);
+        Assert.Contains(
+            "return __result is { IsNull: false } __nullableResult ? __nullableResult : null;",
+            managedOutput,
+            StringComparison.Ordinal);
     }
 
     [Fact]

@@ -5284,7 +5284,7 @@ public static partial class BindingOutputRenderer
             if (type.Kind == BindingTypeKind.Handle)
             {
                 var typeName = FormatQualifiedRecordTypeName(compilation, type, publicSurface: true);
-                return type.ManagedTypeName.EndsWith("?", StringComparison.Ordinal) ? typeName + "?" : typeName;
+                return typeName;
             }
 
             if (type.Kind == BindingTypeKind.Enum)
