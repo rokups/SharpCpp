@@ -146,11 +146,11 @@ public sealed class MarshallerConfigExtractorTests
         var exposedMember = exposedMemberCtor.Invoke(["Value", "int", true, "property", false, exposedParameters])!;
 
         var configCtor = configType.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-            .Single(ctor => ctor.GetParameters().Length == 6);
+            .Single(ctor => ctor.GetParameters().Length == 7);
         var exposedMembers = Array.CreateInstance(exposedMemberType, 1);
         exposedMembers.SetValue(exposedMember, 0);
         var genericParameters = Array.CreateInstance(typeof(string), 0);
-        var config = configCtor.Invoke(["[[sharpcpp::managed_type(public_type = \"global::Test.Managed\")]]", exposedMembers, genericParameters, null, null, true])!;
+        var config = configCtor.Invoke(["[[sharpcpp::managed_type(public_type = \"global::Test.Managed\")]]", exposedMembers, genericParameters, null, null, null, true])!;
 
         var applyMethod = Type.GetType("SharpCpp.Parsing.MarshallerMetadataPhase2, SharpCpp.Parsing", throwOnError: true)!
             .GetMethod("ApplyRecordMetadata", BindingFlags.NonPublic | BindingFlags.Static)!;
@@ -185,10 +185,10 @@ public sealed class MarshallerConfigExtractorTests
         var configType = extractorType.GetNestedType("MarshallerBodyConfig", BindingFlags.NonPublic)!;
 
         var configCtor = configType.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-            .Single(ctor => ctor.GetParameters().Length == 6);
+            .Single(ctor => ctor.GetParameters().Length == 7);
         var exposedMembers = Array.CreateInstance(exposedMemberType, 0);
         var genericParameters = Array.CreateInstance(typeof(string), 0);
-        var config = configCtor.Invoke(["[[sharpcpp::managed_type(managed_static_interfaces = \"global::Example.IStaticTypeInfo<{managed_type}>; global::Example.IOther<{managed_type}>\", managed_static_interfaces_abstract = true)]]", exposedMembers, genericParameters, null, null, true])!;
+        var config = configCtor.Invoke(["[[sharpcpp::managed_type(managed_static_interfaces = \"global::Example.IStaticTypeInfo<{managed_type}>; global::Example.IOther<{managed_type}>\", managed_static_interfaces_abstract = true)]]", exposedMembers, genericParameters, null, null, null, true])!;
 
         var applyMethod = Type.GetType("SharpCpp.Parsing.MarshallerMetadataPhase2, SharpCpp.Parsing", throwOnError: true)!
             .GetMethod("ApplyRecordMetadata", BindingFlags.NonPublic | BindingFlags.Static)!;
@@ -219,10 +219,10 @@ public sealed class MarshallerConfigExtractorTests
         var configType = extractorType.GetNestedType("MarshallerBodyConfig", BindingFlags.NonPublic)!;
 
         var configCtor = configType.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-            .Single(ctor => ctor.GetParameters().Length == 6);
+            .Single(ctor => ctor.GetParameters().Length == 7);
         var exposedMembers = Array.CreateInstance(exposedMemberType, 0);
         var genericParameters = Array.CreateInstance(typeof(string), 0);
-        var config = configCtor.Invoke(["[[sharpcpp::managed_type(managed_base_type = \"global::SharpCpp.Support.StringBase\")]]", exposedMembers, genericParameters, null, null, true])!;
+        var config = configCtor.Invoke(["[[sharpcpp::managed_type(managed_base_type = \"global::SharpCpp.Support.StringBase\")]]", exposedMembers, genericParameters, null, null, null, true])!;
 
         var applyMethod = Type.GetType("SharpCpp.Parsing.MarshallerMetadataPhase2, SharpCpp.Parsing", throwOnError: true)!
             .GetMethod("ApplyRecordMetadata", BindingFlags.NonPublic | BindingFlags.Static)!;
