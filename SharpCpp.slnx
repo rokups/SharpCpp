@@ -12,7 +12,6 @@
     <Project Path="tests/SharpCpp.Tests.E2E/SharpCpp.Tests.E2E.csproj" />
     <Project Path="tests/SharpCpp.Tests.Metadata/SharpCpp.Tests.Metadata.csproj" />
     <Project Path="tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj" />
-    <Project Path="tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj" />
   </Folder>
   <Folder Name="/rbfx/">
     <Project Path="rbfx/SharpCpp.Ea/SharpCpp.Ea.csproj" />

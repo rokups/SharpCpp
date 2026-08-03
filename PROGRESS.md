@@ -6,7 +6,7 @@ Bootstrap an independent SharpCpp line from `doc/`, selectively adapting small b
 
 ## What Works Today
 
-All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E) on the last clean verified baseline. The full pipeline — C++ headers → generated C# wrappers + native thunks — runs end-to-end for both synthetic fixtures and the real rbfx SDK.
+The active test set is model, metadata, generated E2E, and rbfx E2E; the former standalone rendering suite is no longer part of the solution. The full pipeline — C++ headers → generated C# wrappers + native thunks — runs end-to-end for both synthetic fixtures and the real rbfx SDK.
 
 Current worktree verification passes with generic complex C++ values crossing callback/native ABI as pointers by default, while explicitly configured value marshallers such as `StringHash`, math structs, and smart-pointer projections keep their configured ABI. Thin managed convenience wrappers remain acceptable when they delegate to generated APIs without handwritten native entrypoints; rbfx event subscription ownership is now covered by generated `Object::SubscribeToEvent<T>` wrappers discovered from C++ template instantiations.
 
@@ -16,6 +16,13 @@ Current worktree verification passes with generic complex C++ values crossing ca
 - Core `managed_type` configuration carries the shared wrapper assembly and provider family. The core renderer emits no vendor-specific EASTL policy.
 - Every generated module emits provider/native glue for each shared shape it uses and registers it at module load. Provider lookup prefers the requesting module and rejects ambiguous global fallback.
 - Binding metadata exports/imports wrapper/provider identity, copyability, member entrypoints, marshaller-exposed methods, C++ parameter spellings, and ABI kinds so downstream modules can recreate local providers without duplicate public wrappers.
+
+### E2E coverage (current change)
+
+- Removed the standalone `SharpCpp.Tests.Rendering` project and its renderer-only tests; the solution now keeps rendering validation on the generated E2E contract.
+- Added `coverage.runsettings` and `eng/collect_coverage.sh` for the generic `SharpCpp.Support` and `SharpCpp.Std` runtime surface. Ea/EASTL remains rbfx-specific and is intentionally outside this core gate.
+- Added E2E-only runtime probes for native-array registration/marshalling, wrapper providers, lifetime/cache edges, collections, strings, and registry behavior.
+- Verification: `SharpCpp.Tests.E2E` passes 225 tests with 95.91% line coverage (1,267/1,321 lines). Run `eng/collect_coverage.sh` for the default 95% gate.
 
 ### Model & Metadata
 - Binding model: records, enums, free functions, methods, constructors, fields, operators, templates/generics

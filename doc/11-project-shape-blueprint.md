@@ -38,7 +38,6 @@ tests/
   SharpCpp.Tests.Model/
   SharpCpp.Tests.Parsing/
   SharpCpp.Tests.Pipeline/
-  SharpCpp.Tests.Rendering/
   SharpCpp.Tests.Metadata/
   SharpCpp.Tests.Support/
   SharpCpp.Tests.E2E.Generator/
@@ -470,10 +469,13 @@ That is enough to enforce the big boundaries without creating project-file spraw
 - normalization / degradation / diagnostics
 - ownership / projection / callback validation
 
-### `SharpCpp.Tests.Rendering`
+### Rendering validation
 
-- golden-text tests for C# and C++ emission
-- regression tests for helper selection / naming / signatures
+There is no standalone renderer test project. Rendering is validated through
+the generated E2E contract, which exercises the complete header → generated
+C# and native thunk pipeline. If focused tests become necessary later, they
+belong with the owning model/pipeline behavior rather than a renderer-only
+suite.
 
 ### `SharpCpp.Tests.Metadata`
 
