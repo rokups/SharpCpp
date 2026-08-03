@@ -1,17 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RunSettings>
-  <DataCollectionRunSettings>
-    <DataCollectors>
-      <DataCollector friendlyName="XPlat Code Coverage">
-        <Configuration>
-          <Format>cobertura</Format>
-          <!-- The generic runtime is the core gate. Ea/EASTL is an rbfx opt-in. -->
-          <Include>[SharpCpp.Support]*,[SharpCpp.Std]*</Include>
-          <Exclude>[SharpCpp.Tests.E2E]*,[SharpCpp.Ea]*</Exclude>
-          <UseSourceLink>false</UseSourceLink>
-          <SkipAutoProps>true</SkipAutoProps>
-        </Configuration>
-      </DataCollector>
-    </DataCollectors>
-  </DataCollectionRunSettings>
-</RunSettings>
+<Configuration>
+  <CodeCoverage>
+    <CollectFromChildProcesses>true</CollectFromChildProcesses>
+    <ModulePaths>
+      <Include>
+        <ModulePath>.*[/\\]SharpCpp\.(Model|Metadata|Parsing|Pipeline|Rendering|Tool|Support|Std)\.dll$</ModulePath>
+      </Include>
+    </ModulePaths>
+    <Sources>
+      <Include>
+        <Source>.*[/\\]src[/\\]SharpCpp\..*[/\\].*\.cs$</Source>
+      </Include>
+    </Sources>
+    <Attributes>
+      <Exclude>
+        <Attribute>^System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverageAttribute$</Attribute>
+        <Attribute>^System.CodeDom.Compiler.GeneratedCodeAttribute$</Attribute>
+        <Attribute>^System.Runtime.CompilerServices.CompilerGeneratedAttribute$</Attribute>
+      </Exclude>
+    </Attributes>
+  </CodeCoverage>
+</Configuration>

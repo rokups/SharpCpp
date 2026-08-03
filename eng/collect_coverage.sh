@@ -17,9 +17,8 @@ if [[ -d "$ninja_root" ]]; then
 fi
 export PATH
 
-# Coverage is intentionally collected from the generated E2E project only.
-# The runsettings file limits the gate to generic SharpCpp runtime assemblies;
-# rbfx's Ea/EASTL implementation is a consumer-specific opt-in.
+# Force the real E2E generator to run while the process-level collector is
+# active. Its generated C# and C++ are then compiled and exercised by E2E.
 
 # ClangSharp needs the GCC builtin headers when the selected compiler target
 # differs from the host triple spelling.
@@ -32,16 +31,27 @@ if command -v gcc >/dev/null 2>&1; then
 fi
 
 mkdir -p "$results_directory"
+dotnet tool restore
+rm -f "$sharpcpp_root/build/native/dev/generated/sharpcpp-e2e/generate.stamp"
 
-dotnet test "$sharpcpp_root/tests/SharpCpp.Tests.E2E/SharpCpp.Tests.E2E.csproj" \
-    --configuration Debug \
-    --settings "$sharpcpp_root/coverage.runsettings" \
-    --collect:"XPlat Code Coverage" \
-    --results-directory "$results_directory" \
+coverage_file="$results_directory/coverage.cobertura.xml"
+test_command=(
+    dotnet test "$sharpcpp_root/tests/SharpCpp.Tests.E2E/SharpCpp.Tests.E2E.csproj"
+    --configuration Debug
+    --results-directory "$results_directory"
     "$@"
+)
+test_command_line="${test_command[0]}"
+for argument in "${test_command[@]:1}"; do
+    argument="${argument//\\/\\\\}"
+    argument="${argument//\"/\\\"}"
+    test_command_line+=" \"$argument\""
+done
 
-coverage_file="$(find "$results_directory" -type f -name coverage.cobertura.xml -printf '%T@ %p\n' \
-    | sort -nr | sed -n '1{s/^[^ ]* //;p}')"
+dotnet dotnet-coverage collect "$test_command_line" \
+    --settings "$sharpcpp_root/coverage.runsettings" \
+    --output "$coverage_file" \
+    --output-format cobertura
 
 if [[ -z "$coverage_file" ]]; then
     printf 'Coverage report was not produced under %s\n' "$results_directory" >&2

@@ -20,9 +20,8 @@ Current worktree verification passes with generic complex C++ values crossing ca
 ### E2E coverage (current change)
 
 - Removed the standalone `SharpCpp.Tests.Rendering` project and its renderer-only tests; the solution now keeps rendering validation on the generated E2E contract.
-- Added `coverage.runsettings` and `eng/collect_coverage.sh` for the generic `SharpCpp.Support` and `SharpCpp.Std` runtime surface. Ea/EASTL remains rbfx-specific and is intentionally outside this core gate.
-- Added E2E-only runtime probes for native-array registration/marshalling, wrapper providers, lifetime/cache edges, collections, strings, and registry behavior.
-- Verification: `SharpCpp.Tests.E2E` passes 225 tests with 95.91% line coverage (1,267/1,321 lines). Run `eng/collect_coverage.sh` for the default 95% gate.
+- Added process-level coverage around the real build-time generator and the compiled native E2E run. The gate measures SharpCpp model, metadata, parsing, pipeline, rendering, tool, support, and generic standard-library code; Ea/EASTL remains an rbfx implementation detail.
+- The strict baseline is 67.49% (15,627/23,155 lines) with 214 compiled native round-trip tests. The 95% gate therefore remains failing while additional generated scenarios are added.
 
 ### Model & Metadata
 - Binding model: records, enums, free functions, methods, constructors, fields, operators, templates/generics
