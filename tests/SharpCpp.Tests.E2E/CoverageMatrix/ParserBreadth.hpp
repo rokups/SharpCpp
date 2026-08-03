@@ -151,6 +151,25 @@ T breadth_template_identity(T value)
 template breadth_payload* breadth_template_identity<breadth_payload*>(breadth_payload* value);
 template breadth_mode breadth_template_identity<breadth_mode>(breadth_mode value);
 
+template <typename T>
+[[sharpcpp::instantiate("int")]]
+T breadth_unnamed_identity(T)
+{
+    return T{53};
+}
+
+template <typename T>
+[[sharpcpp::instantiate("int")]]
+void breadth_increment_template(T& value)
+{
+    ++value;
+}
+
+inline int invoke_breadth_callback_reference(const std::function<int(int)>& callback, int value)
+{
+    return callback(value) + 1;
+}
+
 struct breadth_pointer_fields
 {
     int* int_pointer{};
@@ -191,6 +210,48 @@ struct breadth_nested_enum_owner
 
 private:
     Enum value_{};
+};
+
+struct breadth_object_names
+{
+    explicit breadth_object_names(int value)
+        : value_(value)
+    {
+    }
+
+    int get_type() const { return value_ + 1; }
+    int get_hash_code() const { return value_ + 2; }
+    bool equals(const breadth_object_names& other) const { return value_ == other.value_; }
+
+private:
+    int value_{};
+};
+
+struct breadth_named_base
+{
+    int ping(int value) const { return value + 1; }
+};
+
+struct breadth_named_derived : breadth_named_base
+{
+    breadth_named_derived() = default;
+
+    int ping(int value) const { return value + 2; }
+};
+
+struct breadth_empty_anonymous_owner
+{
+    explicit breadth_empty_anonymous_owner(int value)
+        : value(value)
+    {
+    }
+
+    int read() const { return value; }
+
+    struct
+    {
+    } empty;
+    int value{};
 };
 
 struct breadth_abstract
@@ -245,7 +306,6 @@ inline breadth_payload consume_breadth_rvalue(breadth_payload&& value)
     return std::move(value);
 }
 
-[[sharpcpp::ignore("variadic parser breadth")]]
 inline int breadth_variadic(int first, ...)
 {
     return first;

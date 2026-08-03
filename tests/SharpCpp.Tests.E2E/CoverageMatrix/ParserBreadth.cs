@@ -32,9 +32,27 @@ public sealed class ParserBreadthTests
         Assert.Equal(31, E2EBindings.BreadthTemplateIdentity(31));
         Assert.Same(payload, E2EBindings.BreadthTemplateIdentity(payload));
         Assert.Equal(BreadthMode.Active, E2EBindings.BreadthTemplateIdentity(BreadthMode.Active));
+        Assert.Equal(53, E2EBindings.BreadthUnnamedIdentity(47));
+
+        var incremented = 40;
+        E2EBindings.BreadthIncrementTemplate(ref incremented);
+        Assert.Equal(41, incremented);
+        Assert.Equal(42, E2EBindings.InvokeBreadthCallbackReference(value => value + 1, 40));
 
         using var nestedEnum = new BreadthNestedEnumOwner(BreadthNestedMode.Second);
         Assert.Equal(BreadthNestedMode.Second, nestedEnum.GetValue());
+
+        using var objectNames = new BreadthObjectNames(11);
+        using var equalObjectNames = new BreadthObjectNames(11);
+        Assert.Equal(12, objectNames.GetType());
+        Assert.Equal(13, objectNames.GetHashCode());
+        Assert.True(objectNames.Equals(equalObjectNames));
+
+        using var namedDerived = new BreadthNamedDerived();
+        Assert.Equal(43, namedDerived.Ping(41));
+
+        using var anonymousOwner = new BreadthEmptyAnonymousOwner(59);
+        Assert.Equal(59, anonymousOwner.Read());
 
         using var alias = E2EBindings.MakeParserAliasPayload(37);
         Assert.Equal(37, E2EBindings.ReadParserAliasPayload(alias));

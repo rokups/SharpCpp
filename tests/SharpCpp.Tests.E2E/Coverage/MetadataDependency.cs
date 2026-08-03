@@ -69,4 +69,18 @@ public sealed class MetadataDependencyTests
         Assert.Equal(13, derived.GetBaseValue());
         Assert.Equal(26, derived.Doubled());
     }
+
+    [Fact]
+    public void Imported_fixed_array_metadata_drives_a_compiled_consumer_round_trip()
+    {
+        using var values = new global::Std.Array<int>(new[] { 5, 7, 11, 19 });
+        Assert.Equal(42, ConsumerBindings.ConsumeDependencyFixedAlias(values));
+    }
+
+    [Fact]
+    public void Imported_dynamic_array_metadata_drives_a_compiled_consumer_round_trip()
+    {
+        using var values = new global::Std.Vector<int>(new[] { 11, 14, 17 });
+        Assert.Equal(42, ConsumerBindings.ConsumeDependencyDynamicAlias(values));
+    }
 }

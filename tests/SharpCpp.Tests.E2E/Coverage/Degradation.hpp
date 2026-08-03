@@ -150,6 +150,11 @@ inline void callback_with_ignored_parameter(std::function<void(ignored_record*)>
     (void)callback;
 }
 
+inline void callback_marked_ref([[sharpcpp::ref]] std::function<void(int)> callback)
+{
+    callback(1);
+}
+
 struct record_value
 {
     int value{};

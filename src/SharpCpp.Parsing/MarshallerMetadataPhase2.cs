@@ -53,6 +53,18 @@ public static class MarshallerMetadataPhase2
         @"owned_handle\s*=\s*true",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+    private static readonly Regex FixedArrayExpression = new(
+        @"fixed_array\s*=\s*true",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static readonly Regex NativeArrayExpression = new(
+        @"native_array\s*=\s*true",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static readonly Regex DynamicArrayExpression = new(
+        @"dynamic_array\s*=\s*true",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     private static readonly Regex ManagedNamespaceExpression = new(
         @"managed_namespace\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -190,6 +202,21 @@ public static class MarshallerMetadataPhase2
                 record.SetMetadata(MetadataKeys.MarshallerConfiguredRecord, true);
             }
 
+            if (FixedArrayExpression.IsMatch(body))
+            {
+                record.SetMetadata(MetadataKeys.FixedArrayRecord, true);
+            }
+
+            if (NativeArrayExpression.IsMatch(body))
+            {
+                record.SetMetadata(MetadataKeys.NativeArrayRecord, true);
+            }
+
+            if (DynamicArrayExpression.IsMatch(body))
+            {
+                record.SetMetadata(MetadataKeys.DynamicArrayRecord, true);
+            }
+
             // public_type → ManagedTypeFormat / ManagedName
             if (PublicTypeExpression.Match(body) is { Success: true } publicTypeMatch)
             {
@@ -213,7 +240,7 @@ public static class MarshallerMetadataPhase2
                         "The rename attribute takes precedence.",
                         record.NativeName, record.ManagedTypeFormat, publicType);
                 }
-                else if (record.ManagedTypeFormat is null || overrideRename)
+                else if (!string.Equals(record.ManagedTypeFormat, publicType, StringComparison.Ordinal) || overrideRename)
                 {
                     record.ManagedTypeFormat = publicType;
                     record.ManagedName = GetManagedTypeHead(publicType);
@@ -542,11 +569,15 @@ public static class MarshallerMetadataPhase2
 
             realRecord.ManagedBaseTypeName ??= placeholder.ManagedBaseTypeName;
             realRecord.ManagedBaseTypeConstraints ??= placeholder.ManagedBaseTypeConstraints;
-            realRecord.ManagedTypeFormat ??= placeholder.ManagedTypeFormat;
-            if (!string.Equals(realRecord.ManagedName, placeholder.ManagedName, StringComparison.Ordinal) &&
-                realRecord.ManagedTypeFormat is null)
+            if (realRecord.ManagedTypeFormat is null && placeholder.ManagedTypeFormat is not null)
             {
+                realRecord.ManagedTypeFormat = placeholder.ManagedTypeFormat;
                 realRecord.ManagedName = placeholder.ManagedName;
+                realRecord.ManagedNamespace = placeholder.ManagedNamespace ?? realRecord.ManagedNamespace;
+            }
+            else
+            {
+                realRecord.ManagedNamespace ??= placeholder.ManagedNamespace;
             }
             realRecord.HandleMarshallerTypeName ??= placeholder.HandleMarshallerTypeName;
             realRecord.ManagedInstanceCacheFactoryExpression ??= placeholder.ManagedInstanceCacheFactoryExpression;
@@ -651,6 +682,11 @@ public static class MarshallerMetadataPhase2
             score += 5;
         }
 
+        if (record.HasMetadata(MetadataKeys.ManagedWrapperAssembly))
+        {
+            score += 50;
+        }
+
         score += record.Members.Count;
         score += record.GenericParameters.Count;
 
@@ -673,8 +709,12 @@ public static class MarshallerMetadataPhase2
         {
             target.ManagedTypeFormat = source.ManagedTypeFormat;
             target.ManagedName = source.ManagedName;
+            target.ManagedNamespace = source.ManagedNamespace ?? target.ManagedNamespace;
         }
-        target.ManagedNamespace ??= source.ManagedNamespace;
+        else
+        {
+            target.ManagedNamespace ??= source.ManagedNamespace;
+        }
         target.HandleMarshallerTypeName ??= source.HandleMarshallerTypeName;
         target.ManagedInstanceCacheFactoryExpression ??= source.ManagedInstanceCacheFactoryExpression;
         target.ManagedInstanceCacheTypeName ??= source.ManagedInstanceCacheTypeName;
@@ -1160,6 +1200,8 @@ public static class MarshallerMetadataPhase2
 
     private static BindingType ApplyManagedTypeFormat(BindingType type, IReadOnlyDictionary<string, RecordBinding> recordsByNativeName, IReadOnlyDictionary<BindingAliasTargetKey, string> aliasByTarget)
     {
+        type = ApplyArrayMetadataFromCppType(type, recordsByNativeName);
+
         if (type.Kind != BindingTypeKind.Handle || string.IsNullOrWhiteSpace(type.RecordId))
         {
             return type;
@@ -1193,7 +1235,8 @@ public static class MarshallerMetadataPhase2
         // replaces the auto-generated wrapper), convert the Handle type to
         // a Primitive configured type so the renderer treats it as a
         // value type rather than a NativeObject-derived handle.
-        if (record.GetMetadata<bool>(MetadataKeys.SuppressEmission))
+        if (record.GetMetadata<bool>(MetadataKeys.SuppressEmission) &&
+            !record.HasMetadata(MetadataKeys.ManagedWrapperAssembly))
         {
             var publicName = record.ManagedTypeFormat ?? record.ManagedName;
 
@@ -1252,6 +1295,14 @@ public static class MarshallerMetadataPhase2
             type.MarshallerTypeName,
             type.GenericArguments,
             type.Marshaller.CppIsRecordValue);
+        if (type.IsFixedArray)
+        {
+            rebound = rebound.WithFixedArray(type.FixedArrayElementType!, type.FixedArrayLength!.Value);
+        }
+        if (type.IsDynamicArray)
+        {
+            rebound = rebound.WithDynamicArray(type.DynamicArrayElementType!);
+        }
         rebound.SetManagedTypeFormatOverride(type.ManagedTypeFormatOverride);
         return rebound;
     }
@@ -1261,12 +1312,6 @@ public static class MarshallerMetadataPhase2
         RecordBinding record,
         IReadOnlyDictionary<string, RecordBinding> recordsByNativeName)
     {
-        var visibleIndices = GetVisibleManagedGenericArgumentIndices(record);
-        if (visibleIndices.Count == 0)
-        {
-            return type;
-        }
-
         var sourceArguments = type.GenericArguments;
         var sourceArgumentsChanged = false;
         if (TryRecoverGenericArgumentsFromCppType(type.CppTypeName, recordsByNativeName, out var recoveredArguments) &&
@@ -1276,6 +1321,14 @@ public static class MarshallerMetadataPhase2
                 type.GenericArguments,
                 recoveredArguments,
                 out sourceArgumentsChanged);
+        }
+
+        type = ApplyArrayMetadata(type, record, sourceArguments);
+
+        var visibleIndices = GetVisibleManagedGenericArgumentIndices(record);
+        if (visibleIndices.Count == 0)
+        {
+            return type;
         }
 
         if (!sourceArgumentsChanged && visibleIndices.Count == type.GenericArguments.Count && IsIdentityProjection(visibleIndices))
@@ -1292,6 +1345,44 @@ public static class MarshallerMetadataPhase2
             .Select(index => sourceArguments[index])
             .ToArray();
         return WithGenericArguments(type, projectedArguments);
+    }
+
+    private static BindingType ApplyArrayMetadata(
+        BindingType type,
+        RecordBinding record,
+        IReadOnlyList<BindingType> genericArguments)
+    {
+        if (record.GetMetadata<bool>(MetadataKeys.FixedArrayRecord) &&
+            genericArguments.Count >= 2 &&
+            int.TryParse(
+                genericArguments[1].CppTypeName,
+                System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var length) &&
+            length >= 0)
+        {
+            type = type.WithFixedArray(genericArguments[0], length);
+        }
+
+        return record.GetMetadata<bool>(MetadataKeys.DynamicArrayRecord) && genericArguments.Count > 0
+            ? type.WithDynamicArray(genericArguments[0])
+            : type;
+    }
+
+    private static BindingType ApplyArrayMetadataFromCppType(
+        BindingType type,
+        IReadOnlyDictionary<string, RecordBinding> recordsByNativeName)
+    {
+        var record = FindRecordByCppTypeName(type.CppTypeName, recordsByNativeName);
+        if (record is null ||
+            (!record.GetMetadata<bool>(MetadataKeys.FixedArrayRecord) &&
+             !record.GetMetadata<bool>(MetadataKeys.DynamicArrayRecord)) ||
+            !TryRecoverGenericArgumentsFromCppType(type.CppTypeName, recordsByNativeName, out var genericArguments))
+        {
+            return type;
+        }
+
+        return ApplyArrayMetadata(type, record, genericArguments);
     }
 
     private static IReadOnlyList<BindingType> MergeRecoveredGenericArguments(
@@ -1530,22 +1621,7 @@ public static class MarshallerMetadataPhase2
     }
 
     private static BindingType WithGenericArguments(BindingType type, IReadOnlyList<BindingType> genericArguments)
-    {
-        if (type.Kind != BindingTypeKind.Handle)
-        {
-            return type;
-        }
-
-        var clone = BindingType.CreateHandle(
-            type.CppTypeName,
-            type.Marshaller.PublicTypeName,
-            type.RecordId,
-            type.MarshallerTypeName,
-            genericArguments,
-            type.Marshaller.CppIsRecordValue);
-        clone.SetManagedTypeFormatOverride(type.ManagedTypeFormatOverride);
-        return clone;
-    }
+        => type.WithGenericArguments(genericArguments);
 
     private static string GetManagedTypeFormatOverride(RecordBinding record)
     {

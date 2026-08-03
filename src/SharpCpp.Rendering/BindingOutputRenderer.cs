@@ -3582,7 +3582,6 @@ public static partial class BindingOutputRenderer
             {
                 nameof(GetType) when function.Parameters.Count == 0 => true,
                 nameof(GetHashCode) when function.Parameters.Count == 0 => true,
-                nameof(Equals) when function.Parameters.Count == 1 => true,
                 _ => false
             })
         {

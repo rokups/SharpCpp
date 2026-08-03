@@ -265,7 +265,16 @@ internal static class Program
             new BindingMetadataExportOptions(dependency.ProjectName, "coverage-dependency", "coverage-clang"));
         var dependencyMetadataPath = Path.Combine(generatedRoot, "SharpCppCoverageDependency.Bindings.json");
         File.WriteAllText(dependencyMetadataPath, BindingMetadataSerializer.Serialize(dependencyMetadata));
-        RemoveSharedWrapperRecords(dependency);
+        var legacyDependencyMetadata = dependencyMetadata with
+        {
+            Types = dependencyMetadata.Types.Select(type => type with
+            {
+                Members = type.Members?.Select(member => member with { SymbolId = null }).ToArray()
+            }).ToArray()
+        };
+        var legacyDependencyMetadataPath = Path.Combine(generatedRoot, "SharpCppCoverageDependency.LegacyBindings.json");
+        File.WriteAllText(legacyDependencyMetadataPath, BindingMetadataSerializer.Serialize(legacyDependencyMetadata));
+        ExcludeSharedWrapperRecords(dependency);
 
         var consumer = ParseCoverageHeader(
             "SharpCpp.Tests.E2E.Coverage.Consumer",
@@ -277,12 +286,12 @@ internal static class Program
             parser,
             clangArguments,
             marshallerConfigurationFiles,
-            BindingMetadataImportCatalog.Load([dependencyMetadataPath, dependencyMetadataPath]));
+            BindingMetadataImportCatalog.Load([dependencyMetadataPath, legacyDependencyMetadataPath]));
         BindingCompilationBootstrapPipeline.Apply(consumer, marshallerConfigurationFiles, clangArguments);
         RemoveLocalConfiguredWrapperRecords(consumer);
         ApplyCoverageProjection(consumer);
         consumer.TypeAliases.Clear();
-        RemoveSharedWrapperRecords(consumer);
+        ExcludeSharedWrapperRecords(consumer);
 
         var degradation = ParseCoverageHeader(
             "SharpCpp.Tests.E2E.Coverage.Degradation",
@@ -298,15 +307,45 @@ internal static class Program
         {
             ["coverage_allowed"] = degradation.ManagedNamespace
         };
+        ApplyDegradationCoverage(degradation);
         BindingCompilationBootstrapPipeline.Apply(degradation, marshallerConfigurationFiles, clangArguments);
         RemoveLocalConfiguredWrapperRecords(degradation);
         ApplyCoverageProjection(degradation);
-        RemoveSharedWrapperRecords(degradation);
+        ExcludeSharedWrapperRecords(degradation);
+
+        var cClangArguments = clangArguments
+            .Where(static argument => argument is not "-xc++" and not "-std=c++20")
+            .Prepend("-std=c17")
+            .Prepend("-xc")
+            .ToArray();
+        var cOpaque = ParseCoverageHeader(
+            "SharpCpp.Tests.E2E.Coverage.COpaque",
+            "SharpCpp.Tests.E2E.Coverage.COpaque.Generated",
+            "COpaqueBindings",
+            "Coverage/COpaque.h",
+            "sharpcpp_coverage_c_opaque",
+            fixtureRoot,
+            parser,
+            cClangArguments,
+            marshallerConfigurationFiles,
+            marshallerClangArguments: clangArguments);
+        BindingCompilationBootstrapPipeline.Apply(cOpaque, marshallerConfigurationFiles, clangArguments);
+        RemoveLocalConfiguredWrapperRecords(cOpaque);
+        ApplyCoverageProjection(cOpaque);
+        ExcludeSharedWrapperRecords(cOpaque);
 
         return BindingOutputRenderer.Render(dependency, "SharpCppCoverageDependency", includeCallbackReleaseRegistration: false).Files
             .Concat(BindingOutputRenderer.Render(consumer, "SharpCppCoverageConsumer", includeCallbackReleaseRegistration: false).Files)
             .Concat(BindingOutputRenderer.Render(degradation, "SharpCppCoverageDegradation", includeCallbackReleaseRegistration: false).Files)
+            .Concat(BindingOutputRenderer.Render(cOpaque, "SharpCppCoverageCOpaque", includeCallbackReleaseRegistration: false).Files)
             .ToArray();
+    }
+
+    private static void ApplyDegradationCoverage(BindingCompilation compilation)
+    {
+        compilation.Functions.Single(function =>
+                string.Equals(function.NativeName, "callback_marked_ref", StringComparison.Ordinal))
+            .ClearIgnoreReason();
     }
 
     private static BindingCompilation ParseCoverageHeader(
@@ -319,7 +358,8 @@ internal static class Program
         ClangSharpHeaderParser parser,
         IReadOnlyList<string> clangArguments,
         IReadOnlyList<string> marshallerConfigurationFiles,
-        BindingMetadataImportCatalog? importedMetadata = null)
+        BindingMetadataImportCatalog? importedMetadata = null,
+        IReadOnlyList<string>? marshallerClangArguments = null)
     {
         var compilation = parser.Parse(new ClangSharpParseRequest(
             projectName,
@@ -331,7 +371,8 @@ internal static class Program
             clangArguments,
             marshallerConfigurationFiles,
             EntryPointPrefix: entryPointPrefix,
-            ImportedBindingMetadata: importedMetadata));
+            ImportedBindingMetadata: importedMetadata,
+            MarshallerClangArguments: marshallerClangArguments));
         foreach (var marshallerHeader in marshallerConfigurationFiles)
             compilation.NativeSupportHeaders.Add(marshallerHeader.Replace('\\', '/'));
         return compilation;
@@ -347,12 +388,12 @@ internal static class Program
         compilation.SetMetadata(MetadataKeys.ManagedBindingProjection, projection);
     }
 
-    private static void RemoveSharedWrapperRecords(BindingCompilation compilation)
+    private static void ExcludeSharedWrapperRecords(BindingCompilation compilation)
     {
         foreach (var record in compilation.Records
                      .Where(record => record.HasMetadata(MetadataKeys.ManagedWrapperAssembly))
                      .ToArray())
-            compilation.Members.Remove(record);
+            record.SetSilentExclusionReason("shared wrapper implementation is emitted by the primary E2E compilation");
         compilation.InvalidateCaches();
     }
 

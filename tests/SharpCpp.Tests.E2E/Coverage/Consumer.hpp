@@ -44,6 +44,19 @@ inline int consume_dependency_box_alias(const dependency_int_box_alias* value)
     return value == nullptr ? -1 : value->get_value();
 }
 
+inline int consume_dependency_fixed_alias(const dependency_fixed_alias& value)
+{
+    return value[0] + value[1] + value[2] + value[3];
+}
+
+inline int consume_dependency_dynamic_alias(const dependency_dynamic_alias& value)
+{
+    int result = 0;
+    for (int item : value)
+        result += item;
+    return result;
+}
+
 struct consumer_derived : dependency_base
 {
     explicit consumer_derived(int value)
