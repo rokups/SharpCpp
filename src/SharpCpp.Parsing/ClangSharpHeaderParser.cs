@@ -5240,21 +5240,12 @@ public sealed partial class ClangSharpHeaderParser
             return NormalizeManagedEnumDefaultExpression(parameterType.ManagedTypeName, expression);
         }
 
-        if (TryGetEvaluatedManagedPrimitiveDefaultValueExpression(
-                parameterDecl,
-                expressionCursor,
-                parameterType,
-                out var evaluatedExpression))
-        {
-            return evaluatedExpression;
-        }
-
         if (TryNormalizeManagedFloatingPointDefaultValueExpression(
                 expression,
                 parameterType,
-                out evaluatedExpression))
+                out var normalizedExpression))
         {
-            return evaluatedExpression;
+            return normalizedExpression;
         }
 
         if (expression.Contains("::", StringComparison.Ordinal))
@@ -5281,81 +5272,6 @@ public sealed partial class ClangSharpHeaderParser
             CXCursorKind.CXCursor_CXXBoolLiteralExpr => expression.ToLowerInvariant(),
             _ => expression
         };
-    }
-
-    private static bool TryGetEvaluatedManagedPrimitiveDefaultValueExpression(
-        ParmVarDecl parameterDecl,
-        CXCursor expressionCursor,
-        BindingType parameterType,
-        out string expression)
-    {
-        expression = string.Empty;
-        if (parameterType.Kind != BindingTypeKind.Primitive ||
-            parameterType.PrimitiveKind is BindingPrimitiveKind.Unsupported
-                or BindingPrimitiveKind.Void
-                or BindingPrimitiveKind.Boolean
-                or BindingPrimitiveKind.IntPtr)
-        {
-            return false;
-        }
-
-        if (TryGetEvaluatedManagedPrimitiveDefaultValueExpression(expressionCursor, parameterType, out expression))
-            return true;
-
-        if (TryGetEvaluatedManagedPrimitiveDefaultValueExpression(
-                parameterDecl.DefaultArg.Handle,
-                parameterType,
-                out expression))
-        {
-            return true;
-        }
-
-        return parameterDecl.HasUninstantiatedDefaultArg &&
-            TryGetEvaluatedManagedPrimitiveDefaultValueExpression(
-                parameterDecl.UninstantiatedDefaultArg.Handle,
-                parameterType,
-                out expression);
-    }
-
-    private static bool TryGetEvaluatedManagedPrimitiveDefaultValueExpression(
-        CXCursor expressionCursor,
-        BindingType parameterType,
-        out string expression)
-    {
-        expression = string.Empty;
-        if (!expressionCursor.IsPotentiallyEvaluated)
-            return false;
-
-        using var evaluation = expressionCursor.Evaluate;
-        if (evaluation.Kind == CXEvalResultKind.CXEval_Int)
-        {
-            expression = evaluation.IsUnsignedInt
-                ? $"{evaluation.AsUnsigned.ToString(CultureInfo.InvariantCulture)}u"
-                : evaluation.AsInt.ToString(CultureInfo.InvariantCulture);
-            return true;
-        }
-
-        if (evaluation.Kind != CXEvalResultKind.CXEval_Float)
-            return false;
-
-        if (parameterType.PrimitiveKind == BindingPrimitiveKind.Single)
-        {
-            var value = (float)evaluation.AsDouble;
-            if (!float.IsFinite(value))
-                return false;
-
-            expression = $"{value.ToString("R", CultureInfo.InvariantCulture)}f";
-            return true;
-        }
-
-        if (parameterType.PrimitiveKind != BindingPrimitiveKind.Double ||
-            !double.IsFinite(evaluation.AsDouble))
-        {
-            return false;
-        }
-
-        expression = evaluation.AsDouble.ToString("R", CultureInfo.InvariantCulture);
-        return true;
     }
 
     private static bool TryNormalizeManagedFloatingPointDefaultValueExpression(
@@ -5393,51 +5309,13 @@ public sealed partial class ClangSharpHeaderParser
 
     private static string? GetNativeDefaultValueExpression(ParmVarDecl parameterDecl)
     {
-        if (!TryGetDefaultArgumentExpression(parameterDecl, out var expressionCursor, out var expression))
+        if (!TryGetDefaultArgumentExpression(parameterDecl, out _, out var expression))
             return null;
 
         if (expression.Contains('#') || expression.Contains("///"))
             return null;
 
-        if (TryGetEvaluatedNativeDefaultValueExpression(expressionCursor, out var evaluatedExpression))
-            return evaluatedExpression;
-
-        if (TryGetEvaluatedNativeDefaultValueExpression(parameterDecl.DefaultArg.Handle, out evaluatedExpression))
-            return evaluatedExpression;
-
-        if (parameterDecl.HasUninstantiatedDefaultArg &&
-            TryGetEvaluatedNativeDefaultValueExpression(parameterDecl.UninstantiatedDefaultArg.Handle, out evaluatedExpression))
-            return evaluatedExpression;
-
         return expression.Length == 0 ? null : expression;
-    }
-
-    private static bool TryGetEvaluatedNativeDefaultValueExpression(
-        CXCursor expressionCursor,
-        out string expression)
-    {
-        expression = string.Empty;
-
-        if (!expressionCursor.IsPotentiallyEvaluated)
-            return false;
-
-        using var evaluation = expressionCursor.Evaluate;
-        if (evaluation.Kind == CXEvalResultKind.CXEval_UnExposed)
-            return false;
-
-        expression = evaluation.Kind switch
-        {
-            CXEvalResultKind.CXEval_Int =>
-                evaluation.IsUnsignedInt
-                    ? $"{evaluation.AsUnsigned.ToString(CultureInfo.InvariantCulture)}u"
-                    : evaluation.AsInt.ToString(CultureInfo.InvariantCulture),
-            CXEvalResultKind.CXEval_Float => evaluation.AsDouble.ToString("R", CultureInfo.InvariantCulture),
-            CXEvalResultKind.CXEval_ObjCStrLiteral => $"\"{evaluation.AsStr}\"",
-            CXEvalResultKind.CXEval_StrLiteral => $"\"{evaluation.AsStr}\"",
-            _ => string.Empty
-        };
-
-        return !string.IsNullOrEmpty(expression);
     }
 
     private static bool TryGetDefaultArgumentExpression(ParmVarDecl parameterDecl, out CXCursor expressionCursor, out string expression)

@@ -75,7 +75,10 @@ template <typename T>
 struct breadth_forward_box;
 
 template <typename T>
-struct [[sharpcpp::instantiate("int")]] breadth_forward_box
+struct
+[[sharpcpp::instantiate("int")]]
+[[sharpcpp::instantiate("breadth_payload*")]]
+breadth_forward_box
 {
     explicit breadth_forward_box(T value)
         : value_(value)
@@ -92,6 +95,16 @@ private:
 };
 
 using breadth_int_box = breadth_forward_box<int>;
+
+inline breadth_forward_box<breadth_payload*>* make_breadth_payload_box(breadth_payload* value)
+{
+    return new breadth_forward_box<breadth_payload*>(value);
+}
+
+inline breadth_payload* read_breadth_payload_box(const breadth_forward_box<breadth_payload*>* value)
+{
+    return value == nullptr ? nullptr : value->get_value();
+}
 
 template <typename T>
 [[sharpcpp::instantiate("bool")]]

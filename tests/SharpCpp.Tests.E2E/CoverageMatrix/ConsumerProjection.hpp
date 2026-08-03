@@ -168,6 +168,7 @@ struct consumer_projection_host
     explicit consumer_projection_host(int value)
         : value_(value)
         , value_array{consumer_projection_value(value), consumer_projection_value(value + 1)}
+        , primitive_array{value, value + 1}
     {
     }
 
@@ -189,6 +190,11 @@ struct consumer_projection_host
     consumer_projection_scalar projected_value(int value) const
     {
         return consumer_projection_scalar(value + value_);
+    }
+
+    int sum_primitive_array() const
+    {
+        return primitive_array[0] + primitive_array[1];
     }
 
     static int static_consume_payload(consumer_projection_value* value)
@@ -240,6 +246,7 @@ struct consumer_projection_host
     }
 
     std::array<consumer_projection_value, 2> value_array;
+    int primitive_array[2]{};
 
 private:
     int value_{};

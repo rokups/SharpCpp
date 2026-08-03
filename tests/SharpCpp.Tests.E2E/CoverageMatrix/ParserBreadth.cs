@@ -21,6 +21,12 @@ public sealed class ParserBreadthTests
 
         using var box = new BreadthForwardBox<int>(29);
         Assert.Equal(29, box.GetValue());
+
+        using var payloadBox = new BreadthForwardBox<BreadthPayload>(payload);
+        Assert.Same(payload, payloadBox.GetValue());
+        using var returnedPayloadBox = E2EBindings.MakeBreadthPayloadBox(payload);
+        Assert.Same(payload, E2EBindings.ReadBreadthPayloadBox(returnedPayloadBox));
+
         Assert.Equal(31, E2EBindings.BreadthTemplateIdentity(31));
 
         using var nestedEnum = new BreadthNestedEnumOwner(BreadthNestedMode.Second);

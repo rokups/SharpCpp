@@ -27,18 +27,47 @@ public sealed class SurfaceTests
     public void Custom_standard_library_shared_arrays_round_trip_values_and_handles()
     {
         using var returned = E2EBindings.MakeSurfaceSharedArray(3);
+        Assert.False(returned.HasKnownLength);
         Assert.Equal(new[] { 3, 4, 5 }, returned.ToArray(3));
         Assert.Equal(12, E2EBindings.SumSurfaceSharedArray(returned));
 
-        using var values = new global::E2EStd.SharedArray<int>(new[] { 5, 7, 9 });
-        values[1] = 8;
+        using var values = new global::E2EStd.SharedArray<int>((IEnumerable<int>)new[] { 5, 7, 9 });
+        Assert.True(values.HasKnownLength);
+        Assert.Equal(3, values.Length);
+        values[(nuint)1] = 8;
         Assert.Equal(22, E2EBindings.SumSurfaceSharedArray(values));
+        Assert.Throws<ArgumentOutOfRangeException>(() => _ = values[-1]);
+        Assert.Throws<ArgumentOutOfRangeException>(() => values[-1] = 0);
+        Assert.Throws<ArgumentOutOfRangeException>(() => values.ToArray(-1));
 
         using var first = new SurfacePayload(17);
         using var second = new SurfacePayload(19);
-        using var handles = new global::E2EStd.SharedArray<SurfacePayload>([first, second]);
+        using var handles = new global::E2EStd.SharedArray<SurfacePayload>(
+            new ReadOnlySpan<SurfacePayload>([first, second]));
         Assert.Same(second, handles[1]);
         Assert.Equal(36, E2EBindings.SumSurfaceSharedHandles(handles));
+    }
+
+    [Fact]
+    public void Shared_provider_dynamic_arrays_round_trip_values_and_handles()
+    {
+        using var returned = E2EBindings.MakeSurfaceProviderArray(3);
+        Assert.False(returned.HasKnownLength);
+        Assert.Equal(new[] { 3, 4, 5 }, returned.ToArray(3));
+        Assert.Equal(12, E2EBindings.SumSurfaceProviderArray(returned));
+
+        using var module = global::Std.Infrastructure.ProviderRegistry.PushModule("SharpCpp.Tests.E2E");
+        Assert.Equal("SharpCpp.Tests.E2E", global::Std.Infrastructure.ProviderRegistry.CurrentModuleId);
+        using var values = new global::E2EStd.ProviderArray<int>((IEnumerable<int>)new[] { 5, 7, 9 });
+        values[(nuint)1] = 8;
+        Assert.Equal(22, E2EBindings.SumSurfaceProviderArray(values));
+
+        using var first = new SurfacePayload(17);
+        using var second = new SurfacePayload(19);
+        using var handles = new global::E2EStd.ProviderArray<SurfacePayload>(
+            new ReadOnlySpan<SurfacePayload>([first, second]));
+        Assert.Same(second, handles[1]);
+        Assert.Equal(36, E2EBindings.SumSurfaceProviderHandles(handles));
     }
 
     [Fact]

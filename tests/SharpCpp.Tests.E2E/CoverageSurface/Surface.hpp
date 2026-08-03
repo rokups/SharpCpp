@@ -51,6 +51,24 @@ public:
 private:
     std::shared_ptr<T[]> values_;
 };
+
+template <typename T>
+class provider_array
+{
+public:
+    provider_array() = default;
+
+    explicit provider_array(T* values)
+        : values_(values)
+    {
+    }
+
+    T& operator[](std::size_t index) { return values_[index]; }
+    const T& operator[](std::size_t index) const { return values_[index]; }
+
+private:
+    std::shared_ptr<T[]> values_;
+};
 }
 
 inline e2e_std::array<int, 3> make_surface_fixed_array(int seed)
@@ -88,6 +106,26 @@ inline int sum_surface_shared_array(const e2e_std::shared_array<int>& value)
 }
 
 inline int sum_surface_shared_handles(const e2e_std::shared_array<surface_payload*>& value)
+{
+    return (value[0] != nullptr ? value[0]->get_value() : 0) +
+        (value[1] != nullptr ? value[1]->get_value() : 0);
+}
+
+inline e2e_std::provider_array<int> make_surface_provider_array(int seed)
+{
+    e2e_std::provider_array<int> result(new int[3]{});
+    result[0] = seed;
+    result[1] = seed + 1;
+    result[2] = seed + 2;
+    return result;
+}
+
+inline int sum_surface_provider_array(const e2e_std::provider_array<int>& value)
+{
+    return value[0] + value[1] + value[2];
+}
+
+inline int sum_surface_provider_handles(const e2e_std::provider_array<surface_payload*>& value)
 {
     return (value[0] != nullptr ? value[0]->get_value() : 0) +
         (value[1] != nullptr ? value[1]->get_value() : 0);

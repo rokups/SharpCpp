@@ -7,6 +7,8 @@ namespace SharpCpp.Support;
 public interface IFixedArray<T> : IList<T>
 {
     int Length { get; }
+
+    T[] ToArray();
 }
 
 public abstract class ArrayBase<T> : NativeObject, IFixedArray<T>

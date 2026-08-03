@@ -16,7 +16,9 @@ public sealed class StandardLibraryTests
         using var numbers = E2EBindings.E2eMakeStdNumbers();
 
         Assert.Equal(3, numbers.Count);
+        Assert.False(numbers.IsReadOnly);
         Assert.Equal(new[] { 2, 4, 6 }, numbers.ToArray());
+        Assert.Equal(new[] { 2, 4, 6 }, ((System.Collections.IEnumerable)numbers).Cast<int>());
         Assert.Equal(12, E2EBindings.E2eSumStdNumbers(numbers));
 
         numbers[1] = 10;
@@ -51,6 +53,15 @@ public sealed class StandardLibraryTests
         numbers.Clear();
         numbers.Add(11);
         Assert.Equal(11, E2EBindings.E2eSumStdNumbers(numbers));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => _ = numbers[-1]);
+        Assert.Throws<ArgumentOutOfRangeException>(() => numbers[1] = 0);
+        Assert.Throws<ArgumentOutOfRangeException>(() => numbers.Insert(-1, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => numbers.Insert(2, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => numbers.RemoveAt(1));
+        Assert.Throws<ArgumentNullException>(() => numbers.CopyTo(null!, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => numbers.CopyTo(new int[1], -1));
+        Assert.Throws<ArgumentException>(() => numbers.CopyTo(Array.Empty<int>(), 0));
     }
 
     [Fact]
@@ -73,6 +84,8 @@ public sealed class StandardLibraryTests
         using var numbers = new global::Std.Array<int>(new[] { 2, 4, 6, 8 });
 
         Assert.Equal(4, numbers.Length);
+        Assert.Equal(4, numbers.Count);
+        Assert.False(numbers.IsReadOnly);
         Assert.Equal(2, numbers[0]);
         Assert.Equal(20, E2EBindings.E2eSumStdArrayNumbers(numbers));
 
@@ -98,6 +111,18 @@ public sealed class StandardLibraryTests
 
         using var interfaceClone = (global::Std.Array<int>)((ICloneable)numbers).Clone();
         Assert.Equal(26, E2EBindings.E2eSumStdArrayNumbers(interfaceClone));
+
+        Assert.Equal(new[] { 2, 10, 6, 8 }, ((System.Collections.IEnumerable)numbers).Cast<int>());
+        Assert.Throws<ArgumentOutOfRangeException>(() => _ = numbers[-1]);
+        Assert.Throws<ArgumentOutOfRangeException>(() => numbers[4] = 0);
+        Assert.Throws<ArgumentNullException>(() => numbers.CopyTo(null!, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => numbers.CopyTo(new int[4], -1));
+        Assert.Throws<ArgumentException>(() => numbers.CopyTo(new int[3], 0));
+        Assert.Throws<NotSupportedException>(() => numbers.Add(1));
+        Assert.Throws<NotSupportedException>(() => numbers.Clear());
+        Assert.Throws<NotSupportedException>(() => numbers.Insert(0, 1));
+        Assert.Throws<NotSupportedException>(() => numbers.Remove(2));
+        Assert.Throws<NotSupportedException>(() => numbers.RemoveAt(0));
     }
 
     [Fact]
@@ -210,6 +235,15 @@ public sealed class StandardLibraryTests
         using var providerWords = new global::Std.List<global::Std.String>(words.Provider);
         providerWords.Add(extra);
         Assert.Equal(1, E2EBindings.E2eCountStdWords(providerWords));
+
+        using var enumerableWords = new global::Std.List<global::Std.String>(
+            (IEnumerable<global::Std.String>)new[] { equalText, extra });
+        Assert.Equal(2, E2EBindings.E2eCountStdWords(enumerableWords));
+
+        using var spanWords = new global::Std.List<global::Std.String>(
+            new ReadOnlySpan<global::Std.String>(new[] { extra, equalText }));
+        using var spanJoin = E2EBindings.E2eJoinStdWords(spanWords);
+        Assert.Equal("white,bytes", spanJoin.ToString());
     }
 
     [Fact]
@@ -218,6 +252,7 @@ public sealed class StandardLibraryTests
         using var scores = E2EBindings.E2eMakeStdScores();
         Assert.Equal(3, E2EBindings.E2eTotalStdScores(scores));
         Assert.Equal(2, scores.Count);
+        Assert.False(scores.IsReadOnly);
         Assert.Equal(new[] { 1, 2 }, scores.Values.Order());
 
         using var one = E2EBindings.E2eMakeStdText("one"u8);
@@ -229,6 +264,8 @@ public sealed class StandardLibraryTests
         Assert.Equal(1, oneValue);
         Assert.False(scores.TryGetValue(missing, out _));
         Assert.Equal(1, scores[one]);
+        Assert.Throws<KeyNotFoundException>(() => _ = scores[missing]);
+        Assert.Throws<ArgumentException>(() => scores.Add(one, 99));
 
         scores[one] = 10;
         scores.Add(three, 3);
@@ -242,6 +279,15 @@ public sealed class StandardLibraryTests
         scores.CopyTo(scorePairs, 1);
         Assert.Equal(15, scorePairs.Skip(1).Sum(pair => pair.Value));
         DisposeKeys(scorePairs.Skip(1));
+
+        var enumeratedScores = ((System.Collections.IEnumerable)scores)
+            .Cast<KeyValuePair<global::Std.String, int>>()
+            .ToArray();
+        Assert.Equal(15, enumeratedScores.Sum(pair => pair.Value));
+        DisposeKeys(enumeratedScores);
+        Assert.Throws<ArgumentNullException>(() => scores.CopyTo(null!, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => scores.CopyTo([], -1));
+        Assert.Throws<ArgumentException>(() => scores.CopyTo([], 0));
 
         Assert.False(scores.Remove(new KeyValuePair<global::Std.String, int>(three, 4)));
         Assert.True(scores.Remove(new KeyValuePair<global::Std.String, int>(three, 3)));
@@ -259,6 +305,14 @@ public sealed class StandardLibraryTests
         using var providerScores = new global::Std.Map<global::Std.String, int>(scores.Provider);
         providerScores.Add(one, 5);
         Assert.Equal(5, E2EBindings.E2eTotalStdScores(providerScores));
+
+        using var enumerableScores = new global::Std.Map<global::Std.String, int>(
+            new[]
+            {
+                new KeyValuePair<global::Std.String, int>(one, 4),
+                new KeyValuePair<global::Std.String, int>(three, 6)
+            });
+        Assert.Equal(10, E2EBindings.E2eTotalStdScores(enumerableScores));
 
         using var lookup = E2EBindings.E2eMakeStdLookup();
         Assert.Equal(16, E2EBindings.E2eTotalStdLookup(lookup));
@@ -290,6 +344,14 @@ public sealed class StandardLibraryTests
         using var providerLookup = new global::Std.UnorderedMap<global::Std.String, int>(lookup.Provider);
         providerLookup.Add(center, 6);
         Assert.Equal(6, E2EBindings.E2eTotalStdLookup(providerLookup));
+
+        using var enumerableLookup = new global::Std.UnorderedMap<global::Std.String, int>(
+            new[]
+            {
+                new KeyValuePair<global::Std.String, int>(left, 8),
+                new KeyValuePair<global::Std.String, int>(center, 12)
+            });
+        Assert.Equal(20, E2EBindings.E2eTotalStdLookup(enumerableLookup));
 
         using var owner = new StdLibraryOwner();
         using var ownerScores = owner.GetScoresRef();

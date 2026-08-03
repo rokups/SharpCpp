@@ -57,4 +57,32 @@ struct Marshaller<const e2e_std::shared_array<T>*> : OwnedHandleConstPointerMars
 
 template <typename T>
 struct ReturnMarshaller<e2e_std::shared_array<T>> : OwnedHandleReturnMarshallerBase<e2e_std::shared_array<T>> {};
+
+template <typename T>
+struct [[sharpcpp::managed_type(
+    public_type = "E2EStd.ProviderArray<{0}>",
+    managed_base_type = "global::SharpCpp.Support.SharedArrayBase<{0}>",
+    managed_namespace = "E2EStd",
+    managed_wrapper_assembly = "SharpCpp.Tests.E2E",
+    managed_wrapper_provider_kind = "dynamic_array",
+    managed_wrapper_provider_namespace = "Std.Infrastructure",
+    dynamic_array = true,
+    return_ownership = "owning"
+)]]
+Marshaller<e2e_std::provider_array<T>> : OwnedHandleMarshallerBase<e2e_std::provider_array<T>> {};
+
+template <typename T>
+struct Marshaller<e2e_std::provider_array<T>&> : OwnedHandleReferenceMarshallerBase<e2e_std::provider_array<T>> {};
+
+template <typename T>
+struct Marshaller<const e2e_std::provider_array<T>&> : OwnedHandleConstReferenceMarshallerBase<e2e_std::provider_array<T>> {};
+
+template <typename T>
+struct Marshaller<e2e_std::provider_array<T>*> : OwnedHandlePointerMarshallerBase<e2e_std::provider_array<T>> {};
+
+template <typename T>
+struct Marshaller<const e2e_std::provider_array<T>*> : OwnedHandleConstPointerMarshallerBase<e2e_std::provider_array<T>> {};
+
+template <typename T>
+struct ReturnMarshaller<e2e_std::provider_array<T>> : OwnedHandleReturnMarshallerBase<e2e_std::provider_array<T>> {};
 }

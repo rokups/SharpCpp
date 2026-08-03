@@ -908,7 +908,7 @@ public static partial class BindingOutputRenderer
     {
         foreach (var instantiation in GetDynamicArrayInstantiations(compilation, record))
         {
-            var token = GetDynamicArrayInstantiationToken(instantiation);
+            var token = GetDynamicArrayImportMethodToken(record, instantiation);
             var elementType = instantiation.TypeArguments[0];
             var managedElementType = FormatGlobalTypeName(elementType, compilation);
             var getReturnType = elementType.Kind == BindingTypeKind.Handle ? "nint" : managedElementType;
@@ -1331,6 +1331,11 @@ public static partial class BindingOutputRenderer
         return SanitizeManagedToken(instantiation.TypeArguments[0].ManagedTypeName);
     }
 
+    private static string GetDynamicArrayImportMethodToken(RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    {
+        return $"{SanitizeManagedToken(record.ManagedName)}_{GetDynamicArrayInstantiationToken(instantiation)}";
+    }
+
     private static string GetFixedArrayCreateEntryPointName(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
         => GetGenericArrayEntryPointName(compilation, record, instantiation, "array_create", GetFixedArrayInstantiationToken(instantiation));
 
@@ -1504,7 +1509,7 @@ public static partial class BindingOutputRenderer
             writer.Write($$"""
                 if (typeof(T) == typeof({{elementType}}))
                 {
-                    return {{GetGenericImportAccessor(compilation)}}.__Array_Create_{{GetDynamicArrayInstantiationToken(instantiation)}}(checked((nuint)length));
+                    return {{GetGenericImportAccessor(compilation)}}.__Array_Create_{{GetDynamicArrayImportMethodToken(record, instantiation)}}(checked((nuint)length));
                 }
                 """);
         }
@@ -1521,7 +1526,7 @@ public static partial class BindingOutputRenderer
             writer.Write($$"""
                 if (typeof(T) == typeof({{elementType}}))
                 {
-                    {{GetGenericImportAccessor(compilation)}}.__Array_Delete_{{GetDynamicArrayInstantiationToken(instantiation)}}(handle);
+                    {{GetGenericImportAccessor(compilation)}}.__Array_Delete_{{GetDynamicArrayImportMethodToken(record, instantiation)}}(handle);
                     return true;
                 }
                 """);
@@ -1537,7 +1542,7 @@ public static partial class BindingOutputRenderer
         {
             var element = instantiation.TypeArguments[0];
             var elementType = FormatGlobalTypeName(element, compilation);
-            var resultExpression = $"{GetGenericImportAccessor(compilation)}.__Array_Get_{GetDynamicArrayInstantiationToken(instantiation)}(DangerousGetHandle(), index)";
+            var resultExpression = $"{GetGenericImportAccessor(compilation)}.__Array_Get_{GetDynamicArrayImportMethodToken(record, instantiation)}(DangerousGetHandle(), index)";
             if (element.Kind == BindingTypeKind.Handle)
             {
                 resultExpression = BuildManagedHandleWrap(compilation, element, resultExpression, ownsHandle: false);
@@ -1572,7 +1577,7 @@ public static partial class BindingOutputRenderer
             writer.Write($$"""
                 if (typeof(T) == typeof({{elementType}}))
                 {
-                    {{GetGenericImportAccessor(compilation)}}.__Array_Set_{{GetDynamicArrayInstantiationToken(instantiation)}}(DangerousGetHandle(), index, {{valueExpression}});{{keepAlive}}
+                    {{GetGenericImportAccessor(compilation)}}.__Array_Set_{{GetDynamicArrayImportMethodToken(record, instantiation)}}(DangerousGetHandle(), index, {{valueExpression}});{{keepAlive}}
                     return;
                 }
                 """);
@@ -1817,7 +1822,7 @@ public static partial class BindingOutputRenderer
 
         if (IsGenericDynamicArrayRecord(record))
         {
-            var token = GetDynamicArrayInstantiationToken(instantiation);
+            var token = GetDynamicArrayImportMethodToken(record, instantiation);
             return $"{GetSharedProviderImportAccessor(compilation)}.__Array_Delete_{token}({handleExpression})";
         }
 
@@ -1939,7 +1944,7 @@ public static partial class BindingOutputRenderer
         {
             var elementBinding = instantiation!.TypeArguments[0];
             var element = GetSharedManagedTypeName(compilation, elementBinding);
-            var token = GetDynamicArrayInstantiationToken(instantiation);
+            var token = GetDynamicArrayImportMethodToken(record, instantiation);
             var getExpression = $"{accessor}.__Array_Get_{token}(handle, index)";
             var setValue = elementBinding.Kind == BindingTypeKind.Handle
                 ? "global::SharpCpp.Support.NativeObject.GetHandle(value)"

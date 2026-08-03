@@ -97,6 +97,36 @@ public sealed unsafe class ConsumerProjectionTests
         host.ValueArray = replacements;
         Assert.Equal(new[] { 11, 13 }, host.ValueArray.Select(item => item.GetValue()));
 
+        var projectedArray = host.PrimitiveArray;
+        Assert.Equal(2, projectedArray.Length);
+        Assert.Equal(2, projectedArray.Count);
+        Assert.False(projectedArray.IsReadOnly);
+        var containsFive = projectedArray.Contains(5);
+        var containsNinetyNine = projectedArray.Contains(99);
+        Assert.True(containsFive);
+        Assert.False(containsNinetyNine);
+        Assert.Equal(1, projectedArray.IndexOf(6));
+        Assert.Equal(-1, projectedArray.IndexOf(99));
+        Assert.Equal(new[] { 5, 6 }, projectedArray.ToArray());
+        projectedArray[1] = 9;
+        Assert.Equal(14, host.SumPrimitiveArray());
+
+        var copied = new int[3];
+        projectedArray.CopyTo(copied, 1);
+        Assert.Equal(new[] { 0, 5, 9 }, copied);
+        Assert.Equal(new[] { 5, 9 }, ((System.Collections.IEnumerable)projectedArray).Cast<int>());
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => _ = projectedArray[-1]);
+        Assert.Throws<ArgumentOutOfRangeException>(() => projectedArray[2] = 0);
+        Assert.Throws<ArgumentNullException>(() => projectedArray.CopyTo(null!, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => projectedArray.CopyTo(copied, -1));
+        Assert.Throws<ArgumentException>(() => projectedArray.CopyTo(copied, 2));
+        Assert.Throws<NotSupportedException>(() => projectedArray.Add(1));
+        Assert.Throws<NotSupportedException>(() => projectedArray.Clear());
+        Assert.Throws<NotSupportedException>(() => projectedArray.Insert(0, 1));
+        Assert.Throws<NotSupportedException>(() => projectedArray.Remove(5));
+        Assert.Throws<NotSupportedException>(() => projectedArray.RemoveAt(0));
+
         Assert.Equal(26, E2EBindings.SumConsumerProjectionPayloads([first, second], 2));
 
         using var cloneSource = new ConsumerProjectionCloneBox<int>(17);
