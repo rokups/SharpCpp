@@ -67,13 +67,15 @@ public static class ValidateBootstrapSurfacePass
             return;
         }
 
-        if (record.Members.OfType<FieldBinding>().Any())
+        var isGenericArray = record.GetMetadata<bool>(MetadataKeys.FixedArrayRecord) ||
+            record.GetMetadata<bool>(MetadataKeys.DynamicArrayRecord);
+        if (!isGenericArray && record.Members.OfType<FieldBinding>().Any())
         {
             record.SetIgnoreReason($"generic record '{record.ManagedName}' does not support field projection in this slice");
             return;
         }
 
-        if (record.Members.OfType<FunctionBinding>().Any(static function => function.OperatorToken is not null || function.IsConversionOperator))
+        if (!isGenericArray && record.Members.OfType<FunctionBinding>().Any(static function => function.OperatorToken is not null || function.IsConversionOperator))
         {
             record.SetIgnoreReason($"generic record '{record.ManagedName}' does not support operators in this slice");
             return;

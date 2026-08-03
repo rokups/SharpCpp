@@ -1,0 +1,339 @@
+#pragma once
+
+#include <functional>
+#include <cstddef>
+#include <memory>
+
+struct surface_payload
+{
+    explicit surface_payload(int value)
+        : value_(value)
+    {
+    }
+
+    int get_value() const
+    {
+        return value_;
+    }
+
+private:
+    int value_{};
+};
+
+namespace e2e_std
+{
+template <typename T, std::size_t N>
+struct
+[[sharpcpp::instantiate("int", "3")]]
+[[sharpcpp::instantiate("surface_payload*", "2")]]
+array
+{
+    T& operator[](std::size_t index) { return values[index]; }
+    const T& operator[](std::size_t index) const { return values[index]; }
+
+    T values[N]{};
+};
+
+template <typename T>
+class shared_array
+{
+public:
+    shared_array() = default;
+
+    explicit shared_array(T* values)
+        : values_(values)
+    {
+    }
+
+    T& operator[](std::size_t index) { return values_[index]; }
+    const T& operator[](std::size_t index) const { return values_[index]; }
+
+private:
+    std::shared_ptr<T[]> values_;
+};
+}
+
+inline e2e_std::array<int, 3> make_surface_fixed_array(int seed)
+{
+    e2e_std::array<int, 3> result;
+    result[0] = seed;
+    result[1] = seed + 1;
+    result[2] = seed + 2;
+    return result;
+}
+
+inline int sum_surface_fixed_array(const e2e_std::array<int, 3>& value)
+{
+    return value[0] + value[1] + value[2];
+}
+
+inline int sum_surface_fixed_handles(const e2e_std::array<surface_payload*, 2>& value)
+{
+    return (value[0] != nullptr ? value[0]->get_value() : 0) +
+        (value[1] != nullptr ? value[1]->get_value() : 0);
+}
+
+inline e2e_std::shared_array<int> make_surface_shared_array(int seed)
+{
+    e2e_std::shared_array<int> result(new int[3]{});
+    result[0] = seed;
+    result[1] = seed + 1;
+    result[2] = seed + 2;
+    return result;
+}
+
+inline int sum_surface_shared_array(const e2e_std::shared_array<int>& value)
+{
+    return value[0] + value[1] + value[2];
+}
+
+inline int sum_surface_shared_handles(const e2e_std::shared_array<surface_payload*>& value)
+{
+    return (value[0] != nullptr ? value[0]->get_value() : 0) +
+        (value[1] != nullptr ? value[1]->get_value() : 0);
+}
+
+struct flattened_leaf
+{
+    int x{};
+    int y{};
+};
+
+struct flattened_middle
+{
+    flattened_leaf back;
+};
+
+struct flattened_owner
+{
+    explicit flattened_owner(int seed)
+        : state{{seed, seed + 1}}
+        , anonymous_data{seed + 2, {seed + 3}}
+        , choice{seed + 4}
+        , sentinel(seed + 5)
+    {
+    }
+
+    int total() const
+    {
+        return state.back.x + state.back.y + anonymous_data.value +
+            anonymous_data.inner.deep + choice.number + sentinel;
+    }
+
+    flattened_middle state;
+    struct
+    {
+        int value;
+        struct
+        {
+            int deep;
+        } inner;
+    } anonymous_data;
+    union
+    {
+        int number;
+        unsigned bits;
+    } choice;
+    int sentinel{};
+};
+
+inline flattened_owner* create_flattened_owner(int seed)
+{
+    return new flattened_owner(seed);
+}
+
+struct surface_generic_host
+{
+    explicit surface_generic_host(int bias)
+        : bias_(bias)
+    {
+    }
+
+    template <typename T>
+    [[sharpcpp::instantiate("int")]]
+    [[sharpcpp::instantiate("float")]]
+    T project(T value) const
+    {
+        return value + static_cast<T>(bias_);
+    }
+
+private:
+    int bias_{};
+};
+
+template <typename T>
+[[sharpcpp::instantiate("int")]]
+[[sharpcpp::instantiate("surface_payload*")]]
+T surface_identity(T value)
+{
+    return value;
+}
+
+template <typename T>
+[[sharpcpp::instantiate("int")]]
+[[sharpcpp::instantiate("surface_payload*")]]
+void surface_consume(T value)
+{
+    (void)value;
+}
+
+template <typename T>
+[[sharpcpp::instantiate("int")]]
+[[sharpcpp::instantiate("surface_payload*")]]
+int surface_measure(T value)
+{
+    if constexpr (std::is_pointer_v<T>)
+        return value != nullptr ? value->get_value() : 0;
+    else
+        return static_cast<int>(value);
+}
+
+inline surface_payload* discover_surface_identity_payload(surface_payload* value)
+{
+    return surface_identity<surface_payload*>(value);
+}
+
+inline void discover_surface_consume_payload(surface_payload* value)
+{
+    surface_consume<surface_payload*>(value);
+}
+
+inline int discover_surface_measure_payload(surface_payload* value)
+{
+    return surface_measure<surface_payload*>(value);
+}
+
+extern "C"
+{
+struct coverage_linkage_box
+{
+    explicit coverage_linkage_box(int value)
+        : value(value)
+    {
+    }
+
+    int value{};
+};
+
+inline int coverage_linkage_add(int left, int right)
+{
+    return left + right;
+}
+
+inline coverage_linkage_box* create_coverage_linkage_box(int value)
+{
+    return new coverage_linkage_box(value);
+}
+
+inline int read_coverage_linkage_box(coverage_linkage_box* value)
+{
+    return value != nullptr ? value->value : 0;
+}
+}
+
+struct collision_surface
+{
+    int value{};
+    int amount{};
+    inline static const int limit = 7;
+
+    int Value() const { return value; }
+    int Amount() const { return amount; }
+    static int Limit() { return limit; }
+};
+
+inline collision_surface* create_collision_surface(int value, int amount)
+{
+    return new collision_surface{value, amount};
+}
+
+struct empty_surface_base
+{
+};
+
+struct usable_surface_derived : empty_surface_base
+{
+    explicit usable_surface_derived(int value)
+        : value_(value)
+    {
+    }
+
+    int get_value() const { return value_; }
+
+private:
+    int value_{};
+};
+
+inline usable_surface_derived* create_usable_surface_derived(int value)
+{
+    return new usable_surface_derived(value);
+}
+
+struct unsupported_operator_surface
+{
+    int operator*(const unsupported_operator_surface&) const { return 0; }
+    bool operator<=(const unsupported_operator_surface&) const { return false; }
+    bool operator!=(const unsupported_operator_surface&) const { return false; }
+};
+
+struct [[sharpcpp::director]] unsupported_director_surface
+{
+    virtual ~unsupported_director_surface() = default;
+    virtual void mutate(int& value) = 0;
+};
+
+template <typename T>
+[[sharpcpp::instantiate("int")]]
+int unsupported_hidden_template(int value)
+{
+    return value;
+}
+
+inline std::function<int(int)> unsupported_callback_return()
+{
+    return [](int value) { return value; };
+}
+
+inline void unsupported_callback_reference(std::function<int(int)>& callback)
+{
+    (void)callback;
+}
+
+inline void unsupported_delegate_non_callback([[sharpcpp::delegate]] int value)
+{
+    (void)value;
+}
+
+inline void unsupported_delegate_name(
+    [[sharpcpp::delegate("not valid")]] std::function<void(int)> callback)
+{
+    callback(1);
+}
+
+inline void unsupported_external_delegate_name(
+    [[sharpcpp::delegate("global::")]] std::function<void(int)> callback)
+{
+    callback(1);
+}
+
+inline void unsupported_duplicate_delegate_a(
+    [[sharpcpp::delegate("SharedSurfaceCallback")]] std::function<void(int)> callback)
+{
+    callback(1);
+}
+
+inline void unsupported_duplicate_delegate_b(
+    [[sharpcpp::delegate("SharedSurfaceCallback")]] std::function<void(float)> callback)
+{
+    callback(1.0f);
+}
+
+inline long double unsupported_long_double(long double value)
+{
+    return value;
+}
+
+inline int coverage_surface_sentinel(int value)
+{
+    return value + 1;
+}

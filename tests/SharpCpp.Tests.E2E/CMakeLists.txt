@@ -9,6 +9,7 @@ file(GLOB_RECURSE SHARPCPP_E2E_GENERATOR_INPUTS CONFIGURE_DEPENDS
   "${SharpCpp_SOURCE_DIR}/src/SharpCpp.Model/*.cs"
   "${SharpCpp_SOURCE_DIR}/src/SharpCpp.Metadata/*.cs"
   "${SharpCpp_SOURCE_DIR}/src/SharpCpp.Parsing/*.cs"
+  "${SharpCpp_SOURCE_DIR}/src/SharpCpp.Pipeline/*.cs"
   "${SharpCpp_SOURCE_DIR}/src/SharpCpp.Rendering/*.cs"
   "${SharpCpp_SOURCE_DIR}/src/SharpCpp.Tool/*.cs"
   "${SharpCpp_SOURCE_DIR}/include/SharpCpp/*.hpp"

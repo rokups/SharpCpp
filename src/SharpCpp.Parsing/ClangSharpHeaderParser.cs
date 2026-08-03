@@ -5732,6 +5732,15 @@ public sealed partial class ClangSharpHeaderParser
             {
                 return record.HandleType;
             }
+
+            if (Regex.IsMatch(pointeeName, @"^(?:[A-Za-z_]\w*::)*[A-Za-z_]\w*$", RegexOptions.CultureInvariant))
+            {
+                var nativeName = GetManagedTypeHead(pointeeName);
+                return BindingType.CreateHandle(
+                    normalized,
+                    ToPascalCase(nativeName),
+                    CreateRecordSymbolId(pointeeName));
+            }
         }
 
         if (TryGetManagedTypeOverride(spelledTypeName, resolvedTypeName, qualifiedSpelledTypeName, managedTypeOverrides, isReturn: false, out var managedTypeOverride))
@@ -5741,6 +5750,15 @@ public sealed partial class ClangSharpHeaderParser
                 : normalized;
             surfaceCppTypeName = SelectConfiguredTypeInstantiationName(managedTypeOverride!, surfaceCppTypeName, resolvedTypeName);
             return CreateConfiguredOrWrapperType(managedTypeOverride!, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName);
+        }
+
+        if (long.TryParse(
+                normalized,
+                System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out _))
+        {
+            return BindingType.CreateConfigured(normalized, normalized);
         }
 
         return normalized switch
