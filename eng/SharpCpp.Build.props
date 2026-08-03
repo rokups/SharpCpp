@@ -39,7 +39,8 @@
     <SharpCppRbfxRunSettingsPath>$(SharpCppOutputDir)/SharpCpp.Rbfx.Tests.runsettings</SharpCppRbfxRunSettingsPath>
     <SharpCppRbfxUrho3DRuntimeLibraryPath>$(SharpCppOutputDir)/$(SharpCppSharedLibraryPrefix)Urho3D$(SharpCppSharedLibrarySuffix)</SharpCppRbfxUrho3DRuntimeLibraryPath>
 
-    <TargetFramework Condition="'$(TargetFramework)' == ''">net8.0</TargetFramework>
+    <SharpCppSdkVersion>$([System.IO.Path]::GetFileName($([System.IO.Path]::GetDirectoryName('$(MSBuildSDKsPath)'))))</SharpCppSdkVersion>
+    <TargetFramework Condition="'$(TargetFramework)' == ''">net$([System.Version]::Parse('$(SharpCppSdkVersion)').Major).0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
