@@ -33,6 +33,16 @@ public sealed class ProtectedTests
             Factor = value;
         }
 
+        public int[] ReadPayloadsFromManaged()
+        {
+            return Payloads.Select(payload => payload.GetValue()).ToArray();
+        }
+
+        public void WritePayloadFromManaged(int index, ProtectedPayload value)
+        {
+            Payloads[index] = value;
+        }
+
         protected override int Scale(int value)
         {
             CallbackCount++;
@@ -81,6 +91,11 @@ public sealed class ProtectedTests
         Assert.Equal(2, counter.ReadFactorFromManaged());
         Assert.Equal(7, counter.CallIncrementFromManaged(3));
         Assert.Equal(7, counter.GetSeed());
+        Assert.Equal(new[] { 4, 5 }, counter.ReadPayloadsFromManaged());
+
+        using var replacement = new ProtectedPayload(11);
+        counter.WritePayloadFromManaged(1, replacement);
+        Assert.Equal(15, counter.SumPayloads());
 
         counter.WriteFactorFromManaged(5);
 

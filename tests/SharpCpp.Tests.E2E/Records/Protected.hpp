@@ -1,10 +1,29 @@
 #pragma once
 
+struct protected_payload
+{
+    protected_payload() = default;
+
+    explicit protected_payload(int value)
+        : value_(value)
+    {
+    }
+
+    int get_value() const
+    {
+        return value_;
+    }
+
+private:
+    int value_{};
+};
+
 struct [[sharpcpp::director]] protected_counter
 {
 protected:
     explicit protected_counter(int seed)
-        : seed_(seed)
+        : payloads_{protected_payload(seed), protected_payload(seed + 1)}
+        , seed_(seed)
     {
     }
 
@@ -20,6 +39,7 @@ protected:
     }
 
     int factor_{2};
+    protected_payload payloads_[2]{};
 
 public:
     int get_seed() const
@@ -30,6 +50,11 @@ public:
     int call_scale(int value)
     {
         return scale(value);
+    }
+
+    int sum_payloads() const
+    {
+        return payloads_[0].get_value() + payloads_[1].get_value();
     }
 
 private:

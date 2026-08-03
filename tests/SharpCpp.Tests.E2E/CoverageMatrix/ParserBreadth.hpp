@@ -95,6 +95,9 @@ private:
 };
 
 using breadth_int_box = breadth_forward_box<int>;
+template <typename T>
+using breadth_box_alias_template = breadth_forward_box<T>;
+using breadth_payload_box_alias = breadth_box_alias_template<breadth_payload*>;
 
 inline breadth_forward_box<breadth_payload*>* make_breadth_payload_box(breadth_payload* value)
 {
@@ -102,6 +105,16 @@ inline breadth_forward_box<breadth_payload*>* make_breadth_payload_box(breadth_p
 }
 
 inline breadth_payload* read_breadth_payload_box(const breadth_forward_box<breadth_payload*>* value)
+{
+    return value == nullptr ? nullptr : value->get_value();
+}
+
+inline breadth_payload_box_alias* make_breadth_alias_payload_box(breadth_payload* value)
+{
+    return new breadth_payload_box_alias(value);
+}
+
+inline breadth_payload* read_breadth_alias_payload_box(const breadth_payload_box_alias* value)
 {
     return value == nullptr ? nullptr : value->get_value();
 }
@@ -134,6 +147,9 @@ T breadth_template_identity(T value)
 {
     return value;
 }
+
+template breadth_payload* breadth_template_identity<breadth_payload*>(breadth_payload* value);
+template breadth_mode breadth_template_identity<breadth_mode>(breadth_mode value);
 
 struct breadth_pointer_fields
 {

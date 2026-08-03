@@ -197,6 +197,11 @@ struct consumer_projection_host
         return primitive_array[0] + primitive_array[1];
     }
 
+    int sum_value_array() const
+    {
+        return value_array[0].get_value() + value_array[1].get_value();
+    }
+
     static int static_consume_payload(consumer_projection_value* value)
     {
         return value == nullptr ? -1 : value->get_value();

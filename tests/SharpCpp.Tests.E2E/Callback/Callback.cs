@@ -6,6 +6,8 @@ using Xunit;
 
 namespace SharpCpp.Tests.E2E.Callback;
 
+public delegate int ExternalValueCallback(int value);
+
 public sealed class CallbackTests
 {
     [Fact]
@@ -83,5 +85,14 @@ public sealed class CallbackTests
         E2EBindings.InvokeNamedDelegateCallback(callback, 42);
 
         Assert.Equal(42, observed);
+    }
+
+    [Fact]
+    public void Generated_and_external_delegate_policies_round_trip_through_native_callbacks()
+    {
+        Assert.Equal(42, E2EBindings.InvokeGeneratedDelegateCallback(value => value + 1, 41));
+
+        ExternalValueCallback callback = value => value * 2;
+        Assert.Equal(42, E2EBindings.InvokeExternalDelegateCallback(callback, 21));
     }
 }

@@ -44,6 +44,73 @@ inline int check_alternating_defaults(
     return (seed * 100000) + (factor * 10000) + (offset * 1000) + (middle * 100) + (delta * 10) + tail;
 }
 
+inline int unsupported_default_state;
+
+inline void set_unsupported_default_state(int value = E2E_UNSUPPORTED_DEFAULT_OFFSET)
+{
+    unsupported_default_state = value;
+}
+
+inline int get_unsupported_default_state()
+{
+    return unsupported_default_state;
+}
+
+struct unsupported_default_result
+{
+    explicit unsupported_default_result(int value)
+        : value_(value)
+    {
+    }
+
+    int get_value() const
+    {
+        return value_;
+    }
+
+private:
+    int value_{};
+};
+
+inline unsupported_default_result* make_unsupported_default_result(
+    int value = E2E_UNSUPPORTED_DEFAULT_OFFSET)
+{
+    return new unsupported_default_result(value);
+}
+
+struct unsupported_default_constructor_payload
+{
+    explicit unsupported_default_constructor_payload(int value)
+        : value(value)
+    {
+    }
+
+    int value{};
+};
+
+struct unsupported_default_constructor_collision
+{
+    explicit unsupported_default_constructor_collision(unsupported_default_constructor_payload* payload)
+        : value_(payload == nullptr ? -1 : payload->value)
+    {
+    }
+
+    unsupported_default_constructor_collision(
+        const unsupported_default_constructor_payload* payload,
+        int offset = E2E_UNSUPPORTED_DEFAULT_OFFSET)
+        : value_((payload == nullptr ? -1 : payload->value) + offset)
+    {
+    }
+
+    int get_value() const
+    {
+        return value_;
+    }
+
+private:
+    int value_{};
+};
+
 struct unsupported_default_counter
 {
     explicit unsupported_default_counter(int seed, int factor = 2, int offset = E2E_UNSUPPORTED_DEFAULT_OFFSET, int tail = 5)

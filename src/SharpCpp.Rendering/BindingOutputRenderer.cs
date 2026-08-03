@@ -1313,20 +1313,6 @@ public static partial class BindingOutputRenderer
         if (IsNativeFixedArrayType(compilation, field.Type))
         {
             var arrayAccessExpression = GetNativeFixedArrayFieldAccessExpression(field, selfExpression);
-            if (NeedsNativeFixedArrayHandleView(field))
-            {
-                var handleCppType = GetNativeFixedArrayElementCppType(compilation, field.Type);
-                var length = field.Type.FixedArrayLength ?? 0;
-                return $$"""
-                    auto* view = new {{handleCppType}}[{{length}}]{};
-                    for (std::size_t index = 0; index < {{length}}; ++index)
-                    {
-                        view[index] = &({{arrayAccessExpression}}[index]);
-                    }
-                    return { view, {{length}} };
-                    """;
-            }
-
             return $"return {{ const_cast<void*>(static_cast<const void*>({arrayAccessExpression})), {field.Type.FixedArrayLength ?? 0} }};";
         }
 
@@ -1360,27 +1346,6 @@ public static partial class BindingOutputRenderer
             var arrayAccessExpression = GetNativeFixedArrayFieldAccessExpression(field, selfExpression);
             var elementCppType = GetNativeFixedArrayElementCppType(compilation, field.Type);
             var length = field.Type.FixedArrayLength ?? 0;
-            if (NeedsNativeFixedArrayHandleView(field))
-            {
-                return $$"""
-                    if (value.handle == nullptr || value.length != {{length}})
-                    {
-                        throw std::runtime_error("SharpCpp fixed array field assignment length mismatch.");
-                    }
-
-                    auto* source = static_cast<{{elementCppType}}*>(value.handle);
-                    for (std::size_t index = 0; index < {{length}}; ++index)
-                    {
-                        if (source[index] == nullptr)
-                        {
-                            throw std::runtime_error("SharpCpp fixed array field assignment encountered a null handle.");
-                        }
-
-                        {{arrayAccessExpression}}[index] = *source[index];
-                    }
-                    """;
-            }
-
             return $$"""
                 if (value.handle == nullptr || value.length != {{length}})
                 {
@@ -1505,12 +1470,6 @@ public static partial class BindingOutputRenderer
         return elementType.IsFixedArray
             ? "NativeArrayAbi"
             : $"arg_t<{GetNativeFixedArrayElementCppType(compilation, elementType)}>";
-    }
-
-    private static bool NeedsNativeFixedArrayHandleView(FieldBinding field)
-    {
-        var elementType = field.Type.FixedArrayElementType;
-        return elementType?.Kind == BindingTypeKind.Handle && !field.CppTypeName.Contains('*', StringComparison.Ordinal);
     }
 
     private static string GetNativeFixedArrayFieldAccessExpression(FieldBinding field, string selfExpression)
@@ -7603,11 +7562,6 @@ public static partial class BindingOutputRenderer
             if (!parameter.TryGetMetadata<string>(MetadataKeys.NativeDefaultValueExpression, out var defaultValue) ||
                 string.IsNullOrWhiteSpace(defaultValue))
             {
-                defaultValue = GetFallbackNativeDefaultValueExpression(parameter);
-            }
-
-            if (string.IsNullOrWhiteSpace(defaultValue))
-            {
                 throw new InvalidOperationException($"Parameter '{parameter.ManagedName}' on '{function.ManagedName}' is missing native default metadata.");
             }
 
@@ -7615,31 +7569,6 @@ public static partial class BindingOutputRenderer
         }
 
         return string.Join(", ", arguments);
-    }
-
-    private static string? GetFallbackNativeDefaultValueExpression(ParameterBinding parameter)
-    {
-        if (parameter.CppTypeName.Contains('*', StringComparison.Ordinal) ||
-            parameter.AbiKind == BindingParameterAbiKind.Pointer ||
-            parameter.Type.IsPointerType ||
-            parameter.Type.PrimitiveKind == BindingPrimitiveKind.IntPtr)
-        {
-            return "nullptr";
-        }
-
-        if (string.Equals(parameter.ManagedDefaultValueExpression, "null", StringComparison.Ordinal) &&
-            IsManagedReferenceDefaultParameter(parameter))
-        {
-            return "nullptr";
-        }
-
-        if (string.Equals(parameter.ManagedDefaultValueExpression, "default", StringComparison.Ordinal) &&
-            IsManagedReferenceDefaultParameter(parameter))
-        {
-            return "nullptr";
-        }
-
-        return null;
     }
 
     private static string BuildConstructorDefaultNamespacePreamble(FunctionBinding constructor)

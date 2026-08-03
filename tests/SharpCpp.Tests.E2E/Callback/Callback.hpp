@@ -74,3 +74,15 @@ inline void invoke_named_delegate_callback([[sharpcpp::delegate("ValueCallback")
 {
     callback(value);
 }
+
+inline int invoke_generated_delegate_callback([[sharpcpp::delegate]] std::function<int(int)> callback, int value)
+{
+    return callback(value);
+}
+
+inline int invoke_external_delegate_callback(
+    [[sharpcpp::delegate("SharpCpp.Tests.E2E.Callback.ExternalValueCallback")]] std::function<int(int)> callback,
+    int value)
+{
+    return callback(value);
+}

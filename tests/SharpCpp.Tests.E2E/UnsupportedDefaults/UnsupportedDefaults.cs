@@ -105,6 +105,26 @@ public sealed class UnsupportedDefaultsTests
     }
 
     [Fact]
+    public void Void_handle_and_colliding_constructor_defaults_round_trip_native_dispatch()
+    {
+        E2EBindings.SetUnsupportedDefaultState();
+        Assert.Equal(4, E2EBindings.GetUnsupportedDefaultState());
+        E2EBindings.SetUnsupportedDefaultState(9);
+        Assert.Equal(9, E2EBindings.GetUnsupportedDefaultState());
+
+        using var defaultResult = E2EBindings.MakeUnsupportedDefaultResult();
+        using var explicitResult = E2EBindings.MakeUnsupportedDefaultResult(11);
+        Assert.Equal(4, defaultResult.GetValue());
+        Assert.Equal(11, explicitResult.GetValue());
+
+        using var payload = new UnsupportedDefaultConstructorPayload(13);
+        using var exactConstructor = new UnsupportedDefaultConstructorCollision(payload);
+        using var defaultedConstructor = new UnsupportedDefaultConstructorCollision(payload, 7);
+        Assert.Equal(13, exactConstructor.GetValue());
+        Assert.Equal(20, defaultedConstructor.GetValue());
+    }
+
+    [Fact]
     public void Mixed_default_signatures_keep_full_nullable_shape_and_shorter_convenience_overloads()
     {
         var freeFunction = typeof(E2EBindings).GetMethod(

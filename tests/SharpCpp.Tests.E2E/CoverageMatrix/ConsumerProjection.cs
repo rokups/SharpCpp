@@ -93,6 +93,38 @@ public sealed unsafe class ConsumerProjectionTests
         Assert.Same(second, host.SelectGeneric(0, second));
         Assert.Equal(11, host.MeasureGeneric(first));
 
+        var valueArray = host.ValueArray;
+        Assert.Equal(2, valueArray.Length);
+        Assert.Equal(2, valueArray.Count);
+        Assert.False(valueArray.IsReadOnly);
+        var embeddedFirst = valueArray[0];
+        using var missingValue = new ConsumerProjectionValue(99);
+        Assert.True(valueArray.Contains(embeddedFirst));
+        Assert.False(valueArray.Contains(missingValue));
+        Assert.Equal(0, valueArray.IndexOf(embeddedFirst));
+        Assert.Equal(-1, valueArray.IndexOf(missingValue));
+        Assert.Equal(new[] { 5, 6 }, valueArray.ToArray().Select(item => item.GetValue()));
+
+        var copiedValues = new ConsumerProjectionValue[3];
+        valueArray.CopyTo(copiedValues, 1);
+        Assert.Equal(new[] { 5, 6 }, copiedValues.Skip(1).Select(item => item.GetValue()));
+        Assert.Equal(
+            new[] { 5, 6 },
+            ((System.Collections.IEnumerable)valueArray).Cast<ConsumerProjectionValue>().Select(item => item.GetValue()));
+
+        valueArray[1] = second;
+        Assert.Equal(18, host.SumValueArray());
+        Assert.Throws<ArgumentOutOfRangeException>(() => _ = valueArray[-1]);
+        Assert.Throws<ArgumentOutOfRangeException>(() => valueArray[2] = second);
+        Assert.Throws<ArgumentNullException>(() => valueArray.CopyTo(null!, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => valueArray.CopyTo(copiedValues, -1));
+        Assert.Throws<ArgumentException>(() => valueArray.CopyTo(copiedValues, 2));
+        Assert.Throws<NotSupportedException>(() => valueArray.Add(first));
+        Assert.Throws<NotSupportedException>(() => valueArray.Clear());
+        Assert.Throws<NotSupportedException>(() => valueArray.Insert(0, first));
+        Assert.Throws<NotSupportedException>(() => valueArray.Remove(first));
+        Assert.Throws<NotSupportedException>(() => valueArray.RemoveAt(0));
+
         using var replacements = new global::Std.Array<ConsumerProjectionValue>([first, second]);
         host.ValueArray = replacements;
         Assert.Equal(new[] { 11, 13 }, host.ValueArray.Select(item => item.GetValue()));
