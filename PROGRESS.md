@@ -21,7 +21,7 @@ Current worktree verification passes with generic complex C++ values crossing ca
 
 - Removed the standalone `SharpCpp.Tests.Rendering` project and its renderer-only tests; the solution now keeps rendering validation on the generated E2E contract.
 - Added process-level coverage around the real build-time generator and the compiled native E2E run. The gate measures SharpCpp model, metadata, parsing, pipeline, rendering, tool, support, and generic standard-library code; Ea/EASTL remains an rbfx implementation detail.
-- The strict baseline is 67.49% (15,627/23,155 lines) with 214 compiled native round-trip tests. The 95% gate therefore remains failing while additional generated scenarios are added.
+- The strict baseline is 68.02% (15,750/23,155 lines) with 216 compiled native round-trip tests. The 95% gate therefore remains failing while additional generated scenarios are added.
 
 ### Model & Metadata
 - Binding model: records, enums, free functions, methods, constructors, fields, operators, templates/generics
