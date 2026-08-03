@@ -1424,6 +1424,7 @@ struct [[sharpcpp::managed_type(
     managed_namespace = "Std",
     managed_wrapper_assembly = "SharpCpp.Std",
     managed_wrapper_provider_kind = "string",
+    managed_wrapper_provider_namespace = "Std.Infrastructure",
     managed_wrapper_copyable = true
 )]]
 Marshaller<std::basic_string<char> > : OwnedStringMarshallerBase<std::basic_string<char>> {};

@@ -1,0 +1,32 @@
+using Parser_breadth;
+using SharpCpp.Tests.E2E.Generated;
+using Xunit;
+
+namespace SharpCpp.Tests.E2E.CoverageMatrix;
+
+public sealed class ParserBreadthTests
+{
+    [Fact]
+    public void Dense_parser_surface_keeps_supported_native_round_trips()
+    {
+        Assert.Equal(44, E2EBindings.ParserBreadthRoundTrip(41));
+        Assert.Equal(38, E2EBindings.EvaluatedBreadthDefaults(0));
+        Assert.Equal(0, E2EBindings.InvokeBreadthRawCallback(0));
+
+        using var payload = new BreadthPayload(17);
+        Assert.Same(payload, E2EBindings.BreadthAliasReference(payload));
+
+        using var late = new BreadthLateRecord(23);
+        Assert.Equal(23, E2EBindings.ReadBreadthLateRecord(late));
+
+        using var box = new BreadthForwardBox<int>(29);
+        Assert.Equal(29, box.GetValue());
+        Assert.Equal(31, E2EBindings.BreadthTemplateIdentity(31));
+
+        using var nestedEnum = new BreadthNestedEnumOwner(BreadthNestedMode.Second);
+        Assert.Equal(BreadthNestedMode.Second, nestedEnum.GetValue());
+
+        using var alias = E2EBindings.MakeParserAliasPayload(37);
+        Assert.Equal(37, E2EBindings.ReadParserAliasPayload(alias));
+    }
+}
