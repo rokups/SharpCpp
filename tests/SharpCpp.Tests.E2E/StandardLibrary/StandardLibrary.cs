@@ -67,6 +67,14 @@ public sealed class StandardLibraryTests
     [Fact]
     public void Managed_vector_constructors_create_native_standard_library_storage()
     {
+        using var empty = new global::Std.Vector<int>();
+        Assert.NotEqual(0, empty.Handle);
+        Assert.True(empty.OwnsHandle);
+        Assert.False(empty.IsNull);
+        Assert.NotNull(empty.Provider);
+        empty.Add(19);
+        Assert.Equal(19, E2EBindings.E2eSumStdNumbers(empty));
+
         using var enumerable = new global::Std.Vector<int>((IEnumerable<int>)new[] { 3, 5, 7 });
         Assert.Equal(15, E2EBindings.E2eSumStdNumbers(enumerable));
 
@@ -83,6 +91,10 @@ public sealed class StandardLibraryTests
     {
         using var numbers = new global::Std.Array<int>(new[] { 2, 4, 6, 8 });
 
+        Assert.NotEqual(0, numbers.Handle);
+        Assert.True(numbers.OwnsHandle);
+        Assert.False(numbers.IsNull);
+        Assert.NotNull(numbers.Provider);
         Assert.Equal(4, numbers.Length);
         Assert.Equal(4, numbers.Count);
         Assert.False(numbers.IsReadOnly);
@@ -161,6 +173,10 @@ public sealed class StandardLibraryTests
     public void String_and_list_round_trip_through_native_standard_library_storage()
     {
         using var text = E2EBindings.E2eMakeStdText("hello"u8);
+        Assert.NotEqual(0, text.Handle);
+        Assert.True(text.OwnsHandle);
+        Assert.False(text.IsNull);
+        Assert.NotNull(text.Provider);
         Assert.Equal("hello", text.ToString());
         Assert.Equal(Checksum("hello"u8), E2EBindings.E2eChecksumStdText(text));
         Assert.Equal("hello"u8.ToArray(), text.ToUtf8Bytes());
@@ -202,14 +218,25 @@ public sealed class StandardLibraryTests
         using var providerCreated = new global::Std.String(text.Provider);
         Assert.Equal(0, E2EBindings.E2eChecksumStdText(providerCreated));
 
+        using var emptyText = new global::Std.String();
+        Assert.Equal(0, E2EBindings.E2eChecksumStdText(emptyText));
+        using var providerText = new global::Std.String("provider", text.Provider);
+        Assert.Equal(Checksum("provider"u8), E2EBindings.E2eChecksumStdText(providerText));
+
         text.Assign((string?)null);
         Assert.Equal(0, text.AsUtf8Span().Length);
         Assert.Empty(text.ToUtf8Bytes());
         Assert.Equal(0, E2EBindings.E2eChecksumStdText(text));
 
         using var words = E2EBindings.E2eMakeStdWords();
+        Assert.NotEqual(0, words.Handle);
+        Assert.True(words.OwnsHandle);
+        Assert.False(words.IsNull);
+        Assert.NotNull(words.Provider);
         Assert.Equal(3, E2EBindings.E2eCountStdWords(words));
         Assert.Equal(new[] { "red", "green", "blue" }, words.Select(word => word.ToString()));
+        Assert.Equal("red", words[0].ToString());
+        Assert.Equal(3, ((System.Collections.IEnumerable)words).Cast<global::Std.String>().Count());
 
         using var extra = E2EBindings.E2eMakeStdText("white"u8);
         words.Add(extra);
@@ -244,16 +271,35 @@ public sealed class StandardLibraryTests
             new ReadOnlySpan<global::Std.String>(new[] { extra, equalText }));
         using var spanJoin = E2EBindings.E2eJoinStdWords(spanWords);
         Assert.Equal("white,bytes", spanJoin.ToString());
+
+        using var emptyWords = new global::Std.List<global::Std.String>();
+        emptyWords.Add(extra);
+        Assert.Equal(1, E2EBindings.E2eCountStdWords(emptyWords));
     }
 
     [Fact]
     public void Ordered_and_unordered_maps_round_trip_through_dictionary_bases()
     {
         using var scores = E2EBindings.E2eMakeStdScores();
+        Assert.NotEqual(0, scores.Handle);
+        Assert.True(scores.OwnsHandle);
+        Assert.False(scores.IsNull);
+        Assert.NotNull(scores.Provider);
         Assert.Equal(3, E2EBindings.E2eTotalStdScores(scores));
         Assert.Equal(2, scores.Count);
         Assert.False(scores.IsReadOnly);
         Assert.Equal(new[] { 1, 2 }, scores.Values.Order());
+
+        var scoreKeys = scores.Keys.ToArray();
+        Assert.Equal(new[] { "one", "two" }, scoreKeys.Select(key => key.ToString()).Order());
+        foreach (var key in scoreKeys)
+            key.Dispose();
+
+        var readOnlyScoreKeys = ((IReadOnlyDictionary<global::Std.String, int>)scores).Keys.ToArray();
+        Assert.Equal(2, readOnlyScoreKeys.Length);
+        foreach (var key in readOnlyScoreKeys)
+            key.Dispose();
+        Assert.Equal(3, ((IReadOnlyDictionary<global::Std.String, int>)scores).Values.Sum());
 
         using var one = E2EBindings.E2eMakeStdText("one"u8);
         using var three = E2EBindings.E2eMakeStdText("three"u8);
@@ -314,7 +360,15 @@ public sealed class StandardLibraryTests
             });
         Assert.Equal(10, E2EBindings.E2eTotalStdScores(enumerableScores));
 
+        using var emptyScores = new global::Std.Map<global::Std.String, int>();
+        emptyScores.Add(one, 8);
+        Assert.Equal(8, E2EBindings.E2eTotalStdScores(emptyScores));
+
         using var lookup = E2EBindings.E2eMakeStdLookup();
+        Assert.NotEqual(0, lookup.Handle);
+        Assert.True(lookup.OwnsHandle);
+        Assert.False(lookup.IsNull);
+        Assert.NotNull(lookup.Provider);
         Assert.Equal(16, E2EBindings.E2eTotalStdLookup(lookup));
         Assert.Equal(2, lookup.Count);
         Assert.Equal(new[] { 7, 9 }, lookup.Values.Order());
@@ -352,6 +406,10 @@ public sealed class StandardLibraryTests
                 new KeyValuePair<global::Std.String, int>(center, 12)
             });
         Assert.Equal(20, E2EBindings.E2eTotalStdLookup(enumerableLookup));
+
+        using var emptyLookup = new global::Std.UnorderedMap<global::Std.String, int>();
+        emptyLookup.Add(center, 13);
+        Assert.Equal(13, E2EBindings.E2eTotalStdLookup(emptyLookup));
 
         using var owner = new StdLibraryOwner();
         using var ownerScores = owner.GetScoresRef();

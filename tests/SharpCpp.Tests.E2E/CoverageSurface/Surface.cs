@@ -35,6 +35,7 @@ public sealed class SurfaceTests
         Assert.True(values.HasKnownLength);
         Assert.Equal(3, values.Length);
         values[(nuint)1] = 8;
+        Assert.Equal(8, values[(nuint)1]);
         Assert.Equal(22, E2EBindings.SumSurfaceSharedArray(values));
         Assert.Throws<ArgumentOutOfRangeException>(() => _ = values[-1]);
         Assert.Throws<ArgumentOutOfRangeException>(() => values[-1] = 0);
@@ -52,6 +53,10 @@ public sealed class SurfaceTests
     public void Shared_provider_dynamic_arrays_round_trip_values_and_handles()
     {
         using var returned = E2EBindings.MakeSurfaceProviderArray(3);
+        Assert.NotEqual(0, returned.Handle);
+        Assert.True(returned.OwnsHandle);
+        Assert.False(returned.IsNull);
+        Assert.NotNull(returned.Provider);
         Assert.False(returned.HasKnownLength);
         Assert.Equal(new[] { 3, 4, 5 }, returned.ToArray(3));
         Assert.Equal(12, E2EBindings.SumSurfaceProviderArray(returned));
@@ -60,6 +65,7 @@ public sealed class SurfaceTests
         Assert.Equal("SharpCpp.Tests.E2E", global::Std.Infrastructure.ProviderRegistry.CurrentModuleId);
         using var values = new global::E2EStd.ProviderArray<int>((IEnumerable<int>)new[] { 5, 7, 9 });
         values[(nuint)1] = 8;
+        Assert.Equal(8, values[(nuint)1]);
         Assert.Equal(22, E2EBindings.SumSurfaceProviderArray(values));
 
         using var first = new SurfacePayload(17);

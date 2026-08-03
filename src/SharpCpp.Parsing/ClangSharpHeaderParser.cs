@@ -2586,7 +2586,7 @@ public sealed partial class ClangSharpHeaderParser
                     canonicalTypeName,
                     candidateOverride.CppTypeName,
                     candidateOverride.TemplateParameterNames.Count,
-                    GetVisibleTemplateArgumentCount(candidateOverride)))
+                    GetVisibleTemplateArgumentCount(candidateOverride, managedTypeOverrides)))
             {
                 managedTypeOverride = candidateOverride;
                 return true;
@@ -2669,8 +2669,16 @@ public sealed partial class ClangSharpHeaderParser
         return string.Equals(canonicalLeft, canonicalRight, StringComparison.Ordinal);
     }
 
-    private static int GetVisibleTemplateArgumentCount(ManagedTypeOverride managedTypeOverride)
+    private static int GetVisibleTemplateArgumentCount(
+        ManagedTypeOverride managedTypeOverride,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
     {
+        if (!managedTypeOverride.HasPublicTypeMapping &&
+            managedTypeOverrides.TryGetValue(managedTypeOverride.CppTypeName, out var parameterOverride))
+        {
+            return GetVisibleTemplateArgumentCount(parameterOverride, managedTypeOverrides);
+        }
+
         return managedTypeOverride.VisibleTemplateParameterIndices.Count == 0
             ? managedTypeOverride.TemplateParameterNames.Count
             : managedTypeOverride.VisibleTemplateParameterIndices.Count;
@@ -3452,6 +3460,11 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         var normalizedType = sourceType.CanonicalType;
+        if (TypeIsAnyReference(normalizedType))
+        {
+            return false;
+        }
+
         var spelledTypeName = NormalizeTypeName(sourceType.Spelling.ToString());
         var aliasResolvedTypeName = SelectConcreteTemplateTypeName(spelledTypeName, ResolveAliasTypeName(spelledTypeName));
         var canonicalTypeName = SelectConcreteTemplateTypeName(

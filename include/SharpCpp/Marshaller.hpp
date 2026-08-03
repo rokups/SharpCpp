@@ -1642,7 +1642,8 @@ template <>
 struct ReturnMarshaller<void> : Marshaller<void> {};
 
 template <>
-struct ReturnMarshaller<std::basic_string<char> > : OwnedStringReturnMarshallerBase<std::basic_string<char>> {};
+struct [[sharpcpp::managed_type(return_ownership = "owning")]]
+ReturnMarshaller<std::basic_string<char> > : OwnedStringReturnMarshallerBase<std::basic_string<char>> {};
 
 template <>
 struct [[sharpcpp::managed_type(
@@ -1651,22 +1652,27 @@ struct [[sharpcpp::managed_type(
 )]] ReturnMarshaller<std::string_view> : Marshaller<std::string_view> {};
 
 template <typename T, typename TAllocator>
-struct ReturnMarshaller<std::vector<T, TAllocator>> : OwnedHandleReturnMarshallerBase<std::vector<T, TAllocator>> {};
+struct [[sharpcpp::managed_type(return_ownership = "owning")]]
+ReturnMarshaller<std::vector<T, TAllocator>> : OwnedHandleReturnMarshallerBase<std::vector<T, TAllocator>> {};
 
 template <typename T, std::size_t N>
-struct ReturnMarshaller<std::array<T, N>> : FixedArrayReturnMarshallerBase<std::array<T, N>, N> {};
+struct [[sharpcpp::managed_type(return_ownership = "owning")]]
+ReturnMarshaller<std::array<T, N>> : FixedArrayReturnMarshallerBase<std::array<T, N>, N> {};
 
 template <typename T, std::size_t N>
 struct ReturnMarshaller<T[N]> : NativeFixedArrayMarshallerBase<T, N> {};
 
 template <typename T, typename TAllocator>
-struct ReturnMarshaller<std::list<T, TAllocator>> : OwnedHandleReturnMarshallerBase<std::list<T, TAllocator>> {};
+struct [[sharpcpp::managed_type(return_ownership = "owning")]]
+ReturnMarshaller<std::list<T, TAllocator>> : OwnedHandleReturnMarshallerBase<std::list<T, TAllocator>> {};
 
 template <typename TKey, typename TValue, typename TCompare, typename TAllocator>
-struct ReturnMarshaller<std::map<TKey, TValue, TCompare, TAllocator>> : OwnedHandleReturnMarshallerBase<std::map<TKey, TValue, TCompare, TAllocator>> {};
+struct [[sharpcpp::managed_type(return_ownership = "owning")]]
+ReturnMarshaller<std::map<TKey, TValue, TCompare, TAllocator>> : OwnedHandleReturnMarshallerBase<std::map<TKey, TValue, TCompare, TAllocator>> {};
 
 template <typename TKey, typename TValue, typename THash, typename TKeyEqual, typename TAllocator>
-struct ReturnMarshaller<std::unordered_map<TKey, TValue, THash, TKeyEqual, TAllocator>> : OwnedHandleReturnMarshallerBase<std::unordered_map<TKey, TValue, THash, TKeyEqual, TAllocator>> {};
+struct [[sharpcpp::managed_type(return_ownership = "owning")]]
+ReturnMarshaller<std::unordered_map<TKey, TValue, THash, TKeyEqual, TAllocator>> : OwnedHandleReturnMarshallerBase<std::unordered_map<TKey, TValue, THash, TKeyEqual, TAllocator>> {};
 
 template <>
 struct [[sharpcpp::managed_type(
