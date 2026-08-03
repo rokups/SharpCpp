@@ -9,6 +9,14 @@ T generic_add(T left, T right)
     return left + right;
 }
 
+template <typename T>
+[[sharpcpp::instantiate("int")]]
+[[sharpcpp::instantiate("double")]]
+T generic_add_default(T value, T increment = T{1})
+{
+    return value + increment;
+}
+
 struct generic_payload
 {
     explicit generic_payload(int value)
@@ -73,6 +81,8 @@ value_box
     {
     }
 
+    value_box(const value_box&) = default;
+
     T get_value() const
     {
         return value_;
@@ -81,6 +91,11 @@ value_box
     void set_value(T value)
     {
         value_ = value;
+    }
+
+    const T& get_reference() const
+    {
+        return value_;
     }
 
     static value_box<T>* create(T value)
@@ -93,6 +108,20 @@ value_box
     U project(U scale) const
     {
         return static_cast<U>(value_) * scale;
+    }
+
+    template <typename U>
+    [[sharpcpp::instantiate("int")]]
+    U project_default(U scale = U{2}, U offset = U{1}) const
+    {
+        return static_cast<U>(value_) * scale + offset;
+    }
+
+    template <typename U>
+    [[sharpcpp::instantiate("int")]]
+    static U combine(U left, U right = U{3})
+    {
+        return left + right;
     }
 
 private:

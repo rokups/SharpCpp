@@ -1244,7 +1244,7 @@ public sealed partial class ClangSharpHeaderParser
             cppReturnTypeName: cppReturnTypeName,
             cppQualifiedName: $"{record.CppQualifiedName}::{nativeName}")
         {
-            IsStatic = false,
+            IsStatic = templatedFunction is CXXMethodDecl staticMethod && staticMethod.Handle.CXXMethod_IsStatic,
             AccessModifier = MapAccessModifier(templateDecl.Access),
             IsVirtual = templatedFunction is CXXMethodDecl cxxMethod && cxxMethod.IsVirtual,
             IsPureVirtual = templatedFunction is CXXMethodDecl cxxMethod2 && cxxMethod2.IsPure,
@@ -2929,6 +2929,25 @@ public sealed partial class ClangSharpHeaderParser
                     isDynamicArray,
                     genericArguments);
                 return TryApplyManagedAliasSurface(type, recordHandleType, preserveAliasSurface, enumsByName);
+            }
+
+            if (TypeIsPointer(pointeeType) && TypeIsRecord(pointeeType.PointeeType.CanonicalType))
+            {
+                var elementType = pointeeType.PointeeType.CanonicalType;
+                var recordName = GetRecordQualifiedName(elementType, recordsByName);
+                if (!recordsByName.TryGetValue(recordName, out var record))
+                {
+                    var unqualifiedRecordName = GetManagedTypeHead(recordName);
+                    record = new RecordBinding(CreateRecordSymbolId(recordName), unqualifiedRecordName, ToPascalCase(unqualifiedRecordName), recordName);
+                    record.SetMetadata(MetadataKeys.PlaceholderRecord, true);
+                    IndexRecordKeys(recordsByName, record);
+                }
+
+                return TryApplyManagedAliasSurface(
+                    type,
+                    record.HandleType,
+                    preserveAliasSurface,
+                    enumsByName);
             }
 
             if (isReturn || allowPrimitivePointer && IsPrimitiveValueType(pointeeType))

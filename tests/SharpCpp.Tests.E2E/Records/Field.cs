@@ -79,6 +79,46 @@ public sealed class FieldTests
     }
 
     [Fact]
+    public void Enum_bool_handle_and_nested_fixed_arrays_round_trip()
+    {
+        using var first = E2EBindings.CreateFieldPayload(11);
+        using var second = E2EBindings.CreateFieldPayload(22);
+        using var box = E2EBindings.CreateFieldBox(0, false, FieldMode.Idle, first, 0);
+
+        Assert.Equal(new[] { FieldMode.Idle, FieldMode.Active }, box.Modes.ToArray());
+        Assert.Equal(new[] { false, true }, box.Switches.ToArray());
+        box.PayloadHandles[0] = first;
+        box.PayloadHandles[1] = second;
+        Assert.Equal(new[] { 11, 22 }, box.PayloadHandles.Select(value => value.Value));
+        Assert.Equal(new[] { 1, 2, 3 }, box.Matrix[0].ToArray());
+        Assert.Equal(new[] { 4, 5, 6 }, box.Matrix[1].ToArray());
+
+        using var modes = new global::SharpCpp.NativeArray<FieldMode>([FieldMode.Suspended, FieldMode.Active]);
+        using var switches = new global::SharpCpp.NativeArray<bool>([true, false]);
+        box.Modes = modes;
+        box.Switches = switches;
+        Assert.Equal(new[] { FieldMode.Suspended, FieldMode.Active }, box.Modes.ToArray());
+        Assert.Equal(new[] { true, false }, box.Switches.ToArray());
+    }
+
+    [Fact]
+    public void Pointer_count_fields_and_dynamic_native_arrays_round_trip_handles()
+    {
+        using var first = E2EBindings.CreateFieldPayload(31);
+        using var second = E2EBindings.CreateFieldPayload(47);
+        using var box = E2EBindings.CreatePointerCountFieldBox(first, second);
+
+        Assert.Equal(2u, box.NumItems);
+        Assert.Equal(31, box.GetItemsAt(0).Value);
+        Assert.Equal(47, box.GetItemsAt(1).Value);
+
+        using var values = new global::SharpCpp.NativeArray<FieldPayload>(2);
+        values[0] = first;
+        values[1] = second;
+        Assert.Equal(new[] { 31, 47 }, values.Select(value => value.Value));
+    }
+
+    [Fact]
     public void Static_fields_are_exposed_as_static_properties()
     {
         var payload = E2EBindings.CreateFieldPayload(42);

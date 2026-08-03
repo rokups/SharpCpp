@@ -5144,10 +5144,10 @@ public static partial class BindingOutputRenderer
                 writer.Write(RenderNativeGenericDelete(compilation, record, instantiation));
             }
 
-            var genericInstanceMethods = record.Members.OfType<FunctionBinding>()
-                .Where(static function => !function.IsConstructor && !function.IsStatic && function.IsGeneric && function.OperatorToken is null && !function.IsConversionOperator && !function.HasMetadata(MetadataKeys.IgnoreReason))
+            var genericMethods = record.Members.OfType<FunctionBinding>()
+                .Where(static function => !function.IsConstructor && function.IsGeneric && function.OperatorToken is null && !function.IsConversionOperator && !function.HasMetadata(MetadataKeys.IgnoreReason))
                 .OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
-            foreach (var method in genericInstanceMethods)
+            foreach (var method in genericMethods)
             {
                 var methodInstantiations = method.SupportedGenericInstantiations.ToArray();
                 if (methodInstantiations.Length == 0)
@@ -5378,7 +5378,7 @@ public static partial class BindingOutputRenderer
             {
                 writer.WriteLine();
                 writer.Write($$"""
-                    SHARPCPP_EXPORT ret_t<{{field.CppTypeName}}> {{GetNativeFieldItemGetterEntrypointName(accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self, std::size_t index)
+                    SHARPCPP_EXPORT ret_t<{{field.Type.CppTypeName}}> {{GetNativeFieldItemGetterEntrypointName(accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self, std::size_t index)
                     {
                     {{RenderNativePointerCountFieldItemGetInvocation(field, pointerCountShape.CountField, "self")}}
                     }
@@ -5548,8 +5548,8 @@ public static partial class BindingOutputRenderer
                 throw std::out_of_range("SharpCpp pointer-count field access is out of range.");
             }
 
-            ReturnMarshaller<{{field.CppTypeName}}> marshaller;
-            return marshaller.ConvertToAbi(&({{pointerExpression}}[index]));
+            ReturnMarshaller<{{field.Type.CppTypeName}}> marshaller;
+            return marshaller.ConvertToAbi({{pointerExpression}}[index]);
             """;
     }
 

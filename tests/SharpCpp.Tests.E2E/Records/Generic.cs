@@ -21,6 +21,8 @@ public sealed class GenericTests
         Assert.Equal(7, E2EBindings.GenericAdd(3, 4));
         Assert.Equal(7.5f, E2EBindings.GenericAdd(3.0f, 4.5f));
         Assert.Equal(9.0, E2EBindings.GenericAdd(4.5, 4.5));
+        Assert.Equal(9, E2EBindings.GenericAddDefault(5, 4));
+        Assert.Equal(3.5, E2EBindings.GenericAddDefault(2.5, 1.0));
     }
 
     [Fact]
@@ -118,6 +120,15 @@ public sealed class GenericTests
         var result = box.Project(2);
 
         Assert.Equal(24, result);
+        Assert.Equal(25, box.ProjectDefault<int>());
+        Assert.Equal(37, box.ProjectDefault(3));
+        Assert.Equal(41, box.ProjectDefault(3, 5));
+        Assert.Equal(7, BoxOf<int>.Combine(4));
+        Assert.Equal(9, BoxOf<int>.Combine(4, 5));
+        Assert.Equal(12, box.GetReference());
+
+        using var clone = box.Clone();
+        Assert.Equal(12, clone.GetValue());
     }
 
     [Fact]

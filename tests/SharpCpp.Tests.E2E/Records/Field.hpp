@@ -31,6 +31,10 @@ struct field_box
     field_mode mode{field_mode::idle};
     field_payload* payload{};
     field_payload payload_samples[2]{};
+    field_payload* payload_handles[2]{};
+    field_mode modes[2]{field_mode::idle, field_mode::active};
+    bool switches[2]{false, true};
+    int matrix[2][3]{{1, 2, 3}, {4, 5, 6}};
     int samples[3]{};
     const int fixed_value{};
 };
@@ -43,6 +47,20 @@ inline field_payload* create_field_payload(int value)
 inline field_box* create_field_box(int count, bool enabled, field_mode mode, field_payload* payload, int fixed_value)
 {
     return new field_box(count, enabled, mode, payload, fixed_value);
+}
+
+struct pointer_count_field_box
+{
+    field_payload** Items{};
+    unsigned int NumItems{};
+};
+
+inline pointer_count_field_box* create_pointer_count_field_box(field_payload* first, field_payload* second)
+{
+    static field_payload* items[2];
+    items[0] = first;
+    items[1] = second;
+    return new pointer_count_field_box{items, 2};
 }
 
 class intrusive_field_payload

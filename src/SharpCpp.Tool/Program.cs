@@ -1,4 +1,5 @@
 using SharpCpp.Metadata.Export;
+using SharpCpp.Metadata.Import;
 using SharpCpp.Model.Ast;
 using SharpCpp.Parsing;
 using SharpCpp.Pipeline;
@@ -109,6 +110,7 @@ internal static class Program
 
         var headerFiles = Directory
             .EnumerateFiles(fixtureRoot, "*.hpp", SearchOption.AllDirectories)
+            .Where(path => !Path.GetRelativePath(fixtureRoot, path).StartsWith($"Coverage{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
             .OrderBy(static path => path, StringComparer.Ordinal)
             .ToArray();
 
@@ -136,13 +138,13 @@ internal static class Program
 
         BindingCompilationBootstrapPipeline.Apply(compilation, marshallerConfigurationFiles, clangArguments);
 
-        var renderedBindings = BindingOutputRenderer.Render(compilation, fileStem, headerPath =>
+        var generatedFiles = BindingOutputRenderer.Render(compilation, fileStem, headerPath =>
         {
             if (string.IsNullOrEmpty(headerPath))
                 return $"{fileStem}.Bindings";
             var group = Path.ChangeExtension(headerPath, null).Replace('/', '.').Replace('\\', '.');
             return $"{fileStem}.{group}";
-        });
+        }).Files.ToList();
         var metadataDocument = BindingMetadataExporter.Export(
             compilation,
             new BindingMetadataExportOptions(
@@ -151,12 +153,114 @@ internal static class Program
                 ClangArgsHash: "e2e-sample-clang"));
 
         Directory.CreateDirectory(generatedRoot);
-        renderedBindings.WriteToDirectory(generatedRoot);
         File.WriteAllText(
             Path.Combine(generatedRoot, $"{fileStem}.Bindings.json"),
             BindingMetadataSerializer.Serialize(metadataDocument));
+        generatedFiles.AddRange(GenerateCoverageBindings(
+            fixtureRoot,
+            generatedRoot,
+            parser,
+            clangArguments,
+            marshallerConfigurationFiles));
+        new GeneratedBindingSet(generatedFiles).WriteToDirectory(generatedRoot);
         Logger.LogInformation("Wrote sample bindings to {GeneratedRoot}", generatedRoot);
         return 0;
+    }
+
+    private static IReadOnlyList<GeneratedBindingFile> GenerateCoverageBindings(
+        string fixtureRoot,
+        string generatedRoot,
+        ClangSharpHeaderParser parser,
+        IReadOnlyList<string> clangArguments,
+        IReadOnlyList<string> marshallerConfigurationFiles)
+    {
+        var dependency = ParseCoverageHeader(
+            "SharpCpp.Tests.E2E.Coverage.Dependency",
+            "SharpCpp.Tests.E2E.Coverage.Dependency",
+            "DependencyBindings",
+            "Coverage/Dependency.hpp",
+            "sharpcpp_coverage_dependency",
+            fixtureRoot,
+            parser,
+            clangArguments,
+            marshallerConfigurationFiles);
+        BindingCompilationBootstrapPipeline.Apply(dependency, marshallerConfigurationFiles, clangArguments);
+        GenerateAccessorPropertiesPass.Apply(dependency);
+        ApplyCoverageProjection(dependency);
+
+        var dependencyMetadata = BindingMetadataExporter.Export(
+            dependency,
+            new BindingMetadataExportOptions(dependency.ProjectName, "coverage-dependency", "coverage-clang"));
+        var dependencyMetadataPath = Path.Combine(generatedRoot, "SharpCppCoverageDependency.Bindings.json");
+        File.WriteAllText(dependencyMetadataPath, BindingMetadataSerializer.Serialize(dependencyMetadata));
+        RemoveSharedWrapperRecords(dependency);
+
+        var consumer = ParseCoverageHeader(
+            "SharpCpp.Tests.E2E.Coverage.Consumer",
+            "SharpCpp.Tests.E2E.Coverage.Consumer",
+            "ConsumerBindings",
+            "Coverage/Consumer.hpp",
+            "sharpcpp_coverage_consumer",
+            fixtureRoot,
+            parser,
+            clangArguments,
+            marshallerConfigurationFiles,
+            BindingMetadataImportCatalog.Load([dependencyMetadataPath]));
+        BindingCompilationBootstrapPipeline.Apply(consumer, marshallerConfigurationFiles, clangArguments);
+        ApplyCoverageProjection(consumer);
+        consumer.TypeAliases.Clear();
+        RemoveSharedWrapperRecords(consumer);
+
+        return BindingOutputRenderer.Render(dependency, "SharpCppCoverageDependency", includeCallbackReleaseRegistration: false).Files
+            .Concat(BindingOutputRenderer.Render(consumer, "SharpCppCoverageConsumer", includeCallbackReleaseRegistration: false).Files)
+            .ToArray();
+    }
+
+    private static BindingCompilation ParseCoverageHeader(
+        string projectName,
+        string managedNamespace,
+        string managedClassName,
+        string relativeHeaderPath,
+        string entryPointPrefix,
+        string fixtureRoot,
+        ClangSharpHeaderParser parser,
+        IReadOnlyList<string> clangArguments,
+        IReadOnlyList<string> marshallerConfigurationFiles,
+        BindingMetadataImportCatalog? importedMetadata = null)
+    {
+        var compilation = parser.Parse(new ClangSharpParseRequest(
+            projectName,
+            managedNamespace,
+            managedClassName,
+            "SharpCppTestsE2E_Native",
+            Path.Combine(fixtureRoot, relativeHeaderPath),
+            relativeHeaderPath,
+            clangArguments,
+            marshallerConfigurationFiles,
+            EntryPointPrefix: entryPointPrefix,
+            ImportedBindingMetadata: importedMetadata));
+        foreach (var marshallerHeader in marshallerConfigurationFiles)
+            compilation.NativeSupportHeaders.Add(marshallerHeader.Replace('\\', '/'));
+        return compilation;
+    }
+
+    private static void ApplyCoverageProjection(BindingCompilation compilation)
+    {
+        var projection = new ManagedBindingProjection(compilation.ManagedNamespace);
+        foreach (var record in compilation.Records.Where(record => !record.GetMetadata<bool>(MetadataKeys.SuppressEmission)))
+            projection.AddDeclaration(compilation.ManagedNamespace, record);
+        foreach (var enumBinding in compilation.Enums.Where(enumBinding => !enumBinding.GetMetadata<bool>(MetadataKeys.SuppressEmission)))
+            projection.AddDeclaration(compilation.ManagedNamespace, enumBinding);
+        compilation.SetMetadata(MetadataKeys.ManagedBindingProjection, projection);
+    }
+
+    private static void RemoveSharedWrapperRecords(BindingCompilation compilation)
+    {
+        foreach (var record in compilation.Records
+                     .Where(record => record.HasMetadata(MetadataKeys.ManagedWrapperAssembly))
+                     .ToArray())
+            compilation.Members.Remove(record);
+        compilation.InvalidateCaches();
     }
 
     private static int UnknownCommand(string command)
