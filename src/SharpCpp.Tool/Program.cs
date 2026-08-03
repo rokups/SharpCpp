@@ -206,7 +206,7 @@ internal static class Program
             parser,
             clangArguments,
             marshallerConfigurationFiles,
-            BindingMetadataImportCatalog.Load([dependencyMetadataPath]));
+            BindingMetadataImportCatalog.Load([dependencyMetadataPath, dependencyMetadataPath]));
         BindingCompilationBootstrapPipeline.Apply(consumer, marshallerConfigurationFiles, clangArguments);
         RemoveLocalConfiguredWrapperRecords(consumer);
         ApplyCoverageProjection(consumer);
@@ -291,7 +291,7 @@ internal static class Program
                      .Where(record => !record.HasMetadata(MetadataKeys.ManagedWrapperAssembly))
                      .Where(record =>
                          record.GetMetadata<bool>(MetadataKeys.MarshallerConfiguredRecord) ||
-                         !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ||
+                         !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) && record.Bases.Count == 0 ||
                          !string.IsNullOrWhiteSpace(record.GetMetadata<string>(MetadataKeys.ManagedWrapperProviderKind)) ||
                          record.Members.OfType<FunctionBinding>().Any(member => member.HasMetadata(MetadataKeys.MarshallerExposedMethod)))
                      .ToArray())

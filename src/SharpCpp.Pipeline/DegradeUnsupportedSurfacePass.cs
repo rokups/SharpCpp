@@ -818,7 +818,8 @@ public static class DegradeUnsupportedSurfacePass
 
     private static bool IsMarshallerBackedWrapperSurface(RecordBinding record)
     {
-        return record.GetMetadata<bool>(MetadataKeys.MarshallerConfiguredRecord) ||
+        return record.SymbolId.StartsWith("import:", StringComparison.Ordinal) ||
+            record.GetMetadata<bool>(MetadataKeys.MarshallerConfiguredRecord) ||
             !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ||
             record.Members.OfType<FunctionBinding>().Any(static member => member.HasMetadata(MetadataKeys.MarshallerExposedMethod));
     }

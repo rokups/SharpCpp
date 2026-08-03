@@ -2842,8 +2842,9 @@ public static partial class BindingOutputRenderer
 
         WriteDocumentationComment(writer, record);
         var classModifier = isEffectivelyAbstract ? "abstract " : string.Empty;
-        var hidesStaticHelpers = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) && 
-            !record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal);
+        var hidesStaticHelpers = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
+            (!record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal) ||
+             record.GetPrimaryBaseRecord(compilation) is not null);
         var staticHelperModifier = hidesStaticHelpers ? "new " : string.Empty;
         var managedTypeIdHelperModifier = record.GetPrimaryBaseRecord(compilation) is { } primaryBase &&
             primaryBase.IsPolymorphic &&
@@ -3224,8 +3225,9 @@ public static partial class BindingOutputRenderer
             writer.WriteLine();
         }
 
-        var hasGeneratedBase = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) && 
-            !record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal);
+        var hasGeneratedBase = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
+            (!record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal) ||
+             record.GetPrimaryBaseRecord(compilation) is not null);
         writer.Write(
             hasGeneratedBase
             ? $$"""
@@ -7943,15 +7945,9 @@ public static partial class BindingOutputRenderer
         CodeWriter writer,
         FunctionBinding function,
         string importMethodName,
-        IReadOnlyList<string> leadingArguments,
-        bool isConstructor = false)
+        IReadOnlyList<string> leadingArguments)
     {
         var firstU = GetFirstUndefaultableParamIndex(function);
-        if (firstU < 0)
-        {
-            // No undefaultable params — normal path, shouldn't reach here
-            return;
-        }
 
         // Build common invocation plan for the full parameter set
         var fullPlan = BuildManagedInvocationPlan(compilation, function.Parameters);
@@ -7968,14 +7964,7 @@ public static partial class BindingOutputRenderer
             // Render public signature for overload A
             var aParamList = string.Join(", ", beforeParams.Select(p => RenderManagedPublicParameter(p, compilation)));
 
-            if (isConstructor)
-            {
-                writer.Write($$"""
-                    public {{function.ManagedName}}({{aParamList}})
-                    {
-                    """);
-            }
-            else if (function.IsStatic)
+            if (function.IsStatic)
             {
                 writer.Write($$"""
                     {{GetManagedVisibility(function.AccessModifier)}} static {{GetManagedPublicReturnTypeName(function.ReturnType, compilation)}} {{function.ManagedName}}({{aParamList}})
@@ -7994,13 +7983,7 @@ public static partial class BindingOutputRenderer
             {
                 // Overload A has no params — call __Args0 variant
                 var variantImportName = GetUnexpressibleVariantImportName(importMethodName, 0);
-                if (isConstructor)
-                {
-                    writer.Write($$"""
-                        var __handle = __PInvoke.{{variantImportName}}();
-                        """);
-                }
-                else if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+                if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
                 {
                     writer.Write($$"""
                         __PInvoke.{{variantImportName}}({{string.Join(", ", leadingArguments)}});
@@ -8027,13 +8010,7 @@ public static partial class BindingOutputRenderer
                 var beforePlan = BuildManagedInvocationPlan(compilation, beforeParams);
                 var beforeArgs = string.Join(", ", leadingArguments.Concat(beforePlan.Arguments));
 
-                if (isConstructor)
-                {
-                    writer.Write($$"""
-                        var __handle = __PInvoke.{{variantImportName}}({{beforeArgs}});
-                        """);
-                }
-                else if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+                if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
                 {
                     writer.Write($$"""
                         __PInvoke.{{variantImportName}}({{beforeArgs}});
@@ -8048,14 +8025,7 @@ public static partial class BindingOutputRenderer
             }
 
             // Handle return and constructor post-call
-            if (isConstructor)
-            {
-                writer.Write("""
-                    return __handle;
-                    }
-                    """);
-            }
-            else if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+            if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
             {
                 writer.Write("""
                     }
@@ -8095,14 +8065,7 @@ public static partial class BindingOutputRenderer
             }
             var bParamList = string.Join(", ", bParamParts);
 
-            if (isConstructor)
-            {
-                writer.Write($$"""
-                    public {{function.ManagedName}}({{bParamList}})
-                    {
-                    """);
-            }
-            else if (function.IsStatic)
+            if (function.IsStatic)
             {
                 writer.Write($$"""
                     {{GetManagedVisibility(function.AccessModifier)}} static {{GetManagedPublicReturnTypeName(function.ReturnType, compilation)}} {{function.ManagedName}}({{bParamList}})
@@ -8166,13 +8129,7 @@ public static partial class BindingOutputRenderer
                 // Direct call with all params
                 var allArgs = string.Join(", ", leadingArguments.Concat(fullPlan.Arguments));
 
-                if (isConstructor)
-                {
-                    writer.Write($$"""
-                        var __handle = __PInvoke.{{importMethodName}}({{allArgs}});
-                        """);
-                }
-                else if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+                if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
                 {
                     writer.Write($$"""
                         __PInvoke.{{importMethodName}}({{allArgs}});
@@ -8192,14 +8149,7 @@ public static partial class BindingOutputRenderer
                 }
 
                 // Return / constructor finalize (only on non-cascade path)
-                if (isConstructor)
-                {
-                    writer.Write("""
-                        return __handle;
-                        }
-                        """);
-                }
-                else if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+                if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
                 {
                     writer.Write("""
                         }

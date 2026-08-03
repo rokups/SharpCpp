@@ -114,7 +114,7 @@ public sealed class BindingMetadataImportCatalog
 
     private static void SeedRecord(BindingCompilation compilation, IDictionary<string, RecordBinding> recordsByName, BindingMetadataDocument document, BindingMetadataType importedType)
     {
-        var cppQualifiedName = GetQualifiedCppTypeName(importedType.Projection.CppType);
+        var cppQualifiedName = StripGenericArguments(GetQualifiedCppTypeName(importedType.Projection.CppType));
         if (recordsByName.ContainsKey(importedType.NativeName) || recordsByName.ContainsKey(cppQualifiedName))
         {
             return;

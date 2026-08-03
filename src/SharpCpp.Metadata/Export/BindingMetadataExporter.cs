@@ -160,7 +160,7 @@ public static class BindingMetadataExporter
             @enum.ManagedName,
             GetManagedNamespace(compilation, @enum),
             ManagedBaseTypeName: null,
-            CreateTypeReference(BindingType.CreateEnum(@enum.NativeName, @enum.ManagedName, enumId: @enum.SymbolId)),
+            CreateTypeReference(BindingType.CreateEnum(@enum.CppQualifiedName, @enum.ManagedName, enumId: @enum.SymbolId)),
             IsFlags: @enum.IsFlags,
             Values: @enum.Values
                 .OrderBy(static value => value.ManagedName, StringComparer.Ordinal)

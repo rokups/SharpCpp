@@ -19,5 +19,41 @@ public sealed class MetadataDependencyTests
         value.State = DependencyState.Idle;
         Assert.Equal(73, ConsumerBindings.ConsumeDependencyValue(value));
         Assert.Equal(DependencyState.Idle, value.State);
+
+        Assert.Equal(73, ConsumerBindings.ConsumeDependencyHandleAlias(value));
+        Assert.Equal(42UL, ConsumerBindings.ConsumeDependencyUnsignedAlias(41));
+
+        using var box = DependencyBindings.CreateDependencyBox(19);
+        Assert.Equal(19, box.GetValue());
+        Assert.Equal(19, ConsumerBindings.ConsumeDependencyBoxAlias(box));
+        box.SetValue(23);
+        Assert.Equal(23, ConsumerBindings.ConsumeDependencyBoxAlias(box));
+
+        using var primitives = new DependencyPrimitives();
+        Assert.True(primitives.EchoBool(true));
+        Assert.Equal((sbyte)-8, primitives.EchoInt8(-8));
+        Assert.Equal((byte)8, primitives.EchoUint8(8));
+        Assert.Equal((short)-16, primitives.EchoInt16(-16));
+        Assert.Equal((ushort)16, primitives.EchoUint16(16));
+        Assert.Equal(-32, primitives.EchoInt32(-32));
+        Assert.Equal(32U, primitives.EchoUint32(32));
+        Assert.Equal(-64L, primitives.EchoInt64(-64));
+        Assert.Equal(64UL, primitives.EchoUint64(64));
+        Assert.Equal(1.25F, primitives.EchoSingle(1.25F));
+        Assert.Equal(2.5, primitives.EchoDouble(2.5));
+        Assert.Equal((nint)(-17), primitives.EchoNativeInt(-17));
+        Assert.Equal((nuint)17, primitives.EchoNativeUint(17));
+        Assert.Equal((nint)0x1234, primitives.EchoPointer((nint)0x1234));
+
+        var updated = 9;
+        primitives.Update(ref updated);
+        Assert.Equal(10, updated);
+        primitives.Write(out var written);
+        Assert.Equal(17, written);
+        Assert.Equal(42, DependencyPrimitives.StaticValue(41));
+
+        using var derived = new ConsumerDerived(13);
+        Assert.Equal(13, derived.GetBaseValue());
+        Assert.Equal(26, derived.Doubled());
     }
 }

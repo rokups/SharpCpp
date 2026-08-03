@@ -2869,7 +2869,8 @@ public sealed partial class ClangSharpHeaderParser
 
             if (ownedAliasInfo is null &&
                 TypeIsRecord(pointeeType) &&
-                !spelledTypeName.Contains('*', StringComparison.Ordinal))
+                !spelledTypeName.Contains('*', StringComparison.Ordinal) &&
+                !recordsByName.ContainsKey(GetRecordQualifiedName(pointeeType, recordsByName)))
             {
                 return BindingType.CreateConfigured(
                     spelledTypeName,
