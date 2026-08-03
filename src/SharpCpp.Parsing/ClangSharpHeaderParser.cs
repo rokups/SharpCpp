@@ -3763,6 +3763,12 @@ public sealed partial class ClangSharpHeaderParser
 
     private static string GetRecordQualifiedName(CXType type, IDictionary<string, RecordBinding> recordsByName)
     {
+        if (TryGetQualifiedNamedType(type, out var declaration, out _, out var semanticQualifiedName) &&
+            !declaration.SemanticParent.Equals(declaration.LexicalParent))
+        {
+            return semanticQualifiedName;
+        }
+
         var spelling = type.Spelling.ToString();
         var normalizedName = NormalizeNamedTypeName(StripGenericArguments(spelling));
         var canonicalName = NormalizeNamedTypeName(StripGenericArguments(type.CanonicalType.Spelling.ToString()));
@@ -3791,7 +3797,7 @@ public sealed partial class ClangSharpHeaderParser
             return normalizedName;
         }
 
-        if (TryGetQualifiedNamedType(type, out _, out var qualifiedName))
+        if (TryGetQualifiedNamedType(type, out _, out _, out var qualifiedName))
         {
             var strippedQualifiedName = NormalizeNamedTypeName(StripGenericArguments(qualifiedName));
             if (!string.IsNullOrWhiteSpace(strippedQualifiedName))
@@ -3815,10 +3821,18 @@ public sealed partial class ClangSharpHeaderParser
             return BuildQualifiedAliasSurfaceTypeName(type, aliasInfo);
         }
 
+        if (TryGetQualifiedNamedType(type, out var declaration, out _, out var semanticQualifiedName))
+        {
+            if (!declaration.SemanticParent.Equals(declaration.LexicalParent))
+            {
+                return BuildQualifiedNamedTypeSurface(type, semanticQualifiedName);
+            }
+        }
+
         var spelling = NormalizeTypeName(type.Spelling.ToString());
         var canonicalTypeName = NormalizeTypeName(type.CanonicalType.Spelling.ToString());
 
-        if (TryGetQualifiedNamedType(type, out var unqualifiedName, out var qualifiedName))
+        if (TryGetQualifiedNamedType(type, out _, out var unqualifiedName, out var qualifiedName))
         {
             var surfaceNamedType = NormalizeNamedTypeName(spelling)
                 .TrimEnd('*', '&')
@@ -3908,7 +3922,7 @@ public sealed partial class ClangSharpHeaderParser
             return aliasPrefix + qualifiedAliasName;
         }
 
-        var suffix = new StringBuilder();
+        var indirections = new List<(char Token, bool IsConst)>();
         var current = type;
         while (true)
         {
@@ -3921,14 +3935,14 @@ public sealed partial class ClangSharpHeaderParser
 
             if (TypeIsAnyReference(current.CanonicalType))
             {
-                suffix.Append('&');
+                indirections.Add(('&', current.IsConstQualified));
                 current = current.PointeeType;
                 continue;
             }
 
             if (TypeIsPointer(current.CanonicalType))
             {
-                suffix.Append('*');
+                indirections.Add(('*', current.IsConstQualified));
                 current = current.PointeeType;
                 continue;
             }
@@ -3937,10 +3951,34 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         var prefix = current.IsConstQualified ? "const " : string.Empty;
-        return prefix + qualifiedAliasName + suffix;
+        return prefix + qualifiedAliasName + RenderIndirections(indirections);
     }
 
-    private static bool TryGetQualifiedNamedType(CXType type, out string unqualifiedName, out string qualifiedName)
+    private static string BuildQualifiedNamedTypeSurface(CXType type, string qualifiedName)
+    {
+        var indirections = new List<(char Token, bool IsConst)>();
+        var current = type;
+        while (TypeIsAnyReference(current) || TypeIsPointer(current))
+        {
+            indirections.Add((TypeIsAnyReference(current) ? '&' : '*', current.IsConstQualified));
+            current = current.PointeeType;
+        }
+
+        return $"{(current.IsConstQualified ? "const " : string.Empty)}{qualifiedName}{RenderIndirections(indirections)}";
+    }
+
+    private static string RenderIndirections(IEnumerable<(char Token, bool IsConst)> indirections)
+    {
+        return string.Concat(indirections
+            .Reverse()
+            .Select(static indirection => $"{indirection.Token}{(indirection.IsConst ? " const" : string.Empty)}"));
+    }
+
+    private static bool TryGetQualifiedNamedType(
+        CXType type,
+        out CXCursor declaration,
+        out string unqualifiedName,
+        out string qualifiedName)
     {
         var sourceType = type;
         while (TypeIsAnyReference(sourceType) || TypeIsPointer(sourceType))
@@ -3948,18 +3986,11 @@ public sealed partial class ClangSharpHeaderParser
             sourceType = sourceType.PointeeType;
         }
 
-        if (TryPopulateQualifiedNamedType(sourceType.Declaration, out unqualifiedName, out qualifiedName))
-        {
-            return true;
-        }
-
-        var resolvedType = sourceType.CanonicalType;
-        while (TypeIsAnyReference(resolvedType) || TypeIsPointer(resolvedType))
-        {
-            resolvedType = resolvedType.PointeeType.CanonicalType;
-        }
-
-        return TryPopulateQualifiedNamedType(resolvedType.Declaration, out unqualifiedName, out qualifiedName);
+        declaration = sourceType.Declaration.CanonicalCursor;
+        return TryPopulateQualifiedNamedType(
+            declaration,
+            out unqualifiedName,
+            out qualifiedName);
     }
 
     private static bool TryPopulateQualifiedNamedType(CXCursor declaration, out string unqualifiedName, out string qualifiedName)
@@ -4033,12 +4064,7 @@ public sealed partial class ClangSharpHeaderParser
 
     private static string GetCppQualifiedName(CXCursor cursor)
     {
-        var names = CollectCppQualifierNames(cursor.SemanticParent, useLexicalParent: false);
-        if (names.Count == 0)
-        {
-            names = CollectCppQualifierNames(cursor.LexicalParent, useLexicalParent: true);
-        }
-
+        var names = CollectCppQualifierNames(cursor.SemanticParent);
         var ownName = cursor.Spelling.ToString();
 
         if (names.Count == 0)
@@ -4051,7 +4077,7 @@ public sealed partial class ClangSharpHeaderParser
         return string.Join("::", names);
     }
 
-    private static List<string> CollectCppQualifierNames(CXCursor start, bool useLexicalParent)
+    private static List<string> CollectCppQualifierNames(CXCursor start)
     {
         var names = new List<string>();
         var current = start;
@@ -4065,7 +4091,7 @@ public sealed partial class ClangSharpHeaderParser
                 names.Add(parentName);
             }
 
-            current = useLexicalParent ? current.LexicalParent : current.SemanticParent;
+            current = current.SemanticParent;
         }
 
         return names;

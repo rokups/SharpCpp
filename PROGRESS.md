@@ -91,6 +91,7 @@ Current worktree verification passes with generic complex C++ values crossing ca
   duplicate declarations, C++ floating-point defaults, bit-field accessors, and
   record-pointer arrays paired with native `Count` fields.
 - Record reference return support (`T&` → handle ABI)
+- C elaborated record tags are qualified from their canonical declaration's semantic parent. Lexical-parent scope is never used as a fallback, pointer-layer `const` qualifiers are retained from the AST, and unavailable forward declarations are rejected during validation instead of being projected as `IntPtr`.
 - Type alias pipeline (`using` / `typedef` → metadata-backed C# using directives)
 - rbfx `FlagSet<TEnum>` lowering to public `[Flags]` enum surfaces
 

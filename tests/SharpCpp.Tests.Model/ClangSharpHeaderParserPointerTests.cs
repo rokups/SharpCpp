@@ -37,13 +37,14 @@ public sealed class ClangSharpHeaderParserPointerTests
             "Sample.hpp",
             """
             struct Buffer {};
+            using BufferAlias = Buffer;
 
             struct DeviceContext
             {
                 virtual void SetBuffers(
                     unsigned int startSlot,
                     unsigned int numBuffers,
-                    Buffer* const* buffers,
+                    BufferAlias* const* buffers,
                     const unsigned long long* offsets) = 0;
 
                 virtual void SetValue(const unsigned long long* value) = 0;
@@ -58,6 +59,7 @@ public sealed class ClangSharpHeaderParserPointerTests
         var value = Assert.Single(setValue.Parameters);
 
         Assert.True(bufferOffsets.HasMetadata(MetadataKeys.InputPointerArray));
+        Assert.Equal("BufferAlias* const*", setBuffers.Parameters.Single(static parameter => parameter.NativeName == "buffers").CppTypeName);
         Assert.False(value.HasMetadata(MetadataKeys.InputPointerArray));
     }
 
@@ -132,6 +134,56 @@ public sealed class ClangSharpHeaderParserPointerTests
         Assert.Equal(BindingTypeKind.Handle, handle.Type.Kind);
         Assert.Equal("NativeHandle", handle.Type.ManagedTypeName);
         Assert.Equal("NativeHandle", handle.CppTypeName);
+    }
+
+    [Fact]
+    public void Parse_uses_semantic_parent_for_elaborated_record_types()
+    {
+        var compilation = ParseTempHeader(
+            "Sample.h",
+            """
+            struct QueryArguments
+            {
+                struct Ray* ray;
+            };
+
+            struct Ray;
+            """,
+            ["-x", "c", "-std=c17"]);
+
+        var arguments = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "QueryArguments");
+        var ray = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "Ray");
+        var field = Assert.Single(arguments.Members.OfType<FieldBinding>());
+
+        Assert.Equal("Ray*", field.CppTypeName);
+        Assert.Equal(ray.SymbolId, field.Type.RecordId);
+        Assert.DoesNotContain(compilation.Records, static record => record.CppQualifiedName == "QueryArguments::Ray");
+    }
+
+    [Fact]
+    public void Parse_preserves_semantically_nested_record_types()
+    {
+        var compilation = ParseTempHeader(
+            "Sample.hpp",
+            """
+            struct Owner
+            {
+                struct Value
+                {
+                    int data;
+                };
+
+                Value* value;
+            };
+            """,
+            ["-x", "c++", "-std=c++20"]);
+
+        var owner = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "Owner");
+        var value = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "Owner::Value");
+        var field = Assert.Single(owner.Members.OfType<FieldBinding>());
+
+        Assert.Equal("Owner::Value*", field.CppTypeName);
+        Assert.Equal(value.SymbolId, field.Type.RecordId);
     }
 
     [Fact]

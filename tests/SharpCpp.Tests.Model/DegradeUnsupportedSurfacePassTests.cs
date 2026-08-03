@@ -142,6 +142,29 @@ public sealed class DegradeUnsupportedSurfacePassTests
         Assert.Contains("reference fields", field.GetIgnoreReason(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Apply_ignores_nonopaque_forward_declared_types()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Forward.hpp"]);
+        var forward = new RecordBinding("record:Test::Forward", "Forward", "Forward", "Test::Forward");
+        forward.SetMetadata(MetadataKeys.ForwardDeclaration, true);
+        var function = new FunctionBinding(
+            "function:Test::GetForward",
+            "GetForward",
+            "GetForward",
+            forward.HandleType,
+            cppReturnTypeName: "Test::Forward*");
+        compilation.Members.Add(forward);
+        compilation.Members.Add(function);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.True(forward.IsIgnored());
+        Assert.True(function.IsIgnored());
+        Assert.Equal(BindingTypeKind.Handle, function.ReturnType.Kind);
+        Assert.Equal(forward.SymbolId, function.ReturnType.RecordId);
+    }
+
     [Theory]
     [InlineData("Urho3D::ResourceRef", "ResourceRef", "Material", "GetMaterialAttr")]
     [InlineData("Urho3D::Variant", "Variant", "Spline", "GetPoint")]
