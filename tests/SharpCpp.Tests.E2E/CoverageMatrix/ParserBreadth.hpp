@@ -254,6 +254,24 @@ struct breadth_empty_anonymous_owner
     int value{};
 };
 
+struct breadth_unnamed_members
+{
+    explicit breadth_unnamed_members(int)
+        : value_(61)
+    {
+    }
+
+    int read() const { return value_; }
+
+    static int combine(int, int value)
+    {
+        return value + 1;
+    }
+
+private:
+    int value_{};
+};
+
 struct breadth_abstract
 {
     explicit breadth_abstract(int value)
@@ -341,6 +359,39 @@ inline int evaluated_breadth_defaults(
     return seed + integer + static_cast<int>(unsigned_value) +
         static_cast<int>(single_value * 10.0f) + static_cast<int>(double_value) +
         (enabled ? 1 : 0) + (mode == breadth_mode::active ? 10 : 0);
+}
+
+enum breadth_plain_mode
+{
+    breadth_plain_idle = 0,
+    breadth_plain_active = 1
+};
+
+inline int breadth_literal_defaults(
+    float single_value = 1.25f,
+    double double_value = 2.5,
+    breadth_plain_mode mode = breadth_plain_active)
+{
+    return static_cast<int>(single_value * 100.0f) +
+        static_cast<int>(double_value * 100.0) +
+        (mode == breadth_plain_active ? 1 : 0);
+}
+
+namespace defaults
+{
+inline constexpr int qualified_value = 7;
+}
+
+inline constexpr int breadth_named_default = 9;
+
+inline int breadth_qualified_default(int value = defaults::qualified_value)
+{
+    return value + 1;
+}
+
+inline int breadth_named_identifier_default(int value = breadth_named_default)
+{
+    return value + 1;
 }
 
 inline void breadth_unnamed_parameter(int)

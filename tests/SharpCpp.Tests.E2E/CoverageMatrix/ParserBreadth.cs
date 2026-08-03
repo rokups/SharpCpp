@@ -54,6 +54,17 @@ public sealed class ParserBreadthTests
         using var anonymousOwner = new BreadthEmptyAnonymousOwner(59);
         Assert.Equal(59, anonymousOwner.Read());
 
+        using var unnamedMembers = new BreadthUnnamedMembers(0);
+        Assert.Equal(61, unnamedMembers.Read());
+        Assert.Equal(42, BreadthUnnamedMembers.Combine(0, 41));
+
+        Assert.Equal(376, E2EBindings.BreadthLiteralDefaults());
+        Assert.Equal(351, E2EBindings.BreadthLiteralDefaults(1.0f, 2.5, BreadthPlainMode.BreadthPlainActive));
+        Assert.Equal(8, E2EBindings.BreadthQualifiedDefault());
+        Assert.Equal(42, E2EBindings.BreadthQualifiedDefault(41));
+        Assert.Equal(10, E2EBindings.BreadthNamedIdentifierDefault());
+        Assert.Equal(42, E2EBindings.BreadthNamedIdentifierDefault(41));
+
         using var alias = E2EBindings.MakeParserAliasPayload(37);
         Assert.Equal(37, E2EBindings.ReadParserAliasPayload(alias));
     }

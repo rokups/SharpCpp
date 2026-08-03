@@ -23,18 +23,6 @@ public abstract class StringBase : NativeObject, IReadOnlyList<char>, IEquatable
     }
 
     /// <summary>
-    /// Initializes a new instance and assigns the given initial value.
-    /// </summary>
-    /// <param name="handle">Native handle to the std::string.</param>
-    /// <param name="ownsHandle"><see langword="true"/> if this instance owns the native handle; otherwise <see langword="false"/>.</param>
-    /// <param name="value">Initial string value to assign, or <see langword="null"/> to leave the native string empty.</param>
-    protected StringBase(nint handle, bool ownsHandle, string? value)
-        : base(handle, ownsHandle)
-    {
-        Assign(value);
-    }
-
-    /// <summary>
     /// When overridden in a derived class, gets the length of the native string.
     /// </summary>
     /// <returns>The length of the native string in bytes.</returns>

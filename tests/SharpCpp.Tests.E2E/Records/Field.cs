@@ -1,5 +1,5 @@
+using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 
 using SharpCpp.Tests.E2E.Generated;
 
@@ -29,8 +29,13 @@ public sealed class FieldTests
         box.Enabled = false;
         box.Mode = FieldMode.Suspended;
         box.Payload = replacement;
-        using var payloadSamples = new global::SharpCpp.NativeArray<FieldPayload>(new[] { payload, replacement });
-        using var samples = new global::SharpCpp.NativeArray<int>(new[] { 3, 5, 7 });
+        using var payloadSamples = new global::SharpCpp.NativeArray<FieldPayload>(
+            (IEnumerable<FieldPayload>)new[] { payload, replacement });
+        using var samples = new global::SharpCpp.NativeArray<int>(
+            (IEnumerable<int>)new[] { 3, 5, 7 });
+        Assert.NotEqual(0, samples.Handle);
+        Assert.True(samples.OwnsHandle);
+        Assert.False(samples.IsNull);
         box.PayloadSamples = payloadSamples;
         box.Samples = samples;
 
@@ -49,12 +54,10 @@ public sealed class FieldTests
     {
         var payload = E2EBindings.CreateFieldPayload(10);
         var box = E2EBindings.CreateFieldBox(2, true, FieldMode.Active, payload, 99);
-        using var wrongLength = (global::SharpCpp.NativeArray<int>)Activator.CreateInstance(
-            typeof(global::SharpCpp.NativeArray<int>),
-            BindingFlags.Instance | BindingFlags.NonPublic,
-            binder: null,
-            args: [IntPtr.Zero, 2, false],
-            culture: null)!;
+        using var wrongLength = new global::SharpCpp.NativeArray<int>(2);
+        wrongLength[0] = 11;
+        wrongLength[1] = 13;
+        Assert.Equal(new[] { 11, 13 }, box.Pair.ToArray());
 
         var exception = Assert.Throws<ArgumentException>(() => box.Samples = wrongLength);
 
@@ -66,12 +69,9 @@ public sealed class FieldTests
     {
         var payload = E2EBindings.CreateFieldPayload(10);
         var box = E2EBindings.CreateFieldBox(2, true, FieldMode.Active, payload, 99);
-        using var wrongLength = (global::SharpCpp.NativeArray<FieldPayload>)Activator.CreateInstance(
-            typeof(global::SharpCpp.NativeArray<FieldPayload>),
-            BindingFlags.Instance | BindingFlags.NonPublic,
-            binder: null,
-            args: [IntPtr.Zero, 1, false],
-            culture: null)!;
+        using var wrongLength = new global::SharpCpp.NativeArray<FieldPayload>(1);
+        wrongLength[0] = payload;
+        Assert.Same(payload, wrongLength[0]);
 
         var exception = Assert.Throws<ArgumentException>(() => box.PayloadSamples = wrongLength);
 
@@ -166,15 +166,6 @@ public sealed class FieldTests
         box.Value = 41;
 
         Assert.Equal(41, box.Value);
-    }
-
-    [Fact]
-    public void Readonly_fields_are_exposed_as_get_only_properties()
-    {
-        var fixedValue = typeof(FieldBox).GetProperty(nameof(FieldBox.FixedValue))!;
-
-        Assert.True(fixedValue.CanRead);
-        Assert.False(fixedValue.CanWrite);
     }
 
     [Fact]

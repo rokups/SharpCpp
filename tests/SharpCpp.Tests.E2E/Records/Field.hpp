@@ -32,8 +32,10 @@ struct field_box
     field_payload* payload{};
     field_payload payload_samples[2]{};
     field_payload* payload_handles[2]{};
+    field_payload* single_payload[1]{};
     field_mode modes[2]{field_mode::idle, field_mode::active};
     bool switches[2]{false, true};
+    int pair[2]{11, 13};
     int matrix[2][3]{{1, 2, 3}, {4, 5, 6}};
     int samples[3]{};
     const int fixed_value{};

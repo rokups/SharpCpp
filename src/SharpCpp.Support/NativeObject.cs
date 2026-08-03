@@ -47,7 +47,7 @@ public abstract class NativeObject : SafeHandle
     /// <summary>
     /// Gets the per-type instance cache for this wrapper, or <see langword="null"/> if caching is disabled.
     /// </summary>
-    protected virtual INativeInstanceCache? InstanceCache => null;
+    protected abstract INativeInstanceCache? InstanceCache { get; }
 
     private bool _ownsNativeHandle;
     private bool _preparedOwnedRegistration;

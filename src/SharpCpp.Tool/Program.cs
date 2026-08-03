@@ -265,15 +265,9 @@ internal static class Program
             new BindingMetadataExportOptions(dependency.ProjectName, "coverage-dependency", "coverage-clang"));
         var dependencyMetadataPath = Path.Combine(generatedRoot, "SharpCppCoverageDependency.Bindings.json");
         File.WriteAllText(dependencyMetadataPath, BindingMetadataSerializer.Serialize(dependencyMetadata));
-        var legacyDependencyMetadata = dependencyMetadata with
-        {
-            Types = dependencyMetadata.Types.Select(type => type with
-            {
-                Members = type.Members?.Select(member => member with { SymbolId = null }).ToArray()
-            }).ToArray()
-        };
-        var legacyDependencyMetadataPath = Path.Combine(generatedRoot, "SharpCppCoverageDependency.LegacyBindings.json");
-        File.WriteAllText(legacyDependencyMetadataPath, BindingMetadataSerializer.Serialize(legacyDependencyMetadata));
+        var compatibilityDependencyMetadata = CreateCompatibilityDependencyMetadata(dependencyMetadata);
+        var compatibilityDependencyMetadataPath = Path.Combine(generatedRoot, "SharpCppCoverageDependency.CompatibilityBindings.json");
+        File.WriteAllText(compatibilityDependencyMetadataPath, BindingMetadataSerializer.Serialize(compatibilityDependencyMetadata));
         ExcludeSharedWrapperRecords(dependency);
 
         var consumer = ParseCoverageHeader(
@@ -286,7 +280,7 @@ internal static class Program
             parser,
             clangArguments,
             marshallerConfigurationFiles,
-            BindingMetadataImportCatalog.Load([dependencyMetadataPath, legacyDependencyMetadataPath]));
+            BindingMetadataImportCatalog.Load([compatibilityDependencyMetadataPath]));
         BindingCompilationBootstrapPipeline.Apply(consumer, marshallerConfigurationFiles, clangArguments);
         RemoveLocalConfiguredWrapperRecords(consumer);
         ApplyCoverageProjection(consumer);
@@ -334,10 +328,44 @@ internal static class Program
         ApplyCoverageProjection(cOpaque);
         ExcludeSharedWrapperRecords(cOpaque);
 
+        var ownedRootDirectory = Path.Combine(fixtureRoot, "Coverage", "Owned");
+        var owned = parser.Parse(new ClangSharpParseRequest(
+            "SharpCpp.Tests.E2E.Coverage.Owned",
+            "SharpCpp.Tests.E2E.Coverage.Owned.Generated",
+            "PendingOwnedBindings",
+            "SharpCppTestsE2E_Native",
+            Path.Combine(ownedRootDirectory, "OwnedUmbrella.hpp"),
+            "Coverage/Owned/OwnedUmbrella.hpp",
+            clangArguments,
+            Array.Empty<string>(),
+            EntryPointPrefix: "sharpcpp_coverage_owned",
+            OwnedFileRoots: [ownedRootDirectory, string.Empty],
+            OwnedFileRootIncludePrefixes: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [ownedRootDirectory] = "/Coverage/Owned/",
+                [string.Empty] = "ignored"
+            }));
+        BindingCompilationBootstrapPipeline.Apply(
+            owned,
+            Array.Empty<string>(),
+            clangArguments,
+            configureBeforeValidation: static compilation => compilation.Functions
+                .Single(function => string.Equals(function.NativeName, "owned_first_round_trip", StringComparison.Ordinal))
+                .ManagedName = "OwnedRootFirst",
+            configureAfterValidation: static compilation =>
+            {
+                compilation.ManagedClassName = "OwnedBindings";
+                compilation.Functions
+                    .Single(function => string.Equals(function.NativeName, "owned_second_round_trip", StringComparison.Ordinal))
+                    .ManagedName = "OwnedRootSecond";
+            });
+        ApplyCoverageProjection(owned);
+
         return BindingOutputRenderer.Render(dependency, "SharpCppCoverageDependency", includeCallbackReleaseRegistration: false).Files
             .Concat(BindingOutputRenderer.Render(consumer, "SharpCppCoverageConsumer", includeCallbackReleaseRegistration: false).Files)
             .Concat(BindingOutputRenderer.Render(degradation, "SharpCppCoverageDegradation", includeCallbackReleaseRegistration: false).Files)
             .Concat(BindingOutputRenderer.Render(cOpaque, "SharpCppCoverageCOpaque", includeCallbackReleaseRegistration: false).Files)
+            .Concat(BindingOutputRenderer.Render(owned, "SharpCppCoverageOwned", includeCallbackReleaseRegistration: false).Files)
             .ToArray();
     }
 
@@ -346,6 +374,67 @@ internal static class Program
         compilation.Functions.Single(function =>
                 string.Equals(function.NativeName, "callback_marked_ref", StringComparison.Ordinal))
             .ClearIgnoreReason();
+    }
+
+    private static BindingMetadataDocument CreateCompatibilityDependencyMetadata(BindingMetadataDocument document)
+    {
+        return document with
+        {
+            Types = document.Types.Select(type =>
+            {
+                var members = type.Members?.Select(member =>
+                {
+                    var parameters = member.Parameters?.Select(parameter =>
+                    {
+                        return type.NativeName == "dependency_primitives" &&
+                            member.NativeName is "echo_int32" or "update" or "write"
+                                ? parameter with { AbiKind = null }
+                                : parameter;
+                    }).ToArray();
+                    return member with
+                    {
+                        SymbolId = type.ManagedWrapperAssembly is null ? member.SymbolId : null,
+                        AccessModifier = type.NativeName == "dependency_primitives" && member.NativeName == "echo_bool"
+                            ? "private"
+                            : member.AccessModifier,
+                        Parameters = parameters
+                    };
+                }).ToArray();
+
+                return type.NativeName switch
+                {
+                    "std::array" => type with
+                    {
+                        ManagedNamespace = null,
+                        Projection = type.Projection with { PublicType = "global::Std.Array<T, N>" },
+                        Members = members
+                    },
+                    "std::vector" => type with
+                    {
+                        ManagedName = "global::Std.Vector",
+                        ManagedNamespace = null,
+                        IsDynamicArray = true,
+                        Members = members
+                    },
+                    _ => type with { Members = members }
+                };
+            }).ToArray(),
+            Aliases = document.Aliases?.Select(alias => alias.NativeName switch
+            {
+                "dependency_dynamic_alias" => alias with
+                {
+                    TargetType = alias.TargetType with
+                    {
+                        DynamicArrayElementType = alias.TargetType.GenericArguments![0]
+                    }
+                },
+                "dependency_state_alias" => alias with
+                {
+                    TargetType = alias.TargetType with { EnumId = null }
+                },
+                _ => alias
+            }).ToArray()
+        };
     }
 
     private static BindingCompilation ParseCoverageHeader(

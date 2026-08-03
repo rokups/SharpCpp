@@ -2207,34 +2207,10 @@ public sealed partial class ClangSharpHeaderParser
 
     private static BindingType CreateIgnoredFallbackType(CXType type)
     {
-        var normalizedType = type.CanonicalType;
-        if (TypeIsFunctionProto(normalizedType) || (TypeIsPointer(normalizedType) && TypeIsFunctionProto(normalizedType.PointeeType.CanonicalType)))
-        {
-            return BindingType.CreateConfigured(NormalizeTypeName(type.Spelling.ToString()), BindingType.IntPtr.ManagedTypeName, primitiveKind: BindingPrimitiveKind.IntPtr);
-        }
-
-        var normalizedTypeName = NormalizeTypeName(type.Spelling.ToString());
-
-        return normalizedType.kind switch
-        {
-            CXTypeKind.CXType_Void => BindingType.Void,
-            CXTypeKind.CXType_Bool => BindingType.Boolean,
-            CXTypeKind.CXType_Char_S => BindingType.Int8,
-            CXTypeKind.CXType_SChar => BindingType.Int8,
-            CXTypeKind.CXType_Char_U => BindingType.UInt8,
-            CXTypeKind.CXType_UChar => BindingType.UInt8,
-            CXTypeKind.CXType_Short => BindingType.Int16,
-            CXTypeKind.CXType_UShort => BindingType.UInt16,
-            CXTypeKind.CXType_Int => BindingType.Int32,
-            CXTypeKind.CXType_UInt => BindingType.UInt32,
-            CXTypeKind.CXType_LongLong => BindingType.Int64,
-            CXTypeKind.CXType_ULongLong => BindingType.UInt64,
-            CXTypeKind.CXType_Float => BindingType.Single,
-            CXTypeKind.CXType_Double => BindingType.Double,
-            CXTypeKind.CXType_Long => BindingType.NativeInt,
-            CXTypeKind.CXType_ULong => BindingType.NativeUInt,
-            _ => BindingType.CreateConfigured(normalizedTypeName, BindingType.IntPtr.ManagedTypeName, primitiveKind: BindingPrimitiveKind.IntPtr)
-        };
+        return BindingType.CreateConfigured(
+            NormalizeTypeName(type.Spelling.ToString()),
+            BindingType.IntPtr.ManagedTypeName,
+            primitiveKind: BindingPrimitiveKind.IntPtr);
     }
 
     private static void ApplyOperatorMetadata(FunctionBinding function, Decl decl)
