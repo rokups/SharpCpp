@@ -68,3 +68,49 @@ struct operator_box
 private:
     int value_{};
 };
+
+struct operator_truth
+{
+    explicit operator_truth(bool value)
+        : value_(value)
+    {
+    }
+
+    bool operator!() const
+    {
+        return !value_;
+    }
+
+private:
+    bool value_{};
+};
+
+struct pointer_operator_box
+{
+    explicit pointer_operator_box(int value)
+        : value_(value)
+    {
+    }
+
+    int get_value() const
+    {
+        return value_;
+    }
+
+    pointer_operator_box* operator+(int value) const
+    {
+        static pointer_operator_box result(0);
+        result.value_ = value_ + value;
+        return &result;
+    }
+
+    pointer_operator_box* operator-() const
+    {
+        static pointer_operator_box result(0);
+        result.value_ = -value_;
+        return &result;
+    }
+
+private:
+    int value_{};
+};

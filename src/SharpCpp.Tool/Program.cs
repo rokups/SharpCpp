@@ -186,6 +186,7 @@ internal static class Program
             marshallerConfigurationFiles);
         BindingCompilationBootstrapPipeline.Apply(dependency, marshallerConfigurationFiles, clangArguments);
         GenerateAccessorPropertiesPass.Apply(dependency);
+        RemoveLocalConfiguredWrapperRecords(dependency);
         ApplyCoverageProjection(dependency);
 
         var dependencyMetadata = BindingMetadataExporter.Export(
@@ -207,12 +208,33 @@ internal static class Program
             marshallerConfigurationFiles,
             BindingMetadataImportCatalog.Load([dependencyMetadataPath]));
         BindingCompilationBootstrapPipeline.Apply(consumer, marshallerConfigurationFiles, clangArguments);
+        RemoveLocalConfiguredWrapperRecords(consumer);
         ApplyCoverageProjection(consumer);
         consumer.TypeAliases.Clear();
         RemoveSharedWrapperRecords(consumer);
 
+        var degradation = ParseCoverageHeader(
+            "SharpCpp.Tests.E2E.Coverage.Degradation",
+            "SharpCpp.Tests.E2E.Coverage.Degradation.Generated",
+            "DegradationBindings",
+            "Coverage/Degradation.hpp",
+            "sharpcpp_coverage_degradation",
+            fixtureRoot,
+            parser,
+            clangArguments,
+            marshallerConfigurationFiles);
+        degradation.NamespaceMappings = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["coverage_allowed"] = degradation.ManagedNamespace
+        };
+        BindingCompilationBootstrapPipeline.Apply(degradation, marshallerConfigurationFiles, clangArguments);
+        RemoveLocalConfiguredWrapperRecords(degradation);
+        ApplyCoverageProjection(degradation);
+        RemoveSharedWrapperRecords(degradation);
+
         return BindingOutputRenderer.Render(dependency, "SharpCppCoverageDependency", includeCallbackReleaseRegistration: false).Files
             .Concat(BindingOutputRenderer.Render(consumer, "SharpCppCoverageConsumer", includeCallbackReleaseRegistration: false).Files)
+            .Concat(BindingOutputRenderer.Render(degradation, "SharpCppCoverageDegradation", includeCallbackReleaseRegistration: false).Files)
             .ToArray();
     }
 
@@ -258,6 +280,20 @@ internal static class Program
     {
         foreach (var record in compilation.Records
                      .Where(record => record.HasMetadata(MetadataKeys.ManagedWrapperAssembly))
+                     .ToArray())
+            compilation.Members.Remove(record);
+        compilation.InvalidateCaches();
+    }
+
+    private static void RemoveLocalConfiguredWrapperRecords(BindingCompilation compilation)
+    {
+        foreach (var record in compilation.Records
+                     .Where(record => !record.HasMetadata(MetadataKeys.ManagedWrapperAssembly))
+                     .Where(record =>
+                         record.GetMetadata<bool>(MetadataKeys.MarshallerConfiguredRecord) ||
+                         !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ||
+                         !string.IsNullOrWhiteSpace(record.GetMetadata<string>(MetadataKeys.ManagedWrapperProviderKind)) ||
+                         record.Members.OfType<FunctionBinding>().Any(member => member.HasMetadata(MetadataKeys.MarshallerExposedMethod)))
                      .ToArray())
             compilation.Members.Remove(record);
         compilation.InvalidateCaches();

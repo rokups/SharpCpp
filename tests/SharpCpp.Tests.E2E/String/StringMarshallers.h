@@ -9,21 +9,27 @@ namespace SharpCpp
 template <>
 struct [[sharpcpp::managed_type(
     managed_base_type = "global::SharpCpp.Support.StringBase",
-    public_type = "Ea.String",
-    managed_namespace = "Ea",
-    managed_wrapper_assembly = "SharpCpp.Ea",
-    managed_wrapper_provider_kind = "string"
+    public_type = "E2EStd.String",
+    managed_namespace = "E2EStd",
+    managed_wrapper_provider_kind = "string",
+    managed_wrapper_copyable = true
 )]]
-Marshaller<ea_compat_string> : OwnedStringMarshallerBase<ea_compat_string> {};
+Marshaller<e2e_std::string> : OwnedStringMarshallerBase<e2e_std::string> {};
 
 template <>
-struct Marshaller<const ea_compat_string&> : OwnedStringConstReferenceMarshallerBase<ea_compat_string> {};
+struct Marshaller<e2e_std::string&> : OwnedStringReferenceMarshallerBase<e2e_std::string> {};
 
 template <>
-struct Marshaller<const ea_compat_string*> : OwnedStringConstPointerMarshallerBase<ea_compat_string> {};
+struct Marshaller<const e2e_std::string&> : OwnedStringConstReferenceMarshallerBase<e2e_std::string> {};
 
 template <>
-struct Marshaller<ea_compat_string*> : OwnedStringPointerMarshallerBase<ea_compat_string> {};
+struct Marshaller<const e2e_std::string*> : OwnedStringConstPointerMarshallerBase<e2e_std::string> {};
+
+template <>
+struct Marshaller<e2e_std::string*> : OwnedStringPointerMarshallerBase<e2e_std::string> {};
+
+template <>
+struct ReturnMarshaller<e2e_std::string> : OwnedStringReturnMarshallerBase<e2e_std::string> {};
 
 template <>
 struct [[sharpcpp::managed_type(
@@ -31,11 +37,11 @@ struct [[sharpcpp::managed_type(
     managed_marshaller = "global::SharpCpp.Support.Utf8SpanAbiMarshaller",
     undefaultable = true
 )]]
-Marshaller<ea::string_view> : StringViewMarshallerBase<ea::string_view> {};
+Marshaller<e2e_std::string_view> : StringViewMarshallerBase<e2e_std::string_view> {};
 
 template <>
 struct [[sharpcpp::managed_type(
     public_type = "global::System.ReadOnlySpan<byte>",
     managed_marshaller = "global::SharpCpp.Support.Utf8SpanAbiReturnMarshaller"
-)]] ReturnMarshaller<ea::string_view> : Marshaller<ea::string_view> {};
+)]] ReturnMarshaller<e2e_std::string_view> : Marshaller<e2e_std::string_view> {};
 }

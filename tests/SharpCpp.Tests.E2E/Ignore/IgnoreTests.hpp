@@ -47,3 +47,8 @@ enum class [[sharpcpp::ignore]] skipped_enum
     enum class [[sharpcpp::ignore]] NAME##_macro_enum { first = 0, second = 1 };
 
 SHARPCPP_IGNORED_PAIR(macro_generated)
+
+inline int ignore_surface_round_trip(int value)
+{
+    return value + 1;
+}

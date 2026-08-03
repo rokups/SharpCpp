@@ -5,7 +5,7 @@
 #include <string>
 #include <string_view>
 
-namespace eastl
+namespace e2e_std
 {
 template <typename T>
 class basic_string_view
@@ -36,9 +36,36 @@ private:
 };
 
 using string_view = basic_string_view<char>;
-}
 
-namespace ea = eastl;
+class string
+{
+public:
+    string() = default;
+
+    std::size_t size() const
+    {
+        return value_.size();
+    }
+
+    const char* data() const
+    {
+        return value_.data();
+    }
+
+    void push_back(char value)
+    {
+        value_.push_back(value);
+    }
+
+    void clear()
+    {
+        value_.clear();
+    }
+
+private:
+    std::string value_;
+};
+}
 
 inline int string_length(const char* value)
 {
@@ -113,51 +140,43 @@ inline std::string_view get_string_view_with_embedded_null()
     return std::string_view(value, sizeof(value));
 }
 
-inline int ea_string_view_length(ea::string_view value)
+inline int custom_string_view_length(e2e_std::string_view value)
 {
     return static_cast<int>(value.size());
 }
 
-inline int ea_string_view_embedded_null_length(ea::string_view value)
+inline int custom_string_view_embedded_null_length(e2e_std::string_view value)
 {
     return static_cast<int>(value.size());
 }
 
-inline ea::string_view get_ea_string_view_message()
+inline e2e_std::string_view get_custom_string_view_message()
 {
-    return "Hello from ea::string_view";
+    return "Hello from custom string_view";
 }
 
-class ea_compat_string
+inline e2e_std::string make_custom_std_string(const char* value)
 {
-public:
-    ea_compat_string() = default;
-
-    std::size_t size() const
+    e2e_std::string result;
+    while (*value)
     {
-        return value_.size();
+        result.push_back(*value++);
     }
 
-    const char* data() const
-    {
-        return value_.data();
-    }
+    return result;
+}
 
-    void push_back(char value)
-    {
-        value_.push_back(value);
-    }
-
-    void clear()
-    {
-        value_.clear();
-    }
-
-private:
-    std::string value_;
-};
-
-inline int measure_ea_string(const ea_compat_string& value)
+inline int measure_custom_std_string(const e2e_std::string& value)
 {
     return static_cast<int>(value.size());
+}
+
+inline int measure_custom_std_string_pointer(const e2e_std::string* value)
+{
+    return value != nullptr ? static_cast<int>(value->size()) : -1;
+}
+
+inline void append_custom_std_string(e2e_std::string& value, unsigned char byte)
+{
+    value.push_back(static_cast<char>(byte));
 }

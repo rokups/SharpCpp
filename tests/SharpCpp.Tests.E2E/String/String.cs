@@ -1,7 +1,5 @@
 using System;
-using System.Text;
 
-using SharpCpp.Support;
 using SharpCpp.Tests.E2E.Generated;
 
 using Xunit;
@@ -94,45 +92,44 @@ public sealed class StringTests
     }
 
     [Fact]
-    public void EaStringViewLength_returns_correct_length()
+    public void CustomStringViewLength_returns_correct_length()
     {
-        Assert.Equal(5, E2EBindings.EaStringViewLength("hello"u8));
+        Assert.Equal(5, E2EBindings.CustomStringViewLength("hello"u8));
     }
 
     [Fact]
-    public void EaStringViewLength_preserves_embedded_nulls()
+    public void CustomStringViewLength_preserves_embedded_nulls()
     {
-        Assert.Equal(4, E2EBindings.EaStringViewEmbeddedNullLength("hi\0x"u8));
+        Assert.Equal(4, E2EBindings.CustomStringViewEmbeddedNullLength("hi\0x"u8));
     }
 
     [Fact]
-    public void GetEaStringViewMessage_returns_span()
+    public void GetCustomStringViewMessage_returns_span()
     {
-        Assert.True(E2EBindings.GetEaStringViewMessage().SequenceEqual("Hello from ea::string_view"u8));
+        Assert.True(E2EBindings.GetCustomStringViewMessage().SequenceEqual("Hello from custom string_view"u8));
     }
 
     [Fact]
-    public void String_type_exists_and_inherits_StringBase()
+    public void Custom_standard_library_string_round_trips_through_generated_storage()
     {
-        Assert.True(typeof(Std.String).IsSubclassOf(typeof(StringBase)));
-    }
+        using var value = E2EBindings.MakeCustomStdString("hello"u8);
+        Assert.Equal("hello", value.ToString());
+        Assert.Equal(5, E2EBindings.MeasureCustomStdString(value));
+        Assert.Equal(5, E2EBindings.MeasureCustomStdStringPointer(value));
+        Assert.Equal(-1, E2EBindings.MeasureCustomStdStringPointer(null!));
 
-    [Fact]
-    public void EaString_type_exists_and_inherits_StringBase()
-    {
-        Assert.True(typeof(global::Ea.String).IsSubclassOf(typeof(StringBase)));
-    }
+        value.Assign("updated");
+        E2EBindings.AppendCustomStdString(value, (byte)'!');
+        Assert.Equal("updated!", value.ToString());
+        Assert.Equal(8, E2EBindings.MeasureCustomStdString(value));
 
-    [Fact]
-    public void EaString_round_trips_and_remains_distinct_from_std_string()
-    {
-        var eaType = typeof(global::Ea.String);
-        var value = Activator.CreateInstance(eaType)!;
-        eaType.GetMethod("Assign", [typeof(string)])!.Invoke(value, ["hello"]);
+        using var clone = value.Clone();
+        clone.Assign("clone");
+        Assert.Equal(5, E2EBindings.MeasureCustomStdString(clone));
+        Assert.Equal(8, E2EBindings.MeasureCustomStdString(value));
 
-        var method = typeof(E2EBindings).GetMethod("MeasureEaString")!;
-        Assert.Equal(5, method.Invoke(null, [value]));
-        Assert.Equal(eaType, method.GetParameters()[0].ParameterType);
-        Assert.NotEqual(typeof(Std.String), eaType);
+        using var created = new global::E2EStd.String();
+        created.Assign("created");
+        Assert.Equal(7, E2EBindings.MeasureCustomStdString(created));
     }
 }

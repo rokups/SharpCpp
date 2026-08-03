@@ -11,7 +11,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\SharpCpp.Support\SharpCpp.Support.csproj" />
-    <ProjectReference Include="..\..\rbfx\SharpCpp.Ea\SharpCpp.Ea.csproj" />
     <ProjectReference Include="..\..\src\SharpCpp.Std\SharpCpp.Std.csproj" />
   </ItemGroup>
 

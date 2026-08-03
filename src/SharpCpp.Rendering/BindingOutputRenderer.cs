@@ -4419,27 +4419,6 @@ public static partial class BindingOutputRenderer
             return writer.ToString();
         }
 
-        if (function.Parameters.Count == 1 && function.OperatorToken == "!=" && !HasOperator(record, "=="))
-        {
-            writer.Write($$"""
-                public bool Equals({{record.ManagedName}} rhs)
-                {
-                return !__PInvoke.{{function.ManagedName}}(this, rhs);
-                }
-
-                public static bool operator ==({{record.ManagedName}} left, {{record.ManagedName}} right)
-                {
-                return !__PInvoke.{{function.ManagedName}}(left, right);
-                }
-
-                public static bool operator !=({{record.ManagedName}} left, {{record.ManagedName}} right)
-                {
-                return __PInvoke.{{function.ManagedName}}(left, right);
-                }
-            """);
-            return writer.ToString();
-        }
-
         if (function.Parameters.Count == 1 && function.OperatorToken == "<" && !HasOperator(record, ">"))
         {
             writer.Write($$"""
@@ -4448,18 +4427,6 @@ public static partial class BindingOutputRenderer
                 return __PInvoke.{{function.ManagedName}}(this, rhs);
                 }
             """);
-            return writer.ToString();
-        }
-
-        if (function.OperatorToken == "!" && function.Parameters.Count == 0)
-        {
-            var returnTypeName = GetManagedWrapperTypeName(function.ReturnType, compilation);
-            writer.Write($$"""
-                public static {{returnTypeName}} operator !({{record.ManagedName}} value)
-                {
-                return __PInvoke.{{function.ManagedName}}(value);
-                }
-                """);
             return writer.ToString();
         }
 
