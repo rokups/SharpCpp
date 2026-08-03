@@ -149,11 +149,6 @@ Current worktree verification passes with generic complex C++ values crossing ca
 
 ## Recently Fixed
 
-- **Pointers to external incomplete records now stay available as opaque pointers**:
-  - `LowerForwardDeclaredHandlesPass` lowers handle references whose record declaration is absent from the owned compilation to `IntPtr`, matching its existing treatment of owned forward declarations.
-  - Native type qualification leaves unresolved placeholder records at their source spelling instead of synthesizing a nested qualified name that may not exist in C++.
-  - This keeps fields such as pointers to intentionally incomplete native record types usable without target-specific generator accessors.
-
 - **Projected-value field setters now use their configured ABI conversion**:
   - Value-pointer field setters receive `arg_t<T>*` and convert through `ParameterMarshaller<T>` before native assignment; borrowed native-storage fields keep their separate `field_t<T>` path.
   - Added generated-binding E2E coverage with a projected field whose ABI value differs from its native storage value.
