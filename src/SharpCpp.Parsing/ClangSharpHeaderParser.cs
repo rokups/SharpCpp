@@ -3818,7 +3818,10 @@ public sealed partial class ClangSharpHeaderParser
         var spelling = NormalizeTypeName(type.Spelling.ToString());
         var canonicalTypeName = NormalizeTypeName(type.CanonicalType.Spelling.ToString());
 
-        if (TryGetQualifiedNamedType(type, out var unqualifiedName, out var qualifiedName))
+        if (TryGetQualifiedNamedType(type, out var unqualifiedName, out var qualifiedName) &&
+            !recordsByName.Values.Any(record =>
+                record.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) &&
+                string.Equals(record.CppQualifiedName, qualifiedName, StringComparison.Ordinal)))
         {
             var surfaceNamedType = NormalizeNamedTypeName(spelling)
                 .TrimEnd('*', '&')
@@ -3846,7 +3849,7 @@ public sealed partial class ClangSharpHeaderParser
 
         foreach (var record in recordsByName.Values.OrderByDescending(static record => record.NativeName.Length))
         {
-            if (record.IsGeneric)
+            if (record.IsGeneric || record.GetMetadata<bool>(MetadataKeys.PlaceholderRecord))
             {
                 continue;
             }
