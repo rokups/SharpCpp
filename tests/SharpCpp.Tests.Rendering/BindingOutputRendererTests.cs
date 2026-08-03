@@ -2162,6 +2162,7 @@ public sealed class BindingOutputRendererTests
 
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var aliasOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.Aliases.g.cs", StringComparison.Ordinal)).Content;
         var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
 
         Assert.Contains("public virtual void SetTargets(uint count, global::System.ReadOnlySpan<global::SharpCpp.Sample.TextureView?> views)", managedOutput, StringComparison.Ordinal);
@@ -3363,6 +3364,7 @@ public sealed class BindingOutputRendererTests
 
         var files = BindingOutputRenderer.Render(compilation, "SharpCppSample").Files;
         var managedOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cs", StringComparison.Ordinal)).Content;
+        var aliasOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.Aliases.g.cs", StringComparison.Ordinal)).Content;
         var nativeOutput = files.Single(static file => file.RelativePath.EndsWith(".Bindings.g.cpp", StringComparison.Ordinal)).Content;
 
         Assert.Contains("internal static readonly global::SharpCpp.Support.DefaultNativeInstanceCache s_instanceCache = new global::SharpCpp.Support.DefaultNativeInstanceCache();", managedOutput, StringComparison.Ordinal);
@@ -3371,6 +3373,7 @@ public sealed class BindingOutputRendererTests
         Assert.Contains("[global::System.Runtime.CompilerServices.ModuleInitializer]", managedOutput, StringComparison.Ordinal);
         Assert.Contains("global::SharpCpp.Support.NativeObjectRegistry.RegisterType<global::SharpCpp.Sample.BaseCounter>();", managedOutput, StringComparison.Ordinal);
         Assert.Contains("global::SharpCpp.Support.NativeObjectRegistry.RegisterType<global::SharpCpp.Sample.DerivedCounter>();", managedOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("__NativeObjectRegistryInitializer", aliasOutput, StringComparison.Ordinal);
         Assert.Contains("INativeObjectRegistration<BaseCounter>", managedOutput, StringComparison.Ordinal);
         Assert.Contains("sharpcpp_e2e_base_counter_type_id", nativeOutput, StringComparison.Ordinal);
         Assert.Contains("sharpcpp_e2e_base_counter_metadata", nativeOutput, StringComparison.Ordinal);

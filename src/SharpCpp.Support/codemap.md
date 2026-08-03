@@ -8,6 +8,7 @@
 - **Lifetime coordination**: deterministic disposal of native resources through `SafeHandle`'s `ReleaseHandle`, dual-path cleanup (managed `Dispose` vs. native-initiated destruction via `DisposeFromNativeRuntimeCore`), and a managed keep-alive mechanism to prevent GC reclamation of wrapper-visible resources.
 - **Type resolution**: a static registry (`NativeObjectRegistry`) that maps runtime type IDs from the native side to the correct generated wrapper factories, enabling polymorphic wrapper creation (e.g., returning the most derived managed type for a native object whose exact type is only known at runtime).
 - **String marshalling**: `StringBase` bridges managed `string` ↔ native UTF-8 byte buffers via virtual dispatch to generated override methods that call native `std::string` operations.
+- **Shared-wrapper provider selection**: `SharedProviderRegistry<TRootProvider>` stores module-owned native providers and prefers the requesting module without coupling the runtime to any standard-library vendor.
 
 ## Assembly Identity
 
@@ -24,6 +25,8 @@
 | `INativeObjectRegistration<TSelf>` | `interface` (static abstract) | `INativeObjectRegistration.cs:3` | Contract implemented by generated wrapper types (`where TSelf : NativeObject`). Provides per-type metadata without reflection: `RegistrationDynamicTypeId` (`nuint`), `RegistrationExpectedType`, `RegistrationInstanceCache`, `RegistrationCreateFactory`, and `RegistrationGetMetadata(nint)`. |
 | `NativeObjectMetadata` | `readonly struct` | `NativeObjectMetadata.cs:6` | Blittable value type (`[StructLayout(LayoutKind.Sequential)]`) flowing across P/Invoke. Carries native pointer (`Handle`) and C++ runtime type ID (`DynamicTypeId`). `Normalize(nint)` replaces a null handle with a fallback. |
 | `NativeObjectRegistry` | `abstract class` (all static) | `NativeObjectRegistry.cs:5` | Static type registry mapping native dynamic type IDs → (expected CLR type, factory delegate, instance cache). `Create<T>(nint, bool)` resolves polymorphic wrappers: cache lookup → native metadata query → registry resolution → factory invocation. `RegisterType<T>()` reads from `INativeObjectRegistration<T>`; also exposes a direct `RegisterType(...)` overload. |
+| `ISharedProvider` | `interface` | `SharedProviderRegistry.cs` | Common module and native-shape identity implemented by provider roots in shared wrapper assemblies. |
+| `SharedProviderRegistry<TRootProvider>` | `static class` | `SharedProviderRegistry.cs` | Small locked registry isolated by provider-root type. Resolves module-local providers first and rejects ambiguous global fallback. |
 | `INativeInstanceCache` | `interface` | `INativeInstanceCache.cs:3` | Contract for per-type instance caches keyed by native handle. `TryGetExisting(nint, bool, out NativeObject?)` performs ownership-compatible lookup; `Register(NativeObject)` and `Unregister(NativeObject)` manage entries. |
 | `DefaultNativeInstanceCache` | `sealed class` | `DefaultNativeInstanceCache.cs:6` | Thread-safe `ConcurrentDictionary<nint, WeakReference<NativeObject>>` implementation. Uses weak references so the cache never prevents GC. On registration, silently drops non-owning duplicates when an owning entry already exists. On lookup, purges stale entries. |
 
@@ -81,6 +84,7 @@ NativeObject (SafeHandle)
       └── UnorderedMapBase<TKey,TValue>
 
 Utf8SpanReturnMarshaller (standalone — CustomMarshaller for [LibraryImport])
+SharedProviderRegistry<TRootProvider> (standalone — module-local shared-wrapper providers)
 AssemblyMarker (standalone — reflection target only)
 ```
 

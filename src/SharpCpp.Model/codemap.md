@@ -12,6 +12,7 @@ Owns:
 - **Diagnostics** (`Diagnostics/`): Stamped diagnostic records, thread-safe collector, severity/stage enums, source references.
 - **Code emission utility** (`CodeWriter`): Indentation-aware `StringBuilder` wrapper for emitting generated C#/C++.
 - **Metadata key constants** (`MetadataKeys`): Well-known string keys for the per-node metadata dictionary.
+- **Shared-wrapper naming** (`SharedWrapperNaming`): One stable basename-plus-hash naming contract used by parsing, metadata import, and rendering.
 - **Assembly identity** (`AssemblyMarker`): Empty marker class for project-level assembly referencing.
 
 ## Design Patterns
@@ -125,4 +126,5 @@ Pipeline passes mutate the tree in place:
 - `AssemblyMarker` class provides a stable target for project references (`ProjectReference` in `.csproj` files).
 - `BindingNodeKind` enables switch-on-kind patterns without reflection.
 - `MetadataKeys` strings form an implicit contract: any stage can write, any downstream can read. Wrong key spelling is a silent null — no compile-time safety.
+- `SharedWrapperNaming` keeps exported entrypoint identities deterministic and consistent across independently generated modules.
 - `BindingType` singletons and factory methods are the only way to create type descriptors — no direct `BindingType(...)` construction (constructor is private).

@@ -5,18 +5,8 @@ namespace Std.Infrastructure;
 /// <summary>
 /// Common identity carried by a provider emitted by one generated binding module.
 /// </summary>
-public interface IProvider
+public interface IProvider : global::SharpCpp.Support.ISharedProvider
 {
-    /// <summary>
-    /// Stable identifier for the generated binding module that owns this provider.
-    /// </summary>
-    string ModuleId { get; }
-
-    /// <summary>
-    /// Native shape handled by this provider. Providers for fixed arrays must include
-    /// the native length in this key.
-    /// </summary>
-    string ShapeKey { get; }
 }
 
 /// <summary>

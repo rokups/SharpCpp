@@ -157,7 +157,7 @@ public static partial class BindingOutputRenderer
                 new GeneratedBindingFile($"{fileStem}.Bindings.g.cs", RenderManagedBindings(
                     compilation,
                     includeCallbackHelpers: false)),
-                new GeneratedBindingFile($"{fileStem}.Bindings.Aliases.g.cs", RenderAliasBindings(compilation, includeRegistry: true, includeSharedCallbackHelpers: true)),
+                new GeneratedBindingFile($"{fileStem}.Bindings.Aliases.g.cs", RenderAliasBindings(compilation, includeSharedCallbackHelpers: true)),
                 new GeneratedBindingFile($"{fileStem}.Bindings.g.cpp", RenderNativeBindings(compilation, includeCallbackReleaseRegistration: includeCallbackReleaseRegistration))
             };
             return new GeneratedBindingSet(files);
@@ -2450,8 +2450,9 @@ public static partial class BindingOutputRenderer
 
         foreach (var shape in distinctShapes)
         {
+            var interfaceName = GetSharedProviderInterfaceTypeName(compilation, shape.Record, shape.Instantiation);
             writer.WriteLine(
-                $"        {GetSharedManagedInfrastructureNamespace(compilation, shape.Record)}.ProviderRegistry.Register(new {GetSharedProviderTypeName(shape.Record, shape.Instantiation)}());");
+                $"        {GetSharedManagedInfrastructureNamespace(compilation, shape.Record)}.ProviderRegistry.Register<{interfaceName}>(new {GetSharedProviderTypeName(shape.Record, shape.Instantiation)}());");
         }
 
         writer.Write(
@@ -6879,10 +6880,15 @@ public static partial class BindingOutputRenderer
     }
 
     private static string GetNativeDeleteEntryPointName(BindingCompilation compilation, RecordBinding record)
-        => $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_delete";
+        => $"{compilation.EntryPointPrefix}_{GetNativeRecordEntryPointToken(record)}_delete";
 
     private static string GetNativeCloneEntryPointName(BindingCompilation compilation, RecordBinding record)
-        => $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_clone";
+        => $"{compilation.EntryPointPrefix}_{GetNativeRecordEntryPointToken(record)}_clone";
+
+    private static string GetNativeRecordEntryPointToken(RecordBinding record)
+        => IsSharedManagedWrapper(record)
+            ? GetSharedNativeShapeToken(record.CppQualifiedName)
+            : SanitizeNativeEntrypointName(record.CppQualifiedName);
 
     private static string GetInstanceCacheFactoryExpression(RecordBinding record)
     {

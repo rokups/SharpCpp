@@ -1299,48 +1299,42 @@ public static partial class BindingOutputRenderer
     }
 
     private static string GetFixedArrayCreateEntryPointName(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
-    {
-        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_array_create_{GetFixedArrayInstantiationToken(instantiation)}";
-    }
+        => GetGenericArrayEntryPointName(compilation, record, instantiation, "array_create", GetFixedArrayInstantiationToken(instantiation));
 
     private static string GetFixedArrayDeleteEntryPointName(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
-    {
-        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_array_delete_{GetFixedArrayInstantiationToken(instantiation)}";
-    }
+        => GetGenericArrayEntryPointName(compilation, record, instantiation, "array_delete", GetFixedArrayInstantiationToken(instantiation));
 
     private static string GetFixedArrayGetEntryPointName(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
-    {
-        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_array_get_{GetFixedArrayInstantiationToken(instantiation)}";
-    }
+        => GetGenericArrayEntryPointName(compilation, record, instantiation, "array_get", GetFixedArrayInstantiationToken(instantiation));
 
     private static string GetFixedArraySetEntryPointName(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
-    {
-        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_array_set_{GetFixedArrayInstantiationToken(instantiation)}";
-    }
+        => GetGenericArrayEntryPointName(compilation, record, instantiation, "array_set", GetFixedArrayInstantiationToken(instantiation));
 
     private static string GetFixedArrayCloneEntryPointName(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
-    {
-        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_array_clone_{GetFixedArrayInstantiationToken(instantiation)}";
-    }
+        => GetGenericArrayEntryPointName(compilation, record, instantiation, "array_clone", GetFixedArrayInstantiationToken(instantiation));
 
     private static string GetDynamicArrayCreateEntryPointName(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
-    {
-        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_dynamic_array_create_{GetDynamicArrayInstantiationToken(instantiation)}";
-    }
+        => GetGenericArrayEntryPointName(compilation, record, instantiation, "dynamic_array_create", GetDynamicArrayInstantiationToken(instantiation));
 
     private static string GetDynamicArrayDeleteEntryPointName(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
-    {
-        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_dynamic_array_delete_{GetDynamicArrayInstantiationToken(instantiation)}";
-    }
+        => GetGenericArrayEntryPointName(compilation, record, instantiation, "dynamic_array_delete", GetDynamicArrayInstantiationToken(instantiation));
 
     private static string GetDynamicArrayGetEntryPointName(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
-    {
-        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_dynamic_array_get_{GetDynamicArrayInstantiationToken(instantiation)}";
-    }
+        => GetGenericArrayEntryPointName(compilation, record, instantiation, "dynamic_array_get", GetDynamicArrayInstantiationToken(instantiation));
 
     private static string GetDynamicArraySetEntryPointName(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
+        => GetGenericArrayEntryPointName(compilation, record, instantiation, "dynamic_array_set", GetDynamicArrayInstantiationToken(instantiation));
+
+    private static string GetGenericArrayEntryPointName(
+        BindingCompilation compilation,
+        RecordBinding record,
+        RecordGenericInstantiationBinding instantiation,
+        string operation,
+        string legacyInstantiationToken)
     {
-        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_dynamic_array_set_{GetDynamicArrayInstantiationToken(instantiation)}";
+        return IsSharedManagedWrapper(record)
+            ? $"{compilation.EntryPointPrefix}_{GetSharedNativeShapeToken(GetSharedProviderShapeKey(record, instantiation))}_{operation}"
+            : $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_{operation}_{legacyInstantiationToken}";
     }
 
     private static string RenderGenericArrayCreateDispatch(BindingCompilation compilation, RecordBinding record, IReadOnlyList<RecordGenericInstantiationBinding> instantiations)
@@ -1577,38 +1571,11 @@ public static partial class BindingOutputRenderer
     private static string GetSharedProviderToken(RecordBinding record, RecordGenericInstantiationBinding? instantiation)
     {
         var shape = GetSharedProviderShapeKey(record, instantiation);
-        return $"{SanitizeManagedToken(record.ManagedName)}_{ComputeStableSharedNameToken(shape)}";
+        return $"{SanitizeManagedToken(record.ManagedName)}_{SharedWrapperNaming.GetHashToken(shape)}";
     }
 
     private static string GetSharedNativeShapeToken(string value)
-    {
-        var basename = value;
-        var genericStart = basename.IndexOf('<');
-        if (genericStart >= 0)
-        {
-            basename = basename[..genericStart];
-        }
-
-        var namespaceSeparator = basename.LastIndexOf("::", StringComparison.Ordinal);
-        if (namespaceSeparator >= 0)
-        {
-            basename = basename[(namespaceSeparator + 2)..];
-        }
-
-        basename = SanitizeNativeEntrypointName(basename);
-        return $"{(string.IsNullOrWhiteSpace(basename) ? "shape" : basename)}_{ComputeStableSharedNameToken(value)}";
-    }
-
-    private static string ComputeStableSharedNameToken(string value)
-    {
-        uint hash = 2166136261;
-        foreach (var character in value)
-        {
-            hash = (hash ^ character) * 16777619;
-        }
-
-        return hash.ToString("x8", System.Globalization.CultureInfo.InvariantCulture);
-    }
+        => SharedWrapperNaming.GetTypeToken(value);
 
     private static string GetSharedProviderTypeName(RecordBinding record, RecordGenericInstantiationBinding? instantiation)
         => $"__{GetSharedProviderNamespaceToken(record)}Provider_{GetSharedProviderToken(record, instantiation)}";
@@ -1667,7 +1634,7 @@ public static partial class BindingOutputRenderer
 
     private static string GetSharedProviderCloneEntryPointName(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding? instantiation)
         => instantiation is null
-            ? $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_clone"
+            ? GetNativeCloneEntryPointName(compilation, record)
             : GetGenericCloneEntryPointName(compilation, record, instantiation);
 
     private static string RenderSharedProviderCloneImportDeclaration(
@@ -1692,10 +1659,11 @@ public static partial class BindingOutputRenderer
                 "Declare the provider contract family explicitly in the marshaller metadata.");
         }
 
-        return configuredKind.Trim().ToLowerInvariant() switch
+        var kind = configuredKind.Trim().ToLowerInvariant();
+        return kind switch
         {
-            "string" or "vector" or "list" or "array" or "dynamic_array" or "shared_array" or "map" or "unordered_map" or "sequence"
-                => configuredKind.Trim().ToLowerInvariant(),
+            "string" or "vector" or "list" or "array" or "dynamic_array" or "map" or "unordered_map" or "sequence"
+                => kind,
             _ => throw new InvalidOperationException(
                 $"Shared wrapper '{record.ManagedName}' uses unsupported provider kind '{configuredKind}'. " +
                 "Register a supported provider contract family before rendering.")
@@ -1714,7 +1682,7 @@ public static partial class BindingOutputRenderer
         IEnumerable<RecordGenericInstantiationBinding> instantiations = GetSharedProviderKind(record) switch
         {
             "array" => GetFixedArrayInstantiations(compilation, record),
-            "dynamic_array" or "shared_array" => GetDynamicArrayInstantiations(compilation, record),
+            "dynamic_array" => GetDynamicArrayInstantiations(compilation, record),
             _ => GetCanonicalManagedGenericInstantiations(compilation, record)
         };
 
@@ -1746,7 +1714,7 @@ public static partial class BindingOutputRenderer
             "vector" => $"{infrastructure}.IVectorProvider<{elementType}>",
             "list" => $"{infrastructure}.IListProvider<{elementType}>",
             "array" => $"{infrastructure}.IFixedArrayProvider<{elementType}>",
-            "dynamic_array" or "shared_array" => $"{infrastructure}.IDynamicArrayProvider<{elementType}>",
+            "dynamic_array" => $"{infrastructure}.IDynamicArrayProvider<{elementType}>",
             "map" => $"{infrastructure}.IMapProvider<{elementType}, {GetSharedManagedTypeName(compilation, arguments[1])}>",
             "unordered_map" => $"{infrastructure}.IUnorderedMapProvider<{elementType}, {GetSharedManagedTypeName(compilation, arguments[1])}>",
             _ => $"{infrastructure}.ISequenceProvider<{elementType}>"
@@ -1762,12 +1730,14 @@ public static partial class BindingOutputRenderer
         RecordGenericInstantiationBinding? instantiation,
         string managedMethodName,
         string arguments,
-        string fallback)
+        string? fallback = null)
     {
         var method = FindSharedProviderMethod(record, managedMethodName);
         if (method is null)
         {
-            return fallback;
+            return fallback ?? throw new InvalidOperationException(
+                $"Shared wrapper '{record.ManagedName}' requires provider method '{managedMethodName}'. " +
+                "Expose that operation in the marshaller metadata before rendering.");
         }
 
         var importName = GetSharedProviderMethodImportName(record, method, instantiation);
@@ -1835,8 +1805,11 @@ public static partial class BindingOutputRenderer
         var kind = GetSharedProviderKind(record);
         var canDelete = CanEmitSharedProviderDelete(record, instantiation);
         var canClone = CanEmitSharedProviderClone(compilation, record, instantiation);
-        var unsupportedClone = "throw new global::System.NotSupportedException(\"Native cloning is not available for this shape.\");";
-        var unsupportedDelete = "throw new global::System.NotSupportedException(\"Native deletion is not available for this shape.\")";
+        if (!canDelete)
+        {
+            throw new InvalidOperationException(
+                $"Shared wrapper '{record.ManagedName}' cannot provide native deletion for shape '{GetSharedProviderShapeKey(record, instantiation)}'.");
+        }
 
         writer.Write($$"""
             // Native shared-wrapper shape: {{GetSharedProviderShapeKey(record, instantiation)}}
@@ -1848,23 +1821,19 @@ public static partial class BindingOutputRenderer
 
         if (kind == "string")
         {
+            var getAtFallback = FindSharedProviderMethod(record, "GetDataCore") is null
+                ? null
+                : "global::System.Runtime.InteropServices.Marshal.ReadByte(GetData(handle), checked((int)index))";
             writer.Write($$"""
 
                 public nint Create() => {{accessor}}.{{GetSharedProviderCreateImportMethodName(record, instantiation)}}();
-
-                public nint Clone(nint handle)
-                {
-                    {{(canClone
-                        ? $"return {accessor}.{GetSharedProviderCloneImportMethodName(record, instantiation)}(handle);"
-                        : unsupportedClone)}}
-                }
-
-                public void Delete(nint handle) => {{(canDelete ? $"{accessor}.{GetSharedProviderDeleteImportName(record, instantiation)}(handle)" : unsupportedDelete)}};
-                public ulong GetCount(nint handle) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetCountCore", "handle", "throw new global::System.NotSupportedException(\"GetCountCore is not available for this shape.\")")}};
+                {{(canClone ? $"public nint Clone(nint handle) => {accessor}.{GetSharedProviderCloneImportMethodName(record, instantiation)}(handle);" : string.Empty)}}
+                public void Delete(nint handle) => {{accessor}}.{{GetSharedProviderDeleteImportName(record, instantiation)}}(handle);
+                public ulong GetCount(nint handle) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetCountCore", "handle")}};
                 public nint GetData(nint handle) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetDataCore", "handle", "0")}};
-                public byte GetAt(nint handle, ulong index) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetAtCore", "handle, index", "throw new global::System.NotSupportedException(\"GetAtCore is not available for this shape.\")")}};
-                public void Clear(nint handle) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "ClearCore", "handle", "throw new global::System.NotSupportedException(\"ClearCore is not available for this shape.\")")}};
-                public void Add(nint handle, byte value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "AddCore", "handle, value", "throw new global::System.NotSupportedException(\"AddCore is not available for this shape.\")")}};
+                public byte GetAt(nint handle, ulong index) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetAtCore", "handle, index", getAtFallback)}};
+                public void Clear(nint handle) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "ClearCore", "handle")}};
+                public void Add(nint handle, byte value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "AddCore", "handle, value")}};
             """);
         }
         else if (kind is "vector" or "list" or "sequence")
@@ -1873,22 +1842,15 @@ public static partial class BindingOutputRenderer
             writer.Write($$"""
 
                 public nint Create() => {{accessor}}.{{GetSharedProviderCreateImportMethodName(record, instantiation)}}();
-
-                public nint Clone(nint handle)
-                {
-                    {{(canClone
-                        ? $"return {accessor}.{GetSharedProviderCloneImportMethodName(record, instantiation)}(handle);"
-                        : unsupportedClone)}}
-                }
-
-                public void Delete(nint handle) => {{(canDelete ? GetSharedProviderDeleteCall(compilation, record, instantiation, "handle") : unsupportedDelete)}};
-                public ulong GetCount(nint handle) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetCountCore", "handle", "throw new global::System.NotSupportedException(\"GetCountCore is not available for this shape.\")")}};
-                public void Clear(nint handle) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "ClearCore", "handle", "throw new global::System.NotSupportedException(\"ClearCore is not available for this shape.\")")}};
-                public {{element}} GetAt(nint handle, ulong index) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetAtCore", "handle, index", "throw new global::System.NotSupportedException(\"GetAtCore is not available for this shape.\")")}};
-                public void SetAt(nint handle, ulong index, {{element}} value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "SetAtCore", "handle, index, value", "throw new global::System.NotSupportedException(\"SetAtCore is not available for this shape.\")")}};
-                public void Add(nint handle, {{element}} value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "AddCore", "handle, value", "throw new global::System.NotSupportedException(\"AddCore is not available for this shape.\")")}};
-                public void InsertAt(nint handle, ulong index, {{element}} value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "InsertAtCore", "handle, index, value", "throw new global::System.NotSupportedException(\"InsertAtCore is not available for this shape.\")")}};
-                public void RemoveAt(nint handle, ulong index) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "RemoveAtCore", "handle, index", "throw new global::System.NotSupportedException(\"RemoveAtCore is not available for this shape.\")")}};
+                {{(canClone ? $"public nint Clone(nint handle) => {accessor}.{GetSharedProviderCloneImportMethodName(record, instantiation)}(handle);" : string.Empty)}}
+                public void Delete(nint handle) => {{GetSharedProviderDeleteCall(compilation, record, instantiation, "handle")}};
+                public ulong GetCount(nint handle) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetCountCore", "handle")}};
+                public void Clear(nint handle) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "ClearCore", "handle")}};
+                public {{element}} GetAt(nint handle, ulong index) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetAtCore", "handle, index")}};
+                public void SetAt(nint handle, ulong index, {{element}} value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "SetAtCore", "handle, index, value")}};
+                public void Add(nint handle, {{element}} value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "AddCore", "handle, value")}};
+                public void InsertAt(nint handle, ulong index, {{element}} value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "InsertAtCore", "handle, index, value")}};
+                public void RemoveAt(nint handle, ulong index) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "RemoveAtCore", "handle, index")}};
             """);
         }
         else if (kind is "map" or "unordered_map")
@@ -1898,24 +1860,17 @@ public static partial class BindingOutputRenderer
             writer.Write($$"""
 
                 public nint Create() => {{accessor}}.{{GetSharedProviderCreateImportMethodName(record, instantiation)}}();
-
-                public nint Clone(nint handle)
-                {
-                    {{(canClone
-                        ? $"return {accessor}.{GetSharedProviderCloneImportMethodName(record, instantiation)}(handle);"
-                        : unsupportedClone)}}
-                }
-
-                public void Delete(nint handle) => {{(canDelete ? GetSharedProviderDeleteCall(compilation, record, instantiation, "handle") : unsupportedDelete)}};
-                public ulong GetCount(nint handle) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetCountCore", "handle", "throw new global::System.NotSupportedException(\"GetCountCore is not available for this shape.\")")}};
-                public void Clear(nint handle) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "ClearCore", "handle", "throw new global::System.NotSupportedException(\"ClearCore is not available for this shape.\")")}};
-                public bool ContainsKey(nint handle, {{key}} key) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "ContainsKeyCore", "handle, key", "throw new global::System.NotSupportedException(\"ContainsKeyCore is not available for this shape.\")")}};
-                public {{value}} GetValue(nint handle, {{key}} key) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetValueCore", "handle, key", "throw new global::System.NotSupportedException(\"GetValueCore is not available for this shape.\")")}};
-                public void SetValue(nint handle, {{key}} key, {{value}} value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "SetValueCore", "handle, key, value", "throw new global::System.NotSupportedException(\"SetValueCore is not available for this shape.\")")}};
-                public bool Add(nint handle, {{key}} key, {{value}} value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "AddCore", "handle, key, value", "throw new global::System.NotSupportedException(\"AddCore is not available for this shape.\")")}};
-                public bool Remove(nint handle, {{key}} key) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "RemoveCore", "handle, key", "throw new global::System.NotSupportedException(\"RemoveCore is not available for this shape.\")")}};
-                public {{key}} GetKeyAt(nint handle, ulong index) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetKeyAtCore", "handle, index", "throw new global::System.NotSupportedException(\"GetKeyAtCore is not available for this shape.\")")}};
-                public {{value}} GetValueAt(nint handle, ulong index) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetValueAtCore", "handle, index", "throw new global::System.NotSupportedException(\"GetValueAtCore is not available for this shape.\")")}};
+                {{(canClone ? $"public nint Clone(nint handle) => {accessor}.{GetSharedProviderCloneImportMethodName(record, instantiation)}(handle);" : string.Empty)}}
+                public void Delete(nint handle) => {{GetSharedProviderDeleteCall(compilation, record, instantiation, "handle")}};
+                public ulong GetCount(nint handle) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetCountCore", "handle")}};
+                public void Clear(nint handle) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "ClearCore", "handle")}};
+                public bool ContainsKey(nint handle, {{key}} key) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "ContainsKeyCore", "handle, key")}};
+                public {{value}} GetValue(nint handle, {{key}} key) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetValueCore", "handle, key")}};
+                public void SetValue(nint handle, {{key}} key, {{value}} value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "SetValueCore", "handle, key, value")}};
+                public bool Add(nint handle, {{key}} key, {{value}} value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "AddCore", "handle, key, value")}};
+                public bool Remove(nint handle, {{key}} key) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "RemoveCore", "handle, key")}};
+                public {{key}} GetKeyAt(nint handle, ulong index) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetKeyAtCore", "handle, index")}};
+                public {{value}} GetValueAt(nint handle, ulong index) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetValueAtCore", "handle, index")}};
             """);
         }
         else if (kind == "array")
@@ -1938,8 +1893,8 @@ public static partial class BindingOutputRenderer
 
                 public int Length => {{length}};
                 public nint Create() => {{accessor}}.__Array_Create_{{token}}().Handle;
-                public nint Clone(nint handle) => {{(canClone ? $"{accessor}.__Array_Clone_{token}(new global::SharpCpp.Support.NativeArrayAbi(handle, (nuint)Length)).Handle" : unsupportedClone)}};
-                public void Delete(nint handle) => {{(canDelete ? $"{accessor}.__Array_Delete_{token}(new global::SharpCpp.Support.NativeArrayAbi(handle, (nuint)Length))" : unsupportedDelete)}};
+                {{(canClone ? $"public nint Clone(nint handle) => {accessor}.__Array_Clone_{token}(new global::SharpCpp.Support.NativeArrayAbi(handle, (nuint)Length)).Handle;" : string.Empty)}}
+                public void Delete(nint handle) => {{accessor}}.__Array_Delete_{{token}}(new global::SharpCpp.Support.NativeArrayAbi(handle, (nuint)Length));
                 public {{element}} GetAt(nint handle, nuint index) => {{wrappedGet}};
                 public void SetAt(nint handle, nuint index, {{element}} value)
                 {
@@ -1947,7 +1902,7 @@ public static partial class BindingOutputRenderer
                 }
             """);
         }
-        else if (kind is "dynamic_array" or "shared_array")
+        else if (kind == "dynamic_array")
         {
             var elementBinding = instantiation!.TypeArguments[0];
             var element = GetSharedManagedTypeName(compilation, elementBinding);
@@ -1965,13 +1920,12 @@ public static partial class BindingOutputRenderer
             writer.Write($$"""
 
                 public nint Create(int length) => {{accessor}}.__Array_Create_{{token}}((nuint)length);
-                public void Delete(nint handle) => {{(canDelete ? $"{accessor}.__Array_Delete_{token}(handle)" : unsupportedDelete)}};
+                public void Delete(nint handle) => {{accessor}}.__Array_Delete_{{token}}(handle);
                 public {{element}} GetAt(nint handle, nuint index) => {{wrappedGet}};
                 public void SetAt(nint handle, nuint index, {{element}} value)
                 {
                     {{accessor}}.__Array_Set_{{token}}(handle, index, {{setValue}});{{setKeepAlive}}
                 }
-                public int? GetLength(nint handle) => null;
             """);
         }
 
@@ -3113,16 +3067,32 @@ public static partial class BindingOutputRenderer
 
     private static string GetGenericEntryPointName(FunctionBinding function, RecordGenericInstantiationBinding instantiation)
     {
+        if (function.FindOwningRecord() is { } owner && IsSharedManagedWrapper(owner))
+        {
+            var shape = GetSharedProviderShapeKey(owner, instantiation);
+            return $"{function.EntryPointName}_{SharedWrapperNaming.GetHashToken(shape)}";
+        }
+
         return $"{function.EntryPointName}{GetGenericInstantiationSuffix(instantiation)}";
     }
 
     private static string GetGenericDeleteEntryPointName(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
+        if (IsSharedManagedWrapper(record))
+        {
+            return $"{compilation.EntryPointPrefix}_{GetSharedNativeShapeToken(GetSharedProviderShapeKey(record, instantiation))}_delete";
+        }
+
         return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_delete{GetGenericInstantiationSuffix(instantiation)}";
     }
 
     private static string GetGenericCloneEntryPointName(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
+        if (IsSharedManagedWrapper(record))
+        {
+            return $"{compilation.EntryPointPrefix}_{GetSharedNativeShapeToken(GetSharedProviderShapeKey(record, instantiation))}_clone";
+        }
+
         return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_clone{GetGenericInstantiationSuffix(instantiation)}";
     }
 

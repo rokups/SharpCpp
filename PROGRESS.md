@@ -157,6 +157,13 @@ Current worktree verification passes with generic complex C++ values crossing ca
 
 ## Recently Fixed
 
+- **Shared standard-library wrappers now use one small generic provider infrastructure**:
+  - `SharpCpp.Support` owns the module-local provider registry; `SharpCpp.Std` and rbfx's `SharpCpp.Ea` keep only thin isolated facades instead of duplicate concurrent registries and redundant locking.
+  - Required provider operations fail during generation instead of compiling runtime `NotSupportedException` stubs. String byte access is derived from an exposed data pointer when direct indexing is unavailable.
+  - Shared native exports consistently use one basename-plus-hash naming contract across parsing, metadata import, and rendering. Clone imports now match their hashed native exports.
+  - Ungrouped output emits the native-object registry initializer once; the alias/provider file no longer duplicates it.
+  - Verification: model 221, metadata 17, rendering 127, native E2E 214, and RedBolt RmlUi binding 11 tests pass. The full RedBolt desktop/Web solution builds and the MultipleViewports sample renders successfully without an EASTL assembly reference.
+
 - **Projected-value field setters now use their configured ABI conversion**:
   - Value-pointer field setters receive `arg_t<T>*` and convert through `ParameterMarshaller<T>` before native assignment; borrowed native-storage fields keep their separate `field_t<T>` path.
   - Added generated-binding E2E coverage with a projected field whose ABI value differs from its native storage value.

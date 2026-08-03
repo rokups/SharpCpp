@@ -1,8 +1,10 @@
 using System.Text.RegularExpressions;
 
-using SharpCpp.Model.Ast;
 using Microsoft.Extensions.Logging;
+
+using SharpCpp.Model.Ast;
 using SharpCpp.Model.Logging;
+using SharpCpp.Model.Utilities;
 
 namespace SharpCpp.Parsing;
 
@@ -340,7 +342,7 @@ public static class MarshallerMetadataPhase2
                 var functionSymbolId = $"method:{record.CppQualifiedName}:{memberSignature}";
                 var entryPointRecordToken = GetMarshallerEntrypointRecordToken(record);
                 var entryPointMemberToken = record.HasMetadata(MetadataKeys.ManagedWrapperAssembly)
-                    ? BuildSharedEntrypointMemberToken(member.MethodName, functionSymbolId)
+                    ? SharedWrapperNaming.GetMemberToken(member.MethodName, functionSymbolId)
                     : exposedMethodNameCounts[member.MethodName] > 1
                         ? $"{member.MethodName}_{SanitizeExposedEntrypointToken(memberSignature)}"
                         : member.MethodName;
@@ -395,8 +397,8 @@ public static class MarshallerMetadataPhase2
             var suffix = function.IsConstructor
                 ? string.Equals(function.SymbolId, $"ctor:{record.CppQualifiedName}:marshaller-default", StringComparison.Ordinal)
                     ? "ctor"
-                    : BuildSharedEntrypointMemberToken("ctor", function.SymbolId)
-                : BuildSharedEntrypointMemberToken(function.NativeName, function.SymbolId);
+                    : SharedWrapperNaming.GetMemberToken("ctor", function.SymbolId)
+                : SharedWrapperNaming.GetMemberToken(function.NativeName, function.SymbolId);
             function.EntryPointName = $"{compilation.EntryPointPrefix}_{owner}_{suffix}";
         }
     }
@@ -434,44 +436,8 @@ public static class MarshallerMetadataPhase2
 
     private static string GetMarshallerEntrypointRecordToken(RecordBinding record)
         => record.HasMetadata(MetadataKeys.ManagedWrapperAssembly)
-            ? BuildSharedEntrypointTypeToken(record.CppQualifiedName)
+            ? SharedWrapperNaming.GetTypeToken(record.CppQualifiedName)
             : SanitizeNativeEntrypointName(record.NativeName);
-
-    private static string BuildSharedEntrypointTypeToken(string value)
-    {
-        var basename = value;
-        var genericStart = basename.IndexOf('<');
-        if (genericStart >= 0)
-        {
-            basename = basename[..genericStart];
-        }
-
-        var namespaceSeparator = basename.LastIndexOf("::", StringComparison.Ordinal);
-        if (namespaceSeparator >= 0)
-        {
-            basename = basename[(namespaceSeparator + 2)..];
-        }
-
-        basename = SanitizeNativeEntrypointName(basename);
-        return $"{(string.IsNullOrWhiteSpace(basename) ? "shared" : basename)}_{ComputeStableEntrypointHash(value)}";
-    }
-
-    private static string BuildSharedEntrypointMemberToken(string methodName, string symbolId)
-    {
-        var basename = SanitizeNativeEntrypointName(methodName);
-        return $"{(string.IsNullOrWhiteSpace(basename) ? "method" : basename)}_{ComputeStableEntrypointHash(symbolId)}";
-    }
-
-    private static string ComputeStableEntrypointHash(string value)
-    {
-        uint hash = 2166136261;
-        foreach (var character in value)
-        {
-            hash = (hash ^ character) * 16777619;
-        }
-
-        return hash.ToString("x8", System.Globalization.CultureInfo.InvariantCulture);
-    }
 
     private static string BuildExposedMemberSignature(MarshallerConfigExtractor.ExposedMemberInfo member)
     {

@@ -3,6 +3,7 @@ using System.Text;
 
 using SharpCpp.Metadata.Export;
 using SharpCpp.Model.Ast;
+using SharpCpp.Model.Utilities;
 
 namespace SharpCpp.Metadata.Import;
 
@@ -251,7 +252,7 @@ public sealed class BindingMetadataImportCatalog
                 : member.EntryPoint;
             if (!string.IsNullOrWhiteSpace(importedType.ManagedWrapperAssembly))
             {
-                entryPoint = BuildImportedSharedEntryPointName(compilation, cppQualifiedName, member, record);
+                entryPoint = BuildImportedSharedEntryPointName(compilation, member, record);
             }
             var function = new FunctionBinding(
                 importedSymbolId ?? $"import:{document.Source.Package}:{importedType.SymbolId}:{member.Kind}:{member.NativeName}:{managedName}",
@@ -329,12 +330,10 @@ public sealed class BindingMetadataImportCatalog
 
     private static string BuildImportedSharedEntryPointName(
         BindingCompilation compilation,
-        string cppQualifiedName,
         BindingMetadataRecordMember member,
         RecordBinding record)
     {
-        _ = cppQualifiedName;
-        var owner = BuildSharedEntrypointTypeToken(record.CppQualifiedName);
+        var owner = SharedWrapperNaming.GetTypeToken(record.CppQualifiedName);
         // SymbolId is the signature-stable identity emitted by the exporting
         // module. Keep a deterministic fallback for older metadata documents
         // that predate member SymbolId export.
@@ -343,7 +342,7 @@ public sealed class BindingMetadataImportCatalog
             : member.SymbolId!;
         var suffix = member.IsConstructor && symbolId.EndsWith(":marshaller-default", StringComparison.Ordinal)
             ? "ctor"
-            : BuildSharedEntrypointMemberToken(member.IsConstructor ? "ctor" : member.NativeName, symbolId);
+            : SharedWrapperNaming.GetMemberToken(member.IsConstructor ? "ctor" : member.NativeName, symbolId);
         return $"{compilation.EntryPointPrefix}_{owner}_{suffix}";
     }
 
@@ -373,53 +372,6 @@ public sealed class BindingMetadataImportCatalog
             .Select(parameter => parameter.CppTypeName ?? parameter.Type.CppType));
         var kind = member.IsConstructor ? "ctor" : "method";
         return $"{kind}:{record.CppQualifiedName}:{member.NativeName}({parameters}){(member.IsConstMethod ? ":const" : string.Empty)}";
-    }
-
-    private static string BuildSharedEntrypointTypeToken(string value)
-    {
-        var basename = value;
-        var genericStart = basename.IndexOf('<');
-        if (genericStart >= 0)
-        {
-            basename = basename[..genericStart];
-        }
-
-        var namespaceSeparator = basename.LastIndexOf("::", StringComparison.Ordinal);
-        if (namespaceSeparator >= 0)
-        {
-            basename = basename[(namespaceSeparator + 2)..];
-        }
-
-        basename = SanitizeEntrypointPart(basename);
-        return $"{(string.IsNullOrWhiteSpace(basename) ? "shared" : basename)}_{ComputeStableEntrypointToken(value)}";
-    }
-
-    private static string BuildSharedEntrypointMemberToken(string methodName, string symbolId)
-    {
-        var basename = SanitizeEntrypointPart(methodName);
-        return $"{(string.IsNullOrWhiteSpace(basename) ? "method" : basename)}_{ComputeStableEntrypointToken(symbolId)}";
-    }
-
-    private static string ComputeStableEntrypointToken(string value)
-    {
-        uint hash = 2166136261;
-        foreach (var character in value)
-        {
-            hash = (hash ^ character) * 16777619;
-        }
-
-        return hash.ToString("x8", System.Globalization.CultureInfo.InvariantCulture);
-    }
-
-    private static string SanitizeEntrypointPart(string value)
-    {
-        var builder = new StringBuilder(value.Length);
-        foreach (var character in value)
-        {
-            builder.Append(char.IsLetterOrDigit(character) || character == '_' ? character : '_');
-        }
-
-        return builder.ToString().Trim('_');
     }
 
     private static BindingParameterAbiKind ParseParameterAbiKind(

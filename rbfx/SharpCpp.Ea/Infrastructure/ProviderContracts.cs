@@ -3,11 +3,8 @@ using System;
 namespace Ea.Infrastructure;
 
 /// <summary>Common identity carried by a generated EASTL provider.</summary>
-public interface IProvider
+public interface IProvider : global::SharpCpp.Support.ISharedProvider
 {
-    string ModuleId { get; }
-
-    string ShapeKey { get; }
 }
 
 /// <summary>Operations needed by the shared <see cref="global::Ea.String"/> wrapper.</summary>
@@ -135,9 +132,4 @@ public interface IDynamicArrayProvider<T> : IProvider
     void SetAt(nint handle, nuint index, T value);
 
     int? GetLength(nint handle) => null;
-}
-
-/// <summary>Compatibility name for older shared-array provider implementations.</summary>
-public interface ISharedArrayProvider<T> : IDynamicArrayProvider<T>
-{
 }
