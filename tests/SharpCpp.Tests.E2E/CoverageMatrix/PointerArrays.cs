@@ -14,6 +14,9 @@ public sealed class PointerArrayTests
         E2EBindings.IncrementPointerValues(values, (uint)values.Length);
         Assert.Equal(new[] { 3, 4, 6 }, values);
 
+        Assert.Equal(22, E2EBindings.SumPointerValuesWithDefault(values, (uint)values.Length));
+        Assert.Equal(17, E2EBindings.SumPointerValuesWithDefault(values, (uint)values.Length, 4));
+
         using var host = new PointerArrayHost(7);
         Assert.Equal(20, host.Sum(values, (uint)values.Length));
         host.Increment(values, (uint)values.Length);
@@ -28,6 +31,11 @@ public sealed class PointerArrayTests
         PointerArrayPayload?[] payloads = [first, second];
 
         Assert.Same(first, E2EBindings.FirstPointerPayload(payloads, (uint)payloads.Length));
+        E2EBindings.ChoosePointerPayload(payloads, (uint)payloads.Length, out var selected);
+        Assert.Same(second, selected);
+        Assert.Same(first, E2EBindings.PointerPayloadOrFallback(payloads, (uint)payloads.Length, second));
+        Assert.Same(second, E2EBindings.PointerPayloadOrFallback([], 0, second));
+        Assert.Equal(37, E2EBindings.AnchoredPointerPayloadSum(payloads, (uint)payloads.Length, second));
         Assert.Equal(37, E2EBindings.WeightedPointerPayloadSum(
             (uint)payloads.Length,
             payloads,

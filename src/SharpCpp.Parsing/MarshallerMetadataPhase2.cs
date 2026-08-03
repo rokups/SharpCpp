@@ -659,9 +659,21 @@ public static class MarshallerMetadataPhase2
 
     private static void MergeRecordInto(RecordBinding target, RecordBinding source)
     {
+        target.SetMetadata(
+            MetadataKeys.PlaceholderRecord,
+            target.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) &&
+            source.GetMetadata<bool>(MetadataKeys.PlaceholderRecord));
+        target.SetMetadata(
+            MetadataKeys.ForwardDeclaration,
+            target.GetMetadata<bool>(MetadataKeys.ForwardDeclaration) &&
+            source.GetMetadata<bool>(MetadataKeys.ForwardDeclaration));
         target.ManagedBaseTypeName ??= source.ManagedBaseTypeName;
         target.ManagedBaseTypeConstraints ??= source.ManagedBaseTypeConstraints;
-        target.ManagedTypeFormat ??= source.ManagedTypeFormat;
+        if (target.ManagedTypeFormat is null && source.ManagedTypeFormat is not null)
+        {
+            target.ManagedTypeFormat = source.ManagedTypeFormat;
+            target.ManagedName = source.ManagedName;
+        }
         target.ManagedNamespace ??= source.ManagedNamespace;
         target.HandleMarshallerTypeName ??= source.HandleMarshallerTypeName;
         target.ManagedInstanceCacheFactoryExpression ??= source.ManagedInstanceCacheFactoryExpression;
@@ -700,7 +712,9 @@ public static class MarshallerMetadataPhase2
 
         foreach (var metadata in source.Metadata)
         {
-            if (string.Equals(metadata.Key, MetadataKeys.SuppressEmission, StringComparison.Ordinal))
+            if (metadata.Key is MetadataKeys.SuppressEmission or
+                MetadataKeys.PlaceholderRecord or
+                MetadataKeys.ForwardDeclaration)
             {
                 continue;
             }

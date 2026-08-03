@@ -131,5 +131,23 @@ public sealed class StringTests
         using var created = new global::E2EStd.String();
         created.Assign("created");
         Assert.Equal(7, E2EBindings.MeasureCustomStdString(created));
+
+        Assert.Equal(17, created.Echo(17));
+        Assert.Equal(2.5, created.Echo(2.5));
+        Assert.True(created.EchoBool(true));
+        Assert.Equal((sbyte)-7, created.EchoChar((sbyte)-7));
+        Assert.Equal((byte)251, created.EchoByte(251));
+        Assert.Equal((short)-1234, created.EchoShort(-1234));
+        Assert.Equal((ushort)54321, created.EchoUShort(54321));
+        Assert.Equal(4_000_000_000u, created.EchoUInt(4_000_000_000u));
+        Assert.Equal((long)-5_000_000_000, created.EchoLong(-5_000_000_000));
+        Assert.Equal((ulong)10_000_000_000, created.EchoULong(10_000_000_000));
+        Assert.Equal((long)-6_000_000_000, created.EchoLongLong(-6_000_000_000));
+        Assert.Equal((ulong)11_000_000_000, created.EchoULongLong(11_000_000_000));
+        Assert.Equal(1.25f, created.EchoFloat(1.25f));
+        Assert.Equal((ulong)41, created.EchoSize(41));
+        Assert.Equal(0, created.EchoPointer(0));
+        created.Touch((byte)'!');
+        Assert.Equal("created!", created.ToString());
     }
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <functional>
 #include <vector>
 
 namespace sharpcpp_coverage
@@ -33,6 +34,8 @@ struct dependency_value
     dependency_state get_state() const { return state_; }
     void set_state(dependency_state state) { state_ = state; }
 
+    int exposed_value{};
+
 private:
     int value_{};
     dependency_state state_{dependency_state::idle};
@@ -44,6 +47,8 @@ using dependency_state_alias = dependency_state;
 using dependency_unsigned_alias = unsigned long long;
 using dependency_fixed_alias = std::array<int, 3>;
 using dependency_dynamic_alias = std::vector<int>;
+using dependency_action = std::function<void()>;
+using dependency_transform = std::function<int(int)>;
 
 struct dependency_base
 {
@@ -125,6 +130,17 @@ struct dependency_primitives
     long echo_native_int(long value) const { return value; }
     unsigned long echo_native_uint(unsigned long value) const { return value; }
     void* echo_pointer(void* value) const { return value; }
+    int echo_reference(const int& value) const { return value; }
+
+    void invoke_action(dependency_action callback) const
+    {
+        callback();
+    }
+
+    int invoke_transform(dependency_transform callback, int value) const
+    {
+        return callback(value);
+    }
 
     void update([[sharpcpp::ref]] int* value) const
     {

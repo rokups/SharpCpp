@@ -17,8 +17,10 @@ public sealed class MetadataDependencyTests
 
         value.Value = 73;
         value.State = DependencyState.Idle;
+        value.ExposedValue = 29;
         Assert.Equal(73, ConsumerBindings.ConsumeDependencyValue(value));
         Assert.Equal(DependencyState.Idle, value.State);
+        Assert.Equal(29, value.ExposedValue);
 
         Assert.Equal(73, ConsumerBindings.ConsumeDependencyHandleAlias(value));
         Assert.Equal(42UL, ConsumerBindings.ConsumeDependencyUnsignedAlias(41));
@@ -44,6 +46,17 @@ public sealed class MetadataDependencyTests
         Assert.Equal((nint)(-17), primitives.EchoNativeInt(-17));
         Assert.Equal((nuint)17, primitives.EchoNativeUint(17));
         Assert.Equal((nint)0x1234, primitives.EchoPointer((nint)0x1234));
+        Assert.Equal(31, primitives.EchoReference(31));
+
+        var dependencyObserved = 0;
+        primitives.InvokeAction(() => dependencyObserved = 37);
+        Assert.Equal(37, dependencyObserved);
+        Assert.Equal(42, primitives.InvokeTransform(number => number * 2, 21));
+
+        var consumerObserved = 0;
+        ConsumerBindings.ConsumeDependencyAction(() => consumerObserved = 41);
+        Assert.Equal(41, consumerObserved);
+        Assert.Equal(41, ConsumerBindings.ConsumeDependencyTransform(number => number * 2, 20));
 
         var updated = 9;
         primitives.Update(ref updated);

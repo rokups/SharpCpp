@@ -29,6 +29,16 @@ inline dependency_unsigned_alias consume_dependency_unsigned_alias(dependency_un
     return value + 1;
 }
 
+inline void consume_dependency_action(dependency_action callback)
+{
+    callback();
+}
+
+inline int consume_dependency_transform(dependency_transform callback, int value)
+{
+    return callback(value) + 1;
+}
+
 inline int consume_dependency_box_alias(const dependency_int_box_alias* value)
 {
     return value == nullptr ? -1 : value->get_value();
