@@ -4,8 +4,8 @@
 
 The **composition root** and **CLI entry point** of the SharpCpp binding generator. This layer owns:
 
-- **Startup and dispatch**: Parses CLI arguments and routes to the appropriate command handler (`sample-metadata`, `generate-sample`).
-- **Compilation construction**: Assembles a `BindingCompilation` (from the Model layer) by either hand-rolling sample data (`SampleCompilationFactory`) or driving real parsing via `ClangSharpHeaderParser` (Parsing layer).
+- **Startup and dispatch**: Parses CLI arguments and routes to `generate-sample`.
+- **Compilation construction**: Drives real C++ headers through `ClangSharpHeaderParser` into a `BindingCompilation`.
 - **Pipeline orchestration**: Invokes the bootstrap pipeline passes (`BindingCompilationBootstrapPipeline.Apply`) to normalize and decorate the model before rendering.
 - **Output materialization**: Writes rendered C# source files and serialized metadata JSON to the filesystem.
 
@@ -13,14 +13,9 @@ This layer performs no domain logic of its own — it wires, invokes, and writes
 
 ## Design
 
-### Two command modes (both thin vertical slices for bootstrap validation)
+### Command mode
 
-1. **`sample-metadata`** — fully synthetic path:
-   - `SampleCompilationFactory.CreateMetadataSample()` produces a `BindingCompilation` with hardcoded members (`SampleContext` record, `add_numbers` / `create_context` functions).
-   - `BindingMetadataExporter.Export()` converts it to a `BindingMetadataDocument`.
-   - `BindingMetadataSerializer.Serialize()` writes the metadata as JSON to stdout or a file.
-
-2. **`generate-sample`** — semi-realistic path:
+**`generate-sample`**:
    - Discovers `.hpp` header files under `tests/SharpCpp.Tests.E2E/`.
    - Constructs Clang arguments (C++20, include paths for system headers, project `include/`, and fixture root).
    - Instantiates `ClangSharpHeaderParser` to parse each header into model members, accumulating them into a single `BindingCompilation`.
@@ -39,15 +34,6 @@ This layer performs no domain logic of its own — it wires, invokes, and writes
 
 ```
 ┌─ args[] ──► Program.Main()
-│
-├── "sample-metadata" ──► EmitSampleMetadata()
-│   ├── SampleCompilationFactory.CreateMetadataSample()
-│   │     └── returns BindingCompilation (Model)
-│   ├── BindingMetadataExporter.Export(compilation, options)
-│   │     └── returns BindingMetadataDocument (Metadata)
-│   ├── BindingMetadataSerializer.Serialize(document)
-│   │     └── returns JSON string
-│   └── Console.Write / File.WriteAllText
 │
 ├── "generate-sample" ──► GenerateSampleBindings()
 │   ├── Resolve paths (--generated-root, --project-root, --file-stem)

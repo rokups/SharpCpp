@@ -86,9 +86,6 @@ public static partial class BindingOutputRenderer
             : function.ManagedClassName!;
     }
 
-    private static string GetBindingClassAccessor(BindingCompilation compilation)
-        => $"global::{compilation.ManagedNamespace}.{compilation.ManagedClassName}";
-
     private static bool IsSharedManagedWrapper(RecordBinding record)
         => !string.IsNullOrWhiteSpace(record.GetMetadata<string>(MetadataKeys.ManagedWrapperAssembly));
 
@@ -4550,15 +4547,12 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string RenderManagedInstanceImportDeclaration(BindingCompilation compilation, FunctionBinding function, string recordManagedName, bool useSafeHandleParams = false)
+    private static string RenderManagedInstanceImportDeclaration(BindingCompilation compilation, FunctionBinding function, string recordManagedName)
     {
         var writer = new CodeWriter();
-        Func<ParameterBinding, string> parameterRenderer = useSafeHandleParams
-            ? (Func<ParameterBinding, string>)(p => RenderManagedSafeHandleParameter(p))
-            : (Func<ParameterBinding, string>)(p => RenderManagedImportParameter(p, compilation));
         var parameterList = string.Join(
             ", ",
-            new[] { $"{recordManagedName} self" }.Concat(function.Parameters.Select(parameterRenderer)));
+            new[] { $"{recordManagedName} self" }.Concat(function.Parameters.Select(parameter => RenderManagedImportParameter(parameter, compilation))));
         var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
         var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, ReturnsOwnedHandle(function));
         var importMethodName = GetManagedImportMethodName(function);
@@ -5018,12 +5012,12 @@ public static partial class BindingOutputRenderer
         var directorRecords = records.Where(record => record.RequiresDirector(compilation)).ToArray();
         foreach (var record in directorRecords)
         {
-            var callbaseMethods = record.GetEffectiveVirtualMethodSlots(compilation)
-                .Select(static slot => slot.Method)
-                .Where(static method => !method.IsPureVirtual)
+            var callbaseSlots = record.GetEffectiveVirtualMethodSlots(compilation)
+                .Where(static slot => !slot.Method.IsPureVirtual)
                 .ToArray();
-            foreach (var method in callbaseMethods)
+            foreach (var slot in callbaseSlots)
             {
+                var method = slot.Method;
                 var parameterList = string.Join(", ", new[] { $"arg_t<{record.CppQualifiedName}*> self" }.Concat(method.Parameters.Select(RenderNativeParameter)));
                 var abiArguments = string.Join(", ", method.Parameters.Select(static p => p.NativeName));
                 var parameterCppList = string.Join(", ", method.Parameters.Select(static p => p.CppTypeName));
@@ -5061,7 +5055,7 @@ public static partial class BindingOutputRenderer
                 if (HasNativeDefaultDispatchParams(method) || HasUndefaultableParams(method))
                 {
                     writer.WriteLine();
-                    writer.Write(RenderNativeUnexpressibleDefaultCallbase(record, method));
+                    writer.Write(RenderNativeUnexpressibleDefaultCallbase(record, slot));
                 }
             }
         }
@@ -5831,23 +5825,6 @@ public static partial class BindingOutputRenderer
             : $"[MarshalUsing(typeof({GetQualifiedHandleInMarshallerTypeName(compilation, record)}))] ";
     }
 
-    private static string RenderManagedSafeHandleParameter(ParameterBinding parameter, BindingCompilation? compilation = null)
-    {
-        var modifier = parameter.Direction switch
-        {
-            BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => "in ",
-            BindingParameterDirection.Ref => "ref ",
-            BindingParameterDirection.Out => "out ",
-            _ => string.Empty
-        };
-        var attribute = GetManagedParameterAttribute(parameter, compilation);
-        var typeName = parameter.Type.Kind == BindingTypeKind.Handle
-            ? $"{GetManagedWrapperTypeName(parameter.Type, compilation)}?"
-            : GetManagedWrapperTypeName(parameter.Type, compilation);
-
-        return $"{attribute}{modifier}{typeName} {parameter.ManagedName}";
-    }
-
     private static bool CanUseManagedHandleParameterImport(ParameterBinding parameter, BindingType type)
     {
         return type.Kind == BindingTypeKind.Handle &&
@@ -5917,20 +5894,6 @@ public static partial class BindingOutputRenderer
                 ? $"{importTypeName}?"
                 : importTypeName;
         return $"{attributeFallback}{modifierFallback}{typeNameFallback} {parameter.ManagedName}";
-    }
-
-    private static string RenderManagedParameter(ParameterBinding parameter)
-    {
-        var modifier = parameter.Direction switch
-        {
-            BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => "in ",
-            BindingParameterDirection.Ref => "ref ",
-            BindingParameterDirection.Out => "out ",
-            _ => string.Empty
-        };
-        var attribute = GetManagedParameterAttribute(parameter.Type);
-
-        return $"{attribute}{modifier}{GetManagedImportTypeName(parameter.Type)} {parameter.ManagedName}";
     }
 
     private static string RenderManagedPublicParameter(ParameterBinding parameter, BindingCompilation? compilation = null)
@@ -7744,17 +7707,18 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string RenderNativeUnexpressibleDefaultCallbase(RecordBinding record, FunctionBinding method)
+    private static string RenderNativeUnexpressibleDefaultCallbase(RecordBinding record, VirtualMethodSlotBinding slot)
     {
+        var method = slot.Method;
         var writer = new CodeWriter();
-        var helperName = GetNativeCallbaseHelperName(method);
+        var directorName = GetNativeDirectorClassName(record);
         var baseEntrypointName = GetNativeCallbaseEntrypointName(record, method);
 
         foreach (var keepCount in GetVariantParameterIndices(method))
         {
             var variantParams = GetUnexpressibleVariantParams(method, keepCount);
             var forwardedArgs = ForwardVariantArgs(variantParams);
-            var invocation = $"return {helperName}(std::forward<decltype(self)>(self){(forwardedArgs.Length > 0 ? $", {forwardedArgs}" : string.Empty)});";
+            var invocation = $"return static_cast<{directorName}*>(std::forward<decltype(self)>(self))->{slot.NativeImplementationRecord.CppQualifiedName}::{method.NativeName}({forwardedArgs});";
             EmitUnexpressibleDefaultVariant(writer, method, variantParams, keepCount, baseEntrypointName, invocation, record.CppQualifiedName);
         }
         return writer.ToString();
@@ -7803,12 +7767,6 @@ public static partial class BindingOutputRenderer
             BindingParameterDirection.Out => $"out {valueExpression}",
             _ => valueExpression
         };
-    }
-
-    private static string BuildManagedDispatchArgumentRequired(ParameterBinding parameter, string plannedArgument)
-    {
-        // For required (non-nullable) params, just use the planned argument directly
-        return plannedArgument;
     }
 
     private static string BuildManagedDispatchArguments(FunctionBinding function, ManagedInvocationPlan plan, IReadOnlyList<string> leadingArguments, int keepCount)

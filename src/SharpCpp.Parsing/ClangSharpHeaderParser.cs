@@ -2100,7 +2100,6 @@ public sealed partial class ClangSharpHeaderParser
     // property on CXType (the public face of the managed type system).
 
     private static bool TypeIsLValueReference(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_LValueReference;
-    private static bool TypeIsRValueReference(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_RValueReference;
     private static bool TypeIsAnyReference(CXType type) => type.TypeClass is CX_TypeClass.CX_TypeClass_LValueReference or CX_TypeClass.CX_TypeClass_RValueReference;
     private static bool TypeIsPointer(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_Pointer;
     private static bool TypeIsFunctionProto(CXType type) => type.TypeClass is CX_TypeClass.CX_TypeClass_FunctionProto or CX_TypeClass.CX_TypeClass_FunctionNoProto;
@@ -5680,27 +5679,6 @@ public sealed partial class ClangSharpHeaderParser
 
         templateParameters = parameters;
         return parameters.Count > 0;
-    }
-
-    private static IReadOnlyList<BindingType> TryParseGenericArguments(
-        string spelling,
-        IDictionary<string, RecordBinding> recordsByName,
-        IDictionary<string, EnumBinding> enumsByName,
-        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
-        IReadOnlyDictionary<string, BindingType> genericParameters)
-    {
-        var normalized = NormalizeTypeName(spelling);
-        var genericStart = normalized.IndexOf('<');
-        var genericEnd = normalized.LastIndexOf('>');
-        if (genericStart < 0 || genericEnd <= genericStart)
-        {
-            return Array.Empty<BindingType>();
-        }
-
-        var argumentList = normalized[(genericStart + 1)..genericEnd];
-        return SplitTopLevelParameters(argumentList)
-            .Select(argument => ParseTypeToken(argument, recordsByName, enumsByName, managedTypeOverrides, genericParameters))
-            .ToArray();
     }
 
     private static BindingType ParseTypeToken(

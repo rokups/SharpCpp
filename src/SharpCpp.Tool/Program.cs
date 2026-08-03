@@ -25,40 +25,9 @@ internal static class Program
 
         return args[0] switch
         {
-            "sample-metadata" => EmitSampleMetadata(args.Skip(1).ToArray()),
             "generate-sample" => GenerateSampleBindings(args.Skip(1).ToArray()),
             _ => UnknownCommand(args[0])
         };
-    }
-
-    private static int EmitSampleMetadata(string[] args)
-    {
-        var compilation = SampleCompilationFactory.CreateMetadataSample();
-        var document = BindingMetadataExporter.Export(
-            compilation,
-            new BindingMetadataExportOptions(
-                PackageId: compilation.ProjectName,
-                Phase2ClosureHash: "sample-phase2",
-                ClangArgsHash: "sample-clang"));
-
-        var json = BindingMetadataSerializer.Serialize(document);
-
-        if (args.Length == 0)
-        {
-            Console.Write(json);
-            return 0;
-        }
-
-        var outputPath = Path.GetFullPath(args[0]);
-        var outputDirectory = Path.GetDirectoryName(outputPath);
-        if (!string.IsNullOrWhiteSpace(outputDirectory))
-        {
-            Directory.CreateDirectory(outputDirectory);
-        }
-
-        File.WriteAllText(outputPath, json);
-        Logger.LogInformation("Wrote sample metadata to {OutputPath}", outputPath);
-        return 0;
     }
 
     private static int GenerateSampleBindings(string[] args)
@@ -136,6 +105,7 @@ internal static class Program
             }
         }
 
+        ApplyConsumerExtensionCoverage(compilation);
         BindingCompilationBootstrapPipeline.Apply(compilation, marshallerConfigurationFiles, clangArguments);
 
         var generatedFiles = BindingOutputRenderer.Render(compilation, fileStem, headerPath =>
@@ -165,6 +135,107 @@ internal static class Program
         new GeneratedBindingSet(generatedFiles).WriteToDirectory(generatedRoot);
         Logger.LogInformation("Wrote sample bindings to {GeneratedRoot}", generatedRoot);
         return 0;
+    }
+
+    private static void ApplyConsumerExtensionCoverage(BindingCompilation compilation)
+    {
+        const string headerPath = "CoverageMatrix/ConsumerProjection.hpp";
+
+        foreach (var nativeName in new[]
+                 {
+                     "consumer_projection_adapt_int",
+                     "consumer_projection_adapt_void",
+                     "consumer_projection_adapt_value"
+                 })
+        {
+            compilation.Functions.Single(function =>
+                    string.Equals(function.CppQualifiedName, nativeName, StringComparison.Ordinal))
+                .SetMetadata(MetadataKeys.NativeDefaultArgumentAdapter, true);
+        }
+
+        compilation.Functions.Single(function =>
+                string.Equals(function.CppQualifiedName, "consumer_projection_function_pointer", StringComparison.Ordinal))
+            .SetMetadata(MetadataKeys.ExposeNativeFunctionPointer, true);
+
+        compilation.Records.Single(record =>
+                string.Equals(record.CppQualifiedName, "consumer_projection_query_target", StringComparison.Ordinal))
+            .SetMetadata(
+                MetadataKeys.NativeInterfaceQuery,
+                new NativeInterfaceQueryAnnotation("consumer_projection_query_source", "73"));
+
+        var staticProjection = new ManagedClassBinding(
+            "managed:consumer-projection:static",
+            "consumer_projection",
+            "CoverageConsumerProjection")
+        {
+            HeaderIncludePath = headerPath,
+            IsStatic = true,
+            IsPartial = false
+        };
+        staticProjection.Members.Add(new ManagedFieldBinding(
+            "managed:consumer-projection:constant",
+            "consumer_projection_constant",
+            "Constant",
+            "int",
+            "11")
+        {
+            IsConst = true
+        });
+        staticProjection.Members.Add(new ManagedFieldBinding(
+            "managed:consumer-projection:readonly",
+            "consumer_projection_readonly",
+            "ReadOnlyValue",
+            "int",
+            "13"));
+        staticProjection.Members.Add(new ManagedFieldBinding(
+            "managed:consumer-projection:mutable",
+            "consumer_projection_mutable",
+            "MutableValue",
+            "int",
+            "17")
+        {
+            IsReadOnly = false
+        });
+        staticProjection.BodyCodeBlocks.Add(
+            "public static int RoundTrip(int value) => global::SharpCpp.Tests.E2E.Generated.E2EBindings.ConsumerProjectionRoundTrip(value);");
+
+        var nestedProjection = new ManagedClassBinding(
+            "managed:consumer-projection:nested",
+            "consumer_projection_nested",
+            "NestedProjection")
+        {
+            AccessModifier = BindingAccessModifier.Private,
+            IsSealed = true,
+            BaseTypeName = "global::System.Object"
+        };
+        nestedProjection.BodyCodeBlocks.Add("public int Value => Constant;");
+        staticProjection.Members.Add(nestedProjection);
+        compilation.Members.Add(staticProjection);
+
+        var projectedConsumer = new ManagedClassBinding(
+            "managed:consumer-projection:consumer",
+            "consumer_projection_consumer",
+            "ProjectedConsumer")
+        {
+            HeaderIncludePath = headerPath,
+            ManagedNamespace = "SharpCpp.Tests.E2E.ConsumerProjection",
+            IsSealed = true,
+            BaseTypeName = "global::System.Object"
+        };
+        projectedConsumer.Members.Add(new ManagedFieldBinding(
+            "managed:consumer-projection:offset",
+            "consumer_projection_offset",
+            "_offset",
+            "int")
+        {
+            AccessModifier = BindingAccessModifier.Private,
+            IsStatic = false
+        });
+        projectedConsumer.BodyCodeBlocks.Add(
+            "public ProjectedConsumer(int offset) { _offset = offset; }");
+        projectedConsumer.BodyCodeBlocks.Add(
+            "public int RoundTrip(int value) => global::SharpCpp.Tests.E2E.Generated.E2EBindings.ConsumerProjectionRoundTrip(value) + _offset;");
+        compilation.Members.Add(projectedConsumer);
     }
 
     private static IReadOnlyList<GeneratedBindingFile> GenerateCoverageBindings(
@@ -311,7 +382,6 @@ internal static class Program
         Console.WriteLine("SharpCpp bootstrap tool");
         Console.WriteLine();
         Console.WriteLine("Commands:");
-        Console.WriteLine("  sample-metadata [output-path]   Emit deterministic sample metadata.");
         Console.WriteLine("  generate-sample --generated-root <dir> [--project-root <dir>] [--file-stem <stem>] [--log-file <path>]   Emit sample bindings artifacts.");
     }
 

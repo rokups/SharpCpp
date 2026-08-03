@@ -15,7 +15,7 @@ SharpCpp is a C++/C# binding generator for the **[rbfx game engine](https://gith
 | `SharpCpp.slnx` | Primary build entry point for managed projects, generation, and native prerequisites |
 | `native/SharpCpp.Native/SharpCpp.Native.csproj` | MSBuild orchestration project that invokes the auxiliary native CMake aggregate |
 | `CMakeLists.txt` | Embeddable native-only CMake entry point; always exposes `SharpCpp::NativeSupport` |
-| `src/SharpCpp.Tool/Program.cs` | CLI composition root — `sample-metadata` and `generate-sample` commands |
+| `src/SharpCpp.Tool/Program.cs` | CLI composition root — generated E2E binding command |
 | `rbfx/SharpCpp.Rbfx.Generator/Program.cs` | rbfx-specific generator entry point (phase-1) |
 | `rbfx/Rbfx.UserCode/Rbfx.UserCode.Generator/Program.cs` | User-code generator (phase-2, imports phase-1 metadata) |
 
@@ -58,7 +58,7 @@ SharpCpp is a C++/C# binding generator for the **[rbfx game engine](https://gith
 | `src/SharpCpp.Pipeline/` | **Pass orchestration** — ordered sequence of transformation passes (normalization, inheritance, polymorphism, generic instantiation, degradation, validation) that mutate the AST in place to renderer-ready form | [View Map](src/SharpCpp.Pipeline/codemap.md) |
 | `src/SharpCpp.Rendering/` | **Code generation** — stateless, pure rendering of BindingCompilation → C# wrapper classes, C++ P/Invoke thunks, and type metadata. Supports partial-class decomposition and group-based file splitting | [View Map](src/SharpCpp.Rendering/codemap.md) |
 | `src/SharpCpp.Support/` | **Managed runtime** — NativeObject (SafeHandle), instance caches, polymorphic wrapper registry, keep-alive, NativeObjectMetadata, StringBase for UTF-8 string marshalling | [View Map](src/SharpCpp.Support/codemap.md) |
-| `src/SharpCpp.Tool/` | **Composition root** — CLI entry point that wires Model → Parsing → Pipeline → Rendering → Metadata export, drives the `generate-sample` and `sample-metadata` commands | [View Map](src/SharpCpp.Tool/codemap.md) |
+| `src/SharpCpp.Tool/` | **Composition root** — CLI entry point that wires Model → Parsing → Pipeline → Rendering → Metadata export for generated E2E bindings | [View Map](src/SharpCpp.Tool/codemap.md) |
 | `include/SharpCpp/` | **Native support headers** — header-only C++ interop layer: Marshaller<T> templates (cpp_type/abi_type mapping), MarshallerInvoker, P/Invoke export macros, OptionalValue<T> ABI bridge | [View Map](include/SharpCpp/codemap.md) |
 | `rbfx/` | **rbfx game engine integration** — Two-phase generation pipeline with staleness management, CMake target topology, runtime dependency deployment, and E2E validation against the SDK | [View Map](rbfx/codemap.md) |
 | `cmake/` | **Native helpers** — shared output placement and generated-source staleness handling |
