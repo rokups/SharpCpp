@@ -13,6 +13,13 @@ inline std::string e2e_make_std_text(const char* value)
     return std::string(value);
 }
 
+inline int e2e_checksum_std_text(const std::string& value)
+{
+    return std::accumulate(value.begin(), value.end(), 0, [](int result, unsigned char byte) {
+        return result + byte;
+    });
+}
+
 inline std::vector<int> e2e_make_std_numbers()
 {
     return { 2, 4, 6 };
@@ -41,6 +48,22 @@ inline std::list<std::string> e2e_make_std_words()
 inline int e2e_count_std_words(const std::list<std::string>& values)
 {
     return static_cast<int>(values.size());
+}
+
+inline std::string e2e_join_std_words(const std::list<std::string>& values)
+{
+    std::string result;
+    for (const auto& value : values)
+    {
+        if (!result.empty())
+        {
+            result += ',';
+        }
+
+        result += value;
+    }
+
+    return result;
 }
 
 inline std::map<std::string, int> e2e_make_std_scores()

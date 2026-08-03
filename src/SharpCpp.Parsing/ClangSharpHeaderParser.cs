@@ -5471,7 +5471,8 @@ public sealed partial class ClangSharpHeaderParser
             : expression;
         if (expression.Length != 0)
         {
-            if (expression.Contains('#') || expression.Contains("///"))
+            if (expression.Contains('#') ||
+                expression.Contains("///", StringComparison.Ordinal))
             {
                 if (TryGetDefaultArgumentExpressionFromDeclaration(parameterDecl, out var declarationExpression))
                 {
@@ -5481,6 +5482,12 @@ public sealed partial class ClangSharpHeaderParser
                 {
                     return false;
                 }
+            }
+            else if (expression.Contains(';') &&
+                TryGetDefaultArgumentExpressionFromDeclaration(parameterDecl, out var declarationExpression) &&
+                !declarationExpression.Contains(';'))
+            {
+                expression = declarationExpression;
             }
             return true;
         }
