@@ -32,6 +32,10 @@
     <Error Condition="!Exists('$(SharpCppNuGetStageRoot)/managed/ref/$(TargetFramework)/SharpCpp.Rbfx.Bindings.dll')" Text="Missing staged SharpCpp.Rbfx.Bindings reference assembly for $(TargetFramework)." />
     <Error Condition="!Exists('$(SharpCppNuGetStageRoot)/managed/lib/$(TargetFramework)/SharpCpp.Rbfx.Bindings.dll')" Text="Missing staged SharpCpp.Rbfx.Bindings implementation assembly for $(TargetFramework)." />
     <Error Condition="!Exists('$(SharpCppNuGetStageRoot)/managed/lib/$(TargetFramework)/SharpCpp.Support.dll')" Text="Missing staged SharpCpp.Support implementation assembly for $(TargetFramework)." />
+    <Error Condition="!Exists('$(SharpCppNuGetStageRoot)/managed/ref/$(TargetFramework)/SharpCpp.Std.dll')" Text="Missing staged SharpCpp.Std reference assembly for $(TargetFramework)." />
+    <Error Condition="!Exists('$(SharpCppNuGetStageRoot)/managed/lib/$(TargetFramework)/SharpCpp.Std.dll')" Text="Missing staged SharpCpp.Std implementation assembly for $(TargetFramework)." />
+    <Error Condition="!Exists('$(SharpCppNuGetStageRoot)/managed/ref/$(TargetFramework)/SharpCpp.Ea.dll')" Text="Missing staged SharpCpp.Ea reference assembly for $(TargetFramework)." />
+    <Error Condition="!Exists('$(SharpCppNuGetStageRoot)/managed/lib/$(TargetFramework)/SharpCpp.Ea.dll')" Text="Missing staged SharpCpp.Ea implementation assembly for $(TargetFramework)." />
     <Error Condition="!Exists('$(SharpCppNuGetStageRoot)/managed/analyzers/dotnet/cs/SharpCpp.Rbfx.SourceGenerator.dll')" Text="Missing staged SharpCpp.Rbfx.SourceGenerator analyzer assembly." />
   </Target>
 </Project>

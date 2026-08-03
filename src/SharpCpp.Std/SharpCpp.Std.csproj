@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>SharpCpp.Std</AssemblyName>
+    <RootNamespace>Std</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../SharpCpp.Support/SharpCpp.Support.csproj" />
+  </ItemGroup>
+</Project>

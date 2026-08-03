@@ -42,7 +42,7 @@ std::pair<std::string, int> GetEntry() const;
 // PairAbi<Utf8StringAbi, int> — element type goes through its own marshaller
 [LibraryImport("libnative")]
 internal static partial PairAbi<Utf8StringAbi, int> __GetEntry(nint self);
-public (StdString, int) GetEntry()
+public (Std.String, int) GetEntry()
 {
     var abi = __GetEntry(_handle);
     return (Utf8StringMarshaller.ConvertToManaged(abi.First), abi.Second);

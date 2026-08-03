@@ -67,6 +67,10 @@ Applied to `Marshaller<T>` specializations. Declares how the C++ type maps to ma
 | `return_marshaller_type` | string | `marshaller_type` | Override for return context |
 | `managed_base_type` | string | null | C# base class override |
 | `managed_base_type_constraints` | string | null | C# generic constraints for the managed base class. Uses `{0}`, `{1}` placeholders referencing generic type arguments. Example: `"where {0} : notnull"` |
+| `managed_wrapper_assembly` | string | null | Assembly that owns a shared managed wrapper. The generator references that wrapper and emits only module-local native/provider glue. |
+| `managed_wrapper_provider_kind` | string | null | Provider contract family implemented by the shared wrapper assembly (for example `string`, `vector`, `list`, `sequence`, `array`, `dynamic_array`, `map`, or `unordered_map`). This is a binding contract, not a vendor name; a custom standard-library type such as `std::deque<T>` can use the matching `sequence` family. |
+| `managed_wrapper_provider_namespace` | string | null | Namespace containing the provider contracts and registry. Defaults to the root namespace of a qualified `public_type` (or the module namespace for an unqualified type); use this when a wrapper assembly exposes its infrastructure under a custom namespace. |
+| `managed_wrapper_copyable` | bool | null | Explicitly declares whether the shared wrapper supports native cloning. When set, this also controls the imported record's copy-constructor fact. |
 | `projection` | bool | false | The managed type is a generic argument, not the wrapper type itself |
 | `polymorphic` | bool | false | Enable runtime wrapper selection for this surface when the native type is structurally polymorphic |
 | `suppress_emission` | bool | false | Don't emit the managed type itself (imported from support library or upstream) |
@@ -82,12 +86,14 @@ Example: `Marshaller<std::optional<T>>` with `public_type = "{0}?"` — when T =
 ### Examples
 
 ```cpp
-// Owned string → StdString wrapper
+// Owned string → Std.String wrapper
 struct [[sharpcpp::managed_type(
-    public_type = "StdString",
+    public_type = "Std.String",
     managed_base_type = "global::SharpCpp.Support.StringBase",
-    abi_type = "Utf8StringAbi",
-    marshaller_type = "Utf8StringMarshaller"
+    managed_namespace = "Std",
+    managed_wrapper_assembly = "SharpCpp.Std",
+    managed_wrapper_provider_kind = "string",
+    managed_wrapper_copyable = true
 )]]
 Marshaller<std::string> {};
 
@@ -104,7 +110,10 @@ Marshaller<std::optional<T>> {};
 struct [[sharpcpp::managed_type(
     public_type = "Std.Vector<{0}>",
     managed_base_type = "global::SharpCpp.Support.VectorBase<{0}>",
-    abi_type = "void*"
+    managed_namespace = "Std",
+    managed_wrapper_assembly = "SharpCpp.Std",
+    managed_wrapper_provider_kind = "vector",
+    managed_wrapper_copyable = true
 )]]
 Marshaller<std::vector<T, TAllocator>> {};
 
@@ -120,6 +129,30 @@ Marshaller<MyClass*> {};
 // Secondary base → interface (detected automatically, no attribute needed)
 class Serializable { ... };
 ```
+
+### Shared wrapper assemblies and providers
+
+Container and other standard-library bindings can be owned by a common managed
+assembly. A marshaller opts into that arrangement by specifying
+`managed_wrapper_assembly` and a provider contract family. The generated module
+then emits native thunks and a provider implementation for every concrete shape
+it uses, and registers those providers when its managed assembly loads. The
+shared assembly owns the public wrapper and its provider contracts.
+
+Provider lookup is module-aware. If several generated modules register the same
+contract and native shape, a wrapper created for a module selects that module's
+provider. A lookup without a local match falls back only when there is exactly
+one compatible registration; otherwise it reports the ambiguity. Each module
+should therefore register every shared shape used by its own generated API.
+
+The same mechanism can be used by a third-party standard-library implementation
+or by a project-owned wrapper assembly. The core generator does not identify or
+special-case a particular vendor implementation.
+
+The provider family describes the operations exposed by the wrapper, not the
+native type's spelling. A project can therefore register additional standard
+library types (for example, a deque or a vendor-specific string) by supplying a
+marshaller with the appropriate family, wrapper assembly, and provider namespace.
 
 Note: secondary base classes that appear as non-primary bases in inheritance lists are automatically detected by the core. No `render_interface` attribute is needed — the generator produces C# interfaces for secondary bases on its own.
 

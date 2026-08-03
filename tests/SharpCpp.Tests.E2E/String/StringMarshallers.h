@@ -10,7 +10,9 @@ template <>
 struct [[sharpcpp::managed_type(
     managed_base_type = "global::SharpCpp.Support.StringBase",
     public_type = "Ea.String",
-    managed_namespace = "Ea"
+    managed_namespace = "Ea",
+    managed_wrapper_assembly = "SharpCpp.Ea",
+    managed_wrapper_provider_kind = "string"
 )]]
 Marshaller<ea_compat_string> : OwnedStringMarshallerBase<ea_compat_string> {};
 

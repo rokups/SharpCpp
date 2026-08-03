@@ -36,7 +36,7 @@ Ownership is a cross-cutting contract. Strings, handles, projections, callbacks,
 ## Strings
 
 - `ReadOnlySpan<byte>` return over native memory is borrowed view state
-- `StdString` is owned wrapper state
+- `Std.String` is owned wrapper state
 - `string` is copied managed state
 - `ref/out string` may require ABI intermediate + copy back
 

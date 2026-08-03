@@ -91,11 +91,12 @@ Each concrete instantiation resolves the marshaller's generic arguments:
 ```cpp
 // std::vector<int> → Marshaller<std::vector<int>>
 // {0} in public_type = "Std.Vector<int>" resolves "int"
-// abi_type = "void*"
-// marshaller_type = "StdVectorMarshaller<int>"
+// managed_wrapper_provider_kind = "vector"
 ```
 
-The generator emits a concrete marshaller type for `StdVectorMarshaller<int>` that knows how to convert `int` elements. For `StdVectorMarshaller<MyClass>`, the element accessors use `ReturnMarshaller<MyClass*>` and `ParameterMarshaller<MyClass*>`.
+The generated module emits a concrete `Std.Infrastructure.IVectorProvider<int>`
+for the native shape. For `Std.Vector<MyClass>`, the provider's element accessors use
+the normal `ReturnMarshaller<MyClass*>` and `ParameterMarshaller<MyClass*>` paths.
 
 ## Static members on template specializations
 

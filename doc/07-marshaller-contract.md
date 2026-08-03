@@ -32,9 +32,12 @@ At minimum, a marshaller surface must declare:
 ```cpp
 template <>
 struct [[sharpcpp::managed_type(
-    public_type = "StdString",
-    abi_type = "Utf8StringAbi",
-    marshaller_type = "Utf8StringMarshaller"
+    public_type = "Std.String",
+    managed_base_type = "global::SharpCpp.Support.StringBase",
+    managed_namespace = "Std",
+    managed_wrapper_assembly = "SharpCpp.Std",
+    managed_wrapper_provider_kind = "string",
+    managed_wrapper_copyable = true
 )]]
 Marshaller<std::string>
 {

@@ -49,12 +49,12 @@ std::string name;
 ```csharp
 [LibraryImport("libnative")]
 [return: MarshalUsing(typeof(Utf8StringMarshaller))]
-internal static partial StdString __GetName(nint self);
+internal static partial Std.String __GetName(nint self);
 
 [LibraryImport("libnative")]
-internal static partial void __SetName(nint self, [MarshalUsing(typeof(Utf8StringMarshaller))] StdString value);
+internal static partial void __SetName(nint self, [MarshalUsing(typeof(Utf8StringMarshaller))] Std.String value);
 
-public StdString Name
+public Std.String Name
 {
     get => __GetName(_handle);
     set => __SetName(_handle, value);

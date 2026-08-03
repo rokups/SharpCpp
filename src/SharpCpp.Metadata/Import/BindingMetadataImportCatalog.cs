@@ -53,6 +53,9 @@ public sealed class BindingMetadataImportCatalog
         ArgumentNullException.ThrowIfNull(recordsByName);
         ArgumentNullException.ThrowIfNull(enumsByName);
 
+        // First seed every top-level declaration. Member and alias references can
+        // point across documents, so resolving them before this pass is complete
+        // would leave dangling record/enum ids.
         foreach (var document in _documents)
         {
             foreach (var importedType in document.Types.OrderBy(static item => item.SymbolId, StringComparer.Ordinal))
@@ -70,6 +73,35 @@ public sealed class BindingMetadataImportCatalog
                 }
             }
 
+        }
+
+        // Restore record members after all imported type indexes are available.
+        foreach (var document in _documents)
+        {
+            foreach (var importedType in document.Types
+                .Where(static item => item.Kind is MetadataTypeKind.Handle or MetadataTypeKind.Record)
+                .OrderBy(static item => item.SymbolId, StringComparer.Ordinal))
+            {
+                var cppQualifiedName = GetQualifiedCppTypeName(importedType.Projection.CppType);
+                if (!recordsByName.TryGetValue(importedType.NativeName, out var record) &&
+                    !recordsByName.TryGetValue(cppQualifiedName, out record))
+                {
+                    record = recordsByName.Values.FirstOrDefault(candidate =>
+                        string.Equals(candidate.SymbolId, $"import:{document.Source.Package}:{importedType.SymbolId}", StringComparison.Ordinal));
+                }
+
+                if (record is not null &&
+                    string.Equals(record.SymbolId, $"import:{document.Source.Package}:{importedType.SymbolId}", StringComparison.Ordinal))
+                {
+                    SeedRecordMembers(compilation, recordsByName, enumsByName, document, importedType, record);
+                }
+            }
+        }
+
+        // Finally seed aliases so targets can resolve to declarations from any
+        // imported package, regardless of metadata file ordering.
+        foreach (var document in _documents)
+        {
             foreach (var alias in (document.Aliases ?? Array.Empty<BindingMetadataAlias>())
                 .OrderBy(static item => item.ManagedName, StringComparer.Ordinal)
                 .ThenBy(static item => item.CppQualifiedName, StringComparer.Ordinal))
@@ -87,10 +119,21 @@ public sealed class BindingMetadataImportCatalog
             return;
         }
 
-        var managedTypeName = GetQualifiedManagedTypeName(importedType.ManagedNamespace ?? document.Source.ManagedNamespace, importedType.ManagedName);
+        var isSharedWrapper = !string.IsNullOrWhiteSpace(importedType.ManagedWrapperAssembly);
+        var managedNamespace = importedType.ManagedNamespace;
+        if (isSharedWrapper && string.IsNullOrWhiteSpace(managedNamespace))
+        {
+            managedNamespace = GetManagedNamespaceFromQualifiedName(importedType.ManagedName) ??
+                GetManagedNamespaceFromQualifiedName(importedType.Projection.PublicType);
+        }
+
+        managedNamespace ??= document.Source.ManagedNamespace;
+        var managedDeclarationName = GetManagedDeclarationName(importedType.ManagedName);
+        var managedTypeName = GetQualifiedManagedTypeName(managedNamespace, importedType.ManagedName);
         var managedBaseTypeName = string.IsNullOrWhiteSpace(importedType.ManagedBaseTypeName)
             ? null
             : ResolveQualifiedManagedBaseTypeName(document, importedType.ManagedBaseTypeName!);
+        var hasCopyConstructor = importedType.ManagedWrapperCopyable ?? importedType.HasCopyConstructor ?? false;
 
         var record = new RecordBinding(
             $"import:{document.Source.Package}:{importedType.SymbolId}",
@@ -98,7 +141,7 @@ public sealed class BindingMetadataImportCatalog
             managedTypeName,
             cppQualifiedName)
         {
-            ManagedNamespace = importedType.ManagedNamespace ?? document.Source.ManagedNamespace,
+            ManagedNamespace = managedNamespace,
             ManagedBaseTypeName = managedBaseTypeName,
             ManagedTypeFormat = importedType.Projection.GenericArguments is { Count: > 0 }
                 ? BuildQualifiedManagedTypeFormat(managedTypeName, importedType.IsFixedArray || importedType.IsDynamicArray ? 1 : importedType.Projection.GenericArguments.Count)
@@ -106,8 +149,37 @@ public sealed class BindingMetadataImportCatalog
             ManagedBaseTypeConstraints = importedType.ManagedBaseTypeConstraints,
             ManagedInstanceCacheFactoryExpression = importedType.ManagedInstanceCacheFactoryExpression,
             ManagedInstanceCacheTypeName = importedType.ManagedInstanceCacheTypeName,
-            EmitDefaultNativeReleaseOverride = importedType.EmitDefaultNativeReleaseOverride
+            EmitDefaultNativeReleaseOverride = importedType.EmitDefaultNativeReleaseOverride,
+            HasCopyConstructor = hasCopyConstructor
         };
+
+        // RecordBinding.ManagedName is a declaration identifier. Keep namespace
+        // qualification in ManagedNamespace/ManagedTypeFormat so generated
+        // marshaller helper identifiers remain valid for imported wrappers.
+        if (isSharedWrapper)
+        {
+            record.ManagedName = managedDeclarationName;
+        }
+
+        if (!string.IsNullOrWhiteSpace(importedType.ManagedWrapperAssembly))
+        {
+            record.SetMetadata(MetadataKeys.ManagedWrapperAssembly, importedType.ManagedWrapperAssembly);
+        }
+
+        if (!string.IsNullOrWhiteSpace(importedType.ManagedWrapperProviderKind))
+        {
+            record.SetMetadata(MetadataKeys.ManagedWrapperProviderKind, importedType.ManagedWrapperProviderKind);
+        }
+
+        if (!string.IsNullOrWhiteSpace(importedType.ManagedWrapperProviderNamespace))
+        {
+            record.SetMetadata(MetadataKeys.ManagedWrapperProviderNamespace, importedType.ManagedWrapperProviderNamespace);
+        }
+
+        if (importedType.ManagedWrapperCopyable.HasValue)
+        {
+            record.SetMetadata(MetadataKeys.ManagedWrapperCopyable, importedType.ManagedWrapperCopyable.Value);
+        }
 
         if (importedType.IsFixedArray)
         {
@@ -134,6 +206,245 @@ public sealed class BindingMetadataImportCatalog
 
         SeedRecordKeys(recordsByName, record);
         compilation.Members.Add(record);
+    }
+
+    private static void SeedRecordMembers(
+        BindingCompilation compilation,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        BindingMetadataDocument document,
+        BindingMetadataType importedType,
+        RecordBinding record)
+    {
+        foreach (var member in importedType.Members ?? Array.Empty<BindingMetadataRecordMember>())
+        {
+            if (!string.Equals(member.Kind, "method", StringComparison.Ordinal) &&
+                !string.Equals(member.Kind, "constructor", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var isConstructor = member.IsConstructor || string.Equals(member.Kind, "constructor", StringComparison.Ordinal);
+            var managedName = string.IsNullOrWhiteSpace(member.ManagedName)
+                ? member.NativeName
+                : member.ManagedName;
+            var importedSymbolId = string.IsNullOrWhiteSpace(member.SymbolId)
+                ? null
+                : $"import:{document.Source.Package}:{member.SymbolId}";
+            if (record.Members.OfType<FunctionBinding>().Any(existing =>
+                    (importedSymbolId is not null && string.Equals(existing.SymbolId, importedSymbolId, StringComparison.Ordinal)) ||
+                    (importedSymbolId is null && HasSameImportedMemberSignature(existing, managedName, member))))
+            {
+                continue;
+            }
+
+            var returnType = isConstructor
+                ? record.HandleType
+                : member.Type is null
+                    ? BindingType.Void
+                    : CreateAliasTargetType(recordsByName, enumsByName, document, member.Type);
+            var cppQualifiedName = string.IsNullOrWhiteSpace(member.CppQualifiedName)
+                ? $"{record.CppQualifiedName}::{member.NativeName}"
+                : member.CppQualifiedName;
+            var entryPoint = string.IsNullOrWhiteSpace(member.EntryPoint)
+                ? member.NativeName
+                : member.EntryPoint;
+            if (!string.IsNullOrWhiteSpace(importedType.ManagedWrapperAssembly))
+            {
+                entryPoint = BuildImportedSharedEntryPointName(compilation, cppQualifiedName, member, record);
+            }
+            var function = new FunctionBinding(
+                importedSymbolId ?? $"import:{document.Source.Package}:{importedType.SymbolId}:{member.Kind}:{member.NativeName}:{managedName}",
+                member.NativeName,
+                managedName,
+                returnType,
+                entryPoint,
+                member.CppReturnTypeName ?? (isConstructor ? $"{record.CppQualifiedName}*" : returnType.CppTypeName),
+                cppQualifiedName)
+            {
+                IsStatic = member.IsStatic,
+                IsConstructor = isConstructor,
+                IsConstMethod = member.IsConstMethod,
+                OperatorToken = member.OperatorToken,
+                IsConversionOperator = member.IsConversionOperator,
+                IsExplicitConversionOperator = member.IsExplicitConversionOperator,
+                ReturnsOwnedHandle = member.ReturnsOwnedHandle,
+                OwningRecordCppTypeName = member.OwningRecordCppTypeName ?? record.CppQualifiedName,
+                ManagedNamespace = record.ManagedNamespace,
+                AccessModifier = ParseAccessModifier(member.AccessModifier),
+                IsVirtual = member.IsVirtual,
+                IsPureVirtual = member.IsPureVirtual,
+                IsFinal = member.IsFinal,
+                IsOverride = member.IsOverride
+            };
+
+            if (!string.IsNullOrWhiteSpace(member.MarshallerExposedMethod))
+            {
+                function.SetMetadata(MetadataKeys.MarshallerExposedMethod, member.MarshallerExposedMethod);
+            }
+
+            foreach (var parameter in member.Parameters ?? Array.Empty<BindingMetadataParameter>())
+            {
+                var type = CreateAliasTargetType(recordsByName, enumsByName, document, parameter.Type);
+                var direction = ParseParameterDirection(parameter.Direction);
+                var abiKind = ParseParameterAbiKind(parameter.AbiKind, direction, type);
+                function.Parameters.Add(new ParameterBinding(
+                    $"import:{document.Source.Package}:{importedType.SymbolId}:{member.NativeName}:{parameter.Name}",
+                    parameter.Name,
+                    parameter.Name,
+                    type,
+                    direction,
+                    abiKind,
+                    parameter.CppTypeName ?? parameter.Type.CppType)
+                {
+                    ManagedDefaultValueExpression = parameter.DefaultValueExpression,
+                    UseCallbackDelegate = parameter.UseCallbackDelegate,
+                    CallbackDelegateTypeName = parameter.CallbackDelegateTypeName
+                });
+            }
+
+            record.Members.Add(function);
+        }
+    }
+
+    private static BindingParameterDirection ParseParameterDirection(string? direction)
+    {
+        return direction?.ToLowerInvariant() switch
+        {
+            "ref" => BindingParameterDirection.Ref,
+            "out" => BindingParameterDirection.Out,
+            _ => BindingParameterDirection.In
+        };
+    }
+
+    private static BindingAccessModifier ParseAccessModifier(string? accessModifier)
+    {
+        return accessModifier?.ToLowerInvariant() switch
+        {
+            "private" => BindingAccessModifier.Private,
+            "protected" => BindingAccessModifier.Protected,
+            _ => BindingAccessModifier.Public
+        };
+    }
+
+    private static string BuildImportedSharedEntryPointName(
+        BindingCompilation compilation,
+        string cppQualifiedName,
+        BindingMetadataRecordMember member,
+        RecordBinding record)
+    {
+        _ = cppQualifiedName;
+        var owner = BuildSharedEntrypointTypeToken(record.CppQualifiedName);
+        // SymbolId is the signature-stable identity emitted by the exporting
+        // module. Keep a deterministic fallback for older metadata documents
+        // that predate member SymbolId export.
+        var symbolId = string.IsNullOrWhiteSpace(member.SymbolId)
+            ? BuildImportedMemberSymbolId(record, member)
+            : member.SymbolId!;
+        var suffix = member.IsConstructor && symbolId.EndsWith(":marshaller-default", StringComparison.Ordinal)
+            ? "ctor"
+            : BuildSharedEntrypointMemberToken(member.IsConstructor ? "ctor" : member.NativeName, symbolId);
+        return $"{compilation.EntryPointPrefix}_{owner}_{suffix}";
+    }
+
+    private static bool HasSameImportedMemberSignature(
+        FunctionBinding existing,
+        string managedName,
+        BindingMetadataRecordMember member)
+    {
+        if (!string.Equals(existing.ManagedName, managedName, StringComparison.Ordinal) ||
+            existing.Parameters.Count != (member.Parameters?.Count ?? 0) ||
+            existing.IsStatic != member.IsStatic ||
+            existing.IsConstructor != member.IsConstructor ||
+            existing.IsConstMethod != member.IsConstMethod)
+        {
+            return false;
+        }
+
+        return existing.Parameters.Zip(member.Parameters ?? Array.Empty<BindingMetadataParameter>(), static (left, right) =>
+                string.Equals(left.CppTypeName ?? left.Type.CppTypeName, right.CppTypeName ?? right.Type.CppType, StringComparison.Ordinal) &&
+                string.Equals(left.Direction.ToString(), ParseParameterDirection(right.Direction).ToString(), StringComparison.Ordinal))
+            .All(static match => match);
+    }
+
+    private static string BuildImportedMemberSymbolId(RecordBinding record, BindingMetadataRecordMember member)
+    {
+        var parameters = string.Join(",", (member.Parameters ?? Array.Empty<BindingMetadataParameter>())
+            .Select(parameter => parameter.CppTypeName ?? parameter.Type.CppType));
+        var kind = member.IsConstructor ? "ctor" : "method";
+        return $"{kind}:{record.CppQualifiedName}:{member.NativeName}({parameters}){(member.IsConstMethod ? ":const" : string.Empty)}";
+    }
+
+    private static string BuildSharedEntrypointTypeToken(string value)
+    {
+        var basename = value;
+        var genericStart = basename.IndexOf('<');
+        if (genericStart >= 0)
+        {
+            basename = basename[..genericStart];
+        }
+
+        var namespaceSeparator = basename.LastIndexOf("::", StringComparison.Ordinal);
+        if (namespaceSeparator >= 0)
+        {
+            basename = basename[(namespaceSeparator + 2)..];
+        }
+
+        basename = SanitizeEntrypointPart(basename);
+        return $"{(string.IsNullOrWhiteSpace(basename) ? "shared" : basename)}_{ComputeStableEntrypointToken(value)}";
+    }
+
+    private static string BuildSharedEntrypointMemberToken(string methodName, string symbolId)
+    {
+        var basename = SanitizeEntrypointPart(methodName);
+        return $"{(string.IsNullOrWhiteSpace(basename) ? "method" : basename)}_{ComputeStableEntrypointToken(symbolId)}";
+    }
+
+    private static string ComputeStableEntrypointToken(string value)
+    {
+        uint hash = 2166136261;
+        foreach (var character in value)
+        {
+            hash = (hash ^ character) * 16777619;
+        }
+
+        return hash.ToString("x8", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static string SanitizeEntrypointPart(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        foreach (var character in value)
+        {
+            builder.Append(char.IsLetterOrDigit(character) || character == '_' ? character : '_');
+        }
+
+        return builder.ToString().Trim('_');
+    }
+
+    private static BindingParameterAbiKind ParseParameterAbiKind(
+        string? abiKind,
+        BindingParameterDirection direction,
+        BindingType type)
+    {
+        var parsed = abiKind?.ToLowerInvariant() switch
+        {
+            "reference" => BindingParameterAbiKind.Reference,
+            "pointer" => BindingParameterAbiKind.Pointer,
+            "value" => BindingParameterAbiKind.Value,
+            _ => (BindingParameterAbiKind?)null
+        };
+        if (parsed.HasValue)
+        {
+            return parsed.Value;
+        }
+
+        if (direction is BindingParameterDirection.Ref or BindingParameterDirection.Out)
+        {
+            return BindingParameterAbiKind.Reference;
+        }
+
+        return BindingParameterAbiKind.Value;
     }
 
     private static void SeedEnum(BindingCompilation compilation, IDictionary<string, EnumBinding> enumsByName, BindingMetadataDocument document, BindingMetadataType importedType)
@@ -222,6 +533,8 @@ public sealed class BindingMetadataImportCatalog
         {
             MetadataTypeKind.Handle => CreateAliasHandleTargetType(recordsByName, typeReference, genericArguments),
             MetadataTypeKind.Enum => CreateAliasEnumTargetType(enumsByName, document, typeReference, genericArguments),
+            "genericparameter" => BindingType.CreateGenericParameter(
+                string.IsNullOrWhiteSpace(typeReference.PublicType) ? typeReference.CppType : typeReference.PublicType),
             _ => BindingType.CreateConfigured(
                 typeReference.CppType,
                 GetConcreteManagedTypeHead(typeReference),
@@ -291,15 +604,22 @@ public sealed class BindingMetadataImportCatalog
         IReadOnlyList<BindingType>? genericArguments)
     {
         var qualifiedCppTypeName = GetQualifiedCppTypeName(typeReference.CppType);
+        var unparameterizedCppTypeName = StripGenericArguments(qualifiedCppTypeName);
         RecordBinding? record = null;
         if (!string.IsNullOrWhiteSpace(qualifiedCppTypeName) && recordsByName.TryGetValue(qualifiedCppTypeName, out var byCppName))
         {
             record = byCppName;
         }
-        else if (!string.IsNullOrWhiteSpace(typeReference.PublicType))
+        else if (!string.IsNullOrWhiteSpace(unparameterizedCppTypeName))
         {
             record = recordsByName.Values.FirstOrDefault(candidate =>
-                string.Equals(candidate.ManagedName, typeReference.PublicType, StringComparison.Ordinal));
+                string.Equals(StripGenericArguments(candidate.CppQualifiedName), unparameterizedCppTypeName, StringComparison.Ordinal));
+        }
+
+        if (record is null && !string.IsNullOrWhiteSpace(typeReference.PublicType))
+        {
+            record = recordsByName.Values.FirstOrDefault(candidate =>
+                string.Equals(candidate.ManagedName, GetConcreteManagedTypeHead(typeReference), StringComparison.Ordinal));
         }
 
         return record is not null
@@ -397,10 +717,49 @@ public sealed class BindingMetadataImportCatalog
     {
         if (managedName.StartsWith("global::", StringComparison.Ordinal) || string.IsNullOrWhiteSpace(managedNamespace))
         {
-            return managedName;
+            return managedName.StartsWith("global::", StringComparison.Ordinal)
+                ? managedName
+                : managedName.Contains('.', StringComparison.Ordinal)
+                    ? $"global::{managedName}"
+                    : managedName;
+        }
+
+        if (managedName.Contains('.', StringComparison.Ordinal))
+        {
+            return $"global::{managedName}";
         }
 
         return $"global::{managedNamespace}.{managedName}";
+    }
+
+    private static string GetManagedDeclarationName(string managedName)
+    {
+        var normalized = managedName.StartsWith("global::", StringComparison.Ordinal)
+            ? managedName["global::".Length..]
+            : managedName;
+        var genericStart = normalized.IndexOf('<');
+        if (genericStart >= 0)
+        {
+            normalized = normalized[..genericStart];
+        }
+
+        var separator = normalized.LastIndexOf('.');
+        return separator >= 0 ? normalized[(separator + 1)..] : normalized;
+    }
+
+    private static string? GetManagedNamespaceFromQualifiedName(string managedName)
+    {
+        var normalized = managedName.StartsWith("global::", StringComparison.Ordinal)
+            ? managedName["global::".Length..]
+            : managedName;
+        var genericStart = normalized.IndexOf('<');
+        if (genericStart >= 0)
+        {
+            normalized = normalized[..genericStart];
+        }
+
+        var separator = normalized.LastIndexOf('.');
+        return separator > 0 ? normalized[..separator] : null;
     }
 
     private static string GetQualifiedCppTypeName(string cppType)
@@ -412,6 +771,12 @@ public sealed class BindingMetadataImportCatalog
             .Trim();
 
         return normalized;
+    }
+
+    private static string StripGenericArguments(string typeName)
+    {
+        var genericStart = typeName.IndexOf('<');
+        return genericStart >= 0 ? typeName[..genericStart].Trim() : typeName;
     }
 
     private static string ComputeHash(string content)

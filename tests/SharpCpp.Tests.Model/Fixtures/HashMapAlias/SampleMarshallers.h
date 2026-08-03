@@ -20,7 +20,10 @@ template <>
 struct [[sharpcpp::managed_type(
     public_type = "Ea.String",
     managed_base_type = "global::SharpCpp.Support.StringBase",
-    managed_namespace = "Ea"
+    managed_namespace = "Ea",
+    managed_wrapper_assembly = "SharpCpp.Ea",
+    managed_wrapper_provider_kind = "string",
+    managed_wrapper_copyable = true
 )]] Marshaller<eastl::basic_string<char>> {};
 
 template <typename TKey, typename TValue, typename THash, typename TPredicate, typename TAllocator, bool CacheHashCode>
@@ -28,7 +31,10 @@ struct [[sharpcpp::managed_type(
     public_type = "Ea.UnorderedMap<{0}, {1}>",
     managed_base_type = "global::SharpCpp.Support.UnorderedMapBase<{0}, {1}>",
     managed_base_type_constraints = "where {0} : notnull",
-    managed_namespace = "Ea"
+    managed_namespace = "Ea",
+    managed_wrapper_assembly = "SharpCpp.Ea",
+    managed_wrapper_provider_kind = "unordered_map",
+    managed_wrapper_copyable = true
 )]] Marshaller<eastl::unordered_map<TKey, TValue, THash, TPredicate, TAllocator, CacheHashCode>> {};
 
 template <typename TKey, typename TValue, typename THash, typename TPredicate, typename TAllocator, bool CacheHashCode>

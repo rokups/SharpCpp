@@ -6,7 +6,9 @@ does not use new `.nuspec` files.
 ## Package Set
 
 - `SharpCpp.Rbfx.Bindings` contains the managed rbfx bindings, `SharpCpp.Support`,
-  and the rbfx source generator analyzer.
+  the shared `SharpCpp.Std` and `SharpCpp.Ea` wrapper assemblies, and the rbfx
+  source generator analyzer. The generated module registers its native providers
+  for those wrappers at load time.
 - `SharpCpp.Rbfx.Bindings.runtime.<rid>` contains native runtime files for one
   runtime identifier, including `SharpCpp.Rbfx.Native` and the copied rbfx native
   dependencies from the shared `build/bin` output directory. It depends on

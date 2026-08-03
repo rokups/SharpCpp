@@ -62,18 +62,22 @@ Rules:
 
 ### `<stem>.Bindings.Aliases.g.cs`
 
-Owns alias/project-reference glue only.
+Owns alias/project-reference glue and module-local shared-wrapper provider glue.
 
 Typical contents:
 
 - `extern alias` support
 - project-reference alias forwarding helpers
 - small compatibility glue required by generated code shape
+- provider implementations and a module initializer that register each module's
+  shared-wrapper shapes with the wrapper assembly's provider registry
+- generated provider and thunk identifiers use a readable basename plus a stable
+  hash of the complete native shape; comments retain the full shape for debugging
 
 Rules:
 
 - keep this file narrowly scoped
-- do not mix main wrapper emission into alias support
+- do not mix ordinary wrapper emission into alias support
 
 ### `<stem>.Bindings.g.cpp`
 
@@ -158,7 +162,7 @@ The stem must not vary based on:
 Generated file naming distinguishes role, not feature:
 
 - `.Bindings.g.cs` = main managed surface
-- `.Bindings.Aliases.g.cs` = alias/reference glue
+- `.Bindings.Aliases.g.cs` = alias/reference and shared-provider glue
 - `.Bindings.g.cpp` = native thunk source
 - `.Bindings.json` = exported metadata/API contract
 
@@ -243,6 +247,21 @@ Importing another module means:
 - downstream may reference upstream managed types in generated signatures
 - downstream may reuse upstream marshaller/export facts according to metadata contract
 - local bindings may extend around upstream types, but must not silently fork their identities
+
+### Shared wrapper provider ownership
+
+Shared wrappers are intentionally split from generated modules. The managed
+wrapper assembly contains public wrapper types and provider contracts. Every
+generated module that uses a shared shape emits its own provider implementation
+and native thunks for that shape, then registers the provider during module
+initialization. This keeps a module independently usable while allowing
+multiple modules to coexist in one process.
+
+Provider resolution first considers the requesting module. A unique provider is
+used only when no local registration exists; multiple non-local candidates are
+an error rather than an arbitrary choice. Metadata carries the wrapper assembly
+and provider family so downstream generation can restore imported members and
+emit the same local provider surface without re-emitting the public wrapper.
 
 ## Suppress-emission behavior
 

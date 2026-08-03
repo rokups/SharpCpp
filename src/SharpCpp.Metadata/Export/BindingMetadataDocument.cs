@@ -37,7 +37,12 @@ public sealed record BindingMetadataType(
     bool IsDynamicArray = false,
     bool IsFlags = false,
     IReadOnlyList<BindingMetadataEnumValue>? Values = null,
-    IReadOnlyList<BindingMetadataRecordMember>? Members = null);
+    IReadOnlyList<BindingMetadataRecordMember>? Members = null,
+    string? ManagedWrapperProviderKind = null,
+    bool? HasCopyConstructor = null,
+    string? ManagedWrapperAssembly = null,
+    string? ManagedWrapperProviderNamespace = null,
+    bool? ManagedWrapperCopyable = null);
 
 public sealed record BindingMetadataEnumValue(string NativeName, string ManagedName, string ValueExpression);
 
@@ -54,7 +59,19 @@ public sealed record BindingMetadataRecordMember(
     bool IsConversionOperator = false,
     bool IsExplicitConversionOperator = false,
     bool ReturnsOwnedHandle = false,
-    bool GetterReturnsOwnedHandle = false);
+    bool GetterReturnsOwnedHandle = false,
+    string? EntryPoint = null,
+    string? CppReturnTypeName = null,
+    string? CppQualifiedName = null,
+    string? OwningRecordCppTypeName = null,
+    string? MarshallerExposedMethod = null,
+    bool IsConstMethod = false,
+    string? AccessModifier = null,
+    bool IsVirtual = false,
+    bool IsPureVirtual = false,
+    bool IsFinal = false,
+    bool IsOverride = false,
+    string? SymbolId = null);
 
 public sealed record BindingMetadataFunction(
     string SymbolId,
@@ -78,7 +95,9 @@ public sealed record BindingMetadataParameter(
     BindingMetadataTypeReference Type,
     string? DefaultValueExpression = null,
     bool UseCallbackDelegate = false,
-    string? CallbackDelegateTypeName = null);
+    string? CallbackDelegateTypeName = null,
+    string? CppTypeName = null,
+    string? AbiKind = null);
 
 public sealed record BindingMetadataTypeReference(
     string Kind,

@@ -48,6 +48,22 @@ internal static class MarshallerConfigExtractor
         @"managed_namespace\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    private static readonly Regex ManagedWrapperAssemblyInAttributeExpression = new(
+        @"managed_wrapper_assembly\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex ManagedWrapperProviderKindInAttributeExpression = new(
+        @"managed_wrapper_provider_kind\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex ManagedWrapperProviderNamespaceInAttributeExpression = new(
+        @"managed_wrapper_provider_namespace\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex ManagedWrapperCopyableInAttributeExpression = new(
+        @"managed_wrapper_copyable\s*=\s*(?<value>true|false)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private static readonly Regex ProjectionExpression = new(
         @"projection\s*=\s*(?<value>true|false)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -100,6 +116,10 @@ internal static class MarshallerConfigExtractor
         public string? MarshallerTypeName { get; init; }
         public string? ManagedMarshaller { get; init; }
         public string? ManagedNamespace { get; init; }
+        public string? ManagedWrapperAssembly { get; init; }
+        public string? ManagedWrapperProviderKind { get; init; }
+        public string? ManagedWrapperProviderNamespace { get; init; }
+        public bool? ManagedWrapperCopyable { get; init; }
         public bool HasManagedBaseType { get; init; }
         public bool HasExposedMembers { get; init; }
         public IReadOnlyList<string> TemplateParameterNames { get; init; } = Array.Empty<string>();
@@ -140,7 +160,20 @@ internal static class MarshallerConfigExtractor
         string? ManagedMarshaller = null,
         string? ManagedInstanceCacheFactoryExpression = null,
         string? ManagedInstanceCacheTypeName = null,
-        bool EmitDefaultNativeReleaseOverride = true);
+        bool EmitDefaultNativeReleaseOverride = true)
+    {
+        public string? ManagedWrapperProviderKind { get; init; }
+        public string? ManagedWrapperProviderNamespace { get; init; }
+        public bool? ManagedWrapperCopyable { get; init; }
+    }
+
+    internal static string? GetManagedWrapperProviderKind(string attributeBody)
+    {
+        ArgumentNullException.ThrowIfNull(attributeBody);
+        return ManagedWrapperProviderKindInAttributeExpression.Match(attributeBody) is { Success: true } match
+            ? match.Groups["value"].Value
+            : null;
+    }
 
     /// <summary>
     /// Parse marshaller configuration headers via ClangSharp and extract
@@ -349,6 +382,19 @@ internal static class MarshallerConfigExtractor
             MarshallerTypeName = marshallerTypeMatch.Success ? marshallerTypeMatch.Groups["value"].Value : null,
             ManagedMarshaller = managedMarshallerMatch.Success ? managedMarshallerMatch.Groups["value"].Value : null,
             ManagedNamespace = managedNamespaceMatch.Success ? managedNamespaceMatch.Groups["value"].Value : null,
+            ManagedWrapperAssembly = ManagedWrapperAssemblyInAttributeExpression.Match(body) is { Success: true } assemblyMatch
+                ? assemblyMatch.Groups["value"].Value
+                : null,
+            ManagedWrapperProviderKind = ManagedWrapperProviderKindInAttributeExpression.Match(body) is { Success: true } providerKindMatch
+                ? providerKindMatch.Groups["value"].Value
+                : null,
+            ManagedWrapperProviderNamespace = ManagedWrapperProviderNamespaceInAttributeExpression.Match(body) is { Success: true } providerNamespaceMatch
+                ? providerNamespaceMatch.Groups["value"].Value
+                : null,
+            ManagedWrapperCopyable = ManagedWrapperCopyableInAttributeExpression.Match(body) is { Success: true } copyableMatch &&
+                bool.TryParse(copyableMatch.Groups["value"].Value, out var copyable)
+                ? copyable
+                : null,
             HasManagedBaseType = hasManagedBaseType,
             HasExposedMembers = hasExposedMembers,
             TemplateParameterNames = templateParameterNames,
@@ -430,7 +476,29 @@ internal static class MarshallerConfigExtractor
             ManagedInstanceCacheFactoryExpression: managedInstanceCacheFactoryMatch.Success ? managedInstanceCacheFactoryMatch.Groups["value"].Value : null,
             ManagedInstanceCacheTypeName: managedInstanceCacheTypeMatch.Success ? managedInstanceCacheTypeMatch.Groups["value"].Value : null,
             EmitDefaultNativeReleaseOverride: !releaseStrategyMatch.Success ||
-                !string.Equals(releaseStrategyMatch.Groups["value"].Value, "base", StringComparison.OrdinalIgnoreCase));
+                !string.Equals(releaseStrategyMatch.Groups["value"].Value, "base", StringComparison.OrdinalIgnoreCase))
+        {
+            ManagedWrapperProviderKind = GetManagedWrapperProviderKind(body),
+            ManagedWrapperProviderNamespace = GetManagedWrapperProviderNamespace(body),
+            ManagedWrapperCopyable = GetManagedWrapperCopyable(body)
+        };
+    }
+
+    private static string? GetManagedWrapperProviderNamespace(string attributeBody)
+    {
+        ArgumentNullException.ThrowIfNull(attributeBody);
+        return ManagedWrapperProviderNamespaceInAttributeExpression.Match(attributeBody) is { Success: true } match
+            ? match.Groups["value"].Value
+            : null;
+    }
+
+    private static bool? GetManagedWrapperCopyable(string attributeBody)
+    {
+        ArgumentNullException.ThrowIfNull(attributeBody);
+        return ManagedWrapperCopyableInAttributeExpression.Match(attributeBody) is { Success: true } match &&
+            bool.TryParse(match.Groups["value"].Value, out var value)
+            ? value
+            : null;
     }
 
     private static List<ExposedMemberInfo> ExtractExposedMembersFromDecl(
@@ -963,7 +1031,7 @@ internal static class MarshallerConfigExtractor
 
         // Prefer Clang's desugared template-argument type when available so
         // marshaller metadata is keyed on the canonical container surface
-        // (e.g. eastl::hash_map instead of the unordered_map template alias).
+        // (for example, a hash-map implementation instead of its template alias).
         if (decl is ClassTemplateSpecializationDecl specDecl)
         {
             var templateArgs = specDecl.TemplateArgs;

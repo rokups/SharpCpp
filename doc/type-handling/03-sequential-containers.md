@@ -11,8 +11,10 @@ template <typename T, typename TAllocator>
 struct [[sharpcpp::managed_type(
     public_type = "Std.Vector<{0}>",
     managed_base_type = "global::SharpCpp.Support.VectorBase<{0}>",
-    abi_type = "void*",
-    marshaller_type = "StdVectorMarshaller<{0}>"
+    managed_namespace = "Std",
+    managed_wrapper_assembly = "SharpCpp.Std",
+    managed_wrapper_provider_kind = "vector",
+    managed_wrapper_copyable = true
 )]]
 Marshaller<std::vector<T, TAllocator>>
 {
@@ -148,9 +150,12 @@ Fixed-size, stack-allocated array.
 ```cpp
 template <typename T, size_t N>
 struct [[sharpcpp::managed_type(
-    public_type = "{0}[]",
-    abi_type = "ContiguousBufferAbi",
-    marshaller_type = "StdArrayMarshaller<{0}, {1}>"
+    public_type = "Std.Array<{0}>",
+    managed_base_type = "global::SharpCpp.Support.ArrayBase<{0}>",
+    managed_namespace = "Std",
+    managed_wrapper_assembly = "SharpCpp.Std",
+    managed_wrapper_provider_kind = "array",
+    managed_wrapper_copyable = true
 )]]
 Marshaller<std::array<T, N>> { ... };
 ```
@@ -161,8 +166,8 @@ std::array<float, 4> GetMatrix() const;
 ```
 ```csharp
 [LibraryImport("libnative")]
-internal static partial ContiguousBufferAbi __GetMatrix(nint self);
-public float[] Matrix => StdArrayMarshaller<float, 4>.ConvertToManaged(__GetMatrix(_handle));
+internal static partial Std.Array<float> __GetMatrix(nint self);
+public Std.Array<float> Matrix => __GetMatrix(_handle);
 ```
 
 For blittable element types, `T[]` is the simplest surface. For non-blittable types, `ArrayView<T>` with per-element accessors.
@@ -173,7 +178,7 @@ void SetTransform([[sharpcpp::in]] const std::array<float, 16>& matrix);
 ```
 ```csharp
 [LibraryImport("libnative")]
-internal static partial void __SetTransform(nint self, [MarshalUsing(typeof(StdArrayMarshaller<float, 16>)), Count(16)] ReadOnlySpan<float> matrix);
+internal static partial void __SetTransform(nint self, Std.Array<float> matrix);
 ```
 
 ### Fixed-size via count attribute
@@ -205,7 +210,10 @@ template <typename T, typename TAllocator>
 struct [[sharpcpp::managed_type(
     public_type = "Std.List<{0}>",
     managed_base_type = "global::SharpCpp.Support.ListBase<{0}>",
-    abi_type = "void*"
+    managed_namespace = "Std",
+    managed_wrapper_assembly = "SharpCpp.Std",
+    managed_wrapper_provider_kind = "list",
+    managed_wrapper_copyable = true
 )]]
 Marshaller<std::list<T, TAllocator>> { ... };
 ```
@@ -214,7 +222,10 @@ No random access. Element access uses `std::next` internally, O(n) per access. A
 
 ## Source kind dispatch eliminated
 
-Each container type has its own `Marshaller<T>` specialization. The renderer reads `public_type`, `abi_type`, and `marshaller_type` from the attribute. No `switch` on source kind. No `BindingContiguousBufferSourceKind` enum in core.
+Each container type has its own `Marshaller<T>` specialization. The renderer reads the
+public projection and, for shared wrappers, the provider assembly and contract family
+from the attribute. No `switch` on source kind. No `BindingContiguousBufferSourceKind`
+enum in core.
 
 ---
 

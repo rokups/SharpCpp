@@ -55,6 +55,22 @@ public static class MarshallerMetadataPhase2
         @"managed_namespace\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+    private static readonly Regex ManagedWrapperAssemblyExpression = new(
+        @"managed_wrapper_assembly\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static readonly Regex ManagedWrapperProviderKindExpression = new(
+        @"managed_wrapper_provider_kind\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static readonly Regex ManagedWrapperProviderNamespaceExpression = new(
+        @"managed_wrapper_provider_namespace\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static readonly Regex ManagedWrapperCopyableExpression = new(
+        @"managed_wrapper_copyable\s*=\s*(?<value>true|false)",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     /// <summary>
     /// Apply record-level metadata using ClangSharp AST extraction.
     /// </summary>
@@ -231,6 +247,40 @@ public static class MarshallerMetadataPhase2
                 record.ManagedNamespace = nsMatch.Groups["value"].Value;
             }
 
+            if (ManagedWrapperAssemblyExpression.Match(body) is { Success: true } assemblyMatch)
+            {
+                record.SetMetadata(MetadataKeys.ManagedWrapperAssembly, assemblyMatch.Groups["value"].Value);
+            }
+
+            if (record.HasMetadata(MetadataKeys.ManagedWrapperAssembly))
+            {
+                var managedType = record.ManagedTypeFormat ?? record.ManagedName;
+                record.ManagedNamespace ??= GetManagedNamespaceFromTypeName(managedType);
+                record.ManagedName = GetSimpleTypeName(managedType);
+            }
+
+            if (!string.IsNullOrWhiteSpace(config.ManagedWrapperProviderKind))
+            {
+                record.SetMetadata(MetadataKeys.ManagedWrapperProviderKind, config.ManagedWrapperProviderKind);
+            }
+            else if (ManagedWrapperProviderKindExpression.Match(body) is { Success: true } providerKindMatch)
+            {
+                var providerKind = providerKindMatch.Groups["value"].Value;
+                record.SetMetadata(MetadataKeys.ManagedWrapperProviderKind, providerKind);
+            }
+
+            if (ManagedWrapperProviderNamespaceExpression.Match(body) is { Success: true } providerNamespaceMatch)
+            {
+                record.SetMetadata(MetadataKeys.ManagedWrapperProviderNamespace, providerNamespaceMatch.Groups["value"].Value);
+            }
+
+            if (ManagedWrapperCopyableExpression.Match(body) is { Success: true } copyableMatch &&
+                bool.TryParse(copyableMatch.Groups["value"].Value, out var copyable))
+            {
+                record.SetMetadata(MetadataKeys.ManagedWrapperCopyable, copyable);
+                record.HasCopyConstructor = copyable;
+            }
+
             // managed_base_type → ManagedBaseTypeName
             if (ManagedBaseTypeExpression.Match(body) is { Success: true } baseTypeMatch)
             {
@@ -280,16 +330,27 @@ public static class MarshallerMetadataPhase2
             }
 
             // expose_member methods — metadata comes from AST cursors, not source regex.
+            var exposedMethodNameCounts = config.ExposedMembers
+                .GroupBy(static member => member.MethodName, StringComparer.Ordinal)
+                .ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
             foreach (var member in config.ExposedMembers)
             {
                 var managedReturnType = MapExposedMemberType(member.CppReturnType, record, recordsByNativeName) ?? BindingType.Void;
+                var memberSignature = BuildExposedMemberSignature(member);
+                var functionSymbolId = $"method:{record.CppQualifiedName}:{memberSignature}";
+                var entryPointRecordToken = GetMarshallerEntrypointRecordToken(record);
+                var entryPointMemberToken = record.HasMetadata(MetadataKeys.ManagedWrapperAssembly)
+                    ? BuildSharedEntrypointMemberToken(member.MethodName, functionSymbolId)
+                    : exposedMethodNameCounts[member.MethodName] > 1
+                        ? $"{member.MethodName}_{SanitizeExposedEntrypointToken(memberSignature)}"
+                        : member.MethodName;
 
                 var function = new FunctionBinding(
-                    $"method:{record.NativeName}:{member.MethodName}",
+                    functionSymbolId,
                     member.MethodName,
                     member.MethodName,
                     managedReturnType,
-                    $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.NativeName)}_{member.MethodName}",
+                    $"{compilation.EntryPointPrefix}_{entryPointRecordToken}_{entryPointMemberToken}",
                     member.CppReturnType,
                     $"{record.CppQualifiedName}::{member.MethodName}")
                 {
@@ -318,6 +379,25 @@ public static class MarshallerMetadataPhase2
             }
 
             AddDefaultConstructorForConfiguredWrapper(compilation, record, cppTypeName, config);
+
+            if (record.HasMetadata(MetadataKeys.ManagedWrapperAssembly))
+            {
+                NormalizeSharedEntrypointNames(compilation, record);
+            }
+        }
+    }
+
+    private static void NormalizeSharedEntrypointNames(BindingCompilation compilation, RecordBinding record)
+    {
+        var owner = GetMarshallerEntrypointRecordToken(record);
+        foreach (var function in record.Members.OfType<FunctionBinding>())
+        {
+            var suffix = function.IsConstructor
+                ? string.Equals(function.SymbolId, $"ctor:{record.CppQualifiedName}:marshaller-default", StringComparison.Ordinal)
+                    ? "ctor"
+                    : BuildSharedEntrypointMemberToken("ctor", function.SymbolId)
+                : BuildSharedEntrypointMemberToken(function.NativeName, function.SymbolId);
+            function.EntryPointName = $"{compilation.EntryPointPrefix}_{owner}_{suffix}";
         }
     }
 
@@ -335,11 +415,11 @@ public static class MarshallerMetadataPhase2
         }
 
         var constructor = new FunctionBinding(
-            $"ctor:{record.NativeName}:marshaller-default",
+            $"ctor:{record.CppQualifiedName}:marshaller-default",
             record.NativeName,
             record.ManagedName,
             record.HandleType,
-            $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.NativeName)}_ctor",
+            $"{compilation.EntryPointPrefix}_{GetMarshallerEntrypointRecordToken(record)}_ctor",
             $"{record.CppQualifiedName}*",
             $"{record.CppQualifiedName}::{record.NativeName}")
         {
@@ -350,6 +430,68 @@ public static class MarshallerMetadataPhase2
         };
         constructor.SetMetadata(MetadataKeys.MarshallerExposedMethod, cppTypeName);
         record.Members.Add(constructor);
+    }
+
+    private static string GetMarshallerEntrypointRecordToken(RecordBinding record)
+        => record.HasMetadata(MetadataKeys.ManagedWrapperAssembly)
+            ? BuildSharedEntrypointTypeToken(record.CppQualifiedName)
+            : SanitizeNativeEntrypointName(record.NativeName);
+
+    private static string BuildSharedEntrypointTypeToken(string value)
+    {
+        var basename = value;
+        var genericStart = basename.IndexOf('<');
+        if (genericStart >= 0)
+        {
+            basename = basename[..genericStart];
+        }
+
+        var namespaceSeparator = basename.LastIndexOf("::", StringComparison.Ordinal);
+        if (namespaceSeparator >= 0)
+        {
+            basename = basename[(namespaceSeparator + 2)..];
+        }
+
+        basename = SanitizeNativeEntrypointName(basename);
+        return $"{(string.IsNullOrWhiteSpace(basename) ? "shared" : basename)}_{ComputeStableEntrypointHash(value)}";
+    }
+
+    private static string BuildSharedEntrypointMemberToken(string methodName, string symbolId)
+    {
+        var basename = SanitizeNativeEntrypointName(methodName);
+        return $"{(string.IsNullOrWhiteSpace(basename) ? "method" : basename)}_{ComputeStableEntrypointHash(symbolId)}";
+    }
+
+    private static string ComputeStableEntrypointHash(string value)
+    {
+        uint hash = 2166136261;
+        foreach (var character in value)
+        {
+            hash = (hash ^ character) * 16777619;
+        }
+
+        return hash.ToString("x8", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static string BuildExposedMemberSignature(MarshallerConfigExtractor.ExposedMemberInfo member)
+    {
+        var parameters = string.Join(",", member.Parameters.Skip(1).Select(static parameter => parameter.CppType));
+        return $"{member.MethodName}({parameters}){(member.IsConst ? ":const" : string.Empty)}";
+    }
+
+    private static string SanitizeExposedEntrypointToken(string value)
+    {
+        var readable = new string(value
+            .Select(character => char.IsLetterOrDigit(character) || character == '_' ? character : '_')
+            .ToArray())
+            .Trim('_');
+        uint hash = 2166136261;
+        foreach (var character in value)
+        {
+            hash = (hash ^ character) * 16777619;
+        }
+
+        return $"{readable}_{hash:x8}";
     }
 
     private static RecordBinding? FindRecordByName(
@@ -444,7 +586,10 @@ public static class MarshallerMetadataPhase2
             realRecord.ManagedInstanceCacheFactoryExpression ??= placeholder.ManagedInstanceCacheFactoryExpression;
             realRecord.ManagedInstanceCacheTypeName ??= placeholder.ManagedInstanceCacheTypeName;
             realRecord.EmitDefaultNativeReleaseOverride &= placeholder.EmitDefaultNativeReleaseOverride;
-            realRecord.HasCopyConstructor |= placeholder.HasCopyConstructor;
+            MergeCopyability(realRecord, placeholder);
+            MergeMetadataValue(realRecord, placeholder, MetadataKeys.ManagedWrapperAssembly);
+            MergeMetadataValue(realRecord, placeholder, MetadataKeys.ManagedWrapperProviderKind);
+            MergeMetadataValue(realRecord, placeholder, MetadataKeys.ManagedWrapperProviderNamespace);
             MergeMetadataList(realRecord, placeholder, MetadataKeys.ManagedStaticInterfaces);
             MergeMetadataFlag(realRecord, placeholder, MetadataKeys.ManagedStaticInterfacesAbstract);
 
@@ -484,6 +629,8 @@ public static class MarshallerMetadataPhase2
             !string.IsNullOrWhiteSpace(record.ManagedTypeFormat) ||
             !string.IsNullOrWhiteSpace(record.ManagedNamespace) ||
             !string.IsNullOrWhiteSpace(record.HandleMarshallerTypeName) ||
+            !string.IsNullOrWhiteSpace(record.GetMetadata<string>(MetadataKeys.ManagedWrapperAssembly)) ||
+            !string.IsNullOrWhiteSpace(record.GetMetadata<string>(MetadataKeys.ManagedWrapperProviderKind)) ||
             record.Members.OfType<FunctionBinding>().Any(static member => member.HasMetadata(MetadataKeys.MarshallerExposedMethod));
     }
 
@@ -554,7 +701,7 @@ public static class MarshallerMetadataPhase2
         target.ManagedInstanceCacheFactoryExpression ??= source.ManagedInstanceCacheFactoryExpression;
         target.ManagedInstanceCacheTypeName ??= source.ManagedInstanceCacheTypeName;
         target.EmitDefaultNativeReleaseOverride &= source.EmitDefaultNativeReleaseOverride;
-        target.HasCopyConstructor |= source.HasCopyConstructor;
+        MergeCopyability(target, source);
         MergeMetadataList(target, source, MetadataKeys.ManagedStaticInterfaces);
         MergeMetadataFlag(target, source, MetadataKeys.ManagedStaticInterfacesAbstract);
 
@@ -649,11 +796,49 @@ public static class MarshallerMetadataPhase2
         }
     }
 
+    private static void MergeMetadataValue(BindingNode target, BindingNode source, string key)
+    {
+        if (target.HasMetadata(key) || !source.Metadata.TryGetValue(key, out var value) || value is null)
+        {
+            return;
+        }
+
+        target.SetMetadata(key, value);
+    }
+
+    private static void MergeCopyability(RecordBinding target, RecordBinding source)
+    {
+        if (target.Metadata.TryGetValue(MetadataKeys.ManagedWrapperCopyable, out var targetValue) && targetValue is bool targetCopyable)
+        {
+            target.HasCopyConstructor = targetCopyable;
+            return;
+        }
+
+        if (source.Metadata.TryGetValue(MetadataKeys.ManagedWrapperCopyable, out var sourceValue) && sourceValue is bool sourceCopyable)
+        {
+            target.SetMetadata(MetadataKeys.ManagedWrapperCopyable, sourceCopyable);
+            target.HasCopyConstructor = sourceCopyable;
+            return;
+        }
+
+        target.HasCopyConstructor |= source.HasCopyConstructor;
+    }
+
     private static string GetSimpleTypeName(string managedTypeFormat)
     {
         var typeHead = StripGenericArguments(managedTypeFormat);
         var lastDot = typeHead.LastIndexOf('.');
         return lastDot >= 0 ? typeHead[(lastDot + 1)..] : typeHead;
+    }
+
+    private static string? GetManagedNamespaceFromTypeName(string managedTypeName)
+    {
+        var typeHead = StripGenericArguments(managedTypeName);
+        typeHead = typeHead.StartsWith("global::", StringComparison.Ordinal)
+            ? typeHead["global::".Length..]
+            : typeHead;
+        var lastDot = typeHead.LastIndexOf('.');
+        return lastDot > 0 ? typeHead[..lastDot] : null;
     }
 
     private static void ApplyTemplateParameters(RecordBinding record, IReadOnlyList<string> templateParameterNames)
@@ -1034,7 +1219,7 @@ public static class MarshallerMetadataPhase2
 
             // Stamp the suppressed-emission name on the original handle type
             // so that when this type appears as a generic argument of an outer
-            // type (e.g., Ea.Vector<IntVector3>), the outer type renders the
+            // type (e.g., Std.Vector<IntVector3>), the outer type renders the
             // correct managed name even though the returned Configured type may
             // be discarded by recursive callers.
             type.SetManagedTypeFormatOverride(publicName);

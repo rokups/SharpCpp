@@ -20,10 +20,12 @@ Example marshaller type names and helper APIs in this document are illustrative.
 ```cpp
 template <>
 struct [[sharpcpp::managed_type(
-    public_type = "StdString",
+    public_type = "Std.String",
     managed_base_type = "global::SharpCpp.Support.StringBase",
-    abi_type = "Utf8StringAbi",
-    marshaller_type = "Utf8StringMarshaller"
+    managed_namespace = "Std",
+    managed_wrapper_assembly = "SharpCpp.Std",
+    managed_wrapper_provider_kind = "string",
+    managed_wrapper_copyable = true
 )]]
 Marshaller<std::string>
 {
@@ -92,9 +94,9 @@ For returns where the ABI type differs from the public type, `[return: MarshalUs
 ```csharp
 [LibraryImport("libnative")]
 [return: MarshalUsing(typeof(Utf8StringMarshaller))]
-internal static partial StdString __GetName(nint self);
+internal static partial Std.String __GetName(nint self);
 
-public StdString Name => __GetName(_handle);
+public Std.String Name => __GetName(_handle);
 ```
 
 `Utf8StringMarshaller.ConvertToManaged` is called by the runtime after the native call returns.
@@ -278,12 +280,12 @@ The generator reads these and creates `FunctionBinding` nodes with native bodies
 
 ## Builtin marshaller reuse
 
-Users with custom stdlib implementations (e.g., EASTL instead of STL) can reuse builtin marshallers by inheriting from them:
+Users with custom standard-library implementations can reuse builtin marshallers by inheriting from them:
 
 ```cpp
-// Reuse the vector marshaller shape for an EASTL vector
+// Reuse the vector marshaller shape for a third-party vector
 template <typename T>
-struct Marshaller<ea::vector<T>>
+struct Marshaller<vendor::vector<T>>
     : Marshaller<std::vector<T>>
 {
     using Marshaller<std::vector<T>>::GetCountCore;
@@ -298,7 +300,7 @@ template <typename T>
 struct [[sharpcpp::managed_type(
     reuse_builtin_marshaller = "std::vector<{0}>"
 )]]
-Marshaller<ea::vector<T>> : Marshaller<std::vector<T>> {};
+Marshaller<vendor::vector<T>> : Marshaller<std::vector<T>> {};
 ```
 
 The `reuse_builtin_marshaller` attribute tells the generator to use the same managed type, ABI type, and marshaller type as the referenced builtin.

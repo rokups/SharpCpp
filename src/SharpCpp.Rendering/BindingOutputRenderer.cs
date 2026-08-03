@@ -27,9 +27,42 @@ public static partial class BindingOutputRenderer
 
     private static string GetManagedNamespace(BindingCompilation compilation, RecordBinding record)
     {
-        return GetManagedProjection(compilation)?.GetManagedNamespace(record, compilation) ??
-            record.ManagedNamespace ??
-            compilation.ManagedNamespace;
+        var projection = GetManagedProjection(compilation);
+        if (projection is not null && projection.TryGetManagedNamespace(record, out var projected) &&
+            !string.IsNullOrWhiteSpace(projected))
+        {
+            return projected;
+        }
+
+        if (!string.IsNullOrWhiteSpace(record.ManagedNamespace))
+        {
+            return record.ManagedNamespace!;
+        }
+
+        // A shared wrapper may omit managed_namespace when its public type is
+        // already qualified (for example, "Acme.Text"). Keep helper and
+        // marshaller declarations in that assembly's namespace instead of
+        // silently placing them in the consuming module's namespace.
+        if (IsSharedManagedWrapper(record))
+        {
+            var managedType = record.ManagedTypeFormat ?? record.ManagedName;
+            managedType = managedType.StartsWith("global::", StringComparison.Ordinal)
+                ? managedType["global::".Length..]
+                : managedType;
+            var genericStart = managedType.IndexOf('<');
+            if (genericStart >= 0)
+            {
+                managedType = managedType[..genericStart];
+            }
+
+            var separator = managedType.LastIndexOf('.');
+            if (separator > 0)
+            {
+                return managedType[..separator];
+            }
+        }
+
+        return compilation.ManagedNamespace;
     }
 
     private static string GetManagedNamespace(BindingCompilation compilation, EnumBinding enumBinding)
@@ -56,6 +89,56 @@ public static partial class BindingOutputRenderer
     private static string GetBindingClassAccessor(BindingCompilation compilation)
         => $"global::{compilation.ManagedNamespace}.{compilation.ManagedClassName}";
 
+    private static bool IsSharedManagedWrapper(RecordBinding record)
+        => !string.IsNullOrWhiteSpace(record.GetMetadata<string>(MetadataKeys.ManagedWrapperAssembly));
+
+    private static string GetSharedModuleIdLiteral(BindingCompilation compilation)
+        => $"\"{EscapeCSharpString(compilation.ProjectName)}\"";
+
+    private static string EscapeCSharpString(string value)
+        => value.Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal)
+            .Replace("\r", "\\r", StringComparison.Ordinal)
+            .Replace("\n", "\\n", StringComparison.Ordinal);
+
+    private static string GetSharedManagedInfrastructureNamespace(BindingCompilation compilation, RecordBinding record)
+    {
+        var configured = record.GetMetadata<string>(MetadataKeys.ManagedWrapperProviderNamespace);
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            var normalized = configured.Trim();
+            return normalized.StartsWith("global::", StringComparison.Ordinal)
+                ? normalized
+                : $"global::{normalized}";
+        }
+
+        var managedNamespace = record.ManagedNamespace;
+        if (string.IsNullOrWhiteSpace(managedNamespace))
+        {
+            var managedType = record.ManagedTypeFormat ?? record.ManagedName;
+            managedType = managedType.StartsWith("global::", StringComparison.Ordinal)
+                ? managedType["global::".Length..]
+                : managedType;
+            var separator = managedType.IndexOf('.', StringComparison.Ordinal);
+            managedNamespace = separator > 0 ? managedType[..separator] : compilation.ManagedNamespace;
+        }
+
+        managedNamespace ??= compilation.ManagedNamespace;
+        if (managedNamespace.StartsWith("global::", StringComparison.Ordinal))
+        {
+            managedNamespace = managedNamespace["global::".Length..];
+        }
+
+        var root = managedNamespace.Split('.', 2)[0];
+        return $"global::{root}.Infrastructure";
+    }
+
+    private static string GetSharedManagedTypeName(BindingCompilation compilation, BindingType type)
+        => GetManagedPublicReturnTypeName(type, compilation);
+
+    private static string GetSharedManagedProviderModuleArgument(BindingCompilation compilation, RecordBinding record)
+        => IsSharedManagedWrapper(record) ? $", moduleId: {GetSharedModuleIdLiteral(compilation)}" : string.Empty;
+
     public static GeneratedBindingSet Render(
         BindingCompilation compilation,
         string fileStem,
@@ -74,7 +157,7 @@ public static partial class BindingOutputRenderer
                 new GeneratedBindingFile($"{fileStem}.Bindings.g.cs", RenderManagedBindings(
                     compilation,
                     includeCallbackHelpers: false)),
-                new GeneratedBindingFile($"{fileStem}.Bindings.Aliases.g.cs", RenderAliasBindings(compilation, includeSharedCallbackHelpers: true)),
+                new GeneratedBindingFile($"{fileStem}.Bindings.Aliases.g.cs", RenderAliasBindings(compilation, includeRegistry: true, includeSharedCallbackHelpers: true)),
                 new GeneratedBindingFile($"{fileStem}.Bindings.g.cpp", RenderNativeBindings(compilation, includeCallbackReleaseRegistration: includeCallbackReleaseRegistration))
             };
             return new GeneratedBindingSet(files);
@@ -84,7 +167,7 @@ public static partial class BindingOutputRenderer
 
         var groups = compilation.Members.OfType<BindingNode>()
             .Where(m => m is FunctionBinding ||
-                        m is RecordBinding record && !record.GetMetadata<bool>(MetadataKeys.SuppressEmission) ||
+                        m is RecordBinding record && (IsSharedManagedWrapper(record) || !record.GetMetadata<bool>(MetadataKeys.SuppressEmission)) ||
                         m is EnumBinding @enum && !@enum.GetMetadata<bool>(MetadataKeys.SuppressEmission) ||
                         m is ManagedClassBinding managedClass && managedClass.Parent is not ManagedClassBinding)
             .GroupBy(m => deriveGroupStem(string.IsNullOrEmpty(m.HeaderIncludePath) ? null : m.HeaderIncludePath), StringComparer.Ordinal)
@@ -131,7 +214,7 @@ public static partial class BindingOutputRenderer
         bool includeCallbackHelpers = true)
     {
         var writer = new CodeWriter();
-        var allRecords = compilation.Records.Where(static record => !record.GetMetadata<bool>(MetadataKeys.SuppressEmission) && !record.IsSilentlyExcluded()).AsEnumerable();
+        var allRecords = compilation.Records.Where(record => (IsSharedManagedWrapper(record) || !record.GetMetadata<bool>(MetadataKeys.SuppressEmission)) && !record.IsSilentlyExcluded()).AsEnumerable();
         var allEnums = compilation.Enums.Where(static @enum => !@enum.GetMetadata<bool>(MetadataKeys.SuppressEmission) && !@enum.IsSilentlyExcluded()).AsEnumerable();
         var allFunctions = compilation.Functions.Where(static function => !function.IsSilentlyExcluded() &&
             (function.Parent is not RecordBinding parentRecord || !parentRecord.IsSilentlyExcluded())).AsEnumerable();
@@ -170,6 +253,7 @@ public static partial class BindingOutputRenderer
             .Where(record => record.IsPolymorphic && CanCreateManagedWrapperFactory(compilation, record) && !record.HasMetadata(MetadataKeys.IgnoreReason))
             .ToArray();
         var genericImportDeclarations = new List<string>();
+        var sharedImportDeclarations = new List<string>();
 
         writer.Write(
             $$"""
@@ -219,11 +303,24 @@ public static partial class BindingOutputRenderer
                 }
                 else
                 {
-                    genericImportDeclarations.AddRange(record.IsGeneric
-                        ? CollectGenericImportDeclarations(compilation, record)
-                        : CollectNonGenericRecordGenericMethodImportDeclarations(compilation, record));
+                    if (record.IsGeneric && !IsSharedManagedWrapper(record))
+                    {
+                        genericImportDeclarations.AddRange(CollectGenericImportDeclarations(compilation, record));
+                    }
+                    else if (!IsSharedManagedWrapper(record))
+                    {
+                        genericImportDeclarations.AddRange(CollectNonGenericRecordGenericMethodImportDeclarations(compilation, record));
+                    }
 
-                    writer.Write(RenderRecord(compilation, record));
+                    if (IsSharedManagedWrapper(record))
+                    {
+                        sharedImportDeclarations.AddRange(CollectSharedManagedWrapperImportDeclarations(compilation, record));
+                        writer.Write(RenderSharedManagedWrapperMarshallerHelpers(compilation, record));
+                    }
+                    else
+                    {
+                        writer.Write(RenderRecord(compilation, record));
+                    }
                 }
             }
 
@@ -261,7 +358,7 @@ public static partial class BindingOutputRenderer
             .GroupBy(function => (Namespace: GetManagedNamespace(compilation, function), Class: GetManagedClassName(compilation, function)))
             .ToDictionary(static group => group.Key, static group => group.OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray());
 
-        if ((memberFilter is null && polymorphicConcreteRecords.Length > 0) || callbackParameters.Length > 0 || genericImportDeclarations.Count > 0)
+        if ((memberFilter is null && polymorphicConcreteRecords.Length > 0) || callbackParameters.Length > 0 || genericImportDeclarations.Count > 0 || sharedImportDeclarations.Count > 0)
         {
             freeFunctionGroups.TryAdd(defaultContainer, Array.Empty<FunctionBinding>());
         }
@@ -357,7 +454,8 @@ public static partial class BindingOutputRenderer
                 }
             }
 
-            if (freeFunctionDeclarations.Count > 0 || isDefaultContainer && genericImportDeclarations.Count > 0)
+            if (freeFunctionDeclarations.Count > 0 || isDefaultContainer &&
+                (genericImportDeclarations.Count > 0 || sharedImportDeclarations.Count > 0))
             {
                 writer.WriteLine();
                 writer.Write(
@@ -375,6 +473,12 @@ public static partial class BindingOutputRenderer
                 if (isDefaultContainer)
                 {
                     foreach (var declaration in genericImportDeclarations)
+                    {
+                        writer.WriteLine();
+                        writer.Write(declaration);
+                    }
+
+                    foreach (var declaration in sharedImportDeclarations.Distinct(StringComparer.Ordinal))
                     {
                         writer.WriteLine();
                         writer.Write(declaration);
@@ -404,6 +508,103 @@ public static partial class BindingOutputRenderer
         return string.IsNullOrWhiteSpace(managedClass.ManagedNamespace)
             ? compilation.ManagedNamespace
             : managedClass.ManagedNamespace;
+    }
+
+    private static IEnumerable<string> CollectSharedManagedWrapperImportDeclarations(
+        BindingCompilation compilation,
+        RecordBinding record)
+    {
+        if (record.IsGeneric)
+        {
+            if (IsGenericArrayRecord(record))
+            {
+                foreach (var declaration in CollectGenericArrayImportDeclarations(compilation, record))
+                {
+                    yield return declaration;
+                }
+
+                yield break;
+            }
+
+            if (!IsGenericArrayRecord(record))
+            {
+                foreach (var instantiation in GetCanonicalManagedGenericInstantiations(compilation, record))
+                {
+                    yield return RenderSharedProviderCreateImportDeclaration(compilation, record, instantiation);
+                    if (CanEmitSharedProviderClone(compilation, record, instantiation))
+                    {
+                        yield return RenderSharedProviderCloneImportDeclaration(compilation, record, instantiation);
+                    }
+
+                    foreach (var method in record.Members.OfType<FunctionBinding>()
+                                 .Where(static function => !function.IsConstructor && !function.IsStatic && !function.IsGeneric &&
+                                     function.OperatorToken is null && !function.IsConversionOperator && !function.IsSilentlyExcluded() &&
+                                     IsSharedProviderMethod(function))
+                                 .OrderBy(static function => function.ManagedName, StringComparer.Ordinal))
+                    {
+                        yield return RenderGenericInstanceImportDeclaration(
+                            compilation,
+                            record,
+                            method,
+                            instantiation,
+                            GetSharedProviderMethodImportName(record, method, instantiation));
+                    }
+
+                    if (CanEmitSharedProviderDelete(record, instantiation))
+                    {
+                        yield return RenderGenericDeleteImportDeclaration(
+                            compilation,
+                            record,
+                            instantiation,
+                            GetSharedProviderDeleteImportName(record, instantiation));
+                    }
+                }
+            }
+
+            yield break;
+        }
+
+        if (CanEmitDeleteThunk(record))
+        {
+            yield return RenderManagedDeleteImportDeclaration(compilation, record, GetSharedProviderDeleteImportName(record, null));
+        }
+
+        yield return RenderSharedProviderCreateImportDeclaration(compilation, record);
+        if (CanEmitSharedProviderClone(compilation, record, instantiation: null))
+        {
+            yield return RenderSharedProviderCloneImportDeclaration(compilation, record);
+        }
+
+        foreach (var method in record.Members.OfType<FunctionBinding>()
+                     .Where(static function => !function.IsConstructor && !function.IsStatic && !function.IsGeneric &&
+                         function.OperatorToken is null && !function.IsConversionOperator && !function.IsSilentlyExcluded() &&
+                         IsSharedProviderMethod(function))
+                     .OrderBy(static function => function.ManagedName, StringComparer.Ordinal))
+        {
+            yield return RenderSharedManagedInstanceImportDeclaration(compilation, record, method);
+        }
+    }
+
+    private static string RenderSharedManagedWrapperMarshallerHelpers(
+        BindingCompilation compilation,
+        RecordBinding record)
+    {
+        var declarationName = record.IsGeneric
+            ? GetGenericRecordDeclarationName(record)
+            : GetManagedDeclarationName(record);
+        return RenderManagedHandleReturnMarshallerHelpers(compilation, record, declarationName);
+    }
+
+    private static string GetManagedDeclarationName(RecordBinding record)
+    {
+        var name = GetManagedTypeHead(record.ManagedName);
+        if (name.StartsWith("global::", StringComparison.Ordinal))
+        {
+            name = name["global::".Length..];
+        }
+
+        var separator = name.LastIndexOf('.');
+        return separator >= 0 ? name[(separator + 1)..] : name;
     }
 
     private static string RenderManagedClass(ManagedClassBinding managedClass)
@@ -661,12 +862,13 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string RenderNativeDelete(RecordBinding record, bool requiresDirector)
+    private static string RenderNativeDelete(BindingCompilation compilation, RecordBinding record, bool requiresDirector)
     {
+        var entryPoint = GetNativeDeleteEntryPointName(compilation, record);
         if (!requiresDirector)
         {
             return $$"""
-                SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_delete(arg_t<{{record.CppQualifiedName}}*> self)
+                SHARPCPP_EXPORT ret_t<void> {{entryPoint}}(arg_t<{{record.CppQualifiedName}}*> self)
                 {
                 MarshallerInvoker::destroy<{{record.CppQualifiedName}}>(self);
                 }
@@ -675,7 +877,7 @@ public static partial class BindingOutputRenderer
 
         var directorName = GetNativeDirectorClassName(record);
         return $$"""
-            SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_delete(arg_t<{{record.CppQualifiedName}}*> self)
+            SHARPCPP_EXPORT ret_t<void> {{entryPoint}}(arg_t<{{record.CppQualifiedName}}*> self)
             {
             if (auto* director = dynamic_cast<{{directorName}}*>(self))
             {
@@ -698,10 +900,10 @@ public static partial class BindingOutputRenderer
             """;
     }
 
-    private static string RenderNativeClone(RecordBinding record)
+    private static string RenderNativeClone(BindingCompilation compilation, RecordBinding record)
     {
         return $$"""
-            SHARPCPP_EXPORT ret_t<{{record.CppQualifiedName}}*> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_clone(arg_t<{{record.CppQualifiedName}}*> self)
+            SHARPCPP_EXPORT ret_t<{{record.CppQualifiedName}}*> {{GetNativeCloneEntryPointName(compilation, record)}}(arg_t<{{record.CppQualifiedName}}*> self)
             {
             Marshaller<{{record.CppQualifiedName}}*> self_marshaller;
             auto* instance = static_cast<{{record.CppQualifiedName}}*>(self_marshaller.ConvertToCpp(self));
@@ -1952,6 +2154,7 @@ public static partial class BindingOutputRenderer
         var borrowedMarshallerTypeName = GetQualifiedUnifiedHandleMarshallerTypeName(compilation, record, BorrowedNativeHandleFullName);
         var ownedMarshallerTypeName = GetQualifiedUnifiedHandleMarshallerTypeName(compilation, record, OwnedNativeHandleFullName);
         var genericConstraints = GetHandleMarshallerGenericConstraints();
+        var moduleArgument = GetSharedManagedProviderModuleArgument(compilation, record);
 
         return $$"""
             [CustomMarshaller(typeof({{qualifiedOpenRecordTypeName}}), MarshalMode.ManagedToUnmanagedOut, typeof({{borrowedMarshallerTypeName}}))]
@@ -1966,7 +2169,7 @@ public static partial class BindingOutputRenderer
 
                 public static {{qualifiedRecordTypeName}} ConvertToManaged(nint unmanaged)
                 {
-                    return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: TOwnership.OwnsHandle);
+                    return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: TOwnership.OwnsHandle{{moduleArgument}});
                 }
             }
             """;
@@ -1990,6 +2193,7 @@ public static partial class BindingOutputRenderer
         var ownedMarshallerDeclarationName = GetHandleReturnMarshallerDeclarationName(record, ownsHandle: true);
         var ownedMarshallerTypeName = GetQualifiedHandleReturnMarshallerTypeName(compilation, record, ownsHandle: true);
         var genericConstraints = GetGenericRecordConstraints(record);
+        var moduleArgument = GetSharedManagedProviderModuleArgument(compilation, record);
 
         return $$"""
             [CustomMarshaller(typeof({{qualifiedOpenRecordTypeName}}), MarshalMode.ManagedToUnmanagedIn, typeof({{inMarshallerTypeName}}))]
@@ -2007,7 +2211,7 @@ public static partial class BindingOutputRenderer
             {
                 public static {{qualifiedRecordTypeName}} ConvertToManaged(global::SharpCpp.Support.NativeArrayAbi unmanaged)
                 {
-                    return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: false);
+                    return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: false{{moduleArgument}});
                 }
             }
 
@@ -2016,7 +2220,7 @@ public static partial class BindingOutputRenderer
             {
                 public static {{qualifiedRecordTypeName}} ConvertToManaged(global::SharpCpp.Support.NativeArrayAbi unmanaged)
                 {
-                    return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: true);
+                    return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: true{{moduleArgument}});
                 }
             }
             """;
@@ -2033,6 +2237,7 @@ public static partial class BindingOutputRenderer
         var ownedMarshallerDeclarationName = GetHandleReturnMarshallerDeclarationName(record, ownsHandle: true);
         var ownedMarshallerTypeName = GetQualifiedHandleReturnMarshallerTypeName(compilation, record, ownsHandle: true);
         var genericConstraints = GetGenericRecordConstraints(record);
+        var moduleArgument = GetSharedManagedProviderModuleArgument(compilation, record);
 
         return $$"""
             [CustomMarshaller(typeof({{qualifiedOpenRecordTypeName}}), MarshalMode.ManagedToUnmanagedIn, typeof({{inMarshallerTypeName}}))]
@@ -2049,7 +2254,7 @@ public static partial class BindingOutputRenderer
             {
                 public static {{qualifiedRecordTypeName}} ConvertToManaged(nint unmanaged)
                 {
-                    return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: false);
+                    return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: false{{moduleArgument}});
                 }
             }
 
@@ -2058,7 +2263,7 @@ public static partial class BindingOutputRenderer
             {
                 public static {{qualifiedRecordTypeName}} ConvertToManaged(nint unmanaged)
                 {
-                    return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: true);
+                    return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: true{{moduleArgument}});
                 }
             }
             """;
@@ -2075,6 +2280,7 @@ public static partial class BindingOutputRenderer
         var ownedMarshallerDeclarationName = GetHandleReturnMarshallerDeclarationName(record, ownsHandle: true);
         var ownedMarshallerTypeName = GetQualifiedHandleReturnMarshallerTypeName(compilation, record, ownsHandle: true);
         var genericConstraints = GetGenericRecordConstraints(record);
+        var moduleArgument = GetSharedManagedProviderModuleArgument(compilation, record);
 
         return $$"""
             [CustomMarshaller(typeof({{qualifiedOpenRecordTypeName}}), MarshalMode.ManagedToUnmanagedIn, typeof({{inMarshallerTypeName}}))]
@@ -2091,7 +2297,7 @@ public static partial class BindingOutputRenderer
             {
                 public static {{qualifiedRecordTypeName}} ConvertToManaged(nint unmanaged)
                 {
-                    return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: false);
+                    return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: false{{moduleArgument}});
                 }
             }
 
@@ -2100,7 +2306,7 @@ public static partial class BindingOutputRenderer
             {
                 public static {{qualifiedRecordTypeName}} ConvertToManaged(nint unmanaged)
                 {
-                    return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: true);
+                    return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: true{{moduleArgument}});
                 }
             }
             """;
@@ -2115,6 +2321,17 @@ public static partial class BindingOutputRenderer
             .Where(alias => IsRenderableAliasTarget(compilation, alias.TargetType))
             .ToArray() ?? Array.Empty<BindingTypeAlias>();
         var needsRegistry = compilation is not null && includeRegistry;
+        var sharedProviderShapes = compilation is null
+            ? Array.Empty<(RecordBinding Record, RecordGenericInstantiationBinding? Instantiation)>()
+            : compilation.Records
+                .Where(record => IsSharedManagedWrapper(record) &&
+                    !record.IsSilentlyExcluded() &&
+                    !record.HasMetadata(MetadataKeys.IgnoreReason))
+                .SelectMany(record => record.IsGeneric
+                    ? GetSharedProviderInstantiations(compilation, record)
+                        .Select(instantiation => (record, (RecordGenericInstantiationBinding?)instantiation))
+                    : [(record, (RecordGenericInstantiationBinding?)null)])
+                .ToArray();
         var callbackParameters = compilation is not null && includeSharedCallbackHelpers
             ? CollectCallbackParameters(
                 compilation.Records.Where(static record => !record.GetMetadata<bool>(MetadataKeys.SuppressEmission) && !record.IsSilentlyExcluded()),
@@ -2122,7 +2339,7 @@ public static partial class BindingOutputRenderer
                     (function.Parent is not RecordBinding parentRecord || !parentRecord.IsSilentlyExcluded())))
                 .ToArray()
             : Array.Empty<ParameterBinding>();
-        if (compilation is null || (aliases.Length == 0 && !needsRegistry && callbackParameters.Length == 0))
+        if (compilation is null || (aliases.Length == 0 && !needsRegistry && callbackParameters.Length == 0 && sharedProviderShapes.Length == 0))
         {
             return "// <auto-generated />\n// No alias glue is required for this bootstrap pipeline.\n";
         }
@@ -2132,7 +2349,7 @@ public static partial class BindingOutputRenderer
                 .Where(record => record.IsPolymorphic && CanCreateManagedWrapperFactory(compilation, record) && !record.HasMetadata(MetadataKeys.IgnoreReason))
                 .ToArray()
             : Array.Empty<RecordBinding>();
-        if (aliases.Length == 0 && needsRegistry && polymorphicConcreteRecords.Length == 0 && callbackParameters.Length == 0)
+        if (aliases.Length == 0 && needsRegistry && polymorphicConcreteRecords.Length == 0 && callbackParameters.Length == 0 && sharedProviderShapes.Length == 0)
         {
             return "// <auto-generated />\n// No registry contents to generate.\n";
         }
@@ -2157,7 +2374,7 @@ public static partial class BindingOutputRenderer
             }
         }
 
-        if (callbackParameters.Length > 0)
+        if (callbackParameters.Length > 0 || sharedProviderShapes.Length > 0)
         {
             writer.Write(
                 """
@@ -2169,7 +2386,7 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
-        if ((!needsRegistry || polymorphicConcreteRecords.Length == 0) && callbackParameters.Length == 0)
+        if ((!needsRegistry || polymorphicConcreteRecords.Length == 0) && callbackParameters.Length == 0 && sharedProviderShapes.Length == 0)
         {
             return writer.ToString();
         }
@@ -2192,10 +2409,54 @@ public static partial class BindingOutputRenderer
             writer.Write(RenderManagedCallbackSupport(compilation, callbackParameters));
         }
 
+        if (sharedProviderShapes.Length > 0)
+        {
+            writer.WriteLine();
+            writer.Write(RenderSharedManagedProviderRegistry(compilation, sharedProviderShapes));
+        }
+
         writer.Write(
             """
             }
             }
+            """);
+        return writer.ToString();
+    }
+
+    private static string RenderSharedManagedProviderRegistry(
+        BindingCompilation compilation,
+        IReadOnlyList<(RecordBinding Record, RecordGenericInstantiationBinding? Instantiation)> shapes)
+    {
+        var writer = new CodeWriter();
+        var distinctShapes = shapes
+            .GroupBy(shape => $"{shape.Record.SymbolId}|{GetSharedProviderShapeKey(shape.Record, shape.Instantiation)}", StringComparer.Ordinal)
+            .Select(group => group.First())
+            .OrderBy(shape => GetSharedProviderTypeName(shape.Record, shape.Instantiation), StringComparer.Ordinal)
+            .ToArray();
+
+        foreach (var shape in distinctShapes)
+        {
+            writer.WriteLine();
+            writer.Write(RenderSharedManagedProvider(compilation, shape.Record, shape.Instantiation));
+        }
+
+        writer.WriteLine();
+        writer.Write(
+            """
+                [global::System.Runtime.CompilerServices.ModuleInitializer]
+                public static void RegisterSharedProviders()
+                {
+            """);
+
+        foreach (var shape in distinctShapes)
+        {
+            writer.WriteLine(
+                $"        {GetSharedManagedInfrastructureNamespace(compilation, shape.Record)}.ProviderRegistry.Register(new {GetSharedProviderTypeName(shape.Record, shape.Instantiation)}());");
+        }
+
+        writer.Write(
+            """
+                }
             """);
         return writer.ToString();
     }
@@ -2205,7 +2466,8 @@ public static partial class BindingOutputRenderer
         if (type.RecordId is not null)
         {
             var record = compilation.FindRecordBySymbolId(type.RecordId);
-            if (record is null || record.IsIgnored() || record.GetMetadata<bool>(MetadataKeys.SuppressEmission))
+            if (record is null || record.IsIgnored() ||
+                (record.GetMetadata<bool>(MetadataKeys.SuppressEmission) && !IsSharedManagedWrapper(record)))
                 return false;
         }
         if (type.EnumId is not null)
@@ -3440,12 +3702,15 @@ public static partial class BindingOutputRenderer
             """;
     }
 
-    private static string RenderManagedDeleteImportDeclaration(BindingCompilation compilation, RecordBinding record)
+    private static string RenderManagedDeleteImportDeclaration(
+        BindingCompilation compilation,
+        RecordBinding record,
+        string importMethodName = "Delete")
     {
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_delete", StringMarshalling = StringMarshalling.Utf8)]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetNativeDeleteEntryPointName(compilation, record)}}", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            internal static partial void Delete(nint self);
+            internal static partial void {{importMethodName}}(nint self);
             """;
     }
 
@@ -3490,7 +3755,7 @@ public static partial class BindingOutputRenderer
             : $"{returnAttribute}\ninternal static partial {returnTypeName} CloneCopyCtor({record.ManagedName} self);";
 
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_clone", StringMarshalling = StringMarshalling.Utf8)]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetNativeCloneEntryPointName(compilation, record)}}", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             {{importMethodLine}}
             """;
@@ -4724,7 +4989,7 @@ public static partial class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         var allFunctions = compilation.Functions.AsEnumerable();
-        var allRecords = compilation.Records.Where(static record => !record.GetMetadata<bool>(MetadataKeys.SuppressEmission)).AsEnumerable();
+        var allRecords = compilation.Records.Where(record => IsSharedManagedWrapper(record) || !record.GetMetadata<bool>(MetadataKeys.SuppressEmission)).AsEnumerable();
 
         if (memberFilter is not null)
         {
@@ -4833,6 +5098,15 @@ public static partial class BindingOutputRenderer
 
         foreach (var record in records.Where(static record => record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static record => record.ManagedName, StringComparer.Ordinal))
         {
+            if (IsSharedManagedWrapper(record) && !IsGenericArrayRecord(record))
+            {
+                foreach (var instantiation in GetSharedProviderInstantiations(compilation, record))
+                {
+                    writer.WriteLine();
+                    writer.Write(RenderSharedProviderNativeCreate(compilation, record, instantiation));
+                }
+            }
+
             if (IsGenericArrayRecord(record))
             {
                 writer.Write(RenderNativeGenericArrayRecord(compilation, record));
@@ -4859,14 +5133,14 @@ public static partial class BindingOutputRenderer
                     writer.Write(RenderNativeGenericStaticMethod(record, method, instantiation));
                 }
 
-                if (CanEmitClone(record, isEffectivelyAbstract: false, canEmitDeleteThunk: true))
+                if (CanEmitClone(record, record.IsEffectivelyAbstract || record.HasUnimplementedAbstractBaseMethods(compilation), canEmitDeleteThunk: true))
                 {
                     writer.WriteLine();
-                    writer.Write(RenderNativeGenericClone(record, instantiation));
+                    writer.Write(RenderNativeGenericClone(compilation, record, instantiation));
                 }
 
                 writer.WriteLine();
-                writer.Write(RenderNativeGenericDelete(record, instantiation));
+                writer.Write(RenderNativeGenericDelete(compilation, record, instantiation));
             }
 
             var genericInstanceMethods = record.Members.OfType<FunctionBinding>()
@@ -5176,9 +5450,14 @@ public static partial class BindingOutputRenderer
         foreach (var record in records.Where(static record => !record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static record => record.ManagedName, StringComparer.Ordinal))
         {
             writer.WriteLine();
+            if (IsSharedManagedWrapper(record))
+            {
+                writer.Write(RenderSharedProviderNativeCreate(compilation, record, instantiation: null));
+            }
+
             if (CanEmitDeleteThunk(record))
             {
-                writer.Write(RenderNativeDelete(record, record.RequiresDirector(compilation)));
+                writer.Write(RenderNativeDelete(compilation, record, record.RequiresDirector(compilation)));
             }
 
             if (RequiresArrayElementAccess(compilation, record))
@@ -5203,7 +5482,7 @@ public static partial class BindingOutputRenderer
             if (CanEmitClone(record, record.IsEffectivelyAbstract || record.HasUnimplementedAbstractBaseMethods(compilation), CanEmitDeleteThunk(record)))
             {
                 writer.WriteLine();
-                writer.Write(RenderNativeClone(record));
+                writer.Write(RenderNativeClone(compilation, record));
             }
 
             if (record.RequiresDirector(compilation))
@@ -5555,7 +5834,9 @@ public static partial class BindingOutputRenderer
     private static string GetQualifiedManagedRecordDeclarationTypeName(BindingCompilation compilation, RecordBinding record, string recordDeclarationName)
     {
         var ns = GetManagedNamespace(compilation, record);
-        return $"global::{ns}.{recordDeclarationName}";
+        return recordDeclarationName.StartsWith("global::", StringComparison.Ordinal)
+            ? recordDeclarationName
+            : $"global::{ns}.{recordDeclarationName}";
     }
 
     private static string GetQualifiedManagedOpenRecordTypeName(BindingCompilation compilation, RecordBinding record)
@@ -5563,7 +5844,8 @@ public static partial class BindingOutputRenderer
         var ns = GetManagedNamespace(compilation, record);
         var arity = GetManagedVisibleGenericParameters(record).Count;
         var openGenericSuffix = arity == 0 ? string.Empty : $"<{new string(',', arity - 1)}>";
-        return $"global::{ns}.{record.ManagedName}{openGenericSuffix}";
+        var managedName = GetManagedDeclarationName(record);
+        return $"global::{ns}.{managedName}{openGenericSuffix}";
     }
 
     private static string GetManagedHandleInMarshallerAttribute(BindingCompilation compilation, BindingType type)
@@ -6509,7 +6791,8 @@ public static partial class BindingOutputRenderer
         var record = ResolveRecord(compilation, type);
         if (record is not null)
         {
-            return $"{GetManagedWrapperTypeName(type, compilation)}.CreateManagedWrapper({handleExpression}, ownsHandle: {ownsHandle.ToString().ToLowerInvariant()})";
+            var moduleArgument = GetSharedManagedProviderModuleArgument(compilation, record);
+            return $"{GetManagedWrapperTypeName(type, compilation)}.CreateManagedWrapper({handleExpression}, ownsHandle: {ownsHandle.ToString().ToLowerInvariant()}{moduleArgument})";
         }
 
         var wrapperTypeName = GetManagedWrapperTypeName(type, compilation);
@@ -6594,6 +6877,12 @@ public static partial class BindingOutputRenderer
                     .Replace("<", "_", StringComparison.Ordinal)
                     .Replace(">", "_", StringComparison.Ordinal);
     }
+
+    private static string GetNativeDeleteEntryPointName(BindingCompilation compilation, RecordBinding record)
+        => $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_delete";
+
+    private static string GetNativeCloneEntryPointName(BindingCompilation compilation, RecordBinding record)
+        => $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_clone";
 
     private static string GetInstanceCacheFactoryExpression(RecordBinding record)
     {

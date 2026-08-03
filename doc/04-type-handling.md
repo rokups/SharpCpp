@@ -8,7 +8,7 @@ Every type category uses the same marshaller path. The renderer reads marshaller
 |---|---|---|
 | [[00-primitives-enums]] | Primitives & Enums | Numeric, bool, CLong, size_t, enum, flagset; in/out/ref/ptr variants |
 | [[01-handles]] | Handles | Owned/borrowed/shared_ptr/weak_ptr/polymorphic handles; null; pointer-to-pointer |
-| [[02-strings]] | Strings | **Span-first**: `ReadOnlySpan<byte>` default, `StdString` for owned, `string` opt-in only; `string_binding` override; all pass directions |
+| [[02-strings]] | Strings | **Span-first**: `ReadOnlySpan<byte>` default, `Std.String` for owned, `string` opt-in only; `string_binding` override; all pass directions |
 | [[03-sequential-containers]] | Sequential Containers | vector, span, array, list; owned/borrowed/span surfaces; exposed members |
 | [[04-associative-containers]] | Associative Containers | map, unordered_map; key/value access; custom containers |
 | [[05-optional-nullable]] | Optional & Nullable | optional→T?, nullable handles, optional handles |

@@ -11,7 +11,41 @@ public static class BindingMetadataExporter
 
     private static string? GetManagedNamespace(BindingCompilation compilation, RecordBinding record)
     {
-        return GetManagedProjection(compilation)?.GetManagedNamespace(record, compilation) ?? record.ManagedNamespace;
+        var projection = GetManagedProjection(compilation);
+        if (projection is not null && projection.TryGetManagedNamespace(record, out var projected) &&
+            !string.IsNullOrWhiteSpace(projected))
+        {
+            return projected;
+        }
+
+        if (!string.IsNullOrWhiteSpace(record.ManagedNamespace))
+        {
+            return record.ManagedNamespace;
+        }
+
+        // Shared wrapper metadata may use a qualified public_type without a
+        // separate managed_namespace field. Preserve that namespace in the
+        // metadata contract so downstream modules resolve the same assembly type.
+        if (!string.IsNullOrWhiteSpace(record.GetMetadata<string>(MetadataKeys.ManagedWrapperAssembly)))
+        {
+            var managedType = record.ManagedTypeFormat ?? record.ManagedName;
+            managedType = managedType.StartsWith("global::", StringComparison.Ordinal)
+                ? managedType["global::".Length..]
+                : managedType;
+            var genericStart = managedType.IndexOf('<');
+            if (genericStart >= 0)
+            {
+                managedType = managedType[..genericStart];
+            }
+
+            var separator = managedType.LastIndexOf('.');
+            if (separator > 0)
+            {
+                return managedType[..separator];
+            }
+        }
+
+        return null;
     }
 
     private static string? GetManagedNamespace(BindingCompilation compilation, EnumBinding enumBinding)
@@ -31,7 +65,9 @@ public static class BindingMetadataExporter
         options ??= new BindingMetadataExportOptions(compilation.ProjectName);
 
         var types = compilation.Records
-            .Where(static record => !record.IsIgnored() && !record.GetMetadata<bool>(MetadataKeys.SuppressEmission))
+            .Where(static record => !record.IsIgnored() &&
+                (record.GetMetadata<bool>(MetadataKeys.SuppressEmission) == false ||
+                 !string.IsNullOrWhiteSpace(record.GetMetadata<string>(MetadataKeys.ManagedWrapperAssembly))))
             .OrderBy(static record => record.ManagedName, StringComparer.Ordinal)
             .ThenBy(static record => record.SymbolId, StringComparer.Ordinal)
             .Select(record => CreateRecordType(compilation, record))
@@ -95,6 +131,7 @@ public static class BindingMetadataExporter
             GetManagedNamespace(compilation, record),
             record.ManagedBaseTypeName,
             CreateTypeReference(record.HandleType),
+            ManagedWrapperAssembly: record.GetMetadata<string>(MetadataKeys.ManagedWrapperAssembly),
             ManagedBaseTypeConstraints: record.ManagedBaseTypeConstraints,
             ManagedInstanceCacheFactoryExpression: record.ManagedInstanceCacheFactoryExpression,
             ManagedInstanceCacheTypeName: record.ManagedInstanceCacheTypeName,
@@ -105,7 +142,13 @@ public static class BindingMetadataExporter
                 .Where(static member => !member.IsIgnored())
                 .Select(member => CreateRecordMember(compilation, member))
                 .OrderBy(static member => member.ManagedName, StringComparer.Ordinal)
-                .ToArray());
+            .ToArray(),
+            ManagedWrapperProviderKind: record.GetMetadata<string>(MetadataKeys.ManagedWrapperProviderKind),
+            HasCopyConstructor: record.HasCopyConstructor ? true : null,
+            ManagedWrapperProviderNamespace: record.GetMetadata<string>(MetadataKeys.ManagedWrapperProviderNamespace),
+            ManagedWrapperCopyable: record.HasMetadata(MetadataKeys.ManagedWrapperCopyable)
+                ? record.GetMetadata<bool>(MetadataKeys.ManagedWrapperCopyable)
+                : null);
     }
 
     private static BindingMetadataType CreateEnumType(BindingCompilation compilation, EnumBinding @enum)
@@ -128,15 +171,15 @@ public static class BindingMetadataExporter
     private static BindingMetadataFunction CreateFunction(BindingCompilation compilation, FunctionBinding function)
     {
         var parameters = function.Parameters
-            .OrderBy(static parameter => parameter.ManagedName, StringComparer.Ordinal)
-            .ThenBy(static parameter => parameter.SymbolId, StringComparer.Ordinal)
             .Select(parameter => new BindingMetadataParameter(
                 parameter.ManagedName,
                 parameter.Direction.ToString().ToLowerInvariant(),
                 CreateTypeReference(compilation, parameter.Type, fullyQualifyConcrete: true),
                 parameter.ManagedDefaultValueExpression,
                 parameter.UseCallbackDelegate,
-                parameter.CallbackDelegateTypeName))
+                parameter.CallbackDelegateTypeName,
+                parameter.CppTypeName,
+                parameter.AbiKind.ToString().ToLowerInvariant()))
             .ToArray();
 
         return new BindingMetadataFunction(
@@ -159,15 +202,15 @@ public static class BindingMetadataExporter
                 function.ManagedName,
                 function.IsConstructor ? null : CreateTypeReference(compilation, function.ReturnType, fullyQualifyConcrete: true),
                 function.Parameters
-                    .OrderBy(static parameter => parameter.ManagedName, StringComparer.Ordinal)
-                    .ThenBy(static parameter => parameter.SymbolId, StringComparer.Ordinal)
                     .Select(parameter => new BindingMetadataParameter(
                         parameter.ManagedName,
                         parameter.Direction.ToString().ToLowerInvariant(),
                         CreateTypeReference(compilation, parameter.Type, fullyQualifyConcrete: true),
                         parameter.ManagedDefaultValueExpression,
                         parameter.UseCallbackDelegate,
-                        parameter.CallbackDelegateTypeName))
+                        parameter.CallbackDelegateTypeName,
+                        parameter.CppTypeName,
+                        parameter.AbiKind.ToString().ToLowerInvariant()))
                     .ToArray(),
                 IsReadOnly: false,
                 function.IsStatic,
@@ -176,7 +219,19 @@ public static class BindingMetadataExporter
                 function.IsConversionOperator,
                 function.IsExplicitConversionOperator,
                 function.ReturnsOwnedHandle,
-                GetterReturnsOwnedHandle: false),
+                GetterReturnsOwnedHandle: false,
+                EntryPoint: function.EntryPointName,
+                CppReturnTypeName: function.CppReturnTypeName,
+                CppQualifiedName: function.CppQualifiedName,
+                OwningRecordCppTypeName: function.OwningRecordCppTypeName,
+                MarshallerExposedMethod: function.GetMetadata<string>(MetadataKeys.MarshallerExposedMethod),
+                IsConstMethod: function.IsConstMethod,
+                AccessModifier: function.AccessModifier.ToString().ToLowerInvariant(),
+                IsVirtual: function.IsVirtual,
+                IsPureVirtual: function.IsPureVirtual,
+                IsFinal: function.IsFinal,
+                IsOverride: function.IsOverride,
+                SymbolId: function.SymbolId),
             FieldBinding field => new BindingMetadataRecordMember(
                 "field",
                 field.NativeName,

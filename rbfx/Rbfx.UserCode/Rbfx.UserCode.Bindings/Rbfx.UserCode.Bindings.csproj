@@ -6,6 +6,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../SharpCpp.Ea/SharpCpp.Ea.csproj" />
+    <ProjectReference Include="../../../src/SharpCpp.Std/SharpCpp.Std.csproj" />
     <ProjectReference Include="../../../src/SharpCpp.Support/SharpCpp.Support.csproj" />
     <ProjectReference Include="../../SharpCpp.Rbfx.Bindings/SharpCpp.Rbfx.Bindings.csproj" />
   </ItemGroup>

@@ -108,7 +108,7 @@ explicit operator std::string() const;
 ```
 
 ```csharp
-public static explicit operator StdString(MyType self) => new StdString(__ToString(self.Handle));
+public static explicit operator Std.String(MyType self) => new Std.String(__ToString(self.Handle));
 ```
 
 The `explicit` keyword in C++ maps to `explicit` in C# (requiring cast). Without `explicit`, the conversion is implicit.

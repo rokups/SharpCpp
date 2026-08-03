@@ -81,7 +81,7 @@ Configuration varies per C++ library. It lives outside core.
 | Container marshallers | `SharpCpp/detail/MarshallerSupport.hpp` (built-in) |
 | Callback marshallers | `SharpCpp/detail/MarshallerSupport.hpp` (built-in) |
 | User type marshallers | User project headers |
-| Custom stdlib marshallers (e.g., EASTL) | Library-specific headers |
+| Custom standard-library marshallers | Library-specific headers |
 
 ### Support library (C#)
 

@@ -119,7 +119,10 @@ template <>
 struct [[sharpcpp::managed_type(
     managed_base_type = "global::SharpCpp.Support.StringBase",
     public_type = "Ea.String",
-    managed_namespace = "Ea"
+    managed_namespace = "Ea",
+    managed_wrapper_assembly = "SharpCpp.Ea",
+    managed_wrapper_provider_kind = "string",
+    managed_wrapper_copyable = true
 )]]
 Marshaller<eastl::basic_string<char>> : OwnedStringMarshallerBase<eastl::basic_string<char>> {};
 
@@ -183,7 +186,10 @@ template <typename T, typename TAllocator>
 struct [[sharpcpp::managed_type(
     public_type = "Ea.Vector<{0}>",
     managed_base_type = "global::SharpCpp.Support.VectorBase<{0}>",
-    managed_namespace = "Ea"
+    managed_namespace = "Ea",
+    managed_wrapper_assembly = "SharpCpp.Ea",
+    managed_wrapper_provider_kind = "vector",
+    managed_wrapper_copyable = true
 )]]
 Marshaller<eastl::vector<T, TAllocator>> : SequenceCollectionMarshallerBase<eastl::vector<T, TAllocator>, T> {};
 
@@ -207,6 +213,9 @@ struct [[sharpcpp::managed_type(
     public_type = "Ea.Array<{0}>",
     managed_base_type = "global::SharpCpp.Support.ArrayBase<{0}>",
     managed_namespace = "Ea",
+    managed_wrapper_assembly = "SharpCpp.Ea",
+    managed_wrapper_provider_kind = "array",
+    managed_wrapper_copyable = true,
     fixed_array = true
 )]]
 Marshaller<eastl::array<T, N>> : FixedArrayValueMarshallerBase<eastl::array<T, N>, N> {};
@@ -231,6 +240,8 @@ struct [[sharpcpp::managed_type(
     public_type = "Ea.SharedArray<{0}>",
     managed_base_type = "global::SharpCpp.Support.SharedArrayBase<{0}>",
     managed_namespace = "Ea",
+    managed_wrapper_assembly = "SharpCpp.Ea",
+    managed_wrapper_provider_kind = "dynamic_array",
     dynamic_array = true,
     return_ownership = "owning"
 )]]
@@ -255,7 +266,10 @@ template <typename T, typename TAllocator>
 struct [[sharpcpp::managed_type(
     public_type = "Ea.List<{0}>",
     managed_base_type = "global::SharpCpp.Support.ListBase<{0}>",
-    managed_namespace = "Ea"
+    managed_namespace = "Ea",
+    managed_wrapper_assembly = "SharpCpp.Ea",
+    managed_wrapper_provider_kind = "list",
+    managed_wrapper_copyable = true
 )]]
 Marshaller<eastl::list<T, TAllocator>> : ListCollectionMarshallerBase<eastl::list<T, TAllocator>, T> {};
 
@@ -279,7 +293,10 @@ struct [[sharpcpp::managed_type(
     public_type = "Ea.Map<{0}, {1}>",
     managed_base_type = "global::SharpCpp.Support.MapBase<{0}, {1}>",
     managed_base_type_constraints = "where {0} : notnull",
-    managed_namespace = "Ea"
+    managed_namespace = "Ea",
+    managed_wrapper_assembly = "SharpCpp.Ea",
+    managed_wrapper_provider_kind = "map",
+    managed_wrapper_copyable = true
 )]]
 Marshaller<eastl::map<TKey, TValue, TCompare, TAllocator>> : MapCollectionMarshallerBase<eastl::map<TKey, TValue, TCompare, TAllocator>, TKey, TValue> {};
 
@@ -303,7 +320,10 @@ struct [[sharpcpp::managed_type(
     public_type = "Ea.UnorderedMap<{0}, {1}>",
     managed_base_type = "global::SharpCpp.Support.UnorderedMapBase<{0}, {1}>",
     managed_base_type_constraints = "where {0} : notnull",
-    managed_namespace = "Ea"
+    managed_namespace = "Ea",
+    managed_wrapper_assembly = "SharpCpp.Ea",
+    managed_wrapper_provider_kind = "unordered_map",
+    managed_wrapper_copyable = true
 )]]
 Marshaller<eastl::unordered_map<TKey, TValue, THash, TPredicate, TAllocator, CacheHashCode>> : MapCollectionMarshallerBase<eastl::unordered_map<TKey, TValue, THash, TPredicate, TAllocator, CacheHashCode>, TKey, TValue> {};
 

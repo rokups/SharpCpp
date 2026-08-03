@@ -105,7 +105,7 @@ A `[[sharpcpp::director]]` attribute on a class marks it as director-capable. Th
 
 Three string surfaces, all through the uniform marshaller path:
 - **Span** — `ReadOnlySpan<byte>` via `Utf8SpanMarshaller`
-- **Wrapper** — `StdString` inheriting `StringBase` via `Utf8StringMarshaller`
+- **Wrapper** — `Std.String` inheriting `StringBase`, backed by a module-local `IStringProvider`
 - **`string`** — managed string via `Utf8StringMarshaller`
 
 No `string_kind` attribute. No string-specific code paths. Different surfaces are different marshaller specializations with different `public_type` values.

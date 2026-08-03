@@ -10,6 +10,13 @@ All 5 test suites pass (model, metadata, rendering, E2E, rbfx-E2E) on the last c
 
 Current worktree verification passes with generic complex C++ values crossing callback/native ABI as pointers by default, while explicitly configured value marshallers such as `StringHash`, math structs, and smart-pointer projections keep their configured ABI. Thin managed convenience wrappers remain acceptable when they delegate to generated APIs without handwritten native entrypoints; rbfx event subscription ownership is now covered by generated `Object::SubscribeToEvent<T>` wrappers discovered from C++ template instantiations.
 
+### Shared standard-library wrappers (current change)
+
+- `SharpCpp.Std` owns the public `Std.*` wrappers and provider contracts; `SharpCpp.Ea` owns the corresponding `Ea.*` wrappers for the rbfx third-party implementation.
+- Core `managed_type` configuration carries the shared wrapper assembly and provider family. The core renderer emits no vendor-specific EASTL policy.
+- Every generated module emits provider/native glue for each shared shape it uses and registers it at module load. Provider lookup prefers the requesting module and rejects ambiguous global fallback.
+- Binding metadata exports/imports wrapper/provider identity, copyability, member entrypoints, marshaller-exposed methods, C++ parameter spellings, and ABI kinds so downstream modules can recreate local providers without duplicate public wrappers.
+
 ### Model & Metadata
 - Binding model: records, enums, free functions, methods, constructors, fields, operators, templates/generics
 - Metadata export/import (deterministic JSON, suppress-duplicate-emission contract)

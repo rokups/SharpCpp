@@ -120,13 +120,13 @@ public sealed class StringTests
     [Fact]
     public void EaString_type_exists_and_inherits_StringBase()
     {
-        Assert.True(typeof(E2EBindings).Assembly.GetType("Ea.String")!.IsSubclassOf(typeof(StringBase)));
+        Assert.True(typeof(global::Ea.String).IsSubclassOf(typeof(StringBase)));
     }
 
     [Fact]
     public void EaString_round_trips_and_remains_distinct_from_std_string()
     {
-        var eaType = typeof(E2EBindings).Assembly.GetType("Ea.String", throwOnError: true)!;
+        var eaType = typeof(global::Ea.String);
         var value = Activator.CreateInstance(eaType)!;
         eaType.GetMethod("Assign", [typeof(string)])!.Invoke(value, ["hello"]);
 

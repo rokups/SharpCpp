@@ -256,12 +256,18 @@ stage_packages() {
 
   require_file "$bin_dir/SharpCpp.Rbfx.Bindings.dll"
   require_file "$bin_dir/SharpCpp.Support.dll"
+  require_file "$bin_dir/SharpCpp.Std.dll"
+  require_file "$bin_dir/SharpCpp.Ea.dll"
   require_file "$bin_dir/SharpCpp.Rbfx.SourceGenerator.dll"
 
   copy_optional_related_files "$bin_dir" "SharpCpp.Rbfx.Bindings" "$STAGE_DIR/managed/lib/$target_framework"
   copy_optional_related_files "$bin_dir" "SharpCpp.Support" "$STAGE_DIR/managed/lib/$target_framework"
+  copy_optional_related_files "$bin_dir" "SharpCpp.Std" "$STAGE_DIR/managed/lib/$target_framework"
+  copy_optional_related_files "$bin_dir" "SharpCpp.Ea" "$STAGE_DIR/managed/lib/$target_framework"
   copy_optional_related_files "$bin_dir" "SharpCpp.Rbfx.Bindings" "$STAGE_DIR/managed/ref/$target_framework"
   copy_optional_related_files "$bin_dir" "SharpCpp.Support" "$STAGE_DIR/managed/ref/$target_framework"
+  copy_optional_related_files "$bin_dir" "SharpCpp.Std" "$STAGE_DIR/managed/ref/$target_framework"
+  copy_optional_related_files "$bin_dir" "SharpCpp.Ea" "$STAGE_DIR/managed/ref/$target_framework"
   copy_optional_related_files "$bin_dir" "SharpCpp.Rbfx.SourceGenerator" "$STAGE_DIR/managed/analyzers/dotnet/cs"
 
   case "$rid" in

@@ -218,4 +218,85 @@ public sealed class BindingMetadataImportCatalogTests
             }
         }
     }
+
+    [Fact]
+    public void Load_restores_shared_provider_member_metadata()
+    {
+        var document = new BindingMetadataDocument(
+            SchemaVersion: BindingMetadataSchema.CurrentVersion,
+            GeneratorVersion: BindingMetadataSchema.PreviewGeneratorVersion,
+            SupportRuntimeVersion: BindingMetadataSchema.PreviewSupportRuntimeVersion,
+            Source: new BindingMetadataSource("SharpCpp.Std", "Std", "SharpCpp.Std.Native"),
+            Imports: Array.Empty<BindingMetadataImport>(),
+            Fingerprint: new BindingMetadataFingerprint("phase2", "clang", "attrs", ["Std.h"]),
+            Types:
+            [
+                new BindingMetadataType(
+                    SymbolId: "record:String",
+                    Kind: "handle",
+                    NativeName: "std::string",
+                    ManagedName: "String",
+                    ManagedNamespace: "Std",
+                    ManagedBaseTypeName: "global::SharpCpp.Support.StringBase",
+                    Projection: new BindingMetadataTypeReference(
+                        "handle",
+                        "std::string*",
+                        "String",
+                        null,
+                        "record:String",
+                        null),
+                    ManagedWrapperAssembly: "SharpCpp.Std",
+                    Members:
+                    [
+                        new BindingMetadataRecordMember(
+                            Kind: "method",
+                            NativeName: "size",
+                            ManagedName: "GetCountCore",
+                            Type: new BindingMetadataTypeReference("primitive", "std::size_t", "ulong", "nativeuint", null, null),
+                            Parameters: Array.Empty<BindingMetadataParameter>(),
+                            IsReadOnly: false,
+                            IsStatic: false,
+                            IsConstructor: false,
+                            EntryPoint: "std_string_size",
+                            CppReturnTypeName: "std::size_t",
+                            CppQualifiedName: "std::string::size",
+                            OwningRecordCppTypeName: "std::string",
+                            MarshallerExposedMethod: "std::string",
+                            IsConstMethod: true)
+                    ],
+                    ManagedWrapperProviderKind: "string",
+                    HasCopyConstructor: true)
+            ],
+            Functions: Array.Empty<BindingMetadataFunction>());
+
+        var tempFile = Path.Combine(Path.GetTempPath(), $"SharpCpp.Tests.Metadata.{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(tempFile, BindingMetadataSerializer.Serialize(document));
+            var catalog = BindingMetadataImportCatalog.Load([tempFile]);
+            var compilation = new BindingCompilation("Consumer", "Consumer", "Bindings", "Consumer.Native", ["Std.h"]);
+            var recordsByName = new Dictionary<string, RecordBinding>(StringComparer.Ordinal);
+            var enumsByName = new Dictionary<string, EnumBinding>(StringComparer.Ordinal);
+
+            catalog.Seed(compilation, recordsByName, enumsByName);
+
+            var record = Assert.Single(compilation.Records);
+            var method = Assert.Single(record.Members.OfType<FunctionBinding>());
+            Assert.Equal("string", record.GetMetadata<string>(MetadataKeys.ManagedWrapperProviderKind));
+            Assert.True(record.GetMetadata<bool>(MetadataKeys.SuppressEmission));
+            Assert.StartsWith("sharpcpp_e2e_", method.EntryPointName, StringComparison.Ordinal);
+            Assert.Equal("std::string::size", method.CppQualifiedName);
+            Assert.Equal("std::string", method.OwningRecordCppTypeName);
+            Assert.True(method.IsConstMethod);
+            Assert.Equal("std::string", method.GetMetadata<string>(MetadataKeys.MarshallerExposedMethod));
+            Assert.True(record.HasCopyConstructor);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
+        }
+    }
 }

@@ -205,8 +205,8 @@ std::string GetName() const;
 ```csharp
 [LibraryImport("libnative")]
 [return: MarshalUsing(typeof(Utf8StringMarshaller))]
-internal static partial StdString __GetName(nint self);
-public StdString Name => __GetName(_handle);
+internal static partial Std.String __GetName(nint self);
+public Std.String Name => __GetName(_handle);
 ```
 
 `MarshalUsing` drives the return conversion.

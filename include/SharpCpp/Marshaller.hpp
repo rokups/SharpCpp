@@ -1421,7 +1421,10 @@ template <>
 struct [[sharpcpp::managed_type(
     managed_base_type = "global::SharpCpp.Support.StringBase",
     public_type = "Std.String",
-    managed_namespace = "Std"
+    managed_namespace = "Std",
+    managed_wrapper_assembly = "SharpCpp.Std",
+    managed_wrapper_provider_kind = "string",
+    managed_wrapper_copyable = true
 )]]
 Marshaller<std::basic_string<char> > : OwnedStringMarshallerBase<std::basic_string<char>> {};
 
@@ -1452,7 +1455,10 @@ template <typename T, typename TAllocator>
 struct [[sharpcpp::managed_type(
     public_type = "Std.Vector<{0}>",
     managed_base_type = "global::SharpCpp.Support.VectorBase<{0}>",
-    managed_namespace = "Std"
+    managed_namespace = "Std",
+    managed_wrapper_assembly = "SharpCpp.Std",
+    managed_wrapper_provider_kind = "vector",
+    managed_wrapper_copyable = true
 )]]
 Marshaller<std::vector<T, TAllocator>> : SequenceCollectionMarshallerBase<std::vector<T, TAllocator>, T> {};
 
@@ -1473,6 +1479,9 @@ struct [[sharpcpp::managed_type(
     public_type = "Std.Array<{0}>",
     managed_base_type = "global::SharpCpp.Support.ArrayBase<{0}>",
     managed_namespace = "Std",
+    managed_wrapper_assembly = "SharpCpp.Std",
+    managed_wrapper_provider_kind = "array",
+    managed_wrapper_copyable = true,
     fixed_array = true
 )]]
 Marshaller<std::array<T, N>> : FixedArrayValueMarshallerBase<std::array<T, N>, N> {};
@@ -1506,7 +1515,10 @@ template <typename T, typename TAllocator>
 struct [[sharpcpp::managed_type(
     public_type = "Std.List<{0}>",
     managed_base_type = "global::SharpCpp.Support.ListBase<{0}>",
-    managed_namespace = "Std"
+    managed_namespace = "Std",
+    managed_wrapper_assembly = "SharpCpp.Std",
+    managed_wrapper_provider_kind = "list",
+    managed_wrapper_copyable = true
 )]]
 Marshaller<std::list<T, TAllocator>> : ListCollectionMarshallerBase<std::list<T, TAllocator>, T> {};
 
@@ -1527,7 +1539,10 @@ struct [[sharpcpp::managed_type(
     public_type = "Std.Map<{0}, {1}>",
     managed_base_type = "global::SharpCpp.Support.MapBase<{0}, {1}>",
     managed_base_type_constraints = "where {0} : notnull",
-    managed_namespace = "Std"
+    managed_namespace = "Std",
+    managed_wrapper_assembly = "SharpCpp.Std",
+    managed_wrapper_provider_kind = "map",
+    managed_wrapper_copyable = true
 )]]
 Marshaller<std::map<TKey, TValue, TCompare, TAllocator>> : MapCollectionMarshallerBase<std::map<TKey, TValue, TCompare, TAllocator>, TKey, TValue> {};
 
@@ -1548,7 +1563,10 @@ struct [[sharpcpp::managed_type(
     public_type = "Std.UnorderedMap<{0}, {1}>",
     managed_base_type = "global::SharpCpp.Support.UnorderedMapBase<{0}, {1}>",
     managed_base_type_constraints = "where {0} : notnull",
-    managed_namespace = "Std"
+    managed_namespace = "Std",
+    managed_wrapper_assembly = "SharpCpp.Std",
+    managed_wrapper_provider_kind = "unordered_map",
+    managed_wrapper_copyable = true
 )]]
 Marshaller<std::unordered_map<TKey, TValue, THash, TKeyEqual, TAllocator>> : MapCollectionMarshallerBase<std::unordered_map<TKey, TValue, THash, TKeyEqual, TAllocator>, TKey, TValue> {};
 

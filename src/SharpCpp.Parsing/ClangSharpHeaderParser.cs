@@ -1113,7 +1113,7 @@ public sealed partial class ClangSharpHeaderParser
         var (returnType, ignoreReason) = TryMapType(methodDecl.ReturnType.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters, isReturn: true);
         var cppReturnTypeName = ResolveQualifiedTypeName(methodDecl.ReturnType.Handle, recordsByName);
         var function = new FunctionBinding(
-            $"method:{record.NativeName}:{nativeName}",
+            BuildMemberSymbolId("method", record, nativeName, methodDecl.Parameters.Select(static parameter => parameter.Type.AsString), methodDecl.IsConst),
             nativeName,
             GetManagedMethodName(methodDecl, nativeName),
             returnType,
@@ -1232,7 +1232,12 @@ public sealed partial class ClangSharpHeaderParser
         var (returnType, ignoreReason) = TryMapType(templatedFunction.ReturnType.Handle, recordsByName, enumsByName, managedTypeOverrides, combinedGenericParameters, isReturn: true);
         var cppReturnTypeName = ResolveQualifiedTypeName(templatedFunction.ReturnType.Handle, recordsByName);
         var function = new FunctionBinding(
-            $"method:{record.NativeName}:{nativeName}",
+            BuildMemberSymbolId(
+                "method",
+                record,
+                nativeName,
+                templatedFunction.Parameters.Select(static parameter => parameter.Type.AsString),
+                templatedFunction is CXXMethodDecl cxxMethodForSignature && cxxMethodForSignature.IsConst),
             nativeName,
             GetManagedMethodName(templateDecl, nativeName),
             returnType,
@@ -1316,7 +1321,7 @@ public sealed partial class ClangSharpHeaderParser
         var (returnType, ignoreReason) = TryMapType(methodDecl.ReturnType.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters, isReturn: true);
         var cppReturnTypeName = ResolveQualifiedTypeName(methodDecl.ReturnType.Handle, recordsByName);
         var function = new FunctionBinding(
-            $"static-method:{record.NativeName}:{nativeName}",
+            BuildMemberSymbolId("static-method", record, nativeName, methodDecl.Parameters.Select(static parameter => parameter.Type.AsString), isConst: false),
             nativeName,
             GetManagedMethodName(methodDecl, nativeName),
             returnType,
@@ -1380,7 +1385,7 @@ public sealed partial class ClangSharpHeaderParser
         string entryPointPrefix)
     {
         var function = new FunctionBinding(
-            $"ctor:{record.NativeName}:{ctorDecl.GetHashCode()}",
+            BuildMemberSymbolId("ctor", record, record.NativeName, ctorDecl.Parameters.Select(static parameter => parameter.Type.AsString), isConst: false),
             record.NativeName,
             record.ManagedName,
             record.HandleType,
@@ -1957,7 +1962,7 @@ public sealed partial class ClangSharpHeaderParser
         var (returnType, ignoreReason) = TryMapType(functionDecl.ReturnType.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters, isReturn: true);
         var cppReturnTypeName = ResolveQualifiedTypeName(functionDecl.ReturnType.Handle, recordsByName);
         var function = new FunctionBinding(
-            $"function:{nativeName}",
+            BuildFunctionSymbolId("function", GetCppQualifiedName(functionDecl), functionDecl.Parameters.Select(static parameter => parameter.Type.AsString)),
             nativeName,
             ToPascalCase(nativeName),
             returnType,
@@ -2028,7 +2033,7 @@ public sealed partial class ClangSharpHeaderParser
         var (returnType, ignoreReason) = TryMapType(templatedFunction.ReturnType.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters, isReturn: true);
         var cppReturnTypeName = ResolveQualifiedTypeName(templatedFunction.ReturnType.Handle, recordsByName);
         var function = new FunctionBinding(
-            $"function:{nativeName}",
+            BuildFunctionSymbolId("function", GetCppQualifiedName(templateDecl), templatedFunction.Parameters.Select(static parameter => parameter.Type.AsString)),
             nativeName,
             ToPascalCase(nativeName),
             returnType,
@@ -2360,6 +2365,23 @@ public sealed partial class ClangSharpHeaderParser
     {
         var counter = ++s_entrypointCounter;
         return $"{entryPointPrefix}_{baseName}_{counter}";
+    }
+
+    private static string BuildMemberSymbolId(
+        string kind,
+        RecordBinding record,
+        string nativeName,
+        IEnumerable<string> parameterTypes,
+        bool isConst)
+    {
+        var signature = string.Join(",", parameterTypes.Select(static type => NormalizeTypeName(type)));
+        return $"{kind}:{record.CppQualifiedName}:{nativeName}({signature}){(isConst ? ":const" : string.Empty)}";
+    }
+
+    private static string BuildFunctionSymbolId(string kind, string qualifiedName, IEnumerable<string> parameterTypes)
+    {
+        var signature = string.Join(",", parameterTypes.Select(static type => NormalizeTypeName(type)));
+        return $"{kind}:{qualifiedName}({signature})";
     }
 
     private static string SanitizeEntrypointNamePart(string value)
@@ -2744,7 +2766,7 @@ public sealed partial class ClangSharpHeaderParser
 
         // When the resolved type contains template arguments, use the
         // canonical type's fully-qualified argument names.  This keeps
-        // the outer type alias (e.g. "ea::vector") while guaranteeing
+        // the outer type alias (e.g. "container::vector") while guaranteeing
         // that template argument resolution is driven by the Clang AST
         // rather than by text-based short-name lookup, which can collide
         // with records from non-owned headers (e.g. "Rml::Vector2" vs
@@ -3053,7 +3075,9 @@ public sealed partial class ClangSharpHeaderParser
                 genericParameters);
         }
 
-        if (!managedTypeOverride.HasManagedBaseType && !managedTypeOverride.HasExposedMembers)
+        if (!managedTypeOverride.HasManagedBaseType &&
+            !managedTypeOverride.HasExposedMembers &&
+            string.IsNullOrWhiteSpace(managedTypeOverride.ManagedWrapperAssembly))
         {
             var configuredType = BindingType.CreateConfigured(
                 effectiveCppTypeName,
@@ -3078,8 +3102,28 @@ public sealed partial class ClangSharpHeaderParser
                 managedTypeOverride.TemplateParameterNames.Count > 0 ? recordName : managedTypeOverride.CppTypeName)
             {
                 ManagedTypeFormat = managedTypeOverride.PublicTypeName,
-                ManagedNamespace = managedTypeOverride.ManagedNamespace
+                ManagedNamespace = managedTypeOverride.ManagedNamespace ??
+                    (!string.IsNullOrWhiteSpace(managedTypeOverride.ManagedWrapperAssembly)
+                        ? GetManagedNamespaceFromTypeName(managedTypeOverride.PublicTypeName)
+                        : null)
             };
+            if (!string.IsNullOrWhiteSpace(managedTypeOverride.ManagedWrapperAssembly))
+            {
+                record.SetMetadata(MetadataKeys.ManagedWrapperAssembly, managedTypeOverride.ManagedWrapperAssembly);
+            }
+            if (!string.IsNullOrWhiteSpace(managedTypeOverride.ManagedWrapperProviderKind))
+            {
+                record.SetMetadata(MetadataKeys.ManagedWrapperProviderKind, managedTypeOverride.ManagedWrapperProviderKind);
+            }
+            if (!string.IsNullOrWhiteSpace(managedTypeOverride.ManagedWrapperProviderNamespace))
+            {
+                record.SetMetadata(MetadataKeys.ManagedWrapperProviderNamespace, managedTypeOverride.ManagedWrapperProviderNamespace);
+            }
+            if (managedTypeOverride.ManagedWrapperCopyable.HasValue)
+            {
+                record.SetMetadata(MetadataKeys.ManagedWrapperCopyable, managedTypeOverride.ManagedWrapperCopyable.Value);
+                record.HasCopyConstructor = managedTypeOverride.ManagedWrapperCopyable.Value;
+            }
             ApplySyntheticGenericParameters(record, managedTypeOverride.TemplateParameterNames);
             if (isConfiguredFixedArray)
             {
@@ -3099,7 +3143,27 @@ public sealed partial class ClangSharpHeaderParser
         else
         {
             record.ManagedTypeFormat ??= managedTypeOverride.PublicTypeName;
-            record.ManagedNamespace ??= managedTypeOverride.ManagedNamespace;
+            record.ManagedNamespace ??= managedTypeOverride.ManagedNamespace ??
+                (!string.IsNullOrWhiteSpace(managedTypeOverride.ManagedWrapperAssembly)
+                    ? GetManagedNamespaceFromTypeName(managedTypeOverride.PublicTypeName)
+                    : null);
+            if (!string.IsNullOrWhiteSpace(managedTypeOverride.ManagedWrapperAssembly))
+            {
+                record.SetMetadata(MetadataKeys.ManagedWrapperAssembly, managedTypeOverride.ManagedWrapperAssembly);
+            }
+            if (!string.IsNullOrWhiteSpace(managedTypeOverride.ManagedWrapperProviderKind))
+            {
+                record.SetMetadata(MetadataKeys.ManagedWrapperProviderKind, managedTypeOverride.ManagedWrapperProviderKind);
+            }
+            if (!string.IsNullOrWhiteSpace(managedTypeOverride.ManagedWrapperProviderNamespace))
+            {
+                record.SetMetadata(MetadataKeys.ManagedWrapperProviderNamespace, managedTypeOverride.ManagedWrapperProviderNamespace);
+            }
+            if (managedTypeOverride.ManagedWrapperCopyable.HasValue)
+            {
+                record.SetMetadata(MetadataKeys.ManagedWrapperCopyable, managedTypeOverride.ManagedWrapperCopyable.Value);
+                record.HasCopyConstructor = managedTypeOverride.ManagedWrapperCopyable.Value;
+            }
             if (record.HasMetadata(MetadataKeys.PlaceholderRecord))
             {
                 record.ManagedName = GetSimpleManagedTypeName(managedTypeOverride.PublicTypeName);
@@ -3735,6 +3799,16 @@ public sealed partial class ClangSharpHeaderParser
         return lastDot >= 0 ? typeHead[(lastDot + 1)..] : typeHead;
     }
 
+    private static string? GetManagedNamespaceFromTypeName(string managedTypeName)
+    {
+        var typeHead = StripGenericArguments(managedTypeName);
+        typeHead = typeHead.StartsWith("global::", StringComparison.Ordinal)
+            ? typeHead["global::".Length..]
+            : typeHead;
+        var lastDot = typeHead.LastIndexOf('.');
+        return lastDot > 0 ? typeHead[..lastDot] : null;
+    }
+
     private static string ToPascalCase(string nativeName)
     {
         return string.Concat(
@@ -3869,8 +3943,8 @@ public sealed partial class ClangSharpHeaderParser
             spelling = Regex.Replace(spelling, pattern, record.CppQualifiedName, RegexOptions.CultureInvariant);
         }
 
-        // For templated spellings, keep the spelled outer surface (e.g.
-        // eastl::vector / ea::vector plus const/ref qualifiers) but replace
+        // For templated spellings, keep the spelled outer surface plus
+        // const/ref qualifiers but replace
         // the top-level template arguments with Clang's canonical arguments.
         // This avoids short-name collisions such as Vector3 resolving to
         // Rml::Vector3 instead of Urho3D::Vector3 inside container signatures.

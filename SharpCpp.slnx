@@ -5,6 +5,7 @@
     <Project Path="src/SharpCpp.Parsing/SharpCpp.Parsing.csproj" />
     <Project Path="src/SharpCpp.Pipeline/SharpCpp.Pipeline.csproj" />
     <Project Path="src/SharpCpp.Rendering/SharpCpp.Rendering.csproj" />
+    <Project Path="src/SharpCpp.Std/SharpCpp.Std.csproj" />
     <Project Path="src/SharpCpp.Support/SharpCpp.Support.csproj" />
   </Folder>
   <Folder Name="/tests/">
@@ -14,6 +15,7 @@
     <Project Path="tests/SharpCpp.Tests.Rendering/SharpCpp.Tests.Rendering.csproj" />
   </Folder>
   <Folder Name="/rbfx/">
+    <Project Path="rbfx/SharpCpp.Ea/SharpCpp.Ea.csproj" />
     <Project Path="rbfx/Rbfx.Application/Rbfx.Application.csproj" />
     <Project Path="rbfx/Rbfx.UserCode/Rbfx.UserCode.Bindings/Rbfx.UserCode.Bindings.csproj" />
     <Project Path="rbfx/SharpCpp.Rbfx.Bindings/SharpCpp.Rbfx.Bindings.csproj" />
