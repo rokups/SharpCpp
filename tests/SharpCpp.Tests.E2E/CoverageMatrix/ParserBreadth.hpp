@@ -35,6 +35,37 @@ private:
     int value_{};
 };
 
+struct breadth_payload_projection
+{
+    breadth_payload* value{};
+};
+
+struct breadth_nullable_payload_projection
+{
+    breadth_payload* value{};
+};
+
+struct breadth_mode_projection
+{
+    breadth_mode value{breadth_mode::idle};
+};
+
+inline breadth_payload_projection breadth_project_payload(breadth_payload_projection value)
+{
+    return value;
+}
+
+inline breadth_nullable_payload_projection breadth_project_nullable_payload(
+    breadth_nullable_payload_projection value)
+{
+    return value;
+}
+
+inline breadth_mode_projection breadth_project_mode(breadth_mode_projection value)
+{
+    return value;
+}
+
 using breadth_payload_alias = breadth_payload;
 using breadth_payload_handle = breadth_payload*;
 using breadth_mode_alias = breadth_mode;

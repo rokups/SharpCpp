@@ -23,28 +23,6 @@ public static class BindingMetadataExporter
             return record.ManagedNamespace;
         }
 
-        // Shared wrapper metadata may use a qualified public_type without a
-        // separate managed_namespace field. Preserve that namespace in the
-        // metadata contract so downstream modules resolve the same assembly type.
-        if (!string.IsNullOrWhiteSpace(record.GetMetadata<string>(MetadataKeys.ManagedWrapperAssembly)))
-        {
-            var managedType = record.ManagedTypeFormat ?? record.ManagedName;
-            managedType = managedType.StartsWith("global::", StringComparison.Ordinal)
-                ? managedType["global::".Length..]
-                : managedType;
-            var genericStart = managedType.IndexOf('<');
-            if (genericStart >= 0)
-            {
-                managedType = managedType[..genericStart];
-            }
-
-            var separator = managedType.LastIndexOf('.');
-            if (separator > 0)
-            {
-                return managedType[..separator];
-            }
-        }
-
         return null;
     }
 

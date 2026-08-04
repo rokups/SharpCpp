@@ -56,6 +56,27 @@ inline int get_unsupported_default_state()
     return unsupported_default_state;
 }
 
+inline int unsupported_default_with_output(
+    int seed,
+    int offset = E2E_UNSUPPORTED_DEFAULT_OFFSET,
+    const void* filter = nullptr,
+    [[sharpcpp::out]] int* output = nullptr)
+{
+    if (output != nullptr)
+        *output = seed + offset;
+    return seed + offset + (filter == nullptr ? 1 : 2);
+}
+
+inline void set_unsupported_default_with_output(
+    int seed,
+    int offset = E2E_UNSUPPORTED_DEFAULT_OFFSET,
+    [[sharpcpp::out]] int* output = nullptr)
+{
+    unsupported_default_state = seed + offset;
+    if (output != nullptr)
+        *output = unsupported_default_state + 1;
+}
+
 struct unsupported_default_result
 {
     explicit unsupported_default_result(int value)

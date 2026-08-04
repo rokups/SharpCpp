@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 template <typename T>
 [[sharpcpp::instantiate("int")]]
 [[sharpcpp::instantiate("float")]]
@@ -15,6 +17,21 @@ template <typename T>
 T generic_add_default(T value, T increment = T{1})
 {
     return value + increment;
+}
+
+template <typename TLeft, typename TRight>
+[[sharpcpp::instantiate("int", "float")]]
+[[sharpcpp::instantiate("double", "int")]]
+double generic_mixed_add(TLeft left, TRight right)
+{
+    return static_cast<double>(left) + static_cast<double>(right);
+}
+
+template <typename TCallback>
+[[sharpcpp::instantiate("std::function<int(int)>")]]
+int generic_invoke_callback(TCallback callback, int value)
+{
+    return callback(value) + 1;
 }
 
 struct generic_payload
@@ -37,6 +54,47 @@ struct generic_payload
 private:
     int value_{};
 };
+
+template <typename TFirst, typename TSecond>
+struct
+[[sharpcpp::rename("PairOf<{0}, {1}>")]]
+[[sharpcpp::instantiate("int", "float")]]
+[[sharpcpp::instantiate("double", "int")]]
+generic_pair
+{
+    generic_pair(TFirst first, TSecond second)
+        : first_(first)
+        , second_(second)
+    {
+    }
+
+    TFirst get_first() const { return first_; }
+    TSecond get_second() const { return second_; }
+
+    template <typename TScale, typename TOffset>
+    [[sharpcpp::instantiate("int", "float")]]
+    double combine(TScale scale, TOffset offset) const
+    {
+        return static_cast<double>(first_) * static_cast<double>(scale) +
+            static_cast<double>(second_) + static_cast<double>(offset);
+    }
+
+    template <typename TLeft, typename TRight>
+    [[sharpcpp::instantiate("double", "int")]]
+    static double sum(TLeft left, TRight right)
+    {
+        return static_cast<double>(left) + static_cast<double>(right);
+    }
+
+private:
+    TFirst first_{};
+    TSecond second_{};
+};
+
+inline generic_pair<int, float>* create_generic_pair(int first, float second)
+{
+    return new generic_pair<int, float>(first, second);
+}
 
 template <typename T>
 struct [[sharpcpp::rename("HandleBoxOf<{0}>")]] handle_box

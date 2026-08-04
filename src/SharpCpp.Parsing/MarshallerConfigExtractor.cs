@@ -799,35 +799,6 @@ internal static class MarshallerConfigExtractor
 
     private static IReadOnlyList<string> ExtractTemplateParameterNames(Decl decl, string cppTypeName)
     {
-        if (decl is TemplateDecl templateDecl)
-        {
-            var parameters = new List<string>();
-            foreach (var parameter in templateDecl.TemplateParameters)
-            {
-                if (parameter is TemplateTypeParmDecl typeParameter)
-                {
-                    var name = typeParameter.Name ?? typeParameter.Spelling.ToString();
-                    if (!string.IsNullOrWhiteSpace(name))
-                    {
-                        parameters.Add(name);
-                    }
-                }
-                else if (parameter is NonTypeTemplateParmDecl nonTypeParameter)
-                {
-                    var name = nonTypeParameter.Name ?? nonTypeParameter.Spelling.ToString();
-                    if (!string.IsNullOrWhiteSpace(name))
-                    {
-                        parameters.Add(name);
-                    }
-                }
-            }
-
-            if (parameters.Count > 0)
-            {
-                return parameters;
-            }
-        }
-
         var sourceText = GetSourceText(decl.Handle.TranslationUnit, decl.Extent);
         if (TryExtractTemplateParameterNamesFromSource(sourceText, out var sourceParameters))
         {

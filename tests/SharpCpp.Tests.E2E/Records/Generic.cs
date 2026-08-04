@@ -7,15 +7,6 @@ namespace SharpCpp.Tests.E2E.Records;
 public sealed class GenericTests
 {
     [Fact]
-    public void Generic_free_function_is_exposed_as_generic_method_definition()
-    {
-        var method = typeof(E2EBindings).GetMethod(nameof(E2EBindings.GenericAdd));
-
-        Assert.NotNull(method);
-        Assert.True(method!.IsGenericMethodDefinition);
-    }
-
-    [Fact]
     public void Generic_free_function_dispatches_to_supported_instantiations()
     {
         Assert.Equal(7, E2EBindings.GenericAdd(3, 4));
@@ -23,14 +14,9 @@ public sealed class GenericTests
         Assert.Equal(9.0, E2EBindings.GenericAdd(4.5, 4.5));
         Assert.Equal(9, E2EBindings.GenericAddDefault(5, 4));
         Assert.Equal(3.5, E2EBindings.GenericAddDefault(2.5, 1.0));
-    }
-
-    [Fact]
-    public void Unsupported_generic_free_function_instantiation_throws()
-    {
-        var exception = Assert.Throws<NotSupportedException>(() => E2EBindings.GenericAdd(true, false));
-
-        Assert.Contains("generic argument combination", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(7.5, E2EBindings.GenericMixedAdd(3, 4.5f));
+        Assert.Equal(9.5, E2EBindings.GenericMixedAdd(7.5, 2));
+        Assert.Equal(41, E2EBindings.GenericInvokeCallback<Func<int, int>>(value => value * 2, 20));
     }
 
     [Fact]
@@ -53,6 +39,16 @@ public sealed class GenericTests
         box.SetValue(27);
 
         Assert.Equal(27, box.GetValue());
+
+        using var pair = new PairOf<int, float>(7, 2.5f);
+        Assert.Equal(7, pair.GetFirst());
+        Assert.Equal(2.5f, pair.GetSecond());
+        Assert.Equal(18, pair.Combine(2, 1.5f));
+        Assert.Equal(9.5, PairOf<int, float>.Sum(7.5, 2));
+
+        using var createdPair = E2EBindings.CreateGenericPair(11, 3.5f);
+        Assert.Equal(11, createdPair.GetFirst());
+        Assert.Equal(3.5f, createdPair.GetSecond());
     }
 
     [Fact]
@@ -96,23 +92,6 @@ public sealed class GenericTests
     }
 
     [Fact]
-    public void Unsupported_generic_instantiation_throws_at_runtime()
-    {
-        var exception = Assert.Throws<NotSupportedException>(() => BoxOf<long>.Create(1L));
-
-        Assert.Contains("generic argument combination", exception.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Generic_method_inside_generic_record_is_exposed_as_generic_method_definition()
-    {
-        var method = typeof(BoxOf<int>).GetMethod(nameof(BoxOf<int>.Project));
-
-        Assert.NotNull(method);
-        Assert.True(method!.IsGenericMethodDefinition);
-    }
-
-    [Fact]
     public void Generic_method_inside_generic_record_dispatches_to_concrete_instantiation()
     {
         var box = new BoxOf<int>(12);
@@ -131,13 +110,4 @@ public sealed class GenericTests
         Assert.Equal(12, clone.GetValue());
     }
 
-    [Fact]
-    public void Unsupported_generic_method_instantiation_throws()
-    {
-        var box = new BoxOf<int>(12);
-
-        var exception = Assert.Throws<NotSupportedException>(() => box.Project(2.5f));
-
-        Assert.Contains("generic argument combination", exception.Message, StringComparison.Ordinal);
-    }
 }

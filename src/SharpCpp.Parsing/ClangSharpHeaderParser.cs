@@ -191,10 +191,13 @@ public sealed partial class ClangSharpHeaderParser
         var ownedFileRoots = NormalizeOwnedFileRoots(headerFilePath, request.OwnedFileRoots);
         var ownedFileRootIncludePrefixes = NormalizeOwnedFileRootIncludePrefixes(request.OwnedFileRootIncludePrefixes);
         var annotationFiles = EnumerateOwnedHeaderFiles(headerFilePath, ownedFileRoots);
+        var managedTypeOverrides = MarshallerConfigExtractor.ExtractManagedTypeOverrides(
+            request.MarshallerConfigurationFiles,
+            request.MarshallerClangArguments ?? request.ClangArguments);
 
         PreScanIgnoreAnnotations(annotationFiles);
         PreScanRenameAnnotations(annotationFiles);
-        PreScanInstantiateAnnotations(annotationFiles);
+        PreScanInstantiateAnnotations(annotationFiles, managedTypeOverrides);
 
         using var index = CXIndex.Create();
 
@@ -219,10 +222,6 @@ public sealed partial class ClangSharpHeaderParser
         compilation.EntryPointPrefix = request.EntryPointPrefix;
         var recordsByName = new BindingIndex<RecordBinding>(static record => record.NativeName);
         var enumsByName = new BindingIndex<EnumBinding>(static @enum => @enum.CppQualifiedName);
-        var managedTypeOverrides = MarshallerConfigExtractor.ExtractManagedTypeOverrides(
-            request.MarshallerConfigurationFiles,
-            request.MarshallerClangArguments ?? request.ClangArguments);
-
         request.ImportedBindingMetadata?.Seed(compilation, recordsByName, enumsByName);
 
         var managedTranslationUnit = TranslationUnit.GetOrCreate(translationUnit);
@@ -2843,9 +2842,12 @@ public sealed partial class ClangSharpHeaderParser
 
             if (pointeeType.kind == CXTypeKind.CXType_Void)
             {
+                var publicTypeName = managedTypeOverrides.TryGetValue(BindingType.IntPtr.CppTypeName, out var voidPointerOverride)
+                    ? voidPointerOverride.PublicTypeName
+                    : BindingType.IntPtr.ManagedTypeName;
                 return TryApplyManagedAliasSurface(
                     type,
-                    BindingType.CreateConfigured(spelledTypeName, BindingType.IntPtr.ManagedTypeName, primitiveKind: BindingPrimitiveKind.IntPtr),
+                    BindingType.CreateConfigured(spelledTypeName, publicTypeName, primitiveKind: BindingPrimitiveKind.IntPtr),
                     preserveAliasSurface,
                     enumsByName);
             }
@@ -2871,16 +2873,6 @@ public sealed partial class ClangSharpHeaderParser
                     out var specializedRecordHandleType))
             {
                 return TryApplyManagedAliasSurface(type, specializedRecordHandleType, preserveAliasSurface, enumsByName);
-            }
-
-            if (pointeeType.kind == CXTypeKind.CXType_Void &&
-                managedTypeOverrides.TryGetValue(BindingType.IntPtr.CppTypeName, out var voidPointerOverride))
-            {
-                return TryApplyManagedAliasSurface(
-                    type,
-                    BindingType.CreateConfigured(spelledTypeName, voidPointerOverride.PublicTypeName),
-                    preserveAliasSurface,
-                    enumsByName);
             }
 
             if (TypeIsRecord(pointeeType))
@@ -6595,7 +6587,9 @@ public sealed partial class ClangSharpHeaderParser
 
     private sealed record InstantiateAnnotation(int Line, IReadOnlyList<RecordGenericInstantiationBinding> Instantiations);
 
-    private static void PreScanInstantiateAnnotations(IReadOnlyList<string> headerFiles)
+    private static void PreScanInstantiateAnnotations(
+        IReadOnlyList<string> headerFiles,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
     {
         foreach (var headerFile in headerFiles)
         {
@@ -6611,7 +6605,11 @@ public sealed partial class ClangSharpHeaderParser
 
             for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
             {
-                var instantiations = ParseInstantiationMatches(SharpCppAttributeScanner.Scan(lines[lineIndex]).Where(match => string.Equals(match.Name, "instantiate", StringComparison.Ordinal)), new Dictionary<string, RecordBinding>(StringComparer.Ordinal), new Dictionary<string, EnumBinding>(StringComparer.Ordinal), new Dictionary<string, ManagedTypeOverride>(StringComparer.Ordinal));
+                var instantiations = ParseInstantiationMatches(
+                    SharpCppAttributeScanner.Scan(lines[lineIndex]).Where(match => string.Equals(match.Name, "instantiate", StringComparison.Ordinal)),
+                    new Dictionary<string, RecordBinding>(StringComparer.Ordinal),
+                    new Dictionary<string, EnumBinding>(StringComparer.Ordinal),
+                    managedTypeOverrides);
                 if (instantiations.Count == 0)
                 {
                     continue;

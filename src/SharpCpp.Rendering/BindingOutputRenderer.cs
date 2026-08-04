@@ -39,29 +39,6 @@ public static partial class BindingOutputRenderer
             return record.ManagedNamespace!;
         }
 
-        // A shared wrapper may omit managed_namespace when its public type is
-        // already qualified (for example, "Acme.Text"). Keep helper and
-        // marshaller declarations in that assembly's namespace instead of
-        // silently placing them in the consuming module's namespace.
-        if (IsSharedManagedWrapper(record))
-        {
-            var managedType = record.ManagedTypeFormat ?? record.ManagedName;
-            managedType = managedType.StartsWith("global::", StringComparison.Ordinal)
-                ? managedType["global::".Length..]
-                : managedType;
-            var genericStart = managedType.IndexOf('<');
-            if (genericStart >= 0)
-            {
-                managedType = managedType[..genericStart];
-            }
-
-            var separator = managedType.LastIndexOf('.');
-            if (separator > 0)
-            {
-                return managedType[..separator];
-            }
-        }
-
         return compilation.ManagedNamespace;
     }
 
@@ -109,18 +86,7 @@ public static partial class BindingOutputRenderer
                 : $"global::{normalized}";
         }
 
-        var managedNamespace = record.ManagedNamespace;
-        if (string.IsNullOrWhiteSpace(managedNamespace))
-        {
-            var managedType = record.ManagedTypeFormat ?? record.ManagedName;
-            managedType = managedType.StartsWith("global::", StringComparison.Ordinal)
-                ? managedType["global::".Length..]
-                : managedType;
-            var separator = managedType.IndexOf('.', StringComparison.Ordinal);
-            managedNamespace = separator > 0 ? managedType[..separator] : compilation.ManagedNamespace;
-        }
-
-        managedNamespace ??= compilation.ManagedNamespace;
+        var managedNamespace = record.ManagedNamespace ?? compilation.ManagedNamespace;
         if (managedNamespace.StartsWith("global::", StringComparison.Ordinal))
         {
             managedNamespace = managedNamespace["global::".Length..];

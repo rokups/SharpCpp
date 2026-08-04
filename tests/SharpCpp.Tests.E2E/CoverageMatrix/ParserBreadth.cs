@@ -15,6 +15,10 @@ public sealed class ParserBreadthTests
 
         using var payload = new BreadthPayload(17);
         Assert.Same(payload, E2EBindings.BreadthAliasReference(payload));
+        Assert.Same(payload, E2EBindings.BreadthProjectPayload(payload));
+        Assert.Same(payload, E2EBindings.BreadthProjectNullablePayload(payload));
+        Assert.Null(E2EBindings.BreadthProjectNullablePayload(null));
+        Assert.Equal(BreadthMode.Active, E2EBindings.BreadthProjectMode(BreadthMode.Active));
 
         using var late = new BreadthLateRecord(23);
         Assert.Equal(23, E2EBindings.ReadBreadthLateRecord(late));
