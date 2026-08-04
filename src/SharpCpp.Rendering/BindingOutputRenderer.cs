@@ -2019,15 +2019,6 @@ public static partial class BindingOutputRenderer
         return string.Join("|", returnType, string.Join(";", type.CallbackParameterTypes.Select(static parameter => parameter.UnaliasedManagedTypeName)));
     }
 
-    private static string GetManagedCallbackMarshallerDeclarationName(BindingType type)
-    {
-        var returnToken = type.CallbackReturnType is null ? "void" : type.CallbackReturnType.ManagedTypeName;
-        var parameterToken = type.CallbackParameterTypes.Count == 0
-            ? "none"
-            : string.Join("_", type.CallbackParameterTypes.Select(static parameter => parameter.ManagedTypeName));
-        return $"__CallbackMarshaller_{SanitizeManagedToken(returnToken)}_{SanitizeManagedToken(parameterToken)}";
-    }
-
     private static string GetManagedCallbackMarshallerDeclarationName(BindingCompilation compilation, BindingType type)
     {
         var returnToken = type.CallbackReturnType is null ? "void" : GetManagedPublicReturnTypeName(type.CallbackReturnType, compilation);
@@ -2980,7 +2971,7 @@ public static partial class BindingOutputRenderer
             }
             else
             {
-                writer.Write(RenderManagedStaticMethod(compilation, method));
+                writer.Write(RenderManagedStaticMethod(compilation, record, method));
                 pinvokeDeclarations.Add(RenderManagedStaticImportDeclaration(compilation, method));
                 if (HasNativeDefaultDispatchParams(method) || HasUndefaultableParams(method))
                 {
@@ -4173,19 +4164,20 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string RenderManagedStaticMethod(BindingCompilation compilation, FunctionBinding function)
+    private static string RenderManagedStaticMethod(BindingCompilation compilation, RecordBinding record, FunctionBinding function)
     {
         var writer = new CodeWriter();
         WriteDocumentationComment(writer, function);
         var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType, compilation);
         var importMethodName = GetManagedImportMethodName(function);
+        var declarationPrefix = $"{GetManagedVisibility(function.AccessModifier)} {(ShouldUseNewModifier(compilation, record, function) ? "new " : string.Empty)}static";
 
         if (function.Parameters.Any(IsInputPointerArrayParameter))
         {
             writer.Write(RenderManagedPointerArrayFunction(
                 compilation,
                 function,
-                $"{GetManagedVisibility(function.AccessModifier)} static",
+                declarationPrefix,
                 returnTypeName,
                 importMethodName,
                 []));
@@ -4194,7 +4186,7 @@ public static partial class BindingOutputRenderer
 
         if (HasUndefaultableParams(function))
         {
-            WriteUndefaultableOverloads(compilation, writer, function, importMethodName, []);
+            WriteUndefaultableOverloads(compilation, writer, function, importMethodName, [], declarationPrefix);
             return writer.ToString();
         }
 
@@ -4204,7 +4196,7 @@ public static partial class BindingOutputRenderer
                 writer,
                 compilation,
                 function,
-                signaturePrefix: $"{GetManagedVisibility(function.AccessModifier)} static {returnTypeName} {function.ManagedName}",
+                signaturePrefix: $"{declarationPrefix} {returnTypeName} {function.ManagedName}",
                 invocationPrefix: string.Empty,
                 invocationTarget: function.ManagedName,
                 returnTypeName: returnTypeName,
@@ -4214,7 +4206,7 @@ public static partial class BindingOutputRenderer
         var parameterList = RenderManagedPublicParameterList(function.Parameters, compilation);
 
         writer.Write($$"""
-            {{GetManagedVisibility(function.AccessModifier)}} static {{returnTypeName}} {{function.ManagedName}}({{parameterList}})
+            {{declarationPrefix}} {{returnTypeName}} {{function.ManagedName}}({{parameterList}})
             {
             """);
 
@@ -5946,7 +5938,8 @@ public static partial class BindingOutputRenderer
             if (!ManagedParameterPrefixSignaturesMatch(compilation, function, other, keepCount))
                 continue;
 
-            if (string.CompareOrdinal(function.SymbolId, other.SymbolId) > 0)
+            if (other.Parameters.Count == keepCount ||
+                string.CompareOrdinal(function.SymbolId, other.SymbolId) > 0)
                 return true;
         }
 
@@ -7776,9 +7769,13 @@ public static partial class BindingOutputRenderer
         CodeWriter writer,
         FunctionBinding function,
         string importMethodName,
-        IReadOnlyList<string> leadingArguments)
+        IReadOnlyList<string> leadingArguments,
+        string? declarationPrefix = null)
     {
         var firstU = GetFirstUndefaultableParamIndex(function);
+        declarationPrefix ??= function.IsStatic
+            ? $"{GetManagedVisibility(function.AccessModifier)} static"
+            : GetManagedVisibility(function.AccessModifier);
 
         // Build common invocation plan for the full parameter set
         var fullPlan = BuildManagedInvocationPlan(compilation, function.Parameters);
@@ -7795,20 +7792,10 @@ public static partial class BindingOutputRenderer
             // Render public signature for overload A
             var aParamList = string.Join(", ", beforeParams.Select(p => RenderManagedPublicParameter(p, compilation)));
 
-            if (function.IsStatic)
-            {
-                writer.Write($$"""
-                    {{GetManagedVisibility(function.AccessModifier)}} static {{GetManagedPublicReturnTypeName(function.ReturnType, compilation)}} {{function.ManagedName}}({{aParamList}})
-                    {
-                    """);
-            }
-            else
-            {
-                writer.Write($$"""
-                    {{GetManagedVisibility(function.AccessModifier)}} {{GetManagedPublicReturnTypeName(function.ReturnType, compilation)}} {{function.ManagedName}}({{aParamList}})
-                    {
-                    """);
-            }
+            writer.Write($$"""
+                {{declarationPrefix}} {{GetManagedPublicReturnTypeName(function.ReturnType, compilation)}} {{function.ManagedName}}({{aParamList}})
+                {
+                """);
 
             if (firstU == 0)
             {
@@ -7896,20 +7883,10 @@ public static partial class BindingOutputRenderer
             }
             var bParamList = string.Join(", ", bParamParts);
 
-            if (function.IsStatic)
-            {
-                writer.Write($$"""
-                    {{GetManagedVisibility(function.AccessModifier)}} static {{GetManagedPublicReturnTypeName(function.ReturnType, compilation)}} {{function.ManagedName}}({{bParamList}})
-                    {
-                    """);
-            }
-            else
-            {
-                writer.Write($$"""
-                    {{GetManagedVisibility(function.AccessModifier)}} {{GetManagedPublicReturnTypeName(function.ReturnType, compilation)}} {{function.ManagedName}}({{bParamList}})
-                    {
-                    """);
-            }
+            writer.Write($$"""
+                {{declarationPrefix}} {{GetManagedPublicReturnTypeName(function.ReturnType, compilation)}} {{function.ManagedName}}({{bParamList}})
+                {
+                """);
 
             // Emit pre-call statements
             foreach (var statement in fullPlan.PreCallStatements)

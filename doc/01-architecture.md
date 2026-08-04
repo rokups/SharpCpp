@@ -60,7 +60,7 @@ No string branches. No contiguous-buffer branches. No callback branches. The ren
 | Emit C# wrapper types from marshaller metadata | `[[sharpcpp::count(...)]]`, `[[sharpcpp::string_binding(...)]]` |
 | Emit C++ thunks that call into `Marshaller<T>` | Marshaller base classes (`ValueMarshallerBase`, etc.) |
 | Pass infrastructure | Per-project pass extensions |
-| Diagnostic collection | Diagnostic suppression / configuration |
+| Binding diagnostic logging | Diagnostic suppression / configuration |
 
 ## Key architectural decisions
 

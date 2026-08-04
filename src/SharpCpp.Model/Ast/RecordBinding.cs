@@ -87,18 +87,4 @@ public sealed class RecordBinding : BindingNamedContainerNode
         return type.CppTypeName;
     }
 
-    public string FormatManagedTypeName(IEnumerable<BindingType>? typeArguments = null)
-    {
-        var arguments = (typeArguments ?? Array.Empty<BindingType>()).ToArray();
-        var format = string.IsNullOrWhiteSpace(ManagedTypeFormat) ? ManagedName : ManagedTypeFormat!;
-        if (arguments.Length == 0)
-        {
-            return format;
-        }
-
-        var renderedArguments = arguments.Select(static argument => argument.ManagedTypeName).Cast<object>().ToArray();
-        return format.Contains('{', StringComparison.Ordinal)
-            ? string.Format(System.Globalization.CultureInfo.InvariantCulture, format, renderedArguments)
-            : $"{format}<{string.Join(", ", arguments.Select(static argument => argument.ManagedTypeName))}>";
-    }
 }

@@ -15,7 +15,7 @@ Core code is code that every generator user needs, regardless of which C++ libra
 | `BindingType` | Type representation (with marshaller reference) |
 | `IRMetadata` + `MetadataKeys` | Extensible metadata dictionary |
 | `BindingNode` | Base node with metadata storage |
-| `DiagnosticCollector`, `Diagnostic` | Diagnostic infrastructure |
+| `BindingDiagnosticLog` | Reports ignored declarations and binding warnings |
 | `CodeWriter` | Text emission with brace-inferred indentation |
 | `BindingSourceReference` | Source provenance tracking |
 

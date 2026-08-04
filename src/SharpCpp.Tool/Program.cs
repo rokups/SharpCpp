@@ -427,6 +427,11 @@ internal static class Program
                         IsDynamicArray = true,
                         Members = members
                     },
+                    "dependency_small_state" => type with
+                    {
+                        Projection = type.Projection with { CppType = "unsigned short" },
+                        Members = members
+                    },
                     _ => type with { Members = members }
                 };
             }).ToArray(),
@@ -442,6 +447,19 @@ internal static class Program
                 "dependency_state_alias" => alias with
                 {
                     TargetType = alias.TargetType with { EnumId = null }
+                },
+                "dependency_value_box_alias" => alias with
+                {
+                    TargetType = alias.TargetType with
+                    {
+                        GenericArguments = alias.TargetType.GenericArguments!
+                            .Select(argument => argument with
+                            {
+                                CppType = "dependency_value_alias_surface*",
+                                PublicType = "DependencyValueAliasSurface"
+                            })
+                            .ToArray()
+                    }
                 },
                 _ => alias
             }).ToArray()

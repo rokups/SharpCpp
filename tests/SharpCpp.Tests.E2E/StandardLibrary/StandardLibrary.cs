@@ -146,6 +146,21 @@ public sealed class StandardLibraryTests
         Assert.Equal(new[] { 1, 3, 5, 7 }, numbers.ToArray());
         Assert.Equal(16, E2EBindings.E2eSumStdArrayNumbers(numbers));
 
+        var nativeArray = numbers.ToNativeArrayAbi();
+        Assert.Equal(16, E2EBindings.E2eSumStdArrayNumbers(
+            global::Std.Array<int>.CreateManagedWrapper(numbers.Handle, numbers.Length, ownsHandle: false)));
+        Assert.Equal(16, E2EBindings.E2eSumStdArrayNumbers(
+            global::Std.Array<int>.CreateManagedWrapper(numbers.Handle, ownsHandle: false, numbers.Provider)));
+        Assert.Equal(16, E2EBindings.E2eSumStdArrayNumbers(
+            global::Std.Array<int>.CreateManagedWrapper(nativeArray, ownsHandle: false)));
+        Assert.Equal(16, E2EBindings.E2eSumStdArrayNumbers(
+            global::Std.Array<int>.CreateManagedWrapper(nativeArray, ownsHandle: false, numbers.Provider)));
+        Assert.Equal(16, E2EBindings.E2eSumStdArrayNumbers(
+            global::Std.Array<int>.CreateManagedWrapper(
+                numbers.Handle, numbers.Length, ownsHandle: false, numbers.Provider.ModuleId)));
+        Assert.Equal(16, E2EBindings.E2eSumStdArrayNumbers(
+            global::Std.Array<int>.CreateManagedWrapper(nativeArray, ownsHandle: false, numbers.Provider.ModuleId)));
+
         using var empty = new global::Std.Array<int>(4);
         Assert.Equal(0, E2EBindings.E2eSumStdArrayNumbers(empty));
 
@@ -278,6 +293,28 @@ public sealed class StandardLibraryTests
     }
 
     [Fact]
+    public void Index_only_string_provider_copies_bytes_from_native_index_access()
+    {
+        using var nativeText = E2EBindings.E2eMakeStdText("native-indexed"u8);
+        var provider = new IndexOnlyStringProvider(nativeText.Provider);
+        using var indexedText = global::Std.String.CreateManagedWrapper(
+            nativeText.Handle, ownsHandle: false, provider);
+
+        Assert.Equal("native-indexed"u8.ToArray(), indexedText.AsUtf8Span().ToArray());
+        Assert.Equal("native-indexed"u8.ToArray(), indexedText.ToUtf8Bytes());
+        Assert.Equal("native-indexed", indexedText.ToString());
+        Assert.Equal(Checksum("native-indexed"u8), E2EBindings.E2eChecksumStdText(indexedText));
+
+        indexedText.Assign("changed-by-index");
+        Assert.Equal("changed-by-index", nativeText.ToString());
+        Assert.Equal(Checksum("changed-by-index"u8), E2EBindings.E2eChecksumStdText(indexedText));
+
+        using var clone = indexedText.Clone();
+        Assert.Equal("changed-by-index"u8.ToArray(), clone.AsUtf8Span().ToArray());
+        Assert.Equal(Checksum("changed-by-index"u8), E2EBindings.E2eChecksumStdText(clone));
+    }
+
+    [Fact]
     public void Ordered_and_unordered_maps_round_trip_through_dictionary_bases()
     {
         using var aliasedScores = E2EBindings.E2eMakeAliasedStdScores();
@@ -335,6 +372,10 @@ public sealed class StandardLibraryTests
             .ToArray();
         Assert.Equal(15, enumeratedScores.Sum(pair => pair.Value));
         DisposeKeys(enumeratedScores);
+
+        var genericScores = scores.ToArray();
+        Assert.Equal(15, genericScores.Sum(pair => pair.Value));
+        DisposeKeys(genericScores);
         Assert.Throws<ArgumentNullException>(() => scores.CopyTo(null!, 0));
         Assert.Throws<ArgumentOutOfRangeException>(() => scores.CopyTo([], -1));
         Assert.Throws<ArgumentException>(() => scores.CopyTo([], 0));
@@ -387,6 +428,12 @@ public sealed class StandardLibraryTests
         Assert.True(containsCenter);
         Assert.Equal(31, E2EBindings.E2eTotalStdLookup(lookup));
 
+        var enumeratedLookup = ((System.Collections.IEnumerable)lookup)
+            .Cast<KeyValuePair<global::Std.String, int>>()
+            .ToArray();
+        Assert.Equal(31, enumeratedLookup.Sum(pair => pair.Value));
+        DisposeKeys(enumeratedLookup);
+
         Assert.True(lookup.Remove(center));
         Assert.False(lookup.Remove(center));
         Assert.Equal(26, E2EBindings.E2eTotalStdLookup(lookup));
@@ -433,5 +480,27 @@ public sealed class StandardLibraryTests
         {
             pair.Key?.Dispose();
         }
+    }
+
+    private sealed class IndexOnlyStringProvider(global::Std.Infrastructure.IStringProvider inner)
+        : global::Std.Infrastructure.IStringProvider
+    {
+        public string ModuleId => inner.ModuleId;
+
+        public string ShapeKey => inner.ShapeKey;
+
+        public nint Create() => inner.Create();
+
+        public nint Clone(nint handle) => inner.Clone(handle);
+
+        public void Delete(nint handle) => inner.Delete(handle);
+
+        public ulong GetCount(nint handle) => inner.GetCount(handle);
+
+        public byte GetAt(nint handle, ulong index) => inner.GetAt(handle, index);
+
+        public void Clear(nint handle) => inner.Clear(handle);
+
+        public void Add(nint handle, byte value) => inner.Add(handle, value);
     }
 }

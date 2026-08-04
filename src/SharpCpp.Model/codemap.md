@@ -37,7 +37,7 @@ Concrete leaf/composite nodes: `BindingCompilation` (root), `RecordBinding`, `En
 
 ### Per-node metadata dictionary
 
-Every `BindingNode` carries a lazily-initialized `Dictionary<string, object?>` accessed via `SetMetadata<T>()`, `GetMetadata<T>()`, `TryGetMetadata<T>()`, `HasMetadata()`, and `CopyMetadataFrom()`. This is the **universal extensibility slot** — passes attach resolved marshaller info, ignore reasons, accessor annotations, warnings, etc. without changing the node class hierarchy. Key names are centralized in `MetadataKeys` for consistency.
+Every `BindingNode` carries a lazily-initialized `Dictionary<string, object?>` accessed via `SetMetadata<T>()`, `GetMetadata<T>()`, `TryGetMetadata<T>()`, and `HasMetadata()`. This is the **universal extensibility slot** — passes attach resolved marshaller info, ignore reasons, accessor annotations, warnings, etc. without changing the node class hierarchy. Key names are centralized in `MetadataKeys` for consistency.
 
 ### Flyweight type singletons (`BindingType`)
 
@@ -45,9 +45,9 @@ Every `BindingNode` carries a lazily-initialized `Dictionary<string, object?>` a
 
 `BindingType` supports recursive generic arguments (`GenericArguments`), generic parameter placeholders, and managed-type-name formatting with `{0}` format string overrides (used by generic records like `Std.Vector<{0}>`).
 
-### Thread-safe diagnostic collector (`DiagnosticCollector`)
+### Binding diagnostic log (`BindingDiagnosticLog`)
 
-`DiagnosticCollector` uses a `ConcurrentQueue<StampedDiagnostic>` with sequence-number ordering to provide lock-free addition and sequenced retrieval. Convenience methods (`Error`, `Warning`, `Info`) wrap `Diagnostic` construction. This is shared across parsing, pipeline passes, and validation — each stage adds diagnostics while the collector preserves insertion order.
+`BindingDiagnosticLog` walks the completed binding tree and reports ignored declarations and warnings through the configured SharpCpp log. Diagnostics therefore stay attached to the declaration that produced them instead of being duplicated in a disconnected collector.
 
 ### Indentation-aware code writer (`CodeWriter`)
 
@@ -101,7 +101,7 @@ Pipeline passes mutate the tree in place:
 - Add/remove members via `Members` collection (auto-parenting triggers `NotifyStructureChanged()`).
 - Set properties (`ManagedName`, `IsAbstract`, `IsPolymorphic`, etc.).
 - Detach nodes via `Detach()` (clears parent and removes from owning collection).
-- Add diagnostics via the shared `DiagnosticCollector`.
+- Attach ignore reasons and warnings to the affected binding node; `BindingDiagnosticLog` reports them after generation.
 
 ## Integration Points
 
@@ -114,12 +114,12 @@ Pipeline passes mutate the tree in place:
 | `SharpCpp.Rendering.CSharp` | Walks the tree to emit C# source; consumes `MarshallerDescriptor`, `ManagedName`, `BindingType`, `CodeWriter`. |
 | `SharpCpp.Rendering.Cpp` | Walks the tree to emit C++ thunks; consumes `CppTypeName`, `CppQualifiedName`, `NativeName`, `CodeWriter`. |
 | `SharpCpp.Metadata` | Serializes `BindingCompilation` and node properties to/from JSON; consumes `SymbolId` for identity. |
-| `SharpCpp.Tool` | Wires all of the above; owns the `DiagnosticCollector` instance and presents diagnostics. |
+| `SharpCpp.Tool` | Wires all of the above and writes binding diagnostics after generation. |
 
 ### Downstream dependencies (SharpCpp.Model depends on)
 
 - **Nothing** in the SharpCpp project tree. This is intentional per `doc/11-project-shape-blueprint.md`.
-- Standard library: `System.Collections.Concurrent` (for `DiagnosticCollector`), `System.Collections.ObjectModel` (for `Collection<T>` base), `System.Text` (for `CodeWriter`).
+- Standard library: `System.Collections.ObjectModel` (for `Collection<T>` base), `System.Text` (for `CodeWriter`).
 
 ### External contract surface
 

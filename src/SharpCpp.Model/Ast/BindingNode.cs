@@ -105,21 +105,6 @@ public abstract class BindingNode
         return _metadata?.Remove(key) == true;
     }
 
-    public void CopyMetadataFrom(BindingNode other, bool overwriteExisting = false)
-    {
-        ArgumentNullException.ThrowIfNull(other);
-
-        foreach (var pair in other.Metadata)
-        {
-            if (!overwriteExisting && HasMetadata(pair.Key))
-            {
-                continue;
-            }
-
-            SetMetadata(pair.Key, pair.Value);
-        }
-    }
-
     internal virtual void NotifyStructureChanged()
     {
         Parent?.NotifyStructureChanged();

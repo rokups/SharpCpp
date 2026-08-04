@@ -44,16 +44,6 @@ public sealed class ManagedBindingProjection
         return false;
     }
 
-    public string GetManagedNamespace(RecordBinding record, BindingCompilation compilation)
-    {
-        ArgumentNullException.ThrowIfNull(record);
-        ArgumentNullException.ThrowIfNull(compilation);
-
-        return TryGetManagedNamespace(record, out var managedNamespace)
-            ? managedNamespace
-            : record.ManagedNamespace ?? compilation.ManagedNamespace;
-    }
-
     public string GetManagedNamespace(EnumBinding enumBinding, BindingCompilation compilation)
     {
         ArgumentNullException.ThrowIfNull(enumBinding);
@@ -116,19 +106,6 @@ public sealed class ManagedNamespaceProjection
     public IReadOnlyList<ManagedNamespaceProjection> Namespaces => _namespaces;
 
     public IReadOnlyList<ManagedDeclarationProjection> Declarations => _declarations;
-
-    public IEnumerable<ManagedNamespaceProjection> DescendantsAndSelf()
-    {
-        yield return this;
-
-        foreach (var child in _namespaces)
-        {
-            foreach (var descendant in child.DescendantsAndSelf())
-            {
-                yield return descendant;
-            }
-        }
-    }
 
     internal ManagedNamespaceProjection AddNamespace(string name, string fullName)
     {

@@ -54,4 +54,23 @@ template <>
 struct ReturnMarshaller<runtime_scalar> : Marshaller<runtime_scalar>
 {
 };
+
+template <typename T>
+struct [[sharpcpp::managed_type(
+    public_type = "{0}",
+    projection = true,
+    return_ownership = "owning"
+)]] Marshaller<runtime_cache_owner<T>>
+{
+    using cpp_type = runtime_cache_owner<T>;
+    using abi_type = T*;
+
+    abi_type ConvertToAbi(cpp_type& value) noexcept { return value.detach(); }
+    cpp_type ConvertToCpp(abi_type value) noexcept { return cpp_type(value); }
+};
+
+template <typename T>
+struct ReturnMarshaller<runtime_cache_owner<T>> : Marshaller<runtime_cache_owner<T>>
+{
+};
 }

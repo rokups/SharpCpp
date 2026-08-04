@@ -285,6 +285,63 @@ struct breadth_pointer_fields
     inline static int static_values[2] = {3, 5};
 };
 
+struct breadth_duplicate_record
+{
+    int value{};
+};
+struct breadth_duplicate_record;
+
+template <int N>
+struct [[sharpcpp::ignore("non-type record template parser breadth")]] breadth_non_type_record
+{
+    int value{N};
+};
+
+struct [[sharpcpp::ignore("template method rejection parser breadth")]] breadth_template_method_rejections
+{
+    template <int N>
+    int non_type(int value) const
+    {
+        return value + N;
+    }
+
+private:
+    template <typename T>
+    T hidden(T value) const
+    {
+        return value;
+    }
+};
+
+[[sharpcpp::ignore("free incomplete array parser breadth")]]
+inline int breadth_free_incomplete_array(breadth_payload* values[])
+{
+    return values == nullptr ? 0 : 1;
+}
+
+struct [[sharpcpp::ignore("invalid incomplete arrays parser breadth")]] breadth_invalid_incomplete_arrays
+{
+    static int static_values(breadth_payload* values[])
+    {
+        return values == nullptr ? 0 : 1;
+    }
+
+    int output_values([[sharpcpp::out]] breadth_payload* values[]) const
+    {
+        return values == nullptr ? 0 : 1;
+    }
+
+    int primitive_values(int values[]) const
+    {
+        return values == nullptr ? 0 : 1;
+    }
+
+    int callback_values(breadth_raw_callback values[]) const
+    {
+        return values == nullptr ? 0 : 1;
+    }
+};
+
 struct breadth_flattened_leaf
 {
     /// Value copied through a flattened native field accessor.

@@ -119,8 +119,9 @@ public sealed class MarshallerConfigExtractorTests
             null,
             [new[] { coreMarshallerHeader }, CreateStandardLibraryClangArgs(repoRoot, includeDir)])!;
 
-        var arrayOverride = overrides.Values.Cast<object>().Single(candidate =>
-            ((string)candidate.GetType().GetProperty("CppTypeName")!.GetValue(candidate)!).StartsWith("std::array<", StringComparison.Ordinal));
+        var arrayKey = overrides.Keys.Cast<string>().Single(static key =>
+            key.StartsWith("std::array<", StringComparison.Ordinal));
+        var arrayOverride = overrides[arrayKey]!;
         var templateParameterNames = ((System.Collections.IEnumerable)arrayOverride.GetType().GetProperty("TemplateParameterNames")!.GetValue(arrayOverride)!)
             .Cast<string>()
             .ToArray();

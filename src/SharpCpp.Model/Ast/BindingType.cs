@@ -436,11 +436,6 @@ public sealed class BindingType
             callbackParameterTypes: callbackParameterTypes);
     }
 
-    public override string ToString()
-    {
-        return ManagedTypeName;
-    }
-
     private static BindingType Primitive(
         BindingPrimitiveKind primitiveKind,
         string cppTypeName,
@@ -467,44 +462,14 @@ public sealed class BindingType
     {
         if (Marshaller.CppIsRecordValue == value)
             return this;
-        return new BindingType(
-            Kind,
-            PrimitiveKind,
-            Marshaller with { CppIsRecordValue = value },
-            RecordId,
-            EnumId,
-            AliasCppQualifiedName,
-            AliasNativeName,
-            GenericParameterName,
-            GenericArguments,
-            IsCallback,
-            CallbackReturnType,
-            CallbackParameterTypes,
-            FixedArrayElementType,
-            FixedArrayLength,
-            DynamicArrayElementType);
+        return CopyWithMarshaller(Marshaller with { CppIsRecordValue = value });
     }
 
     public BindingType WithCppPointerIsRecordValueProjection(bool value)
     {
         if (Marshaller.CppPointerIsRecordValueProjection == value)
             return this;
-        return new BindingType(
-            Kind,
-            PrimitiveKind,
-            Marshaller with { CppPointerIsRecordValueProjection = value },
-            RecordId,
-            EnumId,
-            AliasCppQualifiedName,
-            AliasNativeName,
-            GenericParameterName,
-            GenericArguments,
-            IsCallback,
-            CallbackReturnType,
-            CallbackParameterTypes,
-            FixedArrayElementType,
-            FixedArrayLength,
-            DynamicArrayElementType);
+        return CopyWithMarshaller(Marshaller with { CppPointerIsRecordValueProjection = value });
     }
 
     public BindingType WithCppTypeName(string cppTypeName)
@@ -512,10 +477,22 @@ public sealed class BindingType
         ArgumentException.ThrowIfNullOrWhiteSpace(cppTypeName);
         if (string.Equals(Marshaller.CppTypeName, cppTypeName, StringComparison.Ordinal))
             return this;
-        var copy = new BindingType(
+        return CopyWithMarshaller(Marshaller with { CppTypeName = cppTypeName });
+    }
+
+    public BindingType WithCppIsReference(bool value)
+    {
+        if (Marshaller.CppIsReference == value)
+            return this;
+        return CopyWithMarshaller(Marshaller with { CppIsReference = value });
+    }
+
+    private BindingType CopyWithMarshaller(MarshallerDescriptor marshaller)
+    {
+        return new BindingType(
             Kind,
             PrimitiveKind,
-            Marshaller with { CppTypeName = cppTypeName },
+            marshaller,
             RecordId,
             EnumId,
             AliasCppQualifiedName,
@@ -531,29 +508,6 @@ public sealed class BindingType
         {
             _managedTypeFormatOverride = _managedTypeFormatOverride
         };
-        return copy;
-    }
-
-    public BindingType WithCppIsReference(bool value)
-    {
-        if (Marshaller.CppIsReference == value)
-            return this;
-        return new BindingType(
-            Kind,
-            PrimitiveKind,
-            Marshaller with { CppIsReference = value },
-            RecordId,
-            EnumId,
-            AliasCppQualifiedName,
-            AliasNativeName,
-            GenericParameterName,
-            GenericArguments,
-            IsCallback,
-            CallbackReturnType,
-            CallbackParameterTypes,
-            FixedArrayElementType,
-            FixedArrayLength,
-            DynamicArrayElementType);
     }
 
     public BindingType WithAliasSurface(string cppQualifiedName, string nativeName)

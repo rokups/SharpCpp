@@ -69,9 +69,13 @@ public sealed class UnsupportedDefaultsTests
 
         using var payload = new UnsupportedDefaultConstructorPayload(13);
         using var exactConstructor = new UnsupportedDefaultConstructorCollision(payload);
-        using var defaultedConstructor = new UnsupportedDefaultConstructorCollision(payload, 7);
+        using var defaultedConstructor = new UnsupportedDefaultConstructorCollision(payload, null, out var defaultObserved);
+        using var explicitConstructor = new UnsupportedDefaultConstructorCollision(payload, 8, out var observed);
         Assert.Equal(13, exactConstructor.GetValue());
-        Assert.Equal(20, defaultedConstructor.GetValue());
+        Assert.Equal(17, defaultedConstructor.GetValue());
+        Assert.Equal(0, defaultObserved);
+        Assert.Equal(21, explicitConstructor.GetValue());
+        Assert.Equal(22, observed);
     }
 
     [Fact]

@@ -138,10 +138,16 @@ struct [[sharpcpp::ignore("coverage degradation")]] ignored_record
     int value{};
 };
 
+using degradation_ignored_handle_alias = ignored_record*;
+
 enum class [[sharpcpp::ignore("coverage degradation")]] ignored_enum
 {
     value
 };
+
+using degradation_ignored_enum_alias = ignored_enum;
+using degradation_unsupported_primitive_alias = long double;
+using degradation_external_handle_alias = std::locale*;
 
 inline int consume_ignored_record(ignored_record* value)
 {

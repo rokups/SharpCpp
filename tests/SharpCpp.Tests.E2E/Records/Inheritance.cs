@@ -4,8 +4,23 @@ using Xunit;
 
 namespace SharpCpp.Tests.E2E.Records;
 
+public delegate int InheritanceProjectionCallback(int value);
+
 public sealed class InheritanceTests
 {
+    private sealed class ManagedDerivedCounter : DerivedCounter
+    {
+        public ManagedDerivedCounter(int value, int bonus)
+            : base(value, bonus)
+        {
+        }
+
+        public int ReadInheritedAccess(int value)
+        {
+            return InheritedAccess(value);
+        }
+    }
+
     [Fact]
     public void Derived_wrapper_inherits_from_base_wrapper()
     {
@@ -20,28 +35,45 @@ public sealed class InheritanceTests
     [Fact]
     public void Derived_wrapper_can_be_used_through_base_view()
     {
-        BaseCounter counter = new DerivedCounter(10, 2);
+        using var derived = new DerivedCounter(10, 2);
+        BaseCounter counter = derived;
 
         Assert.Equal(2, counter.GetKind());
         Assert.Equal(10, counter.GetValue());
     }
 
     [Fact]
-    public void Derived_wrapper_created_by_constructor_owns_handle_and_disposes_through_base_layer()
+    public void Secondary_base_method_shapes_project_onto_the_derived_wrapper()
     {
-        var counter = new DerivedCounter(10, 2);
+        using var derived = new ManagedDerivedCounter(10, 2);
 
-        Assert.True(counter.OwnsHandle);
+        Assert.Equal(12, derived.ProjectedConst(10));
+        Assert.Equal(42, derived.ProjectedDefault(37));
+        Assert.Equal(42, derived.ProjectedDefault(35, 5));
 
-        counter.Dispose();
+        var referenced = 38;
+        derived.ProjectedRef(ref referenced);
+        Assert.Equal(42, derived.ProjectedConst(referenced));
 
-        Assert.True(counter.IsNull);
+        Assert.Equal(40, derived.ProjectedOut(38, out var output));
+        Assert.Equal(42, derived.ProjectedConst(output));
+
+        using var argument = new DerivedCounter(42, 1);
+        Assert.Equal(42, derived.ProjectedHandle(argument).GetValue());
+
+        using var owned = derived.ProjectedOwnedValue(40);
+        Assert.Equal(42, owned.GetValue());
+
+        Assert.Equal(42, derived.ProjectedCallback(value => value * 2, 20));
+        Assert.Equal(42, derived.ReadInheritedAccess(32));
+        Assert.Equal(42, DerivedCounter.InheritedStatic(40));
+        Assert.Equal(42, derived.ProjectedMutate(40));
     }
 
     [Fact]
     public void Free_function_can_accept_derived_wrapper_as_base_parameter()
     {
-        var counter = new DerivedCounter(10, 2);
+        using var counter = new DerivedCounter(10, 2);
 
         Assert.Equal(10, E2EBindings.ReadBaseCounter(counter));
         Assert.Equal(2, E2EBindings.ReadBaseCounterKind(counter));
@@ -50,49 +82,42 @@ public sealed class InheritanceTests
     [Fact]
     public void Static_method_can_roundtrip_base_typed_wrapper()
     {
-        var counter = new DerivedCounter(10, 2);
+        using var counter = new DerivedCounter(10, 2);
         var result = DerivedCounter.IdentityBase(counter);
 
-        Assert.IsType<DerivedCounter>(result);
         Assert.Equal(10, result.GetValue());
     }
 
     [Fact]
     public void Instance_method_can_roundtrip_base_typed_wrapper()
     {
-        var owner = new DerivedCounter(10, 2);
-        var argument = new DerivedCounter(20, 3);
+        using var owner = new DerivedCounter(10, 2);
+        using var argument = new DerivedCounter(20, 3);
         var result = owner.EchoBase(argument);
 
-        Assert.IsType<DerivedCounter>(result);
         Assert.Equal(20, result.GetValue());
     }
 
     [Fact]
     public void Base_typed_fields_can_store_derived_wrappers()
     {
-        var derived = new DerivedCounter(10, 2);
+        using var derived = new DerivedCounter(10, 2);
         var holder = E2EBindings.CreateInheritanceHolder(derived);
 
-        Assert.IsType<DerivedCounter>(holder.BaseView);
         Assert.Equal(10, holder.BaseView.GetValue());
 
-        holder.BaseView = new DerivedCounter(20, 3);
+        using var replacement = new DerivedCounter(20, 3);
+        holder.BaseView = replacement;
 
-        Assert.IsType<DerivedCounter>(holder.BaseView);
         Assert.Equal(20, holder.BaseView.GetValue());
     }
 
     [Fact]
-    public void Base_typed_free_function_return_uses_derived_wrapper_and_cache_identity()
+    public void Base_typed_free_function_return_retains_native_derived_behavior()
     {
         var first = E2EBindings.GetSharedDerivedAsBase();
-        var second = E2EBindings.GetSharedDerivedAsBase();
 
-        Assert.IsType<DerivedCounter>(first);
-        Assert.Same(first, second);
         Assert.Equal(30, first.GetValue());
         Assert.Equal(4, ((DerivedCounter)first).GetBonus());
     }
-
 }

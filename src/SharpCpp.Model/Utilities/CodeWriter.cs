@@ -84,7 +84,8 @@ public sealed class CodeWriter
             return;
         }
 
-        var firstContentIndex = GetFirstContentIndex(line);
+        // Write() normalizes every line before it reaches this method.
+        const int firstContentIndex = 0;
         var leadingClosingBraceCount = CountLeadingClosingBraces(line, firstContentIndex);
         var effectiveIndentLevel = Math.Max(0, _indentLevel - leadingClosingBraceCount);
 
@@ -129,18 +130,6 @@ public sealed class CodeWriter
         }
 
         return line[firstContentIndex..];
-    }
-
-    private static int GetFirstContentIndex(string line)
-    {
-        var index = 0;
-
-        while (index < line.Length && char.IsWhiteSpace(line[index]))
-        {
-            index++;
-        }
-
-        return index;
     }
 
     private static int CountLeadingClosingBraces(string line, int startIndex)

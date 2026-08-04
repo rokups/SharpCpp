@@ -322,26 +322,6 @@ public abstract class NativeObject : SafeHandle
     }
 
     /// <summary>
-    /// Safely casts a value to <see cref="NativeObject"/>, throwing if the input is <see langword="null"/> or not the expected type.
-    /// </summary>
-    /// <param name="value">The value to cast, expected to be a <see cref="NativeObject"/> wrapper.</param>
-    /// <param name="parameterName">The name of the parameter from which <paramref name="value"/> was sourced, used in exception messages.</param>
-    /// <returns>The <see cref="NativeObject"/> instance.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="value"/> is <see langword="null"/>.</exception>
-    /// <exception cref="ArgumentException"><paramref name="value"/> is not a <see cref="NativeObject"/>.</exception>
-    public static NativeObject RequireObject(object value, string parameterName)
-    {
-        ArgumentNullException.ThrowIfNull(value, parameterName);
-
-        if (value is not NativeObject native)
-        {
-            throw new ArgumentException("Expected a SharpCpp-generated native wrapper.", parameterName);
-        }
-
-        return native;
-    }
-
-    /// <summary>
     /// Extracts the native handle from a wrapper, returning zero for <see langword="null"/> input.
     /// </summary>
     /// <param name="value">The wrapper whose native handle to extract, or <see langword="null"/>.</param>
@@ -393,24 +373,4 @@ public abstract class NativeObject : SafeHandle
         }
     }
 
-    /// <summary>
-    /// Extracts the native handle from a wrapper, throwing if the input is <see langword="null"/> or the wrapper is disposed.
-    /// </summary>
-    /// <param name="value">The wrapper whose native handle to extract.</param>
-    /// <param name="parameterName">The name of the parameter from which <paramref name="value"/> was sourced, used in exception messages.</param>
-    /// <returns>The native handle value.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="value"/> is <see langword="null"/>.</exception>
-    /// <exception cref="ArgumentException"><paramref name="value"/> is not a <see cref="NativeObject"/>.</exception>
-    /// <exception cref="ObjectDisposedException">The wrapper is closed or invalid.</exception>
-    public static nint RequireHandle(object value, string parameterName)
-    {
-        var native = RequireObject(value, parameterName);
-
-        if (native.IsClosed || native.IsInvalid)
-        {
-            throw new ObjectDisposedException(native.GetType().FullName);
-        }
-
-        return native.DangerousGetHandle();
-    }
 }

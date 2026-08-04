@@ -21,7 +21,7 @@
 
 | Type | Kind | File | Description |
 |---|---|---|---|
-| `NativeObject` | `abstract class` | `NativeObject.cs:6` | Root of the binding model. Extends `SafeHandle` to provide deterministic native resource lifetime, instance caching, dual-path disposal (managed `Dispose` vs native `DisposeFromNativeRuntimeCore`), managed keep-alive for child objects (`SetManagedKeepAliveCore`), and static helpers (`GetObject`, `GetHandle`, `RequireHandle`, `RequireObject`, `HasManagedOverride`). |
+| `NativeObject` | `abstract class` | `NativeObject.cs:6` | Root of the binding model. Extends `SafeHandle` to provide deterministic native resource lifetime, instance caching, dual-path disposal (managed `Dispose` vs native `DisposeFromNativeRuntimeCore`), managed keep-alive for child objects (`SetManagedKeepAliveCore`), and static helpers (`GetObject`, `GetHandle`, `HasManagedOverride`). |
 | `INativeObjectRegistration<TSelf>` | `interface` (static abstract) | `INativeObjectRegistration.cs:3` | Contract implemented by generated wrapper types (`where TSelf : NativeObject`). Provides per-type metadata without reflection: `RegistrationDynamicTypeId` (`nuint`), `RegistrationExpectedType`, `RegistrationInstanceCache`, `RegistrationCreateFactory`, and `RegistrationGetMetadata(nint)`. |
 | `NativeObjectMetadata` | `readonly struct` | `NativeObjectMetadata.cs:6` | Blittable value type (`[StructLayout(LayoutKind.Sequential)]`) flowing across P/Invoke. Carries native pointer (`Handle`) and C++ runtime type ID (`DynamicTypeId`). `Normalize(nint)` replaces a null handle with a fallback. |
 | `NativeObjectRegistry` | `abstract class` (all static) | `NativeObjectRegistry.cs:5` | Static type registry mapping native dynamic type IDs → (expected CLR type, factory delegate, instance cache). `Create<T>(nint, bool)` resolves polymorphic wrappers: cache lookup → native metadata query → registry resolution → factory invocation. `RegisterType<T>()` reads from `INativeObjectRegistration<T>`; also exposes a direct `RegisterType(...)` overload. |
@@ -237,7 +237,7 @@ Dispose() → Dispose(bool) → Unregister from cache
 | Consumer | Relationship |
 |---|---|
 | **Generated wrapper types** | Extend `NativeObject`, implement `INativeObjectRegistration<T>`, register in `NativeObjectRegistry`. Call `Create<T>()` to materialize wrappers from handles. |
-| **Generated P/Invoke marshallers** | Use `NativeObject.GetHandle()` / `RequireHandle()` to extract `nint` from managed wrappers before calling into native code. |
+| **Generated P/Invoke marshallers** | Use `NativeObject.GetHandle()` to extract `nint` from managed wrappers before calling into native code. |
 | **Generated string wrappers** | Extend `StringBase` and override the four core methods. Registered with the `Marshaller<std::string>` ABI pair. |
 | **Toolchain (SharpCpp.Pipeline + SharpCpp.Rendering)** | References this assembly to emit `: base(handle, ownsHandle)` calls, `INativeObjectRegistration<T>` implementations, and `NativeObjectRegistry.RegisterType<T>()` invocations. |
 

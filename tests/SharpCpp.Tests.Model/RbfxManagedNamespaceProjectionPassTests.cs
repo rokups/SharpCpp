@@ -64,9 +64,9 @@ public sealed class RbfxManagedNamespaceProjectionPassTests
         Assert.Equal("Urho3D.Physics", rigidBodyNamespace);
         Assert.Equal("Ea", vectorNamespace);
         Assert.Equal("Urho3D.Core", modeNamespace);
-        Assert.Contains(projection.Root.DescendantsAndSelf(), ns => ns.FullName == "Urho3D.Core");
-        Assert.Contains(projection.Root.DescendantsAndSelf(), ns => ns.FullName == "Urho3D.Scene");
-        Assert.Contains(projection.Root.DescendantsAndSelf(), ns => ns.FullName == "Urho3D.Physics");
+        Assert.Contains(projection.Namespaces, ns => ns.FullName == "Urho3D.Core");
+        Assert.Contains(projection.Namespaces, ns => ns.FullName == "Urho3D.Scene");
+        Assert.Contains(projection.Namespaces, ns => ns.FullName == "Urho3D.Physics");
     }
 
 }

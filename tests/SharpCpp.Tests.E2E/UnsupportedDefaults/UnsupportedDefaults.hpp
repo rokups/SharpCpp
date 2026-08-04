@@ -118,9 +118,12 @@ struct unsupported_default_constructor_collision
 
     unsupported_default_constructor_collision(
         const unsupported_default_constructor_payload* payload,
-        int offset = E2E_UNSUPPORTED_DEFAULT_OFFSET)
+        int offset = E2E_UNSUPPORTED_DEFAULT_OFFSET,
+        [[sharpcpp::out]] int* observed = nullptr)
         : value_((payload == nullptr ? -1 : payload->value) + offset)
     {
+        if (observed != nullptr)
+            *observed = value_ + 1;
     }
 
     int get_value() const

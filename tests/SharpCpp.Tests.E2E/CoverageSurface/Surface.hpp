@@ -3,6 +3,7 @@
 #include <functional>
 #include <cstddef>
 #include <memory>
+#include <type_traits>
 
 struct surface_payload
 {
@@ -129,6 +130,101 @@ inline int sum_surface_provider_handles(const e2e_std::provider_array<surface_pa
 {
     return (value[0] != nullptr ? value[0]->get_value() : 0) +
         (value[1] != nullptr ? value[1]->get_value() : 0);
+}
+
+struct surface_array_discovery_host
+{
+    explicit surface_array_discovery_host(int seed)
+        : shared_values(new double[2]{static_cast<double>(seed + 4), static_cast<double>(seed + 5)})
+        , provider_values(new float[2]{static_cast<float>(seed + 6), static_cast<float>(seed + 7)})
+    {
+        fixed_values[0] = seed;
+        fixed_values[1] = seed + 1;
+        fixed_values[2] = seed + 2;
+    }
+
+    int sum() const
+    {
+        return fixed_values[0] + fixed_values[1] + fixed_values[2] +
+            static_cast<int>(shared_values[0] + shared_values[1]) +
+            static_cast<int>(provider_values[0] + provider_values[1]);
+    }
+
+    e2e_std::array<int, 3> fixed_values;
+    e2e_std::shared_array<double> shared_values;
+    e2e_std::provider_array<float> provider_values;
+};
+
+template <typename T>
+struct surface_array_callback_box
+{
+    explicit surface_array_callback_box(int seed)
+    {
+        if constexpr (std::is_same_v<T, e2e_std::array<int, 3>*>)
+        {
+            value_[0] = seed;
+            value_[1] = seed + 1;
+            value_[2] = seed + 2;
+        }
+        else if constexpr (std::is_same_v<T, e2e_std::shared_array<double>*>)
+        {
+            value_ = e2e_std::shared_array<double>(
+                new double[2]{static_cast<double>(seed), static_cast<double>(seed + 1)});
+        }
+        else
+        {
+            static_assert(std::is_same_v<T, e2e_std::provider_array<float>*>);
+            value_ = e2e_std::provider_array<float>(
+                new float[2]{static_cast<float>(seed), static_cast<float>(seed + 1)});
+        }
+    }
+
+    void add_to_first(int value)
+    {
+        value_[0] += value;
+    }
+
+    int sum() const
+    {
+        if constexpr (std::is_same_v<T, e2e_std::array<int, 3>*>)
+            return value_[0] + value_[1] + value_[2];
+        else
+            return static_cast<int>(value_[0] + value_[1]);
+    }
+
+private:
+    std::remove_pointer_t<T> value_{};
+};
+
+namespace surface_discovery
+{
+using fixed_view = const e2e_std::array<int, 3>*;
+using shared_view = const e2e_std::shared_array<int>*;
+using provider_view = const e2e_std::provider_array<int>*;
+}
+
+inline int invoke_surface_fixed_discovery_callback(
+    const std::function<surface_array_callback_box<e2e_std::array<int, 3>*>*(
+        surface_array_callback_box<e2e_std::array<int, 3>*>*,
+        surface_array_callback_box<e2e_std::shared_array<double>*>*)>& callback,
+    int seed)
+{
+    surface_array_callback_box<e2e_std::array<int, 3>*> fixed(seed);
+    surface_array_callback_box<e2e_std::shared_array<double>*> shared(seed + 10);
+    auto* returned = callback(&fixed, &shared);
+    return returned != nullptr ? returned->sum() + shared.sum() : -1;
+}
+
+inline int invoke_surface_dynamic_discovery_callback(
+    const std::function<surface_array_callback_box<e2e_std::shared_array<double>*>*(
+        surface_array_callback_box<e2e_std::shared_array<double>*>*,
+        surface_array_callback_box<e2e_std::provider_array<float>*>*)>& callback,
+    int seed)
+{
+    surface_array_callback_box<e2e_std::shared_array<double>*> shared(seed);
+    surface_array_callback_box<e2e_std::provider_array<float>*> provider(seed + 10);
+    auto* returned = callback(&shared, &provider);
+    return returned != nullptr ? returned->sum() + provider.sum() : -1;
 }
 
 struct flattened_leaf

@@ -20,6 +20,12 @@ enum class [[sharpcpp::flags]] dependency_permissions : unsigned int
     all = 3u
 };
 
+enum class dependency_small_state : unsigned short
+{
+    idle = 0,
+    ready = 1
+};
+
 struct dependency_value
 {
     dependency_value(int value, dependency_state state)
@@ -44,6 +50,9 @@ private:
 using dependency_alias = dependency_value;
 using dependency_handle_alias = dependency_value*;
 using dependency_state_alias = dependency_state;
+using dependency_small_state_alias = dependency_small_state;
+using dependency_signed_alias = long long;
+using dependency_rebound_handle_alias = dependency_value*;
 using dependency_unsigned_alias = unsigned long long;
 using dependency_fixed_alias = std::array<int, 4>;
 using dependency_dynamic_alias = std::vector<int>;
@@ -89,6 +98,7 @@ struct dependency_derived final : dependency_base
 template <typename T>
 struct
 [[sharpcpp::instantiate("int")]]
+[[sharpcpp::instantiate("dependency_value*")]]
 dependency_box
 {
     explicit dependency_box(T value)
@@ -111,6 +121,39 @@ private:
 };
 
 using dependency_int_box_alias = dependency_box<int>;
+using dependency_value_box_alias = dependency_box<dependency_value*>;
+
+template <typename T>
+T dependency_import_identity(T value)
+{
+    return value;
+}
+
+template dependency_value_box_alias* dependency_import_identity(
+    dependency_value_box_alias* value);
+
+inline dependency_signed_alias increment_dependency_signed_alias(dependency_signed_alias value)
+{
+    return value + 2;
+}
+
+inline dependency_small_state_alias round_trip_dependency_small_state_alias(
+    dependency_small_state_alias value)
+{
+    return value;
+}
+
+inline int read_dependency_rebound_handle_alias(
+    dependency_rebound_handle_alias value)
+{
+    return value == nullptr ? -1 : value->get_value();
+}
+
+inline int read_dependency_value_box_alias(const dependency_value_box_alias* value)
+{
+    const auto* item = value == nullptr ? nullptr : value->get_value();
+    return item == nullptr ? -1 : item->get_value();
+}
 
 struct dependency_primitives
 {
@@ -197,6 +240,11 @@ inline dependency_derived* create_dependency_derived(int value)
 inline dependency_box<int>* create_dependency_box(int value)
 {
     return new dependency_box<int>(value);
+}
+
+inline dependency_value_box_alias* create_dependency_value_box(dependency_value* value)
+{
+    return new dependency_value_box_alias(value);
 }
 
 inline dependency_holder* create_dependency_holder(dependency_value* item)

@@ -10,7 +10,7 @@ A `[[sharpcpp::director]]` attribute on a C++ class marks it as director-capable
 
 A record qualifies for director instantiation when:
 - It has at least one effective virtual method slot (`RequiresDirector()`)
-- No missing declared pure virtual methods exist in the record or any of its abstract base classes (`CanInstantiateDirector()`)
+- No missing declared pure virtual methods exist in the record or any of its abstract base classes.
 
 Abstract classes with unimplemented pure virtuals cannot instantiate directors. Concrete derived classes that implement all pure virtuals can.
 

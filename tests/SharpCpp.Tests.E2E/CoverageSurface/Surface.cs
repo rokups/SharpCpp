@@ -77,6 +77,29 @@ public sealed class SurfaceTests
     }
 
     [Fact]
+    public void Array_discovery_through_aliases_fields_and_callbacks_round_trips_native_values()
+    {
+        using var host = new SurfaceArrayDiscoveryHost(2);
+        Assert.Equal(39, host.Sum());
+
+        Assert.Equal(39, E2EBindings.InvokeSurfaceFixedDiscoveryCallback(
+            (fixedValues, sharedValues) =>
+            {
+                fixedValues.AddToFirst(sharedValues.Sum() % 10);
+                return fixedValues;
+            },
+            2));
+
+        Assert.Equal(41, E2EBindings.InvokeSurfaceDynamicDiscoveryCallback(
+            (sharedValues, providerValues) =>
+            {
+                sharedValues.AddToFirst(providerValues.Sum() % 10);
+                return sharedValues;
+            },
+            3));
+    }
+
+    [Fact]
     public void Dense_surface_compiles_and_round_trips_supported_declarations()
     {
         Assert.Equal(42, E2EBindings.CoverageSurfaceSentinel(41));

@@ -32,14 +32,6 @@ public static unsafe class Utf8SpanAbiMarshaller
         return new Utf8SpanAbi((nint)buffer, (nuint)managed.Length);
     }
 
-    public static ReadOnlySpan<byte> ConvertToManaged(Utf8SpanAbi unmanaged)
-    {
-        if (unmanaged.Data == 0 || unmanaged.Length == 0)
-            return ReadOnlySpan<byte>.Empty;
-
-        return new ReadOnlySpan<byte>((void*)unmanaged.Data, checked((int)unmanaged.Length));
-    }
-
     public static void Free(Utf8SpanAbi unmanaged)
     {
         if (unmanaged.Data != 0)

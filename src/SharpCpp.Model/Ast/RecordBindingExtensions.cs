@@ -84,14 +84,6 @@ public static class RecordBindingExtensions
         return record.IsDirector && record.GetEffectiveVirtualMethodSlots(compilation).Count > 0;
     }
 
-    public static bool CanInstantiateDirector(this RecordBinding record, BindingCompilation compilation)
-    {
-        ArgumentNullException.ThrowIfNull(record);
-        ArgumentNullException.ThrowIfNull(compilation);
-
-        return record.RequiresDirector(compilation) && !record.IsAbstract;
-    }
-
     public static bool SignaturesMatch(FunctionBinding left, FunctionBinding right)
     {
         ArgumentNullException.ThrowIfNull(left);

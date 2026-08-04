@@ -257,18 +257,6 @@ public static class DegradeUnsupportedSurfacePass
                 return true;
             }
 
-            if (parameter.UseCallbackDelegate && !parameter.Type.IsCallback)
-            {
-                reason = $"parameter '{parameter.ManagedName}' is unsupported in this bootstrap surface: [[sharpcpp::delegate]] can only be used on callback parameters";
-                return true;
-            }
-
-            if (parameter.UseCallbackDelegate && !IsValidCallbackDelegatePolicy(parameter, out var delegatePolicyReason))
-            {
-                reason = $"parameter '{parameter.ManagedName}' is unsupported in this bootstrap surface: {delegatePolicyReason}";
-                return true;
-            }
-
             if (TryGetUnsupportedTypeReason(parameter.Type, parameter.CppTypeName, recordsById, enumsById, disallowNonPointerHandles: false, out reason))
             {
                 reason = $"parameter '{parameter.ManagedName}' is unsupported in this bootstrap surface: {reason}";
@@ -644,36 +632,6 @@ public static class DegradeUnsupportedSurfacePass
         return string.Join("|", returnType, string.Join(";", type.CallbackParameterTypes.Select(static parameter => parameter.UnaliasedManagedTypeName)));
     }
 
-    private static bool IsValidCallbackDelegatePolicy(ParameterBinding parameter, out string reason)
-    {
-        if (string.IsNullOrWhiteSpace(parameter.CallbackDelegateTypeName))
-        {
-            reason = string.Empty;
-            return true;
-        }
-
-        if (IsExternalCallbackDelegateTypeName(parameter.CallbackDelegateTypeName!))
-        {
-            if (IsValidExternalCallbackDelegateTypeName(parameter.CallbackDelegateTypeName!))
-            {
-                reason = string.Empty;
-                return true;
-            }
-
-            reason = $"external callback delegate type name '{parameter.CallbackDelegateTypeName}' is not a valid managed type name";
-            return false;
-        }
-
-        if (IsValidCSharpIdentifier(parameter.CallbackDelegateTypeName!))
-        {
-            reason = string.Empty;
-            return true;
-        }
-
-        reason = $"generated callback delegate name '{parameter.CallbackDelegateTypeName}' is not a valid C# identifier";
-        return false;
-    }
-
     private static bool IsGeneratedCallbackValueSupported(BindingType type, IReadOnlyDictionary<string, RecordBinding> recordsById)
     {
         if (type.PrimitiveKind == BindingPrimitiveKind.Void)
@@ -715,30 +673,6 @@ public static class DegradeUnsupportedSurfacePass
         return value.StartsWith("global::", StringComparison.Ordinal)
             ? value
             : $"global::{value}";
-    }
-
-    private static bool IsValidExternalCallbackDelegateTypeName(string value)
-    {
-        var normalized = value.StartsWith("global::", StringComparison.Ordinal)
-            ? value[8..]
-            : value;
-        var segments = normalized.Split('.', StringSplitOptions.TrimEntries);
-        return segments.Length > 0 && segments.All(IsValidCSharpIdentifier);
-    }
-
-    private static bool IsValidCSharpIdentifier(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return false;
-        }
-
-        if (value[0] != '_' && !char.IsLetter(value[0]))
-        {
-            return false;
-        }
-
-        return value.Skip(1).All(static ch => ch == '_' || char.IsLetterOrDigit(ch));
     }
 
     private static string SanitizeManagedToken(string value)

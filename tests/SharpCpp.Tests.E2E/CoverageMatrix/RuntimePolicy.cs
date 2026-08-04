@@ -43,4 +43,23 @@ public sealed class RuntimePolicyTests
         Assert.Equal(29, E2EBindings.MakeRuntimeScalar(29));
         Assert.Equal(38, E2EBindings.ConsumeRuntimeScalar(37));
     }
+
+    [Fact]
+    public void Borrowed_wrapper_is_promoted_when_native_transfers_the_same_handle()
+    {
+        var destroyedBefore = E2EBindings.GetRuntimeCacheDestroyedCount();
+        var borrowed = E2EBindings.CreateRuntimeCacheBorrowed(47);
+
+        Assert.Equal(47, borrowed.GetValue());
+        Assert.False(borrowed.OwnsHandle);
+
+        using (var owned = E2EBindings.TakeRuntimeCacheOwned())
+        {
+            Assert.Same(borrowed, owned);
+            Assert.True(owned.OwnsHandle);
+            Assert.Equal(47, owned.GetValue());
+        }
+
+        Assert.Equal(destroyedBefore + 1, E2EBindings.GetRuntimeCacheDestroyedCount());
+    }
 }

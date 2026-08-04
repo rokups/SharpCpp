@@ -29,6 +29,24 @@ inline dependency_unsigned_alias consume_dependency_unsigned_alias(dependency_un
     return value + 1;
 }
 
+inline dependency_signed_alias consume_dependency_signed_alias(dependency_signed_alias value)
+{
+    return increment_dependency_signed_alias(value);
+}
+
+inline unsigned short consume_dependency_small_state_alias(
+    unsigned short value)
+{
+    return static_cast<unsigned short>(round_trip_dependency_small_state_alias(
+        static_cast<dependency_small_state_alias>(value)));
+}
+
+inline int consume_dependency_rebound_handle_alias(
+    dependency_rebound_handle_alias value)
+{
+    return read_dependency_rebound_handle_alias(value);
+}
+
 inline void consume_dependency_action(dependency_action callback)
 {
     callback();
@@ -42,6 +60,12 @@ inline int consume_dependency_transform(dependency_transform callback, int value
 inline int consume_dependency_box_alias(const dependency_int_box_alias* value)
 {
     return value == nullptr ? -1 : value->get_value();
+}
+
+inline int consume_dependency_value_box_alias(const dependency_value_box_alias* value)
+{
+    return read_dependency_value_box_alias(
+        dependency_import_identity(value));
 }
 
 inline int consume_dependency_fixed_alias(const dependency_fixed_alias& value)

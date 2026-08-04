@@ -1,6 +1,5 @@
 using ClangSharp.Interop;
 using ClangSharp;
-using System.Collections;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -16,114 +15,6 @@ namespace SharpCpp.Parsing;
 public sealed partial class ClangSharpHeaderParser
 {
     private sealed record OwnedAliasInfo(string CppQualifiedName, string NativeName);
-
-    private sealed class BindingIndex<TBinding>(Func<TBinding, string?> primaryKeySelector) : IDictionary<string, TBinding>
-        where TBinding : class
-    {
-        private readonly Dictionary<string, TBinding> _lookup = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, TBinding> _primary = new(StringComparer.Ordinal);
-
-        public TBinding this[string key]
-        {
-            get => _lookup[key];
-            set
-            {
-                Remove(key);
-                Add(key, value);
-            }
-        }
-
-        public ICollection<string> Keys => _lookup.Keys;
-
-        public ICollection<TBinding> Values => _primary.Values;
-
-        public int Count => _lookup.Count;
-
-        public bool IsReadOnly => false;
-
-        public void Add(string key, TBinding value)
-        {
-            _lookup.Add(key, value);
-
-            var primaryKey = primaryKeySelector(value);
-            if (!string.IsNullOrWhiteSpace(primaryKey) && !_primary.ContainsKey(primaryKey))
-            {
-                _primary.Add(primaryKey, value);
-            }
-        }
-
-        public bool ContainsKey(string key)
-        {
-            return _lookup.ContainsKey(key);
-        }
-
-        public bool Remove(string key)
-        {
-            if (!_lookup.TryGetValue(key, out var value))
-            {
-                return false;
-            }
-
-            var aliases = _lookup
-                .Where(entry => ReferenceEquals(entry.Value, value))
-                .Select(static entry => entry.Key)
-                .ToArray();
-
-            foreach (var alias in aliases)
-            {
-                _lookup.Remove(alias);
-            }
-
-            var primaryKey = primaryKeySelector(value);
-            if (!string.IsNullOrWhiteSpace(primaryKey))
-            {
-                _primary.Remove(primaryKey);
-            }
-
-            return true;
-        }
-
-        public bool TryGetValue(string key, out TBinding value)
-        {
-            return _lookup.TryGetValue(key, out value!);
-        }
-
-        public void Add(KeyValuePair<string, TBinding> item)
-        {
-            Add(item.Key, item.Value);
-        }
-
-        public void Clear()
-        {
-            _lookup.Clear();
-            _primary.Clear();
-        }
-
-        public bool Contains(KeyValuePair<string, TBinding> item)
-        {
-            return ((ICollection<KeyValuePair<string, TBinding>>)_lookup).Contains(item);
-        }
-
-        public void CopyTo(KeyValuePair<string, TBinding>[] array, int arrayIndex)
-        {
-            ((ICollection<KeyValuePair<string, TBinding>>)_lookup).CopyTo(array, arrayIndex);
-        }
-
-        public bool Remove(KeyValuePair<string, TBinding> item)
-        {
-            return Contains(item) && Remove(item.Key);
-        }
-
-        public IEnumerator<KeyValuePair<string, TBinding>> GetEnumerator()
-        {
-            return _lookup.GetEnumerator();
-        }
-
-        IEnumerator IEnumerable.GetEnumerator()
-        {
-            return GetEnumerator();
-        }
-    }
 
     private static readonly HashSet<string> CSharpKeywords = new(StringComparer.Ordinal)
     {
@@ -220,8 +111,8 @@ public sealed partial class ClangSharpHeaderParser
             request.NativeLibraryName,
             new[] { request.HeaderIncludePath });
         compilation.EntryPointPrefix = request.EntryPointPrefix;
-        var recordsByName = new BindingIndex<RecordBinding>(static record => record.NativeName);
-        var enumsByName = new BindingIndex<EnumBinding>(static @enum => @enum.CppQualifiedName);
+        var recordsByName = new Dictionary<string, RecordBinding>(StringComparer.Ordinal);
+        var enumsByName = new Dictionary<string, EnumBinding>(StringComparer.Ordinal);
         request.ImportedBindingMetadata?.Seed(compilation, recordsByName, enumsByName);
 
         var managedTranslationUnit = TranslationUnit.GetOrCreate(translationUnit);
@@ -305,7 +196,7 @@ public sealed partial class ClangSharpHeaderParser
             }
         }
 
-        foreach (var record in recordsByName.Values)
+        foreach (var record in recordsByName.Values.Distinct())
         {
             if (!compilation.Members.Contains(record))
             {
@@ -1898,7 +1789,7 @@ public sealed partial class ClangSharpHeaderParser
         if (!TypeIsPointer(type.CanonicalType) || fieldType.Kind != BindingTypeKind.Handle || string.IsNullOrWhiteSpace(fieldType.RecordId))
             return false;
 
-        var record = recordsByName.Values.FirstOrDefault(candidate => string.Equals(candidate.SymbolId, fieldType.RecordId, StringComparison.Ordinal));
+        var record = recordsByName.Values.Distinct().FirstOrDefault(candidate => string.Equals(candidate.SymbolId, fieldType.RecordId, StringComparison.Ordinal));
         return record is null || record.GetMetadata<bool>(MetadataKeys.PlaceholderRecord);
     }
 
@@ -3397,7 +3288,7 @@ public sealed partial class ClangSharpHeaderParser
         var projectedType = concreteArguments[0];
         var projectedRecord = projectedType.RecordId is null
             ? null
-            : recordsByName.Values.FirstOrDefault(candidate => string.Equals(candidate.SymbolId, projectedType.RecordId, StringComparison.Ordinal));
+            : recordsByName.Values.Distinct().FirstOrDefault(candidate => string.Equals(candidate.SymbolId, projectedType.RecordId, StringComparison.Ordinal));
         var publicTypeName = projectedRecord?.ManagedTypeFormat ?? projectedRecord?.ManagedName ?? projectedType.ManagedTypeName;
         var genericArguments = projectedRecord is not null ? projectedType.GenericArguments : null;
 
@@ -3922,7 +3813,7 @@ public sealed partial class ClangSharpHeaderParser
             spelling = Regex.Replace(spelling, pattern, replacementTarget, RegexOptions.CultureInvariant);
         }
 
-        foreach (var record in recordsByName.Values.OrderByDescending(static record => record.NativeName.Length))
+        foreach (var record in recordsByName.Values.Distinct().OrderByDescending(static record => record.NativeName.Length))
         {
             if (record.IsGeneric)
             {
@@ -4118,7 +4009,7 @@ public sealed partial class ClangSharpHeaderParser
             return;
         }
 
-        if (recordsByName.Values.Any(candidate =>
+        if (recordsByName.Values.Distinct().Any(candidate =>
                 string.Equals(candidate.ManagedName, record.ManagedBaseTypeName, StringComparison.Ordinal) &&
                 candidate.IsPolymorphic))
         {
@@ -6183,7 +6074,7 @@ public sealed partial class ClangSharpHeaderParser
             return targetType;
         }
 
-        var record = recordsByName.Values.FirstOrDefault(candidate => string.Equals(candidate.SymbolId, targetType.RecordId, StringComparison.Ordinal));
+        var record = recordsByName.Values.Distinct().FirstOrDefault(candidate => string.Equals(candidate.SymbolId, targetType.RecordId, StringComparison.Ordinal));
         if (record is null)
         {
             return targetType;

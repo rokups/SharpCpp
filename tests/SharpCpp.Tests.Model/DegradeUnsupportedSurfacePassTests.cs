@@ -592,24 +592,6 @@ public sealed class DegradeUnsupportedSurfacePassTests
     }
 
     [Fact]
-    public void Apply_ignores_invalid_external_callback_delegate_type_name()
-    {
-        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Callbacks.h"]);
-        var function = new FunctionBinding("function:callback", "UseCallback", "UseCallback", BindingType.Void, "UseCallback");
-        function.Parameters.Add(new ParameterBinding("parameter:callback", "callback", "callback", CreateVoidCallbackType())
-        {
-            UseCallbackDelegate = true,
-            CallbackDelegateTypeName = "global::"
-        });
-        compilation.Members.Add(function);
-
-        DegradeUnsupportedSurfacePass.Apply(compilation);
-
-        Assert.True(function.IsIgnored());
-        Assert.Contains("external callback delegate type name 'global::' is not a valid managed type name", function.GetIgnoreReason(), StringComparison.Ordinal);
-    }
-
-    [Fact]
     public void Apply_keeps_generated_callback_helpers_with_configured_value_callback_argument_when_public_type_matches_marshaller_type()
     {
         var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Callbacks.h"]);
