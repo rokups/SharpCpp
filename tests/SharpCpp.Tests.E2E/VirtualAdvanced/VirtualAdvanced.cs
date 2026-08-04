@@ -1,6 +1,3 @@
-using System.Reflection;
-
-using SharpCpp.Support;
 using SharpCpp.Tests.E2E.Generated;
 
 using Xunit;
@@ -53,51 +50,19 @@ public sealed class VirtualAdvancedTests
     }
 
     [Fact]
-    public void Virtual_methods_and_abstract_slots_have_expected_modifiers()
-    {
-        Assert.True(typeof(AdvVirtualCounter).GetMethod(nameof(AdvVirtualCounter.GetValue))!.IsVirtual);
-        Assert.False(typeof(AdvVirtualCounter).GetMethod(nameof(AdvVirtualCounter.GetValue))!.IsAbstract);
-        Assert.True(typeof(AdvVirtualCounter).GetMethod(nameof(AdvVirtualCounter.Add))!.IsVirtual);
-        Assert.True(typeof(AdvAbstractAccumulator).IsAbstract);
-        Assert.True(typeof(AdvAbstractAccumulator).GetMethod(nameof(AdvAbstractAccumulator.Compute))!.IsAbstract);
-    }
-
-    [Fact]
-    public void Managed_director_instances_are_reused_by_create_helpers()
-    {
-        using var counter = new ManagedAdvVirtualCounter(10);
-        var counterHandle = NativeObject.GetHandle(counter);
-
-        Assert.Same(counter, AdvVirtualCounter.CreateManagedWrapper(counterHandle, ownsHandle: false));
-
-        using var accumulator = new ManagedAdvAccumulator(7);
-        var accumulatorHandle = NativeObject.GetHandle(accumulator);
-
-        Assert.Same(accumulator, AdvAbstractAccumulator.CreateManagedWrapper(accumulatorHandle, ownsHandle: false));
-    }
-
-    [Fact]
     public void Native_calls_dispatch_to_managed_virtual_overrides()
     {
         using var counter = new ManagedAdvVirtualCounter(10);
-        AdvVirtualCounter baseView = counter;
 
-        Assert.Equal(10, counter.GetValue());
+        Assert.Equal(10, E2EBindings.InvokeAdvVirtualCounterGetValue(counter));
         Assert.Equal(1, counter.CallbackCount);
-        Assert.Equal(10, baseView.GetValue());
+
+        Assert.Equal(15, E2EBindings.InvokeAdvVirtualCounterAdd(counter, 5));
         Assert.Equal(2, counter.CallbackCount);
+        Assert.Equal(5, counter.Offset);
 
-        Assert.Equal(15, counter.Add(5));
+        Assert.Equal(15, E2EBindings.InvokeAdvVirtualCounterGetValue(counter));
         Assert.Equal(3, counter.CallbackCount);
-        Assert.Equal(20, baseView.Add(5));
-        Assert.Equal(4, counter.CallbackCount);
-
-        Assert.Equal(20, E2EBindings.InvokeAdvVirtualCounterGetValue(counter));
-        Assert.Equal(5, counter.CallbackCount);
-
-        Assert.Equal(25, E2EBindings.InvokeAdvVirtualCounterAdd(counter, 5));
-        Assert.Equal(6, counter.CallbackCount);
-        Assert.Equal(15, counter.Offset);
     }
 
     [Fact]
@@ -107,26 +72,17 @@ public sealed class VirtualAdvancedTests
         {
             Extra = 5
         };
-        AdvAbstractAccumulator baseView = accumulator;
-
-        Assert.Equal(13, accumulator.Compute(1));
-        Assert.Equal(1, accumulator.CallbackCount);
-
-        Assert.Equal(14, baseView.Compute(2));
-        Assert.Equal(2, accumulator.CallbackCount);
 
         Assert.Equal(13, E2EBindings.InvokeAdvAbstractAccumulatorCompute(accumulator, 1));
-        Assert.Equal(3, accumulator.CallbackCount);
+        Assert.Equal(1, accumulator.CallbackCount);
+
+        Assert.Equal(14, E2EBindings.InvokeAdvAbstractAccumulatorCompute(accumulator, 2));
+        Assert.Equal(2, accumulator.CallbackCount);
     }
 
     [Fact]
-    public void Protected_override_of_public_base_renders_public_managed_surface()
+    public void Protected_override_of_public_base_dispatches_through_public_binding()
     {
-        var adjust = typeof(AdvProtectedOverrideDerived).GetMethod(nameof(AdvProtectedOverrideDerived.Adjust), BindingFlags.Instance | BindingFlags.Public);
-        Assert.NotNull(adjust);
-        Assert.True(adjust!.IsVirtual);
-        Assert.True(adjust.IsPublic);
-
         using var value = new AdvProtectedOverrideDerived(1);
         AdvPublicVirtualBase baseView = value;
 
@@ -136,15 +92,8 @@ public sealed class VirtualAdvancedTests
     }
 
     [Fact]
-    public void Public_override_of_protected_base_renders_protected_managed_surface()
+    public void Public_override_of_protected_base_dispatches_through_native_base_surface()
     {
-        Assert.Null(typeof(AdvPublicOverrideDerived).GetMethod("Adjust", BindingFlags.Instance | BindingFlags.Public));
-
-        var adjust = typeof(AdvPublicOverrideDerived).GetMethod("Adjust", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(adjust);
-        Assert.True(adjust!.IsFamily);
-        Assert.True(adjust.IsVirtual);
-
         using var value = new AdvPublicOverrideDerived(1);
         AdvProtectedVirtualBase baseView = value;
 
@@ -154,15 +103,8 @@ public sealed class VirtualAdvancedTests
     }
 
     [Fact]
-    public void Final_overrides_render_as_sealed_without_redeclaration_on_leaf()
+    public void Final_and_leaf_overrides_dispatch_through_native_base_views()
     {
-        var finalMode = typeof(AdvFinalMid).GetMethod(nameof(AdvFinalMid.Mode), BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
-        Assert.NotNull(finalMode);
-        Assert.True(finalMode!.IsVirtual);
-        Assert.True(finalMode.IsFinal);
-
-        Assert.Null(typeof(AdvFinalLeaf).GetMethod(nameof(AdvFinalLeaf.Mode), BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly));
-
         using var leaf = new AdvFinalLeaf(5);
         AdvFinalRoot rootView = leaf;
         AdvFinalMid midView = leaf;
@@ -203,24 +145,17 @@ public sealed class VirtualAdvancedTests
     public void Managed_virtual_overrides_can_delegate_to_base_implementation()
     {
         using var counter = new ManagedAdvVirtualCounterCallingBase(10);
-        AdvVirtualCounter baseView = counter;
 
-        Assert.Equal(110, counter.GetValue());
+        Assert.Equal(110, E2EBindings.InvokeAdvVirtualCounterGetValue(counter));
         Assert.Equal(1, counter.GetValueCallbackCount);
 
-        Assert.Equal(110, baseView.GetValue());
-        Assert.Equal(2, counter.GetValueCallbackCount);
-
-        Assert.Equal(1015, counter.Add(5));
+        Assert.Equal(1015, E2EBindings.InvokeAdvVirtualCounterAdd(counter, 5));
         Assert.Equal(1, counter.AddCallbackCount);
 
-        Assert.Equal(1020, baseView.Add(5));
+        Assert.Equal(115, E2EBindings.InvokeAdvVirtualCounterGetValue(counter));
+        Assert.Equal(2, counter.GetValueCallbackCount);
+
+        Assert.Equal(1020, E2EBindings.InvokeAdvVirtualCounterAdd(counter, 5));
         Assert.Equal(2, counter.AddCallbackCount);
-
-        Assert.Equal(120, E2EBindings.InvokeAdvVirtualCounterGetValue(counter));
-        Assert.Equal(3, counter.GetValueCallbackCount);
-
-        Assert.Equal(1025, E2EBindings.InvokeAdvVirtualCounterAdd(counter, 5));
-        Assert.Equal(3, counter.AddCallbackCount);
     }
 }

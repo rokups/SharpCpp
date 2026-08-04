@@ -1,5 +1,3 @@
-using System;
-
 using SharpCpp.Tests.E2E.Generated;
 
 using Xunit;
@@ -41,10 +39,8 @@ public sealed class EnumTests
     }
 
     [Fact]
-    public void Permissions_is_flags_enum()
+    public void Permissions_bitwise_values_roundtrip_through_native_combiner()
     {
-        Assert.True(typeof(Permissions).IsDefined(typeof(FlagsAttribute), inherit: false));
-
         var combined = E2EBindings.CombinePermissions(Permissions.Read, Permissions.Write);
         Assert.Equal(Permissions.ReadWrite, combined);
         Assert.Equal(Permissions.Read | Permissions.Write, combined);

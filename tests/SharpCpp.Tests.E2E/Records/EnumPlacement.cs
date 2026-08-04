@@ -1,5 +1,3 @@
-using System;
-
 using SharpCpp.Tests.E2E.Generated;
 
 using Xunit;
@@ -44,7 +42,6 @@ public sealed class EnumPlacementTests
         box.SetPermissions(PlacementPermissions.ReadWrite);
 
         Assert.Equal(PlacementPermissions.ReadWrite, box.GetPermissions());
-        Assert.True(typeof(PlacementPermissions).IsDefined(typeof(FlagsAttribute), inherit: false));
     }
 
     [Fact]

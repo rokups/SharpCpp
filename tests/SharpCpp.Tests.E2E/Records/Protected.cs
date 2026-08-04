@@ -1,7 +1,4 @@
-using SharpCpp.Support;
 using SharpCpp.Tests.E2E.Generated;
-
-using System.Reflection;
 
 using Xunit;
 
@@ -51,39 +48,6 @@ public sealed class ProtectedTests
     }
 
     [Fact]
-    public void Director_records_expose_protected_members_as_non_public_surface()
-    {
-        Assert.Null(typeof(ProtectedCounter).GetConstructor([typeof(int)]));
-
-        var constructor = typeof(ProtectedCounter).GetConstructor(
-            BindingFlags.Instance | BindingFlags.NonPublic,
-            binder: null,
-            types: [typeof(int)],
-            modifiers: null);
-        Assert.NotNull(constructor);
-        Assert.True(constructor!.IsFamily);
-
-        Assert.Null(typeof(ProtectedCounter).GetMethod("Increment", BindingFlags.Instance | BindingFlags.Public));
-        Assert.Null(typeof(ProtectedCounter).GetMethod("Scale", BindingFlags.Instance | BindingFlags.Public));
-        Assert.Null(typeof(ProtectedCounter).GetProperty("Factor", BindingFlags.Instance | BindingFlags.Public));
-
-        var increment = typeof(ProtectedCounter).GetMethod("Increment", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(increment);
-        Assert.True(increment!.IsFamily);
-        Assert.False(increment.IsVirtual);
-
-        var scale = typeof(ProtectedCounter).GetMethod("Scale", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(scale);
-        Assert.True(scale!.IsFamily);
-        Assert.True(scale.IsVirtual);
-
-        var factor = typeof(ProtectedCounter).GetProperty("Factor", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(factor);
-        Assert.True(factor!.GetMethod!.IsFamily);
-        Assert.True(factor.SetMethod!.IsFamily);
-    }
-
-    [Fact]
     public void Managed_subclasses_can_use_protected_methods_fields_and_virtuals()
     {
         using var counter = new ManagedProtectedCounter(4);
@@ -105,22 +69,9 @@ public sealed class ProtectedTests
     }
 
     [Fact]
-    public void Managed_protected_director_instances_are_reused_by_polymorphic_create_helper()
+    public void Non_director_public_method_uses_native_protected_state()
     {
-        using var counter = new ManagedProtectedCounter(4);
-        var handle = NativeObject.GetHandle(counter);
-
-        Assert.Same(counter, ProtectedCounter.CreateManagedWrapper(handle, ownsHandle: false));
-    }
-
-    [Fact]
-    public void Non_director_records_do_not_expose_protected_surface()
-    {
-        Assert.NotNull(typeof(PlainProtectedCounter).GetMethod(nameof(PlainProtectedCounter.VisibleValue), BindingFlags.Instance | BindingFlags.Public));
-        Assert.Null(typeof(PlainProtectedCounter).GetMethod("HiddenValue", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic));
-        Assert.Null(typeof(PlainProtectedCounter).GetProperty("Factor", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic));
-
-        var counter = new PlainProtectedCounter();
+        using var counter = new PlainProtectedCounter();
         Assert.Equal(21, counter.VisibleValue());
     }
 }

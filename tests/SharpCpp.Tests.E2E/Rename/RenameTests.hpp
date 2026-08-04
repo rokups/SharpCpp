@@ -54,6 +54,11 @@ enum class [[sharpcpp::rename("DayOfWeek")]] weekday
     wednesday = 3
 };
 
+inline weekday roundtrip_weekday(weekday value)
+{
+    return value;
+}
+
 [[sharpcpp::rename("AddValues")]]
 inline int do_add(int a, int b)
 {

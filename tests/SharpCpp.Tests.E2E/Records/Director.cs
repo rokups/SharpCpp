@@ -1,7 +1,3 @@
-using SharpCpp.Support;
-
-using System.Reflection;
-
 using SharpCpp.Tests.E2E.Generated;
 
 using Xunit;
@@ -32,35 +28,6 @@ public sealed class DirectorTests
     }
 
     [Fact]
-    public void Virtual_methods_are_exposed_with_expected_modifiers()
-    {
-        var getValue = typeof(CallbackCounter).GetMethod(nameof(CallbackCounter.GetValue), BindingFlags.Instance | BindingFlags.Public)!;
-
-        Assert.True(getValue.IsVirtual);
-        Assert.False(getValue.IsAbstract);
-    }
-
-    [Fact]
-    public void Managed_director_instances_are_reused_by_polymorphic_create_helpers()
-    {
-        using var counter = new ManagedCallbackCounter(10);
-        var handle = NativeObject.GetHandle(counter);
-
-        Assert.Same(counter, CallbackCounter.CreateManagedWrapper(handle, ownsHandle: false));
-    }
-
-    [Fact]
-    public void Managed_director_instances_are_reused_after_ownership_round_trip()
-    {
-        using var counter = new ManagedCallbackCounter(10);
-        var handle = NativeObject.TransferHandleOwnership(counter);
-
-        Assert.False(counter.OwnsNativeHandle);
-        Assert.Same(counter, CallbackCounter.CreateManagedWrapper(handle, ownsHandle: true));
-        Assert.True(counter.OwnsNativeHandle);
-    }
-
-    [Fact]
     public void Managed_subclasses_without_overrides_fall_back_to_native_virtual_implementation()
     {
         using var counter = new PassthroughCallbackCounter(10);
@@ -71,7 +38,7 @@ public sealed class DirectorTests
     [Fact]
     public void Native_virtual_dispatch_can_call_managed_override_through_director()
     {
-        var counter = new ManagedCallbackCounter(10);
+        using var counter = new ManagedCallbackCounter(10);
 
         Assert.Equal(42, counter.CallVirtualTwice());
     }

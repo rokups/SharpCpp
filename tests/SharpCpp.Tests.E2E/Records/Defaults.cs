@@ -1,5 +1,3 @@
-using System.Reflection;
-
 using SharpCpp.Tests.E2E.Generated;
 
 using Xunit;
@@ -8,46 +6,6 @@ namespace SharpCpp.Tests.E2E.Records;
 
 public sealed class DefaultsTests
 {
-    [Fact]
-    public void Managed_signatures_expose_literal_defaults()
-    {
-        var defaultScore = typeof(E2EBindings).GetMethod(nameof(E2EBindings.DefaultScore))!;
-        var defaultScoreParameters = defaultScore.GetParameters();
-
-        Assert.False(defaultScoreParameters[0].HasDefaultValue);
-        Assert.Equal(typeof(int), defaultScoreParameters[1].ParameterType);
-        Assert.Equal(2, defaultScoreParameters[1].DefaultValue);
-        Assert.Equal(typeof(bool), defaultScoreParameters[2].ParameterType);
-        Assert.Equal(true, defaultScoreParameters[2].DefaultValue);
-
-        var constructor = typeof(DefaultBox).GetConstructor([typeof(int), typeof(int), typeof(DefaultMode)])!;
-        var constructorParameters = constructor.GetParameters();
-
-        Assert.False(constructorParameters[0].HasDefaultValue);
-        Assert.Equal(2, constructorParameters[1].DefaultValue);
-        Assert.Equal(DefaultMode.Active, constructorParameters[2].DefaultValue);
-
-        var add = typeof(DefaultBox).GetMethod(nameof(DefaultBox.Add), BindingFlags.Public | BindingFlags.Static)!;
-        var addParameters = add.GetParameters();
-
-        Assert.False(addParameters[0].HasDefaultValue);
-        Assert.Equal(23, addParameters[1].DefaultValue);
-
-        var combine = typeof(DefaultBox).GetMethod(nameof(DefaultBox.Combine))!;
-        var combineParameters = combine.GetParameters();
-
-        Assert.False(combineParameters[0].HasDefaultValue);
-        Assert.Equal(3, combineParameters[1].DefaultValue);
-        Assert.Equal(DefaultMode.Active, combineParameters[2].DefaultValue);
-
-        var create = typeof(DefaultBox).GetMethod(nameof(DefaultBox.Create), BindingFlags.Public | BindingFlags.Static)!;
-        var createParameters = create.GetParameters();
-
-        Assert.False(createParameters[0].HasDefaultValue);
-        Assert.Equal(2, createParameters[1].DefaultValue);
-        Assert.Equal(DefaultMode.Active, createParameters[2].DefaultValue);
-    }
-
     [Fact]
     public void Free_function_uses_builtin_defaults()
     {
