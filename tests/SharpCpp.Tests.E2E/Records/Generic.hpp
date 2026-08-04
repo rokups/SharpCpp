@@ -129,6 +129,13 @@ inline handle_box<generic_payload*>* create_generic_payload_box(generic_payload*
 }
 
 template <typename T>
+[[sharpcpp::instantiate("generic_payload*")]]
+T generic_handle_identity(T value)
+{
+    return value;
+}
+
+template <typename T>
 struct
 [[sharpcpp::rename("BoxOf<{0}>")]]
 [[sharpcpp::instantiate("double")]]

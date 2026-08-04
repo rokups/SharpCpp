@@ -15,6 +15,12 @@ public sealed class UndefaultableTests
         Assert.Equal(42, E2EBindings.CheckUndefaultableOnly("value"u8));
         Assert.Equal(103, E2EBindings.MixedDefaults());
         Assert.Equal(204, E2EBindings.MixedDefaults(2, "value"u8, 4));
+        Assert.Equal((sbyte)'a', E2EBindings.SignedCharDefault());
+        Assert.Equal((sbyte)'z', E2EBindings.SignedCharDefault((sbyte)'z'));
+        Assert.Equal((byte)'b', E2EBindings.UnsignedCharDefault());
+        Assert.Equal((byte)'y', E2EBindings.UnsignedCharDefault((byte)'y'));
+        Assert.Equal(250, E2EBindings.PrefixDefaultBeforeUndefaultable(1, null));
+        Assert.Equal(222, E2EBindings.PrefixDefaultBeforeUndefaultable(1, 2, "x"u8));
 
         E2EBindings.ApplyConfig();
         Assert.Equal(103, E2EBindings.GetAppliedConfigValue());
@@ -82,5 +88,35 @@ public sealed class UndefaultableTests
         Assert.Equal(2503, UndefaultableHandler.GetCacheValue());
         UndefaultableHandler.StaticCascadeVoid(2, "b"u8, 3, 4);
         Assert.Equal(2132, UndefaultableHandler.GetCacheValue());
+    }
+
+    [Fact]
+    public void Ref_out_and_renamed_overloads_preserve_native_default_dispatch()
+    {
+        var value = 10;
+        Assert.Equal(163, E2EBindings.MutateBeforeUndefaultable(2, ref value, out var observed));
+        Assert.Equal(12, value);
+        Assert.Equal(162, observed);
+
+        value = 20;
+        Assert.Equal(147, E2EBindings.MutateBeforeUndefaultable(3, ref value, out observed, "x"u8, 3));
+        Assert.Equal(23, value);
+        Assert.Equal(146, observed);
+
+        value = 30;
+        E2EBindings.MutateBeforeUndefaultableVoid(4, ref value, out observed);
+        Assert.Equal(34, value);
+        Assert.Equal(184, observed);
+        Assert.Equal(184, E2EBindings.GetAppliedConfigValue());
+
+        value = 40;
+        using var mutator = new UndefaultableMutator(5, ref value, out observed);
+        Assert.Equal(45, value);
+        Assert.Equal(195, observed);
+        Assert.Equal(196, mutator.GetResult());
+
+        using var stringer = new UndefaultableStringer(7);
+        Assert.Equal(47, stringer.ToString());
+        Assert.Equal(16, stringer.ToString(9));
     }
 }

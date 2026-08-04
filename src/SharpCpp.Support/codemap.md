@@ -5,7 +5,7 @@
 `SharpCpp.Support` is the managed-side runtime foundation that all generated C# bindings link against. It owns the infrastructure for:
 
 - **Native instance tracking**: mapping native pointers (`nint` handles) to managed `SafeHandle`-derived wrappers, with cache lookups that prevent duplicate wrappers for the same native object.
-- **Lifetime coordination**: deterministic disposal of native resources through `SafeHandle`'s `ReleaseHandle`, dual-path cleanup (managed `Dispose` vs. native-initiated destruction via `DisposeFromNativeRuntimeCore`), and a managed keep-alive mechanism to prevent GC reclamation of wrapper-visible resources.
+- **Lifetime coordination**: deterministic disposal of native resources through `SafeHandle`'s `ReleaseHandle` and dual-path cleanup (managed `Dispose` vs. native-initiated destruction via `DisposeFromNativeRuntimeCore`).
 - **Type resolution**: a static registry (`NativeObjectRegistry`) that maps runtime type IDs from the native side to the correct generated wrapper factories, enabling polymorphic wrapper creation (e.g., returning the most derived managed type for a native object whose exact type is only known at runtime).
 - **String marshalling**: `StringBase` bridges managed `string` ↔ native UTF-8 byte buffers via virtual dispatch to generated override methods that call native `std::string` operations.
 - **Shared-wrapper provider selection**: `SharedProviderRegistry<TRootProvider>` stores module-owned native providers and prefers the requesting module without coupling the runtime to any standard-library vendor.
@@ -21,7 +21,7 @@
 
 | Type | Kind | File | Description |
 |---|---|---|---|
-| `NativeObject` | `abstract class` | `NativeObject.cs:6` | Root of the binding model. Extends `SafeHandle` to provide deterministic native resource lifetime, instance caching, dual-path disposal (managed `Dispose` vs native `DisposeFromNativeRuntimeCore`), managed keep-alive for child objects (`SetManagedKeepAliveCore`), and static helpers (`GetObject`, `GetHandle`, `HasManagedOverride`). |
+| `NativeObject` | `abstract class` | `NativeObject.cs:6` | Root of the binding model. Extends `SafeHandle` to provide deterministic native resource lifetime, instance caching, dual-path disposal (managed `Dispose` vs native `DisposeFromNativeRuntimeCore`), and static helpers (`GetObject`, `GetHandle`, `HasManagedOverride`). |
 | `INativeObjectRegistration<TSelf>` | `interface` (static abstract) | `INativeObjectRegistration.cs:3` | Contract implemented by generated wrapper types (`where TSelf : NativeObject`). Provides per-type metadata without reflection: `RegistrationDynamicTypeId` (`nuint`), `RegistrationExpectedType`, `RegistrationInstanceCache`, `RegistrationCreateFactory`, and `RegistrationGetMetadata(nint)`. |
 | `NativeObjectMetadata` | `readonly struct` | `NativeObjectMetadata.cs:6` | Blittable value type (`[StructLayout(LayoutKind.Sequential)]`) flowing across P/Invoke. Carries native pointer (`Handle`) and C++ runtime type ID (`DynamicTypeId`). `Normalize(nint)` replaces a null handle with a fallback. |
 | `NativeObjectRegistry` | `abstract class` (all static) | `NativeObjectRegistry.cs:5` | Static type registry mapping native dynamic type IDs → (expected CLR type, factory delegate, instance cache). `Create<T>(nint, bool)` resolves polymorphic wrappers: cache lookup → native metadata query → registry resolution → factory invocation. `RegisterType<T>()` reads from `INativeObjectRegistration<T>`; also exposes a direct `RegisterType(...)` overload. |
@@ -112,15 +112,11 @@ Native objects can be destroyed from either side:
 - **Managed-initiated**: user calls `Dispose()` → `Dispose(bool)` → `Unregister` → `ReleaseNativeHandle` → finalization suppressed.
 - **Native-initiated**: the C++ runtime calls `DisposeFromNativeRuntimeCore()` → `Unregister` → `SetHandleAsInvalid` → `GC.SuppressFinalize`. The native side handles actual memory reclamation; the managed side just severs the wrapper connection.
 
-### 4. Managed Keep-Alive
-
-`NativeObject` stores a `GCHandle` (`_managedKeepAlive`) to an `IDisposable` object that must outlive the wrapper. This is used by generated code to keep a child collection or transient object alive while the parent is alive. `ClearManagedKeepAlive` disposes the held object and frees the `GCHandle`. It is called in every teardown path.
-
-### 5. Override Detection
+### 4. Override Detection
 
 `HasManagedOverride(Type runtimeType, Type declaringType, string methodName, Type[] parameterTypes)` is a static utility that checks whether a C# subclass overrides a virtual method from its declaring type. Used by generated code to determine whether to emit a `callvirt` to the override or skip calling the native default. Works by comparing `GetBaseDefinition()` chains.
 
-### 6. Registered Type Resolution
+### 5. Registered Type Resolution
 
 `NativeObjectRegistry`:
 - Static `ConcurrentDictionary<nuint, RegisteredType>` mapping native dynamic type IDs → (expected CLR type, factory delegate, instance cache).

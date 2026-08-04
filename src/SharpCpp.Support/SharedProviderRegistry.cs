@@ -74,15 +74,6 @@ public static class SharedProviderRegistry<TRootProvider>
         return new ModuleScope(previous);
     }
 
-    public static void Clear()
-    {
-        lock (s_gate)
-        {
-            s_registrations.Clear();
-            s_currentModule.Value = null;
-        }
-    }
-
     public static TProvider Resolve<TProvider>(string? moduleId = null, string? shapeKey = null)
         where TProvider : class, TRootProvider
         => Resolve<TProvider>(moduleId, shapeKey, static _ => true);
@@ -156,16 +147,8 @@ public static class SharedProviderRegistry<TRootProvider>
 
     private sealed class ModuleScope(string? previous) : IDisposable
     {
-        private bool _disposed;
-
         public void Dispose()
         {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
             s_currentModule.Value = previous;
         }
     }

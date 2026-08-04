@@ -26,6 +26,58 @@ enum class dependency_small_state : unsigned short
     ready = 1
 };
 
+enum class dependency_i8_state : signed char
+{
+    idle = 0,
+    ready = 1
+};
+
+enum class dependency_u8_state : unsigned char
+{
+    idle = 0,
+    ready = 1
+};
+
+enum class dependency_i16_state : short
+{
+    idle = 0,
+    ready = 1
+};
+
+enum class dependency_i32_state : int
+{
+    idle = 0,
+    ready = 1
+};
+
+enum class dependency_i64_state : long long
+{
+    idle = 0,
+    ready = 1
+};
+
+enum class dependency_u64_state : unsigned long long
+{
+    idle = 0,
+    ready = 1
+};
+
+inline unsigned long long consume_dependency_enum_matrix(
+    dependency_i8_state i8,
+    dependency_u8_state u8,
+    dependency_i16_state i16,
+    dependency_i32_state i32,
+    dependency_i64_state i64,
+    dependency_u64_state u64)
+{
+    return static_cast<unsigned long long>(i8) +
+        static_cast<unsigned long long>(u8) +
+        static_cast<unsigned long long>(i16) +
+        static_cast<unsigned long long>(i32) +
+        static_cast<unsigned long long>(i64) +
+        static_cast<unsigned long long>(u64);
+}
+
 struct dependency_value
 {
     dependency_value(int value, dependency_state state)

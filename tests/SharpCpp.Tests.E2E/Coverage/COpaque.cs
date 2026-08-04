@@ -18,5 +18,9 @@ public sealed class COpaqueTests
 
         using var @event = COpaqueBindings.CoverageCMakeEvent(19, 23);
         Assert.Equal(42, COpaqueBindings.CoverageCSumEvent(@event));
+
+        using var arguments = COpaqueBindings.CoverageCMakeArguments(43);
+        Assert.Equal(43, COpaqueBindings.CoverageCReadArguments(arguments));
+        Assert.Equal(43, arguments.Ray.Value);
     }
 }

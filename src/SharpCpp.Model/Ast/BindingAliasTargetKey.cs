@@ -33,13 +33,9 @@ public sealed class BindingAliasTargetKey : IEquatable<BindingAliasTargetKey>
 
     public string? GenericParameterName { get; }
 
-    public IReadOnlyList<BindingAliasTargetKey> GenericArguments => _genericArguments;
-
     public bool IsCallback { get; }
 
     public BindingAliasTargetKey? CallbackReturnType { get; }
-
-    public IReadOnlyList<BindingAliasTargetKey> CallbackParameterTypes => _callbackParameterTypes;
 
     public static BindingAliasTargetKey From(BindingType type)
     {
@@ -86,31 +82,16 @@ public sealed class BindingAliasTargetKey : IEquatable<BindingAliasTargetKey>
                 : result[9..].TrimStart();
         }
 
-        if (result.EndsWith("&&*", StringComparison.Ordinal))
-        {
-            result = result[..^3] + "*";
-        }
-        else if (result.EndsWith("&*", StringComparison.Ordinal))
-        {
-            result = result[..^2] + "*";
-        }
+        result = result
+            .Replace("&&*", "*", StringComparison.Ordinal)
+            .Replace("&*", "*", StringComparison.Ordinal);
 
         return result.TrimEnd('&').Trim();
     }
 
-    public bool Equals(BindingAliasTargetKey? other)
-    {
-        if (other is null)
-        {
-            return false;
-        }
-
-        if (ReferenceEquals(this, other))
-        {
-            return true;
-        }
-
-        return Kind == other.Kind &&
+    public bool Equals(BindingAliasTargetKey? other) =>
+        other is not null &&
+            Kind == other.Kind &&
             PrimitiveKind == other.PrimitiveKind &&
             string.Equals(NativeIdentity, other.NativeIdentity, StringComparison.Ordinal) &&
             string.Equals(GenericParameterName, other.GenericParameterName, StringComparison.Ordinal) &&
@@ -118,7 +99,6 @@ public sealed class BindingAliasTargetKey : IEquatable<BindingAliasTargetKey>
             Equals(CallbackReturnType, other.CallbackReturnType) &&
             _genericArguments.SequenceEqual(other._genericArguments) &&
             _callbackParameterTypes.SequenceEqual(other._callbackParameterTypes);
-    }
 
     public override bool Equals(object? obj) => obj is BindingAliasTargetKey other && Equals(other);
 

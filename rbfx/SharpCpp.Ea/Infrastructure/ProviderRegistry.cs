@@ -14,9 +14,6 @@ public static class ProviderRegistry
     public static IDisposable PushModule(string moduleId)
         => global::SharpCpp.Support.SharedProviderRegistry<IProvider>.PushModule(moduleId);
 
-    public static void Clear()
-        => global::SharpCpp.Support.SharedProviderRegistry<IProvider>.Clear();
-
     public static TProvider Resolve<TProvider>(string? moduleId = null, string? shapeKey = null)
         where TProvider : class, IProvider
         => global::SharpCpp.Support.SharedProviderRegistry<IProvider>.Resolve<TProvider>(moduleId, shapeKey);

@@ -7843,7 +7843,7 @@ public static partial class BindingOutputRenderer
             }
 
             // Handle return and constructor post-call
-            if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+            if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void || beforeHasUnexpressible)
             {
                 writer.Write("""
                     }

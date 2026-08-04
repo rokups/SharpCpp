@@ -432,6 +432,36 @@ internal static class Program
                         Projection = type.Projection with { CppType = "unsigned short" },
                         Members = members
                     },
+                    "dependency_i8_state" => type with
+                    {
+                        Projection = type.Projection with { CppType = "signed char" },
+                        Members = members
+                    },
+                    "dependency_u8_state" => type with
+                    {
+                        Projection = type.Projection with { CppType = "unsigned char" },
+                        Members = members
+                    },
+                    "dependency_i16_state" => type with
+                    {
+                        Projection = type.Projection with { CppType = "short" },
+                        Members = members
+                    },
+                    "dependency_i32_state" => type with
+                    {
+                        Projection = type.Projection with { CppType = "int" },
+                        Members = members
+                    },
+                    "dependency_i64_state" => type with
+                    {
+                        Projection = type.Projection with { CppType = "long long" },
+                        Members = members
+                    },
+                    "dependency_u64_state" => type with
+                    {
+                        Projection = type.Projection with { CppType = "unsigned long long" },
+                        Members = members
+                    },
                     _ => type with { Members = members }
                 };
             }).ToArray(),
@@ -538,10 +568,12 @@ internal static class Program
 
     private static void PrintUsage()
     {
-        Console.WriteLine("SharpCpp bootstrap tool");
-        Console.WriteLine();
-        Console.WriteLine("Commands:");
-        Console.WriteLine("  generate-sample --generated-root <dir> [--project-root <dir>] [--file-stem <stem>] [--log-file <path>]   Emit sample bindings artifacts.");
+        Console.WriteLine("""
+            SharpCpp bootstrap tool
+
+            Commands:
+              generate-sample --generated-root <dir> [--project-root <dir>] [--file-stem <stem>] [--log-file <path>]   Emit sample bindings artifacts.
+            """);
     }
 
     private static IEnumerable<string> GetSystemCppIncludeArguments()

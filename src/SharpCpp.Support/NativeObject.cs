@@ -51,8 +51,6 @@ public abstract class NativeObject : SafeHandle
 
     private bool _ownsNativeHandle;
     private bool _preparedOwnedRegistration;
-    private GCHandle _managedKeepAlive;
-    private nint _managedKeepAliveKey;
 
     /// <summary>
     /// Determines whether the runtime type has a managed override of the specified method.
@@ -121,7 +119,6 @@ public abstract class NativeObject : SafeHandle
                 instanceCache?.Unregister(this);
             }
 
-            ClearManagedKeepAlive();
             SetHandleAsInvalid();
         }
 
@@ -131,7 +128,7 @@ public abstract class NativeObject : SafeHandle
     /// <inheritdoc/>
     /// <remarks>
     /// Unregisters from the instance cache before calling the base <see cref="SafeHandle.Dispose(bool)"/>,
-    /// then clears any managed keep-alive reference.
+    /// before delegating to <see cref="SafeHandle"/>.
     /// </remarks>
     protected override void Dispose(bool disposing)
     {
@@ -143,7 +140,6 @@ public abstract class NativeObject : SafeHandle
         }
 
         base.Dispose(disposing);
-        ClearManagedKeepAlive();
     }
 
     /// <summary>
@@ -256,48 +252,7 @@ public abstract class NativeObject : SafeHandle
             SetHandleAsInvalid();
         }
 
-        ClearManagedKeepAlive();
         GC.SuppressFinalize(this);
-    }
-
-    /// <summary>
-    /// Pins a managed object that must not be collected while this wrapper is alive.
-    /// If <paramref name="key"/> matches an existing keep-alive, the provided object is disposed immediately
-    /// and the existing keep-alive is preserved (idempotent re-registration).
-    /// </summary>
-    /// <param name="keepAlive">The disposable managed object to keep alive.</param>
-    /// <param name="key">A key identifying the keep-alive slot, typically the native pointer of the associated object.</param>
-    /// <exception cref="ArgumentNullException"><paramref name="keepAlive"/> is <see langword="null"/>.</exception>
-    protected void SetManagedKeepAliveCore(IDisposable keepAlive, nint key)
-    {
-        ArgumentNullException.ThrowIfNull(keepAlive);
-
-        if (_managedKeepAlive.IsAllocated && _managedKeepAliveKey == key)
-        {
-            keepAlive.Dispose();
-            return;
-        }
-
-        ClearManagedKeepAlive();
-        _managedKeepAlive = GCHandle.Alloc(keepAlive);
-        _managedKeepAliveKey = key;
-    }
-
-    private void ClearManagedKeepAlive()
-    {
-        if (!_managedKeepAlive.IsAllocated)
-        {
-            _managedKeepAliveKey = 0;
-            return;
-        }
-
-        if (_managedKeepAlive.Target is IDisposable keepAlive)
-        {
-            keepAlive.Dispose();
-        }
-
-        _managedKeepAlive.Free();
-        _managedKeepAliveKey = 0;
     }
 
     /// <summary>

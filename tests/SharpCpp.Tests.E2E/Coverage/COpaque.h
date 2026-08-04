@@ -17,9 +17,21 @@ typedef union coverage_c_event
     coverage_c_pair point;
 } coverage_c_event;
 
+typedef struct coverage_c_arguments
+{
+    struct coverage_c_ray* ray;
+} coverage_c_arguments;
+
+typedef struct coverage_c_ray
+{
+    int value;
+} coverage_c_ray;
+
 static int coverage_c_handle_storage;
 static int coverage_c_context_storage;
 static coverage_c_event coverage_c_event_storage;
+static coverage_c_ray coverage_c_ray_storage;
+static coverage_c_arguments coverage_c_arguments_storage;
 
 static inline coverage_c_handle* coverage_c_get_handle(void)
 {
@@ -51,4 +63,16 @@ static inline const coverage_c_event* coverage_c_make_event(int left, int right)
 static inline int coverage_c_sum_event(const coverage_c_event* value)
 {
     return value == 0 ? -1 : value->point.left + value->point.right;
+}
+
+static inline coverage_c_arguments* coverage_c_make_arguments(int value)
+{
+    coverage_c_ray_storage.value = value;
+    coverage_c_arguments_storage.ray = &coverage_c_ray_storage;
+    return &coverage_c_arguments_storage;
+}
+
+static inline int coverage_c_read_arguments(const coverage_c_arguments* value)
+{
+    return value == 0 || value->ray == 0 ? -1 : value->ray->value;
 }

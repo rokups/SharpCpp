@@ -20,6 +20,9 @@ public sealed class StandardLibraryTests
         Assert.Equal(new[] { 2, 4, 6 }, numbers.ToArray());
         Assert.Equal(new[] { 2, 4, 6 }, ((System.Collections.IEnumerable)numbers).Cast<int>());
         Assert.Equal(12, E2EBindings.E2eSumStdNumbers(numbers));
+        Assert.Same(numbers, global::Std.Vector<int>.CreateManagedWrapper(numbers.Handle, ownsHandle: false));
+        Assert.Equal(12, E2EBindings.E2eSumStdNumbers(
+            global::Std.Vector<int>.CreateManagedWrapper(numbers.Handle, ownsHandle: false)));
 
         numbers[1] = 10;
         var containsTen = numbers.Contains(10);
@@ -170,6 +173,11 @@ public sealed class StandardLibraryTests
         using var providerCreated = new global::Std.Array<int>(numbers.Provider);
         providerCreated[2] = 12;
         Assert.Equal(12, E2EBindings.E2eSumStdArrayNumbers(providerCreated));
+
+        using var shorts = E2EBindings.E2eMakeStdArrayShorts();
+        Assert.Same(shorts, global::Std.Array<short>.CreateManagedWrapper(shorts.Handle, ownsHandle: false));
+        Assert.Equal(12, E2EBindings.E2eSumStdArrayShorts(
+            global::Std.Array<short>.CreateManagedWrapper(shorts.Handle, ownsHandle: false)));
     }
 
     [Fact]
@@ -194,6 +202,9 @@ public sealed class StandardLibraryTests
         Assert.NotNull(text.Provider);
         Assert.Equal("hello", text.ToString());
         Assert.Equal(Checksum("hello"u8), E2EBindings.E2eChecksumStdText(text));
+        Assert.Same(text, global::Std.String.CreateManagedWrapper(text.Handle, ownsHandle: false));
+        Assert.Equal(Checksum("hello"u8), E2EBindings.E2eChecksumStdText(
+            global::Std.String.CreateManagedWrapper(text.Handle, ownsHandle: false)));
         Assert.Equal("hello"u8.ToArray(), text.ToUtf8Bytes());
         Assert.Equal("hello"u8.ToArray(), text.AsUtf8Span().ToArray());
         Assert.Equal(5, text.Count);
@@ -249,6 +260,9 @@ public sealed class StandardLibraryTests
         Assert.False(words.IsNull);
         Assert.NotNull(words.Provider);
         Assert.Equal(3, E2EBindings.E2eCountStdWords(words));
+        Assert.Same(words, global::Std.List<global::Std.String>.CreateManagedWrapper(words.Handle, ownsHandle: false));
+        Assert.Equal(3, E2EBindings.E2eCountStdWords(
+            global::Std.List<global::Std.String>.CreateManagedWrapper(words.Handle, ownsHandle: false)));
         Assert.Equal(new[] { "red", "green", "blue" }, words.Select(word => word.ToString()));
         Assert.Equal("red", words[0].ToString());
         Assert.Equal(3, ((System.Collections.IEnumerable)words).Cast<global::Std.String>().Count());
@@ -327,6 +341,9 @@ public sealed class StandardLibraryTests
         Assert.False(scores.IsNull);
         Assert.NotNull(scores.Provider);
         Assert.Equal(3, E2EBindings.E2eTotalStdScores(scores));
+        Assert.Same(scores, global::Std.Map<global::Std.String, int>.CreateManagedWrapper(scores.Handle, ownsHandle: false));
+        Assert.Equal(3, E2EBindings.E2eTotalStdScores(
+            global::Std.Map<global::Std.String, int>.CreateManagedWrapper(scores.Handle, ownsHandle: false)));
         Assert.Equal(2, scores.Count);
         Assert.False(scores.IsReadOnly);
         Assert.Equal(new[] { 1, 2 }, scores.Values.Order());
@@ -415,6 +432,9 @@ public sealed class StandardLibraryTests
         Assert.False(lookup.IsNull);
         Assert.NotNull(lookup.Provider);
         Assert.Equal(16, E2EBindings.E2eTotalStdLookup(lookup));
+        Assert.Same(lookup, global::Std.UnorderedMap<global::Std.String, int>.CreateManagedWrapper(lookup.Handle, ownsHandle: false));
+        Assert.Equal(16, E2EBindings.E2eTotalStdLookup(
+            global::Std.UnorderedMap<global::Std.String, int>.CreateManagedWrapper(lookup.Handle, ownsHandle: false)));
         Assert.Equal(2, lookup.Count);
         Assert.Equal(new[] { 7, 9 }, lookup.Values.Order());
 

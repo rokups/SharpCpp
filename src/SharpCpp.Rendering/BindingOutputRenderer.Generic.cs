@@ -2916,14 +2916,18 @@ public static partial class BindingOutputRenderer
     private static string BuildGenericInstantiationCondition(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
         var visibleIndices = GetManagedVisibleGenericParameterIndices(record);
-        if (visibleIndices.Count == 0 || instantiation.TypeArguments.Count == 0)
+        // Projected records may intentionally omit native-only template arguments.
+        var comparableIndices = visibleIndices
+            .Where(index => index < instantiation.TypeArguments.Count)
+            .ToArray();
+        if (comparableIndices.Length == 0)
         {
             return "true";
         }
 
         return string.Join(
             " && ",
-            visibleIndices.Select(index => $"typeof({record.GenericParameters[index].Name}) == typeof({GetManagedWrapperTypeName(instantiation.TypeArguments[index], compilation)})"));
+            comparableIndices.Select(index => $"typeof({record.GenericParameters[index].Name}) == typeof({GetManagedWrapperTypeName(instantiation.TypeArguments[index], compilation)})"));
     }
 
     private static IReadOnlyList<BindingGenericParameter> GetManagedVisibleGenericParameters(RecordBinding record)

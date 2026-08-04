@@ -28,6 +28,13 @@ public sealed class MetadataDependencyTests
         Assert.Equal(
             (ushort)DependencySmallState.Ready,
             ConsumerBindings.ConsumeDependencySmallStateAlias((ushort)DependencySmallState.Ready));
+        Assert.Equal(6UL, DependencyBindings.ConsumeDependencyEnumMatrix(
+            DependencyI8State.Ready,
+            DependencyU8State.Ready,
+            DependencyI16State.Ready,
+            DependencyI32State.Ready,
+            DependencyI64State.Ready,
+            DependencyU64State.Ready));
         Assert.Equal(73, ConsumerBindings.ConsumeDependencyReboundHandleAlias(value));
 
         using var valueBox = DependencyBindings.CreateDependencyValueBox(value);

@@ -69,6 +69,7 @@ public sealed class GenericTests
 
         Assert.Same(payload, constructed.GetValue());
         Assert.Same(payload, created.GetValue());
+        Assert.Same(payload, E2EBindings.GenericHandleIdentity(payload));
 
         constructed.SetValue(replacement);
 

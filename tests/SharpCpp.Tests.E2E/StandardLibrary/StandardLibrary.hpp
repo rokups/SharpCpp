@@ -40,6 +40,16 @@ inline int e2e_sum_std_array_numbers(const std::array<int, 4>& values)
     return std::accumulate(values.begin(), values.end(), 0);
 }
 
+inline std::array<short, 3> e2e_make_std_array_shorts()
+{
+    return {2, 4, 6};
+}
+
+inline int e2e_sum_std_array_shorts(const std::array<short, 3>& values)
+{
+    return std::accumulate(values.begin(), values.end(), 0);
+}
+
 inline std::list<std::string> e2e_make_std_words()
 {
     return { "red", "green", "blue" };

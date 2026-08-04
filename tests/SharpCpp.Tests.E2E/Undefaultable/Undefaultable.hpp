@@ -34,6 +34,47 @@ inline int mixed_defaults(int a = 1, const char* b = "b", int c = 3)
     return (a * 100) + c;
 }
 
+inline int signed_char_default(signed char value = 'a')
+{
+    return value;
+}
+
+inline int unsigned_char_default(unsigned char value = 'b')
+{
+    return value;
+}
+
+inline int prefix_default_before_undefaultable(
+    int seed,
+    int bias = E2E_UNDEFAULTABLE_OFFSET,
+    const char* tag = "native")
+{
+    return (seed * 100) + bias + (tag != nullptr ? tag[0] : 0);
+}
+
+inline int mutate_before_undefaultable(
+    int seed,
+    [[sharpcpp::ref]] int* value,
+    [[sharpcpp::out]] int* observed,
+    const char* tag = "native",
+    int tail = E2E_UNDEFAULTABLE_OFFSET)
+{
+    *value += seed;
+    *observed = *value + (tag != nullptr ? tag[0] : 0) + tail;
+    return *observed + 1;
+}
+
+inline void mutate_before_undefaultable_void(
+    int seed,
+    [[sharpcpp::ref]] int* value,
+    [[sharpcpp::out]] int* observed,
+    const char* tag = "native",
+    int tail = E2E_UNDEFAULTABLE_OFFSET)
+{
+    (void)mutate_before_undefaultable(seed, value, observed, tag, tail);
+    applied_config_value = *observed;
+}
+
 inline int undefaultable_cascade_value(
     int seed,
     const char* tag = "native",
@@ -151,4 +192,42 @@ private:
     inline static int cache_value_{};
     int id_{};
     std::string name_;
+};
+
+struct undefaultable_mutator
+{
+    undefaultable_mutator(
+        int seed,
+        [[sharpcpp::ref]] int* value,
+        [[sharpcpp::out]] int* observed,
+        const char* tag = "native",
+        int tail = E2E_UNDEFAULTABLE_OFFSET)
+    {
+        result_ = mutate_before_undefaultable(seed, value, observed, tag, tail);
+    }
+
+    int get_result() const
+    {
+        return result_;
+    }
+
+private:
+    int result_{};
+};
+
+struct undefaultable_stringer
+{
+    explicit undefaultable_stringer(int value)
+        : value_(value)
+    {
+    }
+
+    [[sharpcpp::rename("ToString")]]
+    int render(int offset = E2E_UNDEFAULTABLE_OFFSET) const
+    {
+        return value_ + offset;
+    }
+
+private:
+    int value_{};
 };
