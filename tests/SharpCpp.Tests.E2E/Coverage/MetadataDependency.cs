@@ -35,6 +35,15 @@ public sealed class MetadataDependencyTests
             DependencyI32State.Ready,
             DependencyI64State.Ready,
             DependencyU64State.Ready));
+        Assert.Equal(8, DependencyBindings.ConsumeDependencyProjectionEnumMatrix(
+            DependencyVoidProjectionState.Ready,
+            DependencyBoolProjectionState.Ready,
+            DependencyU32ProjectionState.Ready,
+            DependencyFloatProjectionState.Ready,
+            DependencyDoubleProjectionState.Ready,
+            DependencyLongProjectionState.Ready,
+            DependencyUlongProjectionState.Ready,
+            DependencyPointerProjectionState.Ready));
         Assert.Equal(73, ConsumerBindings.ConsumeDependencyReboundHandleAlias(value));
 
         using var valueBox = DependencyBindings.CreateDependencyValueBox(value);

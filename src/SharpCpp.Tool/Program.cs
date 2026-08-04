@@ -462,6 +462,46 @@ internal static class Program
                         Projection = type.Projection with { CppType = "unsigned long long" },
                         Members = members
                     },
+                    "dependency_void_projection_state" => type with
+                    {
+                        Projection = type.Projection with { CppType = "void" },
+                        Members = members
+                    },
+                    "dependency_bool_projection_state" => type with
+                    {
+                        Projection = type.Projection with { CppType = "bool" },
+                        Members = members
+                    },
+                    "dependency_u32_projection_state" => type with
+                    {
+                        Projection = type.Projection with { CppType = "unsigned int" },
+                        Members = members
+                    },
+                    "dependency_float_projection_state" => type with
+                    {
+                        Projection = type.Projection with { CppType = "float" },
+                        Members = members
+                    },
+                    "dependency_double_projection_state" => type with
+                    {
+                        Projection = type.Projection with { CppType = "double" },
+                        Members = members
+                    },
+                    "dependency_long_projection_state" => type with
+                    {
+                        Projection = type.Projection with { CppType = "long" },
+                        Members = members
+                    },
+                    "dependency_ulong_projection_state" => type with
+                    {
+                        Projection = type.Projection with { CppType = "unsigned long" },
+                        Members = members
+                    },
+                    "dependency_pointer_projection_state" => type with
+                    {
+                        Projection = type.Projection with { CppType = "void*" },
+                        Members = members
+                    },
                     _ => type with { Members = members }
                 };
             }).ToArray(),

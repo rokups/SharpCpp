@@ -35,6 +35,44 @@ struct ReturnMarshaller<pipeline_breadth::pipeline_bad_managed>
 {
 };
 
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "pipeline_breadth::pipeline_configured_unsupported",
+    suppress_emission = true
+)]] Marshaller<pipeline_breadth::pipeline_configured_unsupported>
+{
+    using cpp_type = pipeline_breadth::pipeline_configured_unsupported;
+    using abi_type = int;
+
+    abi_type ConvertToAbi(cpp_type value) noexcept { return value.value; }
+    cpp_type ConvertToCpp(abi_type value) noexcept { return {value}; }
+};
+
+template <>
+struct ReturnMarshaller<pipeline_breadth::pipeline_configured_unsupported>
+    : Marshaller<pipeline_breadth::pipeline_configured_unsupported>
+{
+};
+
+template <typename T>
+struct [[sharpcpp::managed_type(
+    public_type = "PipelineConfiguredBox<{0}>",
+    suppress_emission = true
+)]] Marshaller<pipeline_breadth::pipeline_configured_box<T>>
+{
+    using cpp_type = pipeline_breadth::pipeline_configured_box<T>;
+    using abi_type = cpp_type*;
+
+    abi_type ConvertToAbi(cpp_type& value) noexcept { return &value; }
+    cpp_type& ConvertToCpp(abi_type value) noexcept { return *value; }
+};
+
+template <typename T>
+struct ReturnMarshaller<pipeline_breadth::pipeline_configured_box<T>>
+    : Marshaller<pipeline_breadth::pipeline_configured_box<T>>
+{
+};
+
 struct pipeline_accessor_members
 {
     using cpp_type = pipeline_breadth::pipeline_accessor_probe;

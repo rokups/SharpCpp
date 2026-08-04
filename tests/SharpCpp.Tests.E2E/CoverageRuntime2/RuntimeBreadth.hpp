@@ -140,6 +140,11 @@ inline runtime_breadth_poly_base* runtime_breadth_get_polymorphic(int value)
     return &result;
 }
 
+inline runtime_breadth_poly_base* runtime_breadth_get_polymorphic_null()
+{
+    return nullptr;
+}
+
 inline int runtime_breadth_lifecycle_destroyed_count = 0;
 
 struct [[sharpcpp::director]] runtime_breadth_lifecycle

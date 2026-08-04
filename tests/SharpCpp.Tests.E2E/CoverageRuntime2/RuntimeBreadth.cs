@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 using SharpCpp.Support;
 using SharpCpp.Tests.E2E.Generated;
@@ -67,6 +68,8 @@ public sealed class RuntimeBreadthTests
     [Fact]
     public void Generated_cache_promotes_unregisters_and_replaces_closed_native_wrappers()
     {
+        Assert.Equal(-1, E2EBindings.RuntimeBreadthReadCacheValue(null!));
+
         var borrowed = E2EBindings.RuntimeBreadthGetCacheBorrowed(31);
         var cachedBorrowed = E2EBindings.RuntimeBreadthGetCacheBorrowed(32);
 
@@ -79,6 +82,10 @@ public sealed class RuntimeBreadthTests
         Assert.Same(borrowed, promoted);
         Assert.True(promoted.OwnsHandle);
         Assert.Equal(41, E2EBindings.RuntimeBreadthReadCacheValue(promoted));
+
+        var alreadyOwned = E2EBindings.RuntimeBreadthTakeCacheOwned(42);
+        Assert.Same(promoted, alreadyOwned);
+        Assert.Equal(42, E2EBindings.RuntimeBreadthReadCacheValue(alreadyOwned));
 
         promoted.Dispose();
 
@@ -100,6 +107,8 @@ public sealed class RuntimeBreadthTests
     [Fact]
     public void Base_typed_native_return_uses_the_registered_derived_wrapper()
     {
+        Assert.Null(E2EBindings.RuntimeBreadthGetPolymorphicNull());
+
         using var value = E2EBindings.RuntimeBreadthGetPolymorphic(37);
 
         Assert.Equal(2, value.GetKind());
@@ -147,6 +156,8 @@ public sealed class RuntimeBreadthTests
     {
         using var nativeArray = E2EBindings.RuntimeBreadthMakeArray();
         Assert.Equal(15u, E2EBindings.RuntimeBreadthSumArray(nativeArray));
+        Assert.Equal(15u, ((System.Collections.IEnumerable)nativeArray).Cast<uint>()
+            .Aggregate(0u, static (sum, value) => sum + value));
         Assert.Equal(15u, E2EBindings.RuntimeBreadthSumArray(
             global::Std.Array<uint>.CreateManagedWrapper(nativeArray.Handle, ownsHandle: false)));
 
@@ -156,6 +167,8 @@ public sealed class RuntimeBreadthTests
 
         using var nativeVector = E2EBindings.RuntimeBreadthMakeVector();
         Assert.Equal(12u, E2EBindings.RuntimeBreadthSumVector(nativeVector));
+        Assert.Equal(12u, ((System.Collections.IEnumerable)nativeVector).Cast<uint>()
+            .Aggregate(0u, static (sum, value) => sum + value));
         Assert.Equal(12u, E2EBindings.RuntimeBreadthSumVector(
             global::Std.Vector<uint>.CreateManagedWrapper(nativeVector.Handle, ownsHandle: false)));
 
@@ -173,6 +186,9 @@ public sealed class RuntimeBreadthTests
 
         using var nativeMap = E2EBindings.RuntimeBreadthMakeMap();
         Assert.Equal(17u, E2EBindings.RuntimeBreadthSumMap(nativeMap));
+        Assert.Equal(17u, nativeMap.Sum(static pair => pair.Key + pair.Value));
+        Assert.Equal(2, ((System.Collections.IEnumerable)nativeMap)
+            .Cast<KeyValuePair<uint, uint>>().Count());
         Assert.Equal(17u, E2EBindings.RuntimeBreadthSumMap(
             global::Std.Map<uint, uint>.CreateManagedWrapper(nativeMap.Handle, ownsHandle: false)));
 
@@ -188,6 +204,8 @@ public sealed class RuntimeBreadthTests
         using var managedUnorderedMap = new global::Std.UnorderedMap<uint, uint>(
             new[] { new KeyValuePair<uint, uint>(8u, 13u), new KeyValuePair<uint, uint>(7u, 14u) });
         Assert.Equal(42u, E2EBindings.RuntimeBreadthSumUnorderedMap(managedUnorderedMap));
+        managedUnorderedMap.Clear();
+        Assert.Equal(0u, E2EBindings.RuntimeBreadthSumUnorderedMap(managedUnorderedMap));
 
     }
 
@@ -196,6 +214,7 @@ public sealed class RuntimeBreadthTests
     {
         using var nativeString = E2EBindings.RuntimeBreadthMakeString();
         Assert.Equal("runtime", nativeString.ToString());
+        Assert.Equal("runtime", new string(((System.Collections.IEnumerable)nativeString).Cast<char>().ToArray()));
         Assert.Equal(772u, E2EBindings.RuntimeBreadthSumString(nativeString));
         Assert.Equal(E2EBindings.RuntimeBreadthSumString(nativeString),
             E2EBindings.RuntimeBreadthSumString(

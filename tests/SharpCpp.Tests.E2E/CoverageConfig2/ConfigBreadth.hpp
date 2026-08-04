@@ -56,7 +56,9 @@ inline config2_value_pointer_alias config2_alias_pointer(config2_value_pointer_a
 }
 
 template <typename TValue, typename THidden = unsigned short>
-struct config2_surface
+struct
+[[sharpcpp::instantiate("config_breadth2::config2_derived*")]]
+config2_surface
 {
     config2_surface() = default;
 
@@ -87,6 +89,13 @@ inline config2_value_surface_alias* make_config2_surface(
     int bias)
 {
     return new config2_value_surface_alias(value, bias);
+}
+
+inline config2_surface<config2_derived*>* make_config2_derived_surface(
+    config2_derived* value,
+    int bias)
+{
+    return new config2_surface<config2_derived*>(value, bias);
 }
 
 template <typename TValue, typename THidden = unsigned long long>
@@ -137,4 +146,83 @@ inline int invoke_config2_nested_callback(
 {
     return callback(surface, value) + 3;
 }
+
+using config2_repair_callback =
+    std::function<int(config2_value_alias*, config2_value_alias*)>;
+
+template <
+    typename TValue,
+    typename TCallback = config2_repair_callback,
+    typename THidden = unsigned int>
+struct config2_repair;
+
+using config2_repair_alias =
+    config2_repair<config2_value_alias*, config2_repair_callback, unsigned int>;
+
+namespace repair_view
+{
+using qualified_alias = config2_repair_alias;
+}
+
+template <typename TValue, typename TCallback, typename THidden>
+struct
+[[sharpcpp::instantiate("config_breadth2::config2_derived*")]]
+config2_repair
+{
+    config2_repair() = default;
+
+    [[sharpcpp::ignore("constructed through generated factory")]]
+    config2_repair(TValue value, TCallback callback, int bias)
+        : value_(value)
+        , callback_(callback)
+        , bias_(bias)
+    {
+    }
+
+    int invoke(config2_value_alias* other) const
+    {
+        return callback_ ? callback_(value_, other) + bias_ : bias_;
+    }
+
+    TValue echo_value() const { return value_; }
+
+private:
+    TValue value_{};
+    TCallback callback_{};
+    int bias_{};
+};
+
+inline config2_repair_alias* make_config2_repair_alias(
+    config2_value_alias* value,
+    const config2_repair_callback& callback,
+    int bias)
+{
+    return new config2_repair_alias(value, callback, bias);
+}
+
+inline const repair_view::qualified_alias& config2_repair_const_reference(
+    const repair_view::qualified_alias& value)
+{
+    return value;
+}
+
+inline int invoke_config2_repair_alias(
+    const repair_view::qualified_alias& value,
+    config2_value_alias* other)
+{
+    return value.invoke(other) + 1;
+}
+
+template <typename TCallback>
+int config2_invoke_specialized_callback(
+    TCallback callback,
+    config2_value_alias* value)
+{
+    config2_value_surface_alias surface(value, 9);
+    return callback(&surface, value) + 7;
+}
+
+template int config2_invoke_specialized_callback<config2_nested_callback>(
+    config2_nested_callback callback,
+    config2_value_alias* value);
 }

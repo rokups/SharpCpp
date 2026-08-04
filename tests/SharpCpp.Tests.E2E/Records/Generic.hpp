@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <vector>
 
 template <typename T>
 [[sharpcpp::instantiate("int")]]
@@ -130,6 +131,7 @@ inline handle_box<generic_payload*>* create_generic_payload_box(generic_payload*
 
 template <typename T>
 [[sharpcpp::instantiate("generic_payload*")]]
+[[sharpcpp::instantiate("std::vector<int>")]]
 T generic_handle_identity(T value)
 {
     return value;

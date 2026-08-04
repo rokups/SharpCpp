@@ -15,7 +15,10 @@ public sealed class PipelineBreadthTests
         Assert.Equal(19, rebased.GetTotal());
 
         using var fields = E2EBindings.CreatePipelineFieldHost(20);
-        Assert.Equal(41, fields.Read());
+        Assert.Equal(86, fields.Read());
+
+        using var openDerived = E2EBindings.CreatePipelineOpenDerived(38);
+        Assert.Equal(42, openDerived.GetRoundTrip());
 
         using var orphan = new PipelineOrphanBase(31);
         Assert.Equal(31, orphan.GetValue());

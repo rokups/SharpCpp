@@ -43,9 +43,24 @@ public sealed class ConfigBreadthTests
             surface,
             value));
 
+        using var repair = E2EBindings.MakeConfig2RepairAlias(
+            value,
+            (left, right) => left.GetValue() + right.GetValue(),
+            6);
+        Assert.Equal(86, repair.InvokeRepairConfigured(value));
+        Assert.Same(value, repair.EchoRepairConfigured());
+        Assert.Same(repair, E2EBindings.Config2RepairConstReference(repair));
+        Assert.Equal(87, E2EBindings.InvokeConfig2RepairAlias(repair, value));
+        Assert.Equal(96, E2EBindings.Config2InvokeSpecializedCallback<
+            Func<Config2Surface<Config2Value>, Config2Value, int>>(
+            (configured, item) => configured.ReadConfigured() + item.GetValue(),
+            value));
+
         using var derived = new Config2Derived(50);
         Assert.Equal(52, derived.GetValue());
         Assert.Equal(73, ReadNativeStatic<Config2Derived>());
+        using var derivedSurface = E2EBindings.MakeConfig2DerivedSurface(derived, 1);
+        Assert.Equal(53, derivedSurface.ReadConfigured());
     }
 
     private static int ReadNativeStatic<T>()

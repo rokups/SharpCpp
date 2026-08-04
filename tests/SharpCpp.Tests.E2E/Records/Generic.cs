@@ -17,6 +17,10 @@ public sealed class GenericTests
         Assert.Equal(7.5, E2EBindings.GenericMixedAdd(3, 4.5f));
         Assert.Equal(9.5, E2EBindings.GenericMixedAdd(7.5, 2));
         Assert.Equal(41, E2EBindings.GenericInvokeCallback<Func<int, int>>(value => value * 2, 20));
+
+        using var values = new global::Std.Vector<int>((IEnumerable<int>)new[] { 11, 14, 17 });
+        using var copiedValues = E2EBindings.GenericHandleIdentity(values);
+        Assert.Equal(new[] { 11, 14, 17 }, copiedValues.ToArray());
     }
 
     [Fact]

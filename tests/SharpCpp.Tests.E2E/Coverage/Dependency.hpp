@@ -62,6 +62,15 @@ enum class dependency_u64_state : unsigned long long
     ready = 1
 };
 
+enum class dependency_void_projection_state : int { idle = 0, ready = 1 };
+enum class dependency_bool_projection_state : int { idle = 0, ready = 1 };
+enum class dependency_u32_projection_state : int { idle = 0, ready = 1 };
+enum class dependency_float_projection_state : int { idle = 0, ready = 1 };
+enum class dependency_double_projection_state : int { idle = 0, ready = 1 };
+enum class dependency_long_projection_state : int { idle = 0, ready = 1 };
+enum class dependency_ulong_projection_state : int { idle = 0, ready = 1 };
+enum class dependency_pointer_projection_state : int { idle = 0, ready = 1 };
+
 inline unsigned long long consume_dependency_enum_matrix(
     dependency_i8_state i8,
     dependency_u8_state u8,
@@ -76,6 +85,22 @@ inline unsigned long long consume_dependency_enum_matrix(
         static_cast<unsigned long long>(i32) +
         static_cast<unsigned long long>(i64) +
         static_cast<unsigned long long>(u64);
+}
+
+inline int consume_dependency_projection_enum_matrix(
+    dependency_void_projection_state void_state,
+    dependency_bool_projection_state bool_state,
+    dependency_u32_projection_state u32_state,
+    dependency_float_projection_state float_state,
+    dependency_double_projection_state double_state,
+    dependency_long_projection_state long_state,
+    dependency_ulong_projection_state ulong_state,
+    dependency_pointer_projection_state pointer_state)
+{
+    return static_cast<int>(void_state) + static_cast<int>(bool_state) +
+        static_cast<int>(u32_state) + static_cast<int>(float_state) +
+        static_cast<int>(double_state) + static_cast<int>(long_state) +
+        static_cast<int>(ulong_state) + static_cast<int>(pointer_state);
 }
 
 struct dependency_value

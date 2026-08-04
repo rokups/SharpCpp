@@ -39,6 +39,16 @@ public sealed class FieldTests
         box.PayloadSamples = payloadSamples;
         box.Samples = samples;
 
+        var abiWrappedSamples = global::SharpCpp.NativeArray<int>.CreateManagedWrapper(
+            samples.ToNativeArrayAbi(), ownsHandle: false);
+        var handleWrappedSamples = global::SharpCpp.NativeArray<int>.CreateManagedWrapper(
+            samples.Handle, ownsHandle: false);
+        Assert.Same(samples, abiWrappedSamples);
+        Assert.Same(samples, handleWrappedSamples);
+        Assert.Equal(new[] { 3, 5, 7 }, ((System.Collections.IEnumerable)handleWrappedSamples)
+            .Cast<int>().ToArray());
+        box.Samples = handleWrappedSamples;
+
         Assert.Equal(7, box.Count);
         Assert.False(box.Enabled);
         Assert.Equal(FieldMode.Suspended, box.Mode);
