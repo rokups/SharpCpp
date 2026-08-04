@@ -62,6 +62,12 @@ public sealed class ParserBreadthTests
         Assert.Equal(61, unnamedMembers.Read());
         Assert.Equal(42, BreadthUnnamedMembers.Combine(0, 41));
 
+        using var flattened = new BreadthFlattenedOwner();
+        flattened.GroupLeafVisible = 39;
+        flattened.GroupText = 0;
+        flattened.GroupExternal = 0;
+        Assert.Equal(42, E2EBindings.ReadBreadthFlattenedOwner(flattened));
+
         Assert.Equal(376, E2EBindings.BreadthLiteralDefaults());
         Assert.Equal(351, E2EBindings.BreadthLiteralDefaults(1.0f, 2.5, BreadthPlainMode.BreadthPlainActive));
         Assert.Equal(8, E2EBindings.BreadthQualifiedDefault());

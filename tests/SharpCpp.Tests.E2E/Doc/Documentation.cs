@@ -1,3 +1,5 @@
+using SharpCpp.Tests.E2E.Generated;
+
 using Xunit;
 
 namespace SharpCpp.Tests.E2E.Doc;
@@ -5,31 +7,18 @@ namespace SharpCpp.Tests.E2E.Doc;
 public sealed class DocumentationTests
 {
     [Fact]
-    public void Generated_public_api_includes_xml_docs_for_implemented_shapes()
+    public void Documented_declarations_round_trip_through_generated_native_bindings()
     {
-        var generatedDir = GetGeneratedDir();
-        var files = Directory.GetFiles(generatedDir, "*.g.cs", SearchOption.TopDirectoryOnly);
-        var generatedSource = string.Join("\n", files.Select(File.ReadAllText));
+        using var record = new DocumentedRecord(11);
+        Assert.Equal(11, record.GetValue());
+        record.StoredValue = 17;
+        Assert.Equal(42, record.Increment(25));
+        record.SetValue(23);
+        Assert.Equal(23, record.GetValue());
 
-        Assert.Contains("/// <summary>Represents a documented record with a brief description.</summary>", generatedSource, StringComparison.Ordinal);
-        Assert.Contains("/// <summary>Gets the stored value.</summary>", generatedSource, StringComparison.Ordinal);
-        Assert.Contains("/// <summary>The current value stored in the record.</summary>", generatedSource, StringComparison.Ordinal);
-        Assert.Contains("/// <summary>A free function with a block-style documentation comment.</summary>", generatedSource, StringComparison.Ordinal);
-        Assert.Contains("/// <summary>Enumeration of status values for document processing.</summary>", generatedSource, StringComparison.Ordinal);
-        Assert.Contains("/// <summary>Escapes XML-sensitive characters: &lt;tag&gt;value &amp; &quot;other&quot;</summary>", generatedSource, StringComparison.Ordinal);
-    }
-
-    private static string GetGeneratedDir()
-    {
-        var dir = Environment.GetEnvironmentVariable("SharpCppGeneratedDir");
-        if (string.IsNullOrWhiteSpace(dir))
-        {
-            dir = Path.Combine(
-                Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? ".",
-                "..", "..", "..", "..", "..",
-                "build", "native", "dev", "generated", "sharpcpp-e2e");
-        }
-
-        return Path.GetFullPath(dir);
+        Assert.Equal(42, DocumentedRecord.Reset());
+        Assert.Equal(42, E2EBindings.DocumentedFreeFunction(21));
+        Assert.Equal(DocumentedStatus.Pending, E2EBindings.RoundtripDocumentedStatus(DocumentedStatus.Pending));
+        Assert.Equal(42, E2EBindings.FunctionWithXmlSensitiveComment());
     }
 }

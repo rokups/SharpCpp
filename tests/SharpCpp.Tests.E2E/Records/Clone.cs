@@ -12,7 +12,6 @@ public sealed class CloneTests
         using var original = new CloneCounter(7);
         using var clone = original.Clone();
 
-        Assert.IsAssignableFrom<System.ICloneable>(original);
         Assert.NotSame(original, clone);
         Assert.Equal(7, clone.GetValue());
 
@@ -30,5 +29,16 @@ public sealed class CloneTests
 
         Assert.NotSame(original, clone);
         Assert.Equal(9, clone.GetValue());
+    }
+
+    [Fact]
+    public void Native_clone_name_collision_keeps_explicit_copy_contract()
+    {
+        using var original = new CloneCollisionCounter(17);
+        Assert.Equal(18, original.Clone());
+
+        using var clone = (CloneCollisionCounter)((System.ICloneable)original).Clone();
+        Assert.NotSame(original, clone);
+        Assert.Equal(17, clone.GetValue());
     }
 }

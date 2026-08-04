@@ -270,6 +270,7 @@ internal static class Program
         File.WriteAllText(compatibilityDependencyMetadataPath, BindingMetadataSerializer.Serialize(compatibilityDependencyMetadata));
         ExcludeSharedWrapperRecords(dependency);
 
+        var dependencyImports = BindingMetadataImportCatalog.Load([compatibilityDependencyMetadataPath]);
         var consumer = ParseCoverageHeader(
             "SharpCpp.Tests.E2E.Coverage.Consumer",
             "SharpCpp.Tests.E2E.Coverage.Consumer",
@@ -280,12 +281,22 @@ internal static class Program
             parser,
             clangArguments,
             marshallerConfigurationFiles,
-            BindingMetadataImportCatalog.Load([compatibilityDependencyMetadataPath]));
+            dependencyImports);
         BindingCompilationBootstrapPipeline.Apply(consumer, marshallerConfigurationFiles, clangArguments);
         RemoveLocalConfiguredWrapperRecords(consumer);
         ApplyCoverageProjection(consumer);
         consumer.TypeAliases.Clear();
         ExcludeSharedWrapperRecords(consumer);
+        var consumerMetadata = BindingMetadataExporter.Export(
+            consumer,
+            new BindingMetadataExportOptions(
+                consumer.ProjectName,
+                Phase2ClosureHash: "coverage-consumer",
+                ClangArgsHash: "coverage-clang",
+                Imports: dependencyImports.Imports));
+        File.WriteAllText(
+            Path.Combine(generatedRoot, "SharpCppCoverageConsumer.Bindings.json"),
+            BindingMetadataSerializer.Serialize(consumerMetadata));
 
         var degradation = ParseCoverageHeader(
             "SharpCpp.Tests.E2E.Coverage.Degradation",

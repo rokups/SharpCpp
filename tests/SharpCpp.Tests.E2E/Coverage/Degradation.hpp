@@ -61,6 +61,39 @@ private:
     int value_{};
 };
 
+struct degradation_field_collision
+{
+    explicit degradation_field_collision(int value)
+        : value(value)
+    {
+    }
+
+    int Value() const { return value + 1; }
+    int ValueValue() const { return value + 2; }
+
+    int value{};
+};
+
+inline degradation_field_collision* create_degradation_field_collision(int value)
+{
+    return new degradation_field_collision(value);
+}
+
+struct degradation_operator_surface
+{
+    explicit degradation_operator_surface(int value)
+        : value_(value)
+    {
+    }
+
+    int get_value() const { return value_; }
+    int operator+() const { return value_ + 3; }
+    int operator-(int value) const { return value_ - value; }
+
+private:
+    int value_{};
+};
+
 int duplicate_exact(int value);
 inline int duplicate_exact(int value)
 {
@@ -206,10 +239,17 @@ struct [[sharpcpp::director]] non_pure_unsupported_director
 {
     virtual ~non_pure_unsupported_director() = default;
 
-    virtual void mutate(int& value)
+    virtual void mutate([[sharpcpp::ref]] int* value)
     {
-        ++value;
+        if (value != nullptr)
+            ++*value;
     }
+};
+
+struct [[sharpcpp::director]] pure_unsupported_director
+{
+    virtual ~pure_unsupported_director() = default;
+    virtual void write([[sharpcpp::ref]] int* value) = 0;
 };
 
 struct ignored_base
@@ -267,6 +307,21 @@ filtered_box
     }
 };
 
+inline void consume_incomplete_box(const filtered_box<incomplete_record*>& value)
+{
+    (void)value;
+}
+
+inline void consume_global_box(const filtered_box<::global_excluded_record*>& value)
+{
+    (void)value;
+}
+
+inline void consume_outside_box(const filtered_box<coverage_outside::outside_record*>& value)
+{
+    (void)value;
+}
+
 template <typename T>
 [[sharpcpp::instantiate("int")]]
 T filtered_identity(T value)
@@ -302,4 +357,12 @@ struct hidden_record
 {
     int value{};
 };
+}
+
+namespace coverage_allowed
+{
+inline void consume_detail_box(const filtered_box<detail::hidden_record*>& value)
+{
+    (void)value;
+}
 }

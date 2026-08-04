@@ -25,6 +25,13 @@ public sealed class MetadataDependencyTests
         Assert.Equal(73, ConsumerBindings.ConsumeDependencyHandleAlias(value));
         Assert.Equal(42UL, ConsumerBindings.ConsumeDependencyUnsignedAlias(41));
 
+        using var replacement = DependencyBindings.CreateDependencyValue(31, DependencyState.Idle);
+        using var holder = DependencyBindings.CreateDependencyHolder(value);
+        Assert.Same(value, holder.Item);
+        holder.Item = replacement;
+        Assert.Same(replacement, holder.Item);
+        Assert.Equal(31, holder.ReadItem());
+
         using var box = DependencyBindings.CreateDependencyBox(19);
         Assert.Equal(19, box.GetValue());
         Assert.Equal(19, ConsumerBindings.ConsumeDependencyBoxAlias(box));

@@ -73,18 +73,6 @@ public static class MarshallerMetadataPhase2
         @"managed_wrapper_assembly\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
-    private static readonly Regex ManagedWrapperProviderKindExpression = new(
-        @"managed_wrapper_provider_kind\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
-        RegexOptions.CultureInvariant | RegexOptions.Compiled);
-
-    private static readonly Regex ManagedWrapperProviderNamespaceExpression = new(
-        @"managed_wrapper_provider_namespace\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
-        RegexOptions.CultureInvariant | RegexOptions.Compiled);
-
-    private static readonly Regex ManagedWrapperCopyableExpression = new(
-        @"managed_wrapper_copyable\s*=\s*(?<value>true|false)",
-        RegexOptions.CultureInvariant | RegexOptions.Compiled);
-
     /// <summary>
     /// Apply record-level metadata using ClangSharp AST extraction.
     /// </summary>
@@ -292,19 +280,13 @@ public static class MarshallerMetadataPhase2
             {
                 record.SetMetadata(MetadataKeys.ManagedWrapperProviderKind, config.ManagedWrapperProviderKind);
             }
-            else if (ManagedWrapperProviderKindExpression.Match(body) is { Success: true } providerKindMatch)
+
+            if (!string.IsNullOrWhiteSpace(config.ManagedWrapperProviderNamespace))
             {
-                var providerKind = providerKindMatch.Groups["value"].Value;
-                record.SetMetadata(MetadataKeys.ManagedWrapperProviderKind, providerKind);
+                record.SetMetadata(MetadataKeys.ManagedWrapperProviderNamespace, config.ManagedWrapperProviderNamespace);
             }
 
-            if (ManagedWrapperProviderNamespaceExpression.Match(body) is { Success: true } providerNamespaceMatch)
-            {
-                record.SetMetadata(MetadataKeys.ManagedWrapperProviderNamespace, providerNamespaceMatch.Groups["value"].Value);
-            }
-
-            if (ManagedWrapperCopyableExpression.Match(body) is { Success: true } copyableMatch &&
-                bool.TryParse(copyableMatch.Groups["value"].Value, out var copyable))
+            if (config.ManagedWrapperCopyable is { } copyable)
             {
                 record.SetMetadata(MetadataKeys.ManagedWrapperCopyable, copyable);
                 record.HasCopyConstructor = copyable;

@@ -280,6 +280,10 @@ public sealed class StandardLibraryTests
     [Fact]
     public void Ordered_and_unordered_maps_round_trip_through_dictionary_bases()
     {
+        using var aliasedScores = E2EBindings.E2eMakeAliasedStdScores();
+        Assert.Equal(26, E2EBindings.E2eTotalAliasedStdScores(aliasedScores));
+        Assert.Equal(5, aliasedScores[3]);
+
         using var scores = E2EBindings.E2eMakeStdScores();
         Assert.NotEqual(0, scores.Handle);
         Assert.True(scores.OwnsHandle);

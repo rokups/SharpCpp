@@ -82,6 +82,21 @@ inline int e2e_total_std_scores(const std::map<std::string, int>& values)
     return total;
 }
 
+using e2e_std_score_alias = std::map<int, int>;
+
+inline e2e_std_score_alias e2e_make_aliased_std_scores()
+{
+    return { { 3, 5 }, { 7, 11 } };
+}
+
+inline int e2e_total_aliased_std_scores(const e2e_std_score_alias& values)
+{
+    auto total = 0;
+    for (const auto& [key, value] : values)
+        total += key + value;
+    return total;
+}
+
 inline std::unordered_map<std::string, int> e2e_make_std_lookup()
 {
     return { { "left", 7 }, { "right", 9 } };

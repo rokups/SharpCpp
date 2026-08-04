@@ -4,23 +4,26 @@
 struct documented_record
 {
     /// Creates a documented record with the given value.
-    documented_record(int value) {}
+    documented_record(int value)
+        : stored_value(value)
+    {
+    }
 
     /// Gets the stored value.
-    int get_value() const { return 42; }
+    int get_value() const { return stored_value; }
 
     /// Sets the stored value.
-    void set_value(int value) {}
+    void set_value(int value) { stored_value = value; }
 
     /// Resets the record to its default state.
-    static void reset() {}
+    static int reset(int value = 41) { return value + 1; }
 
     /// The current value stored in the record.
     int stored_value;
 
     /// Increments the stored value by the given amount.
     /// @return The new value after increment.
-    int increment(int amount) const { return 0; }
+    int increment(int amount) const { return stored_value + amount; }
 };
 
 /**
@@ -43,5 +46,10 @@ enum class documented_status
     failure = 2
 };
 
+inline documented_status roundtrip_documented_status(documented_status value)
+{
+    return value;
+}
+
 /// Escapes XML-sensitive characters: <tag>value & "other"
-inline int function_with_xml_sensitive_comment() { return 0; }
+inline int function_with_xml_sensitive_comment() { return 42; }

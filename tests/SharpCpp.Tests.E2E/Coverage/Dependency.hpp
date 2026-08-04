@@ -164,6 +164,21 @@ protected:
     }
 };
 
+struct dependency_holder
+{
+    explicit dependency_holder(dependency_value* item)
+        : item_(item)
+    {
+    }
+
+    dependency_value* get_item() const { return item_; }
+    void set_item(dependency_value* item) { item_ = item; }
+    int read_item() const { return item_ == nullptr ? -1 : item_->get_value(); }
+
+private:
+    dependency_value* item_{};
+};
+
 inline dependency_value* create_dependency_value(int value, dependency_state state)
 {
     return new dependency_value(value, state);
@@ -182,6 +197,11 @@ inline dependency_derived* create_dependency_derived(int value)
 inline dependency_box<int>* create_dependency_box(int value)
 {
     return new dependency_box<int>(value);
+}
+
+inline dependency_holder* create_dependency_holder(dependency_value* item)
+{
+    return new dependency_holder(item);
 }
 
 }

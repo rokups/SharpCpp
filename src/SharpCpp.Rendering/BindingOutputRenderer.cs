@@ -4416,13 +4416,13 @@ public static partial class BindingOutputRenderer
             return writer.ToString();
         }
 
-        if (function.OperatorToken == "-" && function.Parameters.Count == 0)
+        if (function.OperatorToken is "+" or "-" && function.Parameters.Count == 0)
         {
             var returnTypeName = GetManagedWrapperTypeName(function.ReturnType, compilation);
             if (function.ReturnType.Kind == BindingTypeKind.Handle)
             {
                 writer.Write($$"""
-                    public static {{returnTypeName}} operator -({{record.ManagedName}} value)
+                    public static {{returnTypeName}} operator {{function.OperatorToken}}({{record.ManagedName}} value)
                     {
                     return {{BuildManagedHandleReturnResultExpression(compilation, function.ReturnType, $"__PInvoke.{function.ManagedName}(value)", ownsHandle: false)}};
                     }
@@ -4431,7 +4431,7 @@ public static partial class BindingOutputRenderer
             else
             {
                 writer.Write($$"""
-                    public static {{returnTypeName}} operator -({{record.ManagedName}} value)
+                    public static {{returnTypeName}} operator {{function.OperatorToken}}({{record.ManagedName}} value)
                     {
                     return __PInvoke.{{function.ManagedName}}(value);
                     }

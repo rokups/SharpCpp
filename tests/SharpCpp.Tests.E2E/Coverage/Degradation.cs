@@ -17,6 +17,16 @@ public sealed class DegradationTests
         using var collision = new ConstCollision(23);
         Assert.Equal(23, collision.Read());
 
+        using var fieldCollision = DegradationBindings.CreateDegradationFieldCollision(11);
+        Assert.Equal(11, fieldCollision.ValueValue2);
+        fieldCollision.ValueValue2 = 13;
+        Assert.Equal(14, fieldCollision.Value());
+        Assert.Equal(15, fieldCollision.ValueValue());
+
+        using var operators = new DegradationOperatorSurface(19);
+        Assert.Equal(19, operators.GetValue());
+        Assert.Equal(22, +operators);
+
         using var box = new FilteredBox<int>();
         Assert.Equal(29, box.Echo(29));
         Assert.Equal(31, DegradationBindings.FilteredIdentity(31));

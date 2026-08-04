@@ -181,6 +181,25 @@ T breadth_template_identity(T value)
 
 template breadth_payload* breadth_template_identity<breadth_payload*>(breadth_payload* value);
 template breadth_mode breadth_template_identity<breadth_mode>(breadth_mode value);
+template long double breadth_template_identity<long double>(long double value);
+
+template <typename... TValues>
+[[sharpcpp::ignore("template pack parser breadth")]]
+int breadth_pack_sum(TValues... values)
+{
+    return (0 + ... + static_cast<int>(values));
+}
+
+template int breadth_pack_sum<int, short, long>(int, short, long);
+
+template <int N>
+[[sharpcpp::ignore("non-type template parser breadth")]]
+int breadth_non_type_template(int value)
+{
+    return value + N;
+}
+
+template int breadth_non_type_template<3>(int value);
 
 template <typename T>
 [[sharpcpp::instantiate("int")]]
@@ -213,6 +232,35 @@ struct breadth_pointer_fields
     inline static int static_value = 17;
     inline static int static_values[2] = {3, 5};
 };
+
+struct breadth_flattened_leaf
+{
+    /// Value copied through a flattened native field accessor.
+    int visible{};
+    breadth_mode_projection projected{};
+
+private:
+    int hidden{};
+};
+
+struct breadth_flattened_owner
+{
+    struct
+    {
+        breadth_flattened_leaf leaf{};
+        char* text{};
+        std::locale* external{};
+    } group;
+};
+
+inline int read_breadth_flattened_owner(const breadth_flattened_owner* value)
+{
+    if (value == nullptr)
+        return -1;
+    return value->group.leaf.visible +
+        (value->group.text == nullptr ? 1 : 0) +
+        (value->group.external == nullptr ? 2 : 0);
+}
 
 struct [[sharpcpp::ignore("reference field parser breadth")]] breadth_reference_field
 {
