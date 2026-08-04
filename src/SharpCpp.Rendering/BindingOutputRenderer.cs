@@ -5242,9 +5242,10 @@ public static partial class BindingOutputRenderer
         {
             if (TryGetPointerCountNativeArrayShape(compilation, field, out var pointerCountShape))
             {
+                var itemCppTypeName = GetNativePointerCountFieldItemCppTypeName(field);
                 writer.WriteLine();
                 writer.Write($$"""
-                    SHARPCPP_EXPORT ret_t<{{field.Type.CppTypeName}}> {{GetNativeFieldItemGetterEntrypointName(accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self, std::size_t index)
+                    SHARPCPP_EXPORT ret_t<{{itemCppTypeName}}> {{GetNativeFieldItemGetterEntrypointName(accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self, std::size_t index)
                     {
                     {{RenderNativePointerCountFieldItemGetInvocation(field, pointerCountShape.CountField, "self")}}
                     }
@@ -5408,16 +5409,25 @@ public static partial class BindingOutputRenderer
     {
         var pointerExpression = GetNativeFixedArrayFieldAccessExpression(field, selfExpression);
         var countExpression = GetNativeFixedArrayFieldAccessExpression(countField, selfExpression);
+        var itemCppTypeName = GetNativePointerCountFieldItemCppTypeName(field);
+        var valueExpression = field.CppTypeName.IndexOf('*') == field.CppTypeName.LastIndexOf('*')
+            ? $"&({pointerExpression}[index])"
+            : $"{pointerExpression}[index]";
         return $$"""
             if ({{pointerExpression}} == nullptr || index >= static_cast<std::size_t>({{countExpression}}))
             {
                 throw std::out_of_range("SharpCpp pointer-count field access is out of range.");
             }
 
-            ReturnMarshaller<{{field.Type.CppTypeName}}> marshaller;
-            return marshaller.ConvertToAbi({{pointerExpression}}[index]);
+            ReturnMarshaller<{{itemCppTypeName}}> marshaller;
+            return marshaller.ConvertToAbi({{valueExpression}});
             """;
     }
+
+    private static string GetNativePointerCountFieldItemCppTypeName(FieldBinding field) =>
+        field.CppTypeName.IndexOf('*') == field.CppTypeName.LastIndexOf('*')
+            ? field.CppTypeName
+            : field.Type.CppTypeName;
 
     private static string GetManagedWrapperTypeName(BindingType type, BindingCompilation? compilation = null)
     {

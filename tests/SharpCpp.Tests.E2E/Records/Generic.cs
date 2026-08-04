@@ -34,6 +34,17 @@ public sealed class GenericTests
     }
 
     [Fact]
+    public void Generic_const_reference_methods_preserve_concrete_and_generic_abi()
+    {
+        using var host = E2EBindings.CreateGenericMethodHost();
+
+        Assert.True(host.ConstReferenceIdentity(true));
+        Assert.False(host.ConstReferenceIdentity<bool>(false));
+        Assert.Equal(41, host.ConstReferenceIdentity(41));
+        Assert.Equal(73, host.ConstReferenceIdentity<int>(73));
+    }
+
+    [Fact]
     public void Generic_record_constructor_and_instance_methods_dispatch_to_supported_instantiations()
     {
         var box = new BoxOf<int>(12);

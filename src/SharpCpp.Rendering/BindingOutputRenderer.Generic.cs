@@ -2391,7 +2391,9 @@ public static partial class BindingOutputRenderer
             var invocationArguments = new List<string> { "global::SharpCpp.Support.NativeObject.GetHandle(this)" };
             for (var index = 0; index < function.Parameters.Count; index++)
             {
-                invocationArguments.Add(BuildGenericInvocationArgument(compilation, function.Parameters[index], concreteParameters[index]));
+                var concreteParameter = CreateConcreteParameter(
+                    function.Parameters[index], concreteParameters[index], useConcreteAbi: true);
+                invocationArguments.Add(RenderManagedInvocationArgument(compilation, concreteParameter));
             }
 
             writer.WriteLine();
@@ -2446,7 +2448,8 @@ public static partial class BindingOutputRenderer
             parameter.ManagedName,
             concreteType,
             parameter.Direction,
-            useConcreteAbi && parameter.Type.IsGenericParameter
+            useConcreteAbi && parameter.Type.IsGenericParameter &&
+                parameter.AbiKind == BindingParameterAbiKind.Value
                 ? concreteType.Marshaller.CppIsReference &&
                     concreteType.Marshaller.ManagedMarshaller is null
                     ? BindingParameterAbiKind.Reference
@@ -2996,7 +2999,10 @@ public static partial class BindingOutputRenderer
         {
             var genericTypeName = parameter.Type.GenericParameterName ?? parameter.Type.ManagedTypeName;
             var concreteTypeName = GetManagedWrapperTypeName(concreteType, compilation);
-            var reference = $"global::System.Runtime.CompilerServices.Unsafe.As<{genericTypeName}, {concreteTypeName}>(ref {parameter.ManagedName})";
+            var sourceReference = parameter.Direction == BindingParameterDirection.In
+                ? $"global::System.Runtime.CompilerServices.Unsafe.AsRef(in {parameter.ManagedName})"
+                : parameter.ManagedName;
+            var reference = $"global::System.Runtime.CompilerServices.Unsafe.As<{genericTypeName}, {concreteTypeName}>(ref {sourceReference})";
             return parameter.Direction switch
             {
                 BindingParameterDirection.In => $"in {reference}",

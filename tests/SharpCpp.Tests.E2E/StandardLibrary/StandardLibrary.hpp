@@ -123,6 +123,30 @@ inline int e2e_total_std_lookup(const std::unordered_map<std::string, int>& valu
     return total;
 }
 
+namespace qualified_stdlib
+{
+enum class lookup_key : int
+{
+    left = 1,
+    right = 2
+};
+
+using lookup = std::unordered_map<lookup_key, int>;
+
+inline lookup make_lookup()
+{
+    return {{lookup_key::left, 5}, {lookup_key::right, 7}};
+}
+
+inline int total_lookup(const lookup& values)
+{
+    auto total = 0;
+    for (const auto& [key, value] : values)
+        total += static_cast<int>(key) + value;
+    return total;
+}
+}
+
 struct std_library_owner
 {
     std_library_owner()

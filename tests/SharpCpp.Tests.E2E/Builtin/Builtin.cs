@@ -437,6 +437,7 @@ public sealed class BuiltinTests
     {
         var roundtripValue = new IntPtr(0x1234);
         Assert.Equal(roundtripValue, E2EBindings.RoundtripVoidPtr(roundtripValue));
+        Assert.Equal(roundtripValue, E2EBindings.EchoConstRefVoidPtr(roundtripValue));
 
         var inValue = new IntPtr(0x5678);
         Assert.Equal(inValue, E2EBindings.EchoInVoidPtr(inValue));

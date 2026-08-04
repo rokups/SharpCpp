@@ -1224,7 +1224,7 @@ struct Marshaller<const T&>
     using value_abi_type = typename Marshaller<T>::abi_type;
     using abi_type = std::conditional_t<
         std::is_pointer_v<T>,
-        std::add_pointer_t<std::add_pointer_t<std::add_const_t<std::remove_pointer_t<value_abi_type>>>>,
+        std::add_pointer_t<std::add_const_t<value_abi_type>>,
         std::conditional_t<
             std::is_pointer_v<value_abi_type>,
             std::add_pointer_t<std::add_const_t<std::remove_pointer_t<value_abi_type>>>,
@@ -1713,6 +1713,7 @@ static_assert(std::is_same_v<arg_t<detail::DefaultMarshallerComplexSmoke>, detai
 static_assert(std::is_same_v<arg_t<detail::DefaultMarshallerComplexSmoke**>, detail::DefaultMarshallerComplexSmoke**>);
 static_assert(std::is_same_v<arg_t<const detail::DefaultMarshallerComplexSmoke**>, const detail::DefaultMarshallerComplexSmoke**>);
 static_assert(std::is_same_v<arg_t<const detail::DefaultMarshallerComplexSmoke&>, const detail::DefaultMarshallerComplexSmoke*>);
+static_assert(std::is_same_v<arg_t<void* const&>, void* const*>);
 static_assert(std::is_same_v<ret_t<int>, int>);
 static_assert(std::is_same_v<ret_t<detail::DefaultMarshallerComplexSmoke>, detail::DefaultMarshallerComplexSmoke*>);
 }

@@ -55,14 +55,20 @@ struct pointer_count_field_box
 {
     field_payload** Items{};
     unsigned int NumItems{};
+    field_payload* Values{};
+    unsigned int ValueCount{};
+    const field_payload* ConstValues{};
+    unsigned int ConstValueCount{};
 };
 
 inline pointer_count_field_box* create_pointer_count_field_box(field_payload* first, field_payload* second)
 {
     static field_payload* items[2];
+    static field_payload values[2]{{59}, {61}};
+    static const field_payload const_values[2]{{67}, {71}};
     items[0] = first;
     items[1] = second;
-    return new pointer_count_field_box{items, 2};
+    return new pointer_count_field_box{items, 2, values, 2, const_values, 2};
 }
 
 class intrusive_field_payload

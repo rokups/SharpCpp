@@ -29,6 +29,11 @@ inline void* roundtrip_void_ptr(void* value)
     return value;
 }
 
+inline void* echo_const_ref_void_ptr(void* const& value)
+{
+    return value;
+}
+
 inline const void* echo_in_void_ptr(const void* value)
 {
     return value;

@@ -121,6 +121,12 @@ public sealed class FieldTests
         Assert.Equal(2u, box.NumItems);
         Assert.Equal(31, box.GetItemsAt(0).Value);
         Assert.Equal(47, box.GetItemsAt(1).Value);
+        Assert.Equal(2u, box.ValueCount);
+        Assert.Equal(59, box.GetValuesAt(0).Value);
+        Assert.Equal(61, box.GetValuesAt(1).Value);
+        Assert.Equal(2u, box.ConstValueCount);
+        Assert.Equal(67, box.GetConstValuesAt(0).Value);
+        Assert.Equal(71, box.GetConstValuesAt(1).Value);
 
         using var values = new global::SharpCpp.NativeArray<FieldPayload>(2);
         values[0] = first;

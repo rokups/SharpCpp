@@ -478,6 +478,11 @@ public sealed class StandardLibraryTests
             });
         Assert.Equal(20, E2EBindings.E2eTotalStdLookup(enumerableLookup));
 
+        using var qualifiedLookup = E2EBindings.MakeLookup();
+        Assert.Equal(2, qualifiedLookup.Count);
+        Assert.Equal(new[] { 5, 7 }, qualifiedLookup.Values.Order());
+        Assert.Equal(15, E2EBindings.TotalLookup(qualifiedLookup));
+
         using var emptyLookup = new global::Std.UnorderedMap<global::Std.String, int>();
         emptyLookup.Add(center, 13);
         Assert.Equal(13, E2EBindings.E2eTotalStdLookup(emptyLookup));

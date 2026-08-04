@@ -56,6 +56,22 @@ private:
     int value_{};
 };
 
+struct generic_method_host
+{
+    template <typename T>
+    [[sharpcpp::instantiate("bool")]]
+    [[sharpcpp::instantiate("int")]]
+    T const_reference_identity(const T& value) const
+    {
+        return value;
+    }
+};
+
+inline generic_method_host* create_generic_method_host()
+{
+    return new generic_method_host;
+}
+
 template <typename TFirst, typename TSecond>
 struct
 [[sharpcpp::rename("PairOf<{0}, {1}>")]]
