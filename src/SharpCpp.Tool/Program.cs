@@ -235,6 +235,8 @@ internal static class Program
             "public ProjectedConsumer(int offset) { _offset = offset; }");
         projectedConsumer.BodyCodeBlocks.Add(
             "public int RoundTrip(int value) => global::SharpCpp.Tests.E2E.Generated.E2EBindings.ConsumerProjectionRoundTrip(value) + _offset;");
+        projectedConsumer.BodyCodeBlocks.Add(
+            "public int RoundTripNormalized(int value)\r\n{\r\n    const string marker = \"\\\"{\";\r\n    return global::SharpCpp.Tests.E2E.Generated.E2EBindings.ConsumerProjectionRoundTrip(value) + _offset + marker.Length - 2;\r\n}\t");
         compilation.Members.Add(projectedConsumer);
     }
 
@@ -270,7 +272,10 @@ internal static class Program
         File.WriteAllText(compatibilityDependencyMetadataPath, BindingMetadataSerializer.Serialize(compatibilityDependencyMetadata));
         ExcludeSharedWrapperRecords(dependency);
 
-        var dependencyImports = BindingMetadataImportCatalog.Load([compatibilityDependencyMetadataPath]);
+        var dependencyImports = BindingMetadataImportCatalog.Load([
+            compatibilityDependencyMetadataPath,
+            dependencyMetadataPath
+        ]);
         var consumer = ParseCoverageHeader(
             "SharpCpp.Tests.E2E.Coverage.Consumer",
             "SharpCpp.Tests.E2E.Coverage.Consumer",

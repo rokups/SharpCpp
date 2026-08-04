@@ -33,7 +33,9 @@ public sealed unsafe class ConsumerProjectionTests
     public void Consumer_metadata_hooks_generate_callable_native_surfaces()
     {
         Assert.Equal(42, CoverageConsumerProjection.RoundTrip(41));
-        Assert.Equal(44, new global::SharpCpp.Tests.E2E.ConsumerProjection.ProjectedConsumer(2).RoundTrip(41));
+        var projected = new global::SharpCpp.Tests.E2E.ConsumerProjection.ProjectedConsumer(2);
+        Assert.Equal(44, projected.RoundTrip(41));
+        Assert.Equal(44, projected.RoundTripNormalized(41));
 
         var pointer = E2EBindings.ConsumerProjectionFunctionPointerFunctionPointer;
         Assert.NotEqual(0, pointer);

@@ -25,6 +25,10 @@ public sealed class ConfigBreadthTests
         Assert.Same(value, E2EBindings.Config2AliasConstReference(value));
         Assert.Same(value, E2EBindings.Config2AliasPointer(value));
 
+        using var map = E2EBindings.MakeConfig2ValueMap(value);
+        Assert.Same(value, map[4]);
+        Assert.Equal(40, E2EBindings.ReadConfig2ValueMap(map));
+
         using var surface = E2EBindings.MakeConfig2Surface(value, 2);
         Assert.Equal(42, surface.ReadConfigured());
         Assert.Same(value, surface.EchoConfigured(value));
@@ -61,6 +65,14 @@ public sealed class ConfigBreadthTests
         Assert.Equal(73, ReadNativeStatic<Config2Derived>());
         using var derivedSurface = E2EBindings.MakeConfig2DerivedSurface(derived, 1);
         Assert.Equal(53, derivedSurface.ReadConfigured());
+
+        using var rendered = new Config2RenderRecord();
+        Assert.Equal(13, rendered.DuplicateValue());
+        Assert.Equal(13, rendered.DuplicateValueValue);
+        rendered.DuplicateValueValue = 17;
+        Assert.Equal(17, rendered.DuplicateValue());
+        Assert.Equal(11, rendered.ShadowedValue());
+        Assert.Equal(5, rendered.SumInheritedValues());
     }
 
     private static int ReadNativeStatic<T>()

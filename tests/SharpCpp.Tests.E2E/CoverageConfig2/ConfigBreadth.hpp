@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <map>
 
 namespace config_breadth2
 {
@@ -33,6 +34,21 @@ namespace view = qualified;
 using config2_value_alias = qualified::value_alias;
 using config2_value_pointer_alias = view::value_alias*;
 
+namespace generic_std
+{
+template <
+    typename TKey,
+    typename TValue,
+    typename TCompare = std::less<TKey>,
+    typename TAllocator = std::allocator<std::pair<const TKey, TValue>>>
+using map = std::map<TKey, TValue, TCompare, TAllocator>;
+}
+
+namespace generic_std_view = generic_std;
+
+using config2_value_map_alias =
+    generic_std_view::map<int, config2_value_pointer_alias>;
+
 struct config2_derived final : config2_value
 {
     explicit config2_derived(int value)
@@ -53,6 +69,16 @@ inline const qualified::value_alias& config2_alias_const_reference(
 inline config2_value_pointer_alias config2_alias_pointer(config2_value_pointer_alias value)
 {
     return value;
+}
+
+inline config2_value_map_alias make_config2_value_map(config2_value_pointer_alias value)
+{
+    return { { 4, value } };
+}
+
+inline int read_config2_value_map(const config2_value_map_alias& values)
+{
+    return values.at(4)->get_value();
 }
 
 template <typename TValue, typename THidden = unsigned short>
@@ -156,6 +182,9 @@ template <
     typename THidden = unsigned int>
 struct config2_repair;
 
+template <typename TValue, typename TCallback, typename THidden>
+struct config2_repair;
+
 using config2_repair_alias =
     config2_repair<config2_value_alias*, config2_repair_callback, unsigned int>;
 
@@ -225,4 +254,29 @@ int config2_invoke_specialized_callback(
 template int config2_invoke_specialized_callback<config2_nested_callback>(
     config2_nested_callback callback,
     config2_value_alias* value);
+
+struct config2_render_base
+{
+protected:
+    int inherited_values_[2]{ 2, 3 };
+    int shadowed_value_{ 11 };
+};
+
+struct [[sharpcpp::director]] config2_render_record : config2_render_base
+{
+    config2_render_record() = default;
+
+    [[sharpcpp::rename("DuplicateValue")]]
+    int read_duplicate_value() const { return duplicate_value_; }
+
+    [[sharpcpp::rename("ShadowedValue")]]
+    int read_shadowed_value() const { return shadowed_value_; }
+
+    int sum_inherited_values() const
+    {
+        return inherited_values_[0] + inherited_values_[1];
+    }
+
+    int duplicate_value_{ 13 };
+};
 }

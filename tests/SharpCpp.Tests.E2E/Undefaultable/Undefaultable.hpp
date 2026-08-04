@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <string>
 
 #define E2E_UNDEFAULTABLE_OFFSET 40
@@ -91,6 +92,22 @@ inline void undefaultable_cascade_void(
     int tail = 5)
 {
     applied_config_value = undefaultable_cascade_value(seed, tag, offset, tail);
+}
+
+inline int undefaultable_array_value(
+    const std::array<int, 2>& values,
+    const char* tag = "native",
+    int tail = E2E_UNDEFAULTABLE_OFFSET)
+{
+    return values[0] + values[1] + (tag != nullptr ? tag[0] : 0) + tail;
+}
+
+inline void undefaultable_array_void(
+    const std::array<int, 2>& values,
+    const char* tag = "native",
+    int tail = E2E_UNDEFAULTABLE_OFFSET)
+{
+    applied_config_value = undefaultable_array_value(values, tag, tail);
 }
 
 struct undefaultable_result
@@ -210,6 +227,22 @@ struct undefaultable_mutator
     {
         return result_;
     }
+
+private:
+    int result_{};
+};
+
+struct undefaultable_array_handler
+{
+    explicit undefaultable_array_handler(
+        const std::array<int, 2>& values,
+        const char* tag = "native",
+        int tail = E2E_UNDEFAULTABLE_OFFSET)
+        : result_(undefaultable_array_value(values, tag, tail))
+    {
+    }
+
+    int get_result() const { return result_; }
 
 private:
     int result_{};

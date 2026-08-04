@@ -44,6 +44,16 @@ public sealed class UndefaultableTests
         Assert.Equal(3515, defaultResult.GetValue());
         using var explicitResult = E2EBindings.SelectUndefaultableResult(3, "c"u8, 4, 6);
         Assert.Equal(3145, explicitResult.GetValue());
+
+        using var values = new global::Std.Array<int>([11, 13]);
+        Assert.Equal(174, E2EBindings.UndefaultableArrayValue(values));
+        Assert.Equal(184, E2EBindings.UndefaultableArrayValue(values, "x"u8, null));
+        Assert.Equal(149, E2EBindings.UndefaultableArrayValue(values, "x"u8, 5));
+
+        E2EBindings.UndefaultableArrayVoid(values, "y"u8, null);
+        Assert.Equal(185, E2EBindings.GetAppliedConfigValue());
+        E2EBindings.UndefaultableArrayVoid(values, "y"u8, 6);
+        Assert.Equal(151, E2EBindings.GetAppliedConfigValue());
     }
 
     [Fact]
@@ -63,6 +73,12 @@ public sealed class UndefaultableTests
         Assert.Equal(52, namedCascade.GetId());
         using var explicitCascade = new UndefaultableHandler(3, 4, "x"u8, 6, 7);
         Assert.Equal(20, explicitCascade.GetId());
+
+        using var values = new global::Std.Array<int>([11, 13]);
+        using var defaultArray = new UndefaultableArrayHandler(values);
+        Assert.Equal(174, defaultArray.GetResult());
+        using var explicitArray = new UndefaultableArrayHandler(values, "x"u8, 5);
+        Assert.Equal(149, explicitArray.GetResult());
     }
 
     [Fact]
