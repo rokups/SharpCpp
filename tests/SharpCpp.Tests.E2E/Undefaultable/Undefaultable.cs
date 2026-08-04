@@ -133,6 +133,7 @@ public sealed class UndefaultableTests
 
         using var stringer = new UndefaultableStringer(7);
         Assert.Equal(47, stringer.ToString());
-        Assert.Equal(16, stringer.ToString(9));
+        Assert.Equal(16, stringer.ToString(9, out var stringerObserved));
+        Assert.Equal(17, stringerObserved);
     }
 }

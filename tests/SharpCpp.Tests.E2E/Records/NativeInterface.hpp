@@ -66,6 +66,19 @@ inline void create_native_interface_counter([[sharpcpp::out]] native_interface_c
     *counter = &instance;
 }
 
+inline void replace_native_interface_counter([[sharpcpp::ref]] native_interface_counter** counter)
+{
+    static native_interface_counter_impl instance{91};
+    *counter = &instance;
+}
+
+template <typename T>
+[[sharpcpp::instantiate("native_interface_counter*")]]
+native_interface_counter* generic_native_interface_identity(T value)
+{
+    return value;
+}
+
 inline native_interface_target* get_native_interface_target_a()
 {
     static native_interface_target_impl target{10};

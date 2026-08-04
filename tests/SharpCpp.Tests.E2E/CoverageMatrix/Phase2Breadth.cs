@@ -48,6 +48,16 @@ public sealed class Phase2BreadthTests
         Assert.Same(value, box.GetValue());
         Assert.Equal(46, E2EBindings.ReadPhase2AliasBox(box));
 
+        using var holder = new Phase2ValueHolder();
+        Assert.Equal(17, holder.Value.ReadConfigured());
+        Assert.Equal(29, holder.Replacement.ReadConfigured());
+        Assert.Equal(37, holder.Fixed.ReadConfigured());
+        holder.Value = holder.Replacement;
+        Assert.Equal(29, holder.ReadValue());
+        Assert.Equal(47, Phase2ValueHolder.Shared.ReadConfigured());
+        Phase2ValueHolder.Shared = holder.Replacement;
+        Assert.Equal(29, Phase2ValueHolder.ReadShared());
+
         using var derived = new Phase2Derived(50);
         Assert.Equal(51, derived.GetValue());
         Assert.Equal(71, ReadNativeStatic<Phase2Derived>());

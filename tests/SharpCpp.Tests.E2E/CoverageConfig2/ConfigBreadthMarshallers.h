@@ -244,7 +244,7 @@ struct [[sharpcpp::managed_type(
     , config2_repair_exposed<
         config_breadth2::config2_value_alias*,
         config_breadth2::config2_repair_callback,
-        unsigned int>
+        unsigned long>
 {
 };
 
@@ -279,7 +279,7 @@ ReturnMarshaller<config_breadth2::config2_repair<
     std::function<int(
         config_breadth2::config2_value_alias*,
         config_breadth2::config2_value_alias*)>,
-    unsigned int>>
+    unsigned long>>
     : OwnedHandleReturnMarshallerBase<config_breadth2::config2_repair_alias>
 {
 };

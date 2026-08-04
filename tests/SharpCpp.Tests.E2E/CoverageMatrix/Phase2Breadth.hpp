@@ -41,6 +41,20 @@ struct phase2_derived final : phase2_value
     static int get_type_static() { return 71; }
 };
 
+struct phase2_value_holder
+{
+    static inline phase2_value shared{47};
+
+    phase2_value_holder() = default;
+
+    phase2_value value{17};
+    phase2_value replacement{29};
+    const phase2_value fixed{37};
+
+    int read_value() const { return value.get_value(); }
+    static int read_shared() { return shared.get_value(); }
+};
+
 inline phase2_alias* phase2_forward_identity(phase2_alias* value)
 {
     return value;

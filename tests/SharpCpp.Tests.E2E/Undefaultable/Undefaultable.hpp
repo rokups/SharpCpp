@@ -256,8 +256,12 @@ struct undefaultable_stringer
     }
 
     [[sharpcpp::rename("ToString")]]
-    int render(int offset = E2E_UNDEFAULTABLE_OFFSET) const
+    int render(
+        int offset = E2E_UNDEFAULTABLE_OFFSET,
+        [[sharpcpp::out]] int* observed = nullptr) const
     {
+        if (observed != nullptr)
+            *observed = value_ + offset + 1;
         return value_ + offset;
     }
 

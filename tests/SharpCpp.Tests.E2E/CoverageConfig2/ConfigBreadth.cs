@@ -66,13 +66,24 @@ public sealed class ConfigBreadthTests
         using var derivedSurface = E2EBindings.MakeConfig2DerivedSurface(derived, 1);
         Assert.Equal(53, derivedSurface.ReadConfigured());
 
-        using var rendered = new Config2RenderRecord();
+        using var rendered = new ManagedConfig2RenderRecord();
+        Assert.Equal(23, rendered.BaseValue());
         Assert.Equal(13, rendered.DuplicateValue());
-        Assert.Equal(13, rendered.DuplicateValueValue);
-        rendered.DuplicateValueValue = 17;
-        Assert.Equal(17, rendered.DuplicateValue());
-        Assert.Equal(11, rendered.ShadowedValue());
+        Assert.Equal(11, rendered.ReadShadowedValue());
         Assert.Equal(5, rendered.SumInheritedValues());
+        Assert.Equal(4, rendered.ReadExposedValue(0));
+        rendered.WriteExposedValue(1, 8);
+        Assert.Equal(12, rendered.SumExposedValues());
+        Assert.Equal(14, rendered.InvokeTransform(7));
+    }
+
+    private sealed class ManagedConfig2RenderRecord : Config2RenderRecord
+    {
+        public override int Transform(int value) => value * 2;
+
+        public int ReadExposedValue(int index) => ExposedValues[index];
+
+        public void WriteExposedValue(int index, int value) => ExposedValues[index] = value;
     }
 
     private static int ReadNativeStatic<T>()

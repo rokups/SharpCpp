@@ -186,7 +186,7 @@ template <typename TValue, typename TCallback, typename THidden>
 struct config2_repair;
 
 using config2_repair_alias =
-    config2_repair<config2_value_alias*, config2_repair_callback, unsigned int>;
+    config2_repair<config2_value_alias*, config2_repair_callback, unsigned long>;
 
 namespace repair_view
 {
@@ -255,28 +255,46 @@ template int config2_invoke_specialized_callback<config2_nested_callback>(
     config2_nested_callback callback,
     config2_value_alias* value);
 
-struct config2_render_base
+struct [[sharpcpp::director]] config2_render_base
 {
+    virtual ~config2_render_base() = default;
+    virtual int base_value() const { return 23; }
+
 protected:
-    int inherited_values_[2]{ 2, 3 };
-    int shadowed_value_{ 11 };
+    int inherited_values[2]{ 2, 3 };
+    int exposed_values[2]{ 4, 6 };
+    int shadowed_value{ 11 };
 };
 
 struct [[sharpcpp::director]] config2_render_record : config2_render_base
 {
     config2_render_record() = default;
+    virtual ~config2_render_record() = default;
 
     [[sharpcpp::rename("DuplicateValue")]]
-    int read_duplicate_value() const { return duplicate_value_; }
+    int read_duplicate_value() const { return duplicate_value; }
 
-    [[sharpcpp::rename("ShadowedValue")]]
-    int read_shadowed_value() const { return shadowed_value_; }
+    int read_shadowed_value() const { return shadowed_value; }
 
-    int sum_inherited_values() const
-    {
-        return inherited_values_[0] + inherited_values_[1];
-    }
+    int sum_inherited_values() const { return inherited_values[0] + inherited_values[1]; }
 
-    int duplicate_value_{ 13 };
+    int sum_exposed_values() const { return exposed_values[0] + exposed_values[1]; }
+
+    int invoke_transform(int value) { return transform(value); }
+
+    int base_value() const override { return 23; }
+
+    virtual int transform(int value) { return value + 1; }
+
+    template <typename TValue>
+    [[sharpcpp::instantiate("int")]]
+    [[sharpcpp::ignore("generic ignored-stub coverage")]]
+    TValue ignored_generic(TValue value) const { return value; }
+
+    [[sharpcpp::ignore("static ignored-stub coverage")]]
+    static int ignored_static(int value) { return value; }
+
+    [[sharpcpp::ignore("same-name field coverage")]]
+    int duplicate_value{ 13 };
 };
 }

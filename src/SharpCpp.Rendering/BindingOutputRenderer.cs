@@ -1286,7 +1286,10 @@ public static partial class BindingOutputRenderer
 
         var fieldOwner = fieldOwnerCppTypeName ?? field.OwningRecordCppTypeName;
         var borrowedStorageTag = plan.BorrowsStorage ? ", std::true_type{}" : string.Empty;
-        return $"return MarshallerInvoker::get_field<{plan.StorageCppType}>(&{fieldOwner}::{field.NativeName}, {selfExpression}{borrowedStorageTag});";
+        var invocation = $"MarshallerInvoker::get_field<{plan.StorageCppType}>(&{fieldOwner}::{field.NativeName}, {selfExpression}{borrowedStorageTag})";
+        return plan.BorrowsStorage && field.IsReadOnly
+            ? $"return const_cast<std::remove_const_t<std::remove_reference_t<{plan.StorageCppType}>>*>({invocation});"
+            : $"return {invocation};";
     }
 
     private static string RenderNativeFieldSetInvocation(BindingCompilation compilation, FieldBinding field, NativeFieldInteropPlan plan, string selfExpression, string? fieldOwnerCppTypeName = null)
@@ -7617,18 +7620,8 @@ public static partial class BindingOutputRenderer
         }
 
         var valueExpression = $"{parameter.ManagedName}.Value";
-        if (!parameter.Type.IsPointerType)
-        {
-            return parameter.Direction switch
-            {
-                BindingParameterDirection.Ref => $"ref {valueExpression}",
-                BindingParameterDirection.Out => $"out {valueExpression}",
-                _ => valueExpression
-            };
-        }
         return parameter.Direction switch
         {
-            BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => $"in {valueExpression}",
             BindingParameterDirection.Ref => $"ref {valueExpression}",
             BindingParameterDirection.Out => $"out {valueExpression}",
             _ => valueExpression
