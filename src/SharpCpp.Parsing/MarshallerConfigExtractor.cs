@@ -1144,4 +1144,15 @@ internal static class MarshallerConfigExtractor
             .Replace(" <", "<", StringComparison.Ordinal)
             .Replace("> ", ">", StringComparison.Ordinal);
     }
+
+    internal static string? GetManagedNamespaceFromTypeName(string managedTypeName)
+    {
+        var genericStart = managedTypeName.IndexOf('<');
+        var typeHead = genericStart >= 0 ? managedTypeName[..genericStart] : managedTypeName;
+        typeHead = typeHead.StartsWith("global::", StringComparison.Ordinal)
+            ? typeHead["global::".Length..]
+            : typeHead;
+        var lastDot = typeHead.LastIndexOf('.');
+        return lastDot > 0 ? typeHead[..lastDot] : null;
+    }
 }

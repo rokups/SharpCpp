@@ -3099,7 +3099,7 @@ public sealed partial class ClangSharpHeaderParser
                 ManagedTypeFormat = managedTypeOverride.PublicTypeName,
                 ManagedNamespace = managedTypeOverride.ManagedNamespace ??
                     (!string.IsNullOrWhiteSpace(managedTypeOverride.ManagedWrapperAssembly)
-                        ? GetManagedNamespaceFromTypeName(managedTypeOverride.PublicTypeName)
+                        ? MarshallerConfigExtractor.GetManagedNamespaceFromTypeName(managedTypeOverride.PublicTypeName)
                         : null)
             };
             if (!string.IsNullOrWhiteSpace(managedTypeOverride.ManagedWrapperAssembly))
@@ -3140,7 +3140,7 @@ public sealed partial class ClangSharpHeaderParser
             record.ManagedTypeFormat ??= managedTypeOverride.PublicTypeName;
             record.ManagedNamespace ??= managedTypeOverride.ManagedNamespace ??
                 (!string.IsNullOrWhiteSpace(managedTypeOverride.ManagedWrapperAssembly)
-                    ? GetManagedNamespaceFromTypeName(managedTypeOverride.PublicTypeName)
+                    ? MarshallerConfigExtractor.GetManagedNamespaceFromTypeName(managedTypeOverride.PublicTypeName)
                     : null);
             if (!string.IsNullOrWhiteSpace(managedTypeOverride.ManagedWrapperAssembly))
             {
@@ -3797,16 +3797,6 @@ public sealed partial class ClangSharpHeaderParser
         var typeHead = StripGenericArguments(managedTypeName);
         var lastDot = typeHead.LastIndexOf('.');
         return lastDot >= 0 ? typeHead[(lastDot + 1)..] : typeHead;
-    }
-
-    private static string? GetManagedNamespaceFromTypeName(string managedTypeName)
-    {
-        var typeHead = StripGenericArguments(managedTypeName);
-        typeHead = typeHead.StartsWith("global::", StringComparison.Ordinal)
-            ? typeHead["global::".Length..]
-            : typeHead;
-        var lastDot = typeHead.LastIndexOf('.');
-        return lastDot > 0 ? typeHead[..lastDot] : null;
     }
 
     private static string ToPascalCase(string nativeName)

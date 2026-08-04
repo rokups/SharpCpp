@@ -23,11 +23,20 @@ public sealed class ParserBreadthTests
         using var late = new BreadthLateRecord(23);
         Assert.Equal(23, E2EBindings.ReadBreadthLateRecord(late));
 
+        using var outOfLineNested = E2EBindings.MakeBreadthOutOfLineNested(27);
+        Assert.Equal(27, outOfLineNested.Read());
+
         using var box = new BreadthForwardBox<int>(29);
         Assert.Equal(29, box.GetValue());
+        Assert.Same(box, E2EBindings.BreadthRoundtripBox(box));
+        Assert.Equal(29, box.Echo(box.GetValue()));
 
         using var payloadBox = new BreadthForwardBox<BreadthPayload>(payload);
         Assert.Same(payload, payloadBox.GetValue());
+        Assert.Same(payloadBox, E2EBindings.BreadthRoundtripBox(payloadBox));
+        Assert.Same(payload, payloadBox.Echo(payload));
+        Assert.Same(payload, payloadBox.EchoPayload(payload));
+        Assert.Equal(17, payloadBox.ReadPayload(payload));
         using var returnedPayloadBox = E2EBindings.MakeBreadthPayloadBox(payload);
         Assert.Same(payload, E2EBindings.ReadBreadthPayloadBox(returnedPayloadBox));
         using var aliasPayloadBox = E2EBindings.MakeBreadthAliasPayloadBox(payload);

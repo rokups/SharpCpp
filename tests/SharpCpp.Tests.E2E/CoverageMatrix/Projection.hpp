@@ -67,4 +67,27 @@ inline int consume_projected_payload(projected_owner<projected_payload> value)
 {
     return value.get() != nullptr ? value.get()->get_value() : -1;
 }
+
+struct [[sharpcpp::director]] projected_owner_director
+{
+    projected_owner_director() = default;
+    virtual ~projected_owner_director() = default;
+
+    virtual projected_owner<projected_payload> create_payload(int value)
+    {
+        return make_projected_payload(value);
+    }
+
+    int invoke_and_consume(int value)
+    {
+        auto owner = create_payload(value);
+        auto* payload = owner.detach();
+        if (payload == nullptr)
+            return -1;
+
+        const int result = payload->get_value();
+        delete payload;
+        return result;
+    }
+};
 }

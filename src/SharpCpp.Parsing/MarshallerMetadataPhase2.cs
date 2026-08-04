@@ -272,7 +272,11 @@ public static class MarshallerMetadataPhase2
             if (record.HasMetadata(MetadataKeys.ManagedWrapperAssembly))
             {
                 var managedType = record.ManagedTypeFormat ?? record.ManagedName;
-                record.ManagedNamespace ??= GetManagedNamespaceFromTypeName(managedType);
+                if (!ManagedNamespaceExpression.IsMatch(body) &&
+                    MarshallerConfigExtractor.GetManagedNamespaceFromTypeName(managedType) is { } inferredNamespace)
+                {
+                    record.ManagedNamespace = inferredNamespace;
+                }
                 record.ManagedName = GetSimpleTypeName(managedType);
             }
 
@@ -831,16 +835,6 @@ public static class MarshallerMetadataPhase2
         var typeHead = StripGenericArguments(managedTypeFormat);
         var lastDot = typeHead.LastIndexOf('.');
         return lastDot >= 0 ? typeHead[(lastDot + 1)..] : typeHead;
-    }
-
-    private static string? GetManagedNamespaceFromTypeName(string managedTypeName)
-    {
-        var typeHead = StripGenericArguments(managedTypeName);
-        typeHead = typeHead.StartsWith("global::", StringComparison.Ordinal)
-            ? typeHead["global::".Length..]
-            : typeHead;
-        var lastDot = typeHead.LastIndexOf('.');
-        return lastDot > 0 ? typeHead[..lastDot] : null;
     }
 
     private static void ApplyTemplateParameters(RecordBinding record, IReadOnlyList<string> templateParameterNames)

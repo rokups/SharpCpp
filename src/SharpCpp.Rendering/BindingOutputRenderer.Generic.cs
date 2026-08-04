@@ -110,8 +110,6 @@ public static partial class BindingOutputRenderer
             return RenderGenericArrayRecord(compilation, record);
         }
 
-        ValidateGenericRecordSlice(record);
-
         var writer = new CodeWriter();
         var constructors = record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.Parameters.Count).ToArray();
         var instanceMethods = record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && !function.IsStatic && function.OperatorToken is null && !function.IsConversionOperator && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
@@ -933,32 +931,6 @@ public static partial class BindingOutputRenderer
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 internal static partial void __Array_Set_{{token}}(nint self, nuint index, {{setParameterType}} value);
                 """;
-        }
-    }
-
-    private static void ValidateGenericRecordSlice(RecordBinding record)
-    {
-        if (record.IsDirector || record.IsPolymorphic || record.Bases.Count > 0)
-        {
-            throw new NotSupportedException($"Generic record '{record.ManagedName}' is limited to non-polymorphic, non-director, non-inheriting surface in this slice.");
-        }
-
-        if (record.Members.OfType<FieldBinding>().Any())
-        {
-            throw new NotSupportedException($"Generic record '{record.ManagedName}' does not support field projection in this slice.");
-        }
-
-        if (record.Members.OfType<FunctionBinding>().Any(static function => function.OperatorToken is not null || function.IsConversionOperator))
-        {
-            throw new NotSupportedException($"Generic record '{record.ManagedName}' does not support operators in this slice.");
-        }
-
-        foreach (var instantiation in record.SupportedGenericInstantiations)
-        {
-            if (instantiation.TypeArguments.Any(argument => argument.Kind is not (BindingTypeKind.Primitive or BindingTypeKind.Enum or BindingTypeKind.Handle)))
-            {
-                throw new NotSupportedException($"Generic record '{record.ManagedName}' currently supports only primitive/enum/handle concrete type arguments.");
-            }
         }
     }
 
@@ -2188,17 +2160,6 @@ public static partial class BindingOutputRenderer
 
         WriteDocumentationComment(writer, function);
 
-        if (methodInstantiations.Length == 0 || recordInstantiations.Count == 0)
-        {
-            writer.Write($$"""
-                public {{staticModifier}}{{returnTypeName}} {{function.ManagedName}}<{{methodTypeParams}}>({{parameterList}})
-                {
-                throw new NotSupportedException("SharpCpp does not yet support generic methods inside generic records for type argument combination <{{methodTypeParams}}>.");
-                }
-                """);
-            return writer.ToString();
-        }
-
         writer.Write($$"""
             public {{staticModifier}}{{returnTypeName}} {{function.ManagedName}}<{{methodTypeParams}}>({{parameterList}})
             {
@@ -2268,15 +2229,6 @@ public static partial class BindingOutputRenderer
             public {{staticModifier}}{{returnTypeName}} {{function.ManagedName}}<{{methodTypeParams}}>({{parameterList}})
             {
             """);
-
-        if (methodInstantiations.Count == 0 || recordInstantiations.Count == 0)
-        {
-            writer.Write($$"""
-                throw new NotSupportedException("SharpCpp does not yet support generic methods inside generic records for type argument combination <{{methodTypeParams}}>.");
-                }
-                """);
-            return writer.ToString();
-        }
 
         var methodParams = (IReadOnlyList<BindingGenericParameter>)function.GenericParameters.ToList();
         foreach (var recordInstantiation in recordInstantiations)
@@ -2928,11 +2880,6 @@ public static partial class BindingOutputRenderer
                 type.Marshaller.CppIsRecordValue);
         }
 
-        if (type.Kind == BindingTypeKind.Enum)
-        {
-            return BindingType.CreateEnum(type.CppTypeName, type.Marshaller.PublicTypeName, substitutedArguments, type.EnumId);
-        }
-
         return type;
     }
 
@@ -2961,11 +2908,6 @@ public static partial class BindingOutputRenderer
                 type.MarshallerTypeName,
                 substitutedArguments,
                 type.Marshaller.CppIsRecordValue);
-        }
-
-        if (type.Kind == BindingTypeKind.Enum)
-        {
-            return BindingType.CreateEnum(type.CppTypeName, type.Marshaller.PublicTypeName, substitutedArguments, type.EnumId);
         }
 
         return type;

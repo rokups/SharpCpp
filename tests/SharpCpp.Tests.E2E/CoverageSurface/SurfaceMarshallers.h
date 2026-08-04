@@ -60,12 +60,11 @@ struct ReturnMarshaller<e2e_std::shared_array<T>> : OwnedHandleReturnMarshallerB
 
 template <typename T>
 struct [[sharpcpp::managed_type(
-    public_type = "E2EStd.ProviderArray<{0}>",
+    public_type = "global::E2EStd.ProviderArray<{0}>",
     managed_base_type = "global::SharpCpp.Support.SharedArrayBase<{0}>",
-    managed_namespace = "E2EStd",
     managed_wrapper_assembly = "SharpCpp.Tests.E2E",
     managed_wrapper_provider_kind = "dynamic_array",
-    managed_wrapper_provider_namespace = "Std.Infrastructure",
+    managed_wrapper_provider_namespace = "global::Std.Infrastructure",
     dynamic_array = true,
     return_ownership = "owning"
 )]]

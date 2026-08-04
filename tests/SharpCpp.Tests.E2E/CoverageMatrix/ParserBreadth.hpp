@@ -102,6 +102,32 @@ inline int read_breadth_late_record(const breadth_late_record* value)
     return value == nullptr ? -1 : value->value;
 }
 
+struct breadth_out_of_line_owner
+{
+    struct nested;
+};
+
+struct breadth_out_of_line_owner::nested
+{
+    explicit nested(int value)
+        : value_(value)
+    {
+    }
+
+    int read() const
+    {
+        return value_;
+    }
+
+private:
+    int value_{};
+};
+
+inline breadth_out_of_line_owner::nested* make_breadth_out_of_line_nested(int value)
+{
+    return new breadth_out_of_line_owner::nested(value);
+}
+
 template <typename T>
 struct breadth_forward_box;
 
@@ -121,9 +147,35 @@ breadth_forward_box
         return value_;
     }
 
+    T echo(T value) const
+    {
+        return value;
+    }
+
+    breadth_payload* echo_payload(breadth_payload* value) const
+    {
+        return value;
+    }
+
+    int read_payload(const breadth_payload* value) const
+    {
+        return value == nullptr ? -1 : value->get_value();
+    }
+
 private:
     T value_{};
 };
+
+template <typename T>
+T breadth_roundtrip_box(T value)
+{
+    return value;
+}
+
+template breadth_forward_box<int>* breadth_roundtrip_box(
+    breadth_forward_box<int>* value);
+template breadth_forward_box<breadth_payload*>* breadth_roundtrip_box(
+    breadth_forward_box<breadth_payload*>* value);
 
 using breadth_int_box = breadth_forward_box<int>;
 template <typename T>

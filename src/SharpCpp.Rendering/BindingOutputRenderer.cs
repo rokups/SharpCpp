@@ -117,9 +117,7 @@ public static partial class BindingOutputRenderer
         {
             var files = new[]
             {
-                new GeneratedBindingFile($"{fileStem}.Bindings.g.cs", RenderManagedBindings(
-                    compilation,
-                    includeCallbackHelpers: false)),
+                new GeneratedBindingFile($"{fileStem}.Bindings.g.cs", RenderManagedBindings(compilation)),
                 new GeneratedBindingFile($"{fileStem}.Bindings.Aliases.g.cs", RenderAliasBindings(compilation, includeSharedCallbackHelpers: true)),
                 new GeneratedBindingFile($"{fileStem}.Bindings.g.cpp", RenderNativeBindings(compilation, includeCallbackReleaseRegistration: includeCallbackReleaseRegistration))
             };
@@ -139,9 +137,7 @@ public static partial class BindingOutputRenderer
 
         if (groups.Count == 0)
         {
-            allFiles.Add(new GeneratedBindingFile($"{fileStem}.Bindings.g.cs", RenderManagedBindings(
-                compilation,
-                includeCallbackHelpers: false)));
+            allFiles.Add(new GeneratedBindingFile($"{fileStem}.Bindings.g.cs", RenderManagedBindings(compilation)));
             allFiles.Add(new GeneratedBindingFile($"{fileStem}.Bindings.g.cpp", RenderNativeBindings(compilation, includeCallbackReleaseRegistration: includeCallbackReleaseRegistration)));
         }
         else
@@ -155,8 +151,7 @@ public static partial class BindingOutputRenderer
                 allFiles.Add(new GeneratedBindingFile($"{stem}.g.cs",
                     RenderManagedBindings(
                         compilation,
-                        node => memberSet.Contains(node) || (node is RecordBinding r && memberSet.Contains(r)),
-                        includeCallbackHelpers: false)));
+                        node => memberSet.Contains(node) || (node is RecordBinding r && memberSet.Contains(r)))));
                 allFiles.Add(new GeneratedBindingFile($"{stem}.g.cpp",
                     RenderNativeBindings(
                         compilation,
@@ -172,9 +167,7 @@ public static partial class BindingOutputRenderer
 
     private static string RenderManagedBindings(
         BindingCompilation compilation,
-        Func<BindingNode, bool>? memberFilter = null,
-        string? groupHeaderPath = null,
-        bool includeCallbackHelpers = true)
+        Func<BindingNode, bool>? memberFilter = null)
     {
         var writer = new CodeWriter();
         var allRecords = compilation.Records.Where(record => (IsSharedManagedWrapper(record) || !record.GetMetadata<bool>(MetadataKeys.SuppressEmission)) && !record.IsSilentlyExcluded()).AsEnumerable();
@@ -312,16 +305,13 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
-        var callbackParameters = includeCallbackHelpers
-            ? CollectCallbackParameters(records, functions).ToArray()
-            : Array.Empty<ParameterBinding>();
         var defaultContainer = (Namespace: compilation.ManagedNamespace, Class: compilation.ManagedClassName);
         var freeFunctionGroups = functions
             .Where(static function => function.Parent is not RecordBinding && !function.IsConstructor)
             .GroupBy(function => (Namespace: GetManagedNamespace(compilation, function), Class: GetManagedClassName(compilation, function)))
             .ToDictionary(static group => group.Key, static group => group.OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray());
 
-        if ((memberFilter is null && polymorphicConcreteRecords.Length > 0) || callbackParameters.Length > 0 || genericImportDeclarations.Count > 0 || sharedImportDeclarations.Count > 0)
+        if ((memberFilter is null && polymorphicConcreteRecords.Length > 0) || genericImportDeclarations.Count > 0 || sharedImportDeclarations.Count > 0)
         {
             freeFunctionGroups.TryAdd(defaultContainer, Array.Empty<FunctionBinding>());
         }
@@ -399,12 +389,6 @@ public static partial class BindingOutputRenderer
             {
                 writer.WriteLine();
                 writer.Write(RenderNativeObjectRegistryInitializer(compilation, polymorphicConcreteRecords));
-            }
-
-            if (isDefaultContainer && callbackParameters.Length > 0)
-            {
-                writer.WriteLine();
-                writer.Write(RenderManagedCallbackSupport(compilation, callbackParameters));
             }
 
             if (isDefaultContainer)
@@ -6763,11 +6747,6 @@ public static partial class BindingOutputRenderer
         return string.IsNullOrWhiteSpace(record.ManagedInstanceCacheTypeName)
             ? "global::SharpCpp.Support.INativeInstanceCache"
             : record.ManagedInstanceCacheTypeName!;
-    }
-
-    private static string GetManagedParameterAttribute(ParameterBinding parameter, BindingCompilation? compilation = null)
-    {
-        return GetManagedParameterAttribute(parameter, parameter.Type, compilation);
     }
 
     private static string GetManagedParameterAttribute(ParameterBinding parameter, BindingType type, BindingCompilation? compilation = null)
