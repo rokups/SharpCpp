@@ -4899,6 +4899,9 @@ public static partial class BindingOutputRenderer
         {
             writer.Write($$"""
 
+                #if defined(__EMSCRIPTEN__)
+                __attribute__((weak))
+                #endif
                 SHARPCPP_EXPORT_NAMED({{GetManagedCallbackReleaseRegistrationEntryPointName()}}) void {{GetManagedCallbackReleaseRegistrationEntryPointName()}}(void (*release)(void*))
                 {
                     SharpCpp::detail::SetManagedCallbackRelease(release);
