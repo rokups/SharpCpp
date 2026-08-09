@@ -642,8 +642,11 @@ internal static class Program
         {
             yield return cppVersionDir;
 
-            var targetDir = Path.Combine(cppVersionDir, "x86_64-pc-linux-gnu");
-            if (Directory.Exists(targetDir))
+            foreach (var targetDir in new[]
+                     {
+                         Path.Combine(cppVersionDir, "x86_64-pc-linux-gnu"),
+                         Path.Combine("/usr/include/x86_64-linux-gnu/c++", Path.GetFileName(cppVersionDir))
+                     }.Where(Directory.Exists))
             {
                 yield return targetDir;
             }
@@ -655,16 +658,23 @@ internal static class Program
             }
         }
 
-        var gccRoot = "/usr/lib/gcc/x86_64-pc-linux-gnu";
-        var gccIncludeDir = Directory.Exists(gccRoot)
-            ? Directory.EnumerateDirectories(gccRoot)
-                .OrderByDescending(Path.GetFileName, StringComparer.Ordinal)
-                .Select(path => Path.Combine(path, "include"))
-                .FirstOrDefault(Directory.Exists)
-            : null;
-        if (!string.IsNullOrWhiteSpace(gccIncludeDir))
+        foreach (var gccRoot in new[] { "/usr/lib/gcc/x86_64-pc-linux-gnu", "/usr/lib/gcc/x86_64-linux-gnu" })
         {
-            yield return gccIncludeDir;
+            var gccIncludeDir = Directory.Exists(gccRoot)
+                ? Directory.EnumerateDirectories(gccRoot)
+                    .OrderByDescending(Path.GetFileName, StringComparer.Ordinal)
+                    .Select(path => Path.Combine(path, "include"))
+                    .FirstOrDefault(Directory.Exists)
+                : null;
+            if (!string.IsNullOrWhiteSpace(gccIncludeDir))
+            {
+                yield return gccIncludeDir;
+            }
+        }
+
+        if (Directory.Exists("/usr/include/x86_64-linux-gnu"))
+        {
+            yield return "/usr/include/x86_64-linux-gnu";
         }
 
         yield return "/usr/include";

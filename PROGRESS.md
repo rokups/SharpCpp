@@ -10,6 +10,11 @@ The repository still contains model, metadata, generated E2E, and rbfx E2E suite
 
 Current worktree verification passes with generic complex C++ values crossing callback/native ABI as pointers by default, while explicitly configured value marshallers such as `StringHash`, math structs, and smart-pointer projections keep their configured ABI. Thin managed convenience wrappers remain acceptable when they delegate to generated APIs without handwritten native entrypoints; rbfx event subscription ownership is now covered by generated `Object::SubscribeToEvent<T>` wrappers discovered from C++ template instantiations.
 
+### Linux compiler include discovery (current change)
+
+- The standalone generator and parser tests recognize both `x86_64-pc-linux-gnu` and Debian-style `x86_64-linux-gnu` GCC include layouts.
+- SharpCpp's generated E2E graph can parse the C++ standard library without relying on host-specific implicit include paths.
+
 ### Parallel managed build graph (current change)
 
 - Internal project references preserve the solution's global `Platform` property, so direct solution entries and their transitive references share one MSBuild project instance instead of racing over the same output and intermediate files.
