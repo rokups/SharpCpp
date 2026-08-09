@@ -97,7 +97,8 @@ public static class BindingCompilationInheritancePass
             IsConversionOperator = sourceMethod.IsConversionOperator,
             IsExplicitConversionOperator = sourceMethod.IsExplicitConversionOperator,
             OperatorToken = sourceMethod.OperatorToken,
-            ReturnsOwnedHandle = sourceMethod.ReturnsOwnedHandle
+            ReturnsOwnedHandle = sourceMethod.ReturnsOwnedHandle,
+            ReturnPointerDepth = sourceMethod.ReturnPointerDepth
         };
 
         if (sourceMethod.TryGetMetadata(MetadataKeys.DocumentationComment, out string? documentation) && !string.IsNullOrWhiteSpace(documentation))

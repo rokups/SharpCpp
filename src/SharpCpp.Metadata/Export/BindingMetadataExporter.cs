@@ -167,7 +167,8 @@ public static class BindingMetadataExporter
             function.EntryPointName,
             CreateTypeReference(compilation, function.ReturnType, fullyQualifyConcrete: true),
             parameters,
-            function.ReturnsOwnedHandle);
+            function.ReturnsOwnedHandle,
+            function.ReturnPointerDepth);
     }
 
     private static BindingMetadataRecordMember CreateRecordMember(BindingCompilation compilation, BindingNode member)
@@ -209,7 +210,8 @@ public static class BindingMetadataExporter
                 IsPureVirtual: function.IsPureVirtual,
                 IsFinal: function.IsFinal,
                 IsOverride: function.IsOverride,
-                SymbolId: function.SymbolId),
+                SymbolId: function.SymbolId,
+                ReturnPointerDepth: function.ReturnPointerDepth),
             FieldBinding field => new BindingMetadataRecordMember(
                 "field",
                 field.NativeName,

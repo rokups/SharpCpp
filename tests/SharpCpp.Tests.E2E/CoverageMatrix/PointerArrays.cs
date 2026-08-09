@@ -10,6 +10,7 @@ public sealed class PointerArrayTests
     {
         var values = new[] { 2, 3, 5 };
         Assert.Equal(10, E2EBindings.SumPointerValues(values, (uint)values.Length));
+        Assert.Equal(10, E2EBindings.SumKeywordPointerValues(values, (uint)values.Length));
 
         E2EBindings.IncrementPointerValues(values, (uint)values.Length);
         Assert.Equal(new[] { 3, 4, 6 }, values);
@@ -50,5 +51,9 @@ public sealed class PointerArrayTests
 
         nint[] addresses = [3, 5, 7];
         Assert.Equal(15, E2EBindings.SumPointerAddresses(addresses, (uint)addresses.Length));
+
+        using var array = E2EBindings.GetPointerPayloadArray();
+        using var arrayItem = array.GetArrayElement(1);
+        Assert.Equal(19, arrayItem.GetValue());
     }
 }

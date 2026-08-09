@@ -35,6 +35,8 @@ public sealed class FunctionBinding : BindingNamedNode
 
     public string CppReturnTypeName { get; set; }
 
+    public int ReturnPointerDepth { get; set; }
+
     public string CppQualifiedName { get; set; }
 
     public string ImportMethodName { get; set; }

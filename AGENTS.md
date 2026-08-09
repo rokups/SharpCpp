@@ -14,6 +14,7 @@ This repository is the clean restart line described in `doc/`.
 - Keep layering clean: `Model -> Metadata -> Parsing/Pipeline/Rendering -> Tool`; `Support` stays runtime-side.
 - Do not broaden feature surface before the current slice is coherent.
 - **DO NOT** add type-specific special cases to the core ever. All type-specific behaviors are configured through C++ and C# marshallers only.
+- Derive binding and type semantics only from parsed AST/model facts. Never infer semantics from rendered C++ type-name strings.
 - **Tooling preference (hierarchy for codebase exploration/editing — applies to ALL agents with tool access)**:
   1. **jcodemunch** (first resort) — `search_symbols`, `get_symbol_source`, `get_call_hierarchy`, `get_blast_radius`, `get_file_outline`, `get_dependency_graph`, `find_references`, `check_references`, `get_ranked_context`. Use these for symbol lookup, call chain tracing, reference checking, and dependency analysis BEFORE falling back to text tools.
   2. **ast_grep** (structural search/replace) — `ast_grep_search` / `ast_grep_replace` for AST-aware pattern matching and rewriting. Use when jcodemunch is too heavy (single simple pattern) or when you need to rewrite matching code blocks.

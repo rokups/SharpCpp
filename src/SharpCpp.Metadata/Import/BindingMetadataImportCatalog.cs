@@ -276,7 +276,8 @@ public sealed class BindingMetadataImportCatalog
                 IsVirtual = member.IsVirtual,
                 IsPureVirtual = member.IsPureVirtual,
                 IsFinal = member.IsFinal,
-                IsOverride = member.IsOverride
+                IsOverride = member.IsOverride,
+                ReturnPointerDepth = member.ReturnPointerDepth
             };
 
             if (!string.IsNullOrWhiteSpace(member.MarshallerExposedMethod))

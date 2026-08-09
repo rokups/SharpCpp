@@ -71,7 +71,8 @@ public sealed record BindingMetadataRecordMember(
     bool IsPureVirtual = false,
     bool IsFinal = false,
     bool IsOverride = false,
-    string? SymbolId = null);
+    string? SymbolId = null,
+    int ReturnPointerDepth = 0);
 
 public sealed record BindingMetadataFunction(
     string SymbolId,
@@ -80,7 +81,8 @@ public sealed record BindingMetadataFunction(
     string EntryPoint,
     BindingMetadataTypeReference ReturnType,
     IReadOnlyList<BindingMetadataParameter> Parameters,
-    bool ReturnsOwnedHandle = false);
+    bool ReturnsOwnedHandle = false,
+    int ReturnPointerDepth = 0);
 
 public sealed record BindingMetadataAlias(
     string CppQualifiedName,

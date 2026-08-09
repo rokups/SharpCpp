@@ -262,7 +262,8 @@ public sealed class BindingMetadataImportCatalogTests
                             CppQualifiedName: "std::string::size",
                             OwningRecordCppTypeName: "std::string",
                             MarshallerExposedMethod: "std::string",
-                            IsConstMethod: true)
+                            IsConstMethod: true,
+                            ReturnPointerDepth: 1)
                     ],
                     ManagedWrapperProviderKind: "string",
                     HasCopyConstructor: true)
@@ -288,6 +289,7 @@ public sealed class BindingMetadataImportCatalogTests
             Assert.Equal("std::string::size", method.CppQualifiedName);
             Assert.Equal("std::string", method.OwningRecordCppTypeName);
             Assert.True(method.IsConstMethod);
+            Assert.Equal(1, method.ReturnPointerDepth);
             Assert.Equal("std::string", method.GetMetadata<string>(MetadataKeys.MarshallerExposedMethod));
             Assert.True(record.HasCopyConstructor);
         }

@@ -2745,6 +2745,7 @@ public static partial class BindingOutputRenderer
         var hidesStaticHelpers = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
             (!record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal) ||
              record.GetPrimaryBaseRecord(compilation) is not null);
+        var hidesArrayElement = InheritsArrayElementAccess(compilation, record);
         var staticHelperModifier = hidesStaticHelpers ? "new " : string.Empty;
         var managedTypeIdHelperModifier = record.GetPrimaryBaseRecord(compilation) is { } primaryBase &&
             primaryBase.IsPolymorphic &&
@@ -2820,7 +2821,7 @@ public static partial class BindingOutputRenderer
         {
             writer.WriteLine();
             writer.Write($$"""
-                {{(!string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ? "new " : string.Empty)}}public {{record.ManagedName}} GetArrayElement(nuint index)
+                {{(hidesArrayElement ? "new " : string.Empty)}}public {{record.ManagedName}} GetArrayElement(nuint index)
                 {
                 return CreateManagedWrapper(__PInvoke.GetArrayElement(this, index), ownsHandle: false);
                 }
@@ -6334,7 +6335,7 @@ public static partial class BindingOutputRenderer
 
             if (requiresWrapping && parameter.Direction is BindingParameterDirection.Ref or BindingParameterDirection.Out)
             {
-                var abiVariableName = $"__abi_{parameter.ManagedName}";
+                var abiVariableName = $"__abi_{parameter.ManagedName.TrimStart('@')}";
 
                 if (parameter.Direction == BindingParameterDirection.Ref)
                 {
@@ -7702,8 +7703,7 @@ public static partial class BindingOutputRenderer
         return !parameter.HasMetadata(MetadataKeys.InputPointerArray) &&
             parameter.Direction == BindingParameterDirection.In &&
             parameter.AbiKind == BindingParameterAbiKind.Pointer &&
-            parameter.Type.Kind == BindingTypeKind.Handle &&
-            IsPointerToPointerType(parameter.CppTypeName);
+            parameter.Type.Kind == BindingTypeKind.Handle;
     }
 
     private static bool IsInputRawPointerArrayParameter(ParameterBinding parameter)
@@ -7730,28 +7730,39 @@ public static partial class BindingOutputRenderer
         if (record.HasMetadata(MetadataKeys.ForwardDeclaration))
             return false;
 
-        return compilation.Members.OfType<FunctionBinding>()
-            .Concat(compilation.Records.SelectMany(static candidate => candidate.Members.OfType<FunctionBinding>()))
-            .SelectMany(static function => function.Parameters)
-            .Any(parameter => parameter.Direction == BindingParameterDirection.Out
+        var functions = compilation.Members.OfType<FunctionBinding>()
+            .Concat(compilation.Records.SelectMany(static candidate => candidate.Members.OfType<FunctionBinding>()));
+        return functions.Any(function =>
+            (!function.IsConstructor &&
+             function.ReturnPointerDepth == 1 &&
+             function.ReturnType.Kind == BindingTypeKind.Handle &&
+             string.Equals(function.ReturnType.RecordId, record.SymbolId, StringComparison.Ordinal)) ||
+            function.Parameters.Any(parameter => parameter.Direction == BindingParameterDirection.Out
                 && parameter.AbiKind == BindingParameterAbiKind.Pointer
                 && parameter.Type.Kind == BindingTypeKind.Handle
-                && IsPointerToPointerType(parameter.CppTypeName)
-                && string.Equals(parameter.Type.RecordId, record.SymbolId, StringComparison.Ordinal));
+                && string.Equals(parameter.Type.RecordId, record.SymbolId, StringComparison.Ordinal)));
     }
 
-    private static bool IsPointerToPointerType(string cppTypeName)
+    private static bool InheritsArrayElementAccess(BindingCompilation compilation, RecordBinding record)
     {
-        var normalized = cppTypeName
-            .Replace("const", string.Empty, StringComparison.Ordinal)
-            .Replace(" ", string.Empty, StringComparison.Ordinal)
-            .Trim();
-        return normalized.EndsWith("**", StringComparison.Ordinal);
+        if (string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ||
+            record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        for (var current = record.GetPrimaryBaseRecord(compilation); current is not null;
+             current = current.GetPrimaryBaseRecord(compilation))
+        {
+            if (RequiresArrayElementAccess(compilation, current))
+                return true;
+        }
+        return false;
     }
 
     private static string GetPointerArrayAbiSpanName(ParameterBinding parameter)
     {
-        return $"__abi_{parameter.ManagedName}";
+        return $"__abi_{parameter.ManagedName.TrimStart('@')}";
     }
 
     private static string GetPointerArrayPointerName(ParameterBinding parameter)

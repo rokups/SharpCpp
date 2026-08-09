@@ -8,6 +8,28 @@ namespace SharpCpp.Tests.Model;
 public sealed class ClangSharpHeaderParserPointerTests
 {
     [Fact]
+    public void Parse_records_return_pointer_depth_from_ast()
+    {
+        var compilation = ParseTempHeader(
+            "Sample.hpp",
+            """
+            struct Payload {};
+            using PayloadPointer = Payload*;
+
+            Payload get_payload();
+            Payload* get_payload_pointer();
+            Payload** get_payload_pointer_pointer();
+            PayloadPointer get_payload_alias_pointer();
+            """,
+            ["-x", "c++", "-std=c++20"]);
+
+        Assert.Equal(0, Assert.Single(compilation.Functions, static function => function.NativeName == "get_payload").ReturnPointerDepth);
+        Assert.Equal(1, Assert.Single(compilation.Functions, static function => function.NativeName == "get_payload_pointer").ReturnPointerDepth);
+        Assert.Equal(2, Assert.Single(compilation.Functions, static function => function.NativeName == "get_payload_pointer_pointer").ReturnPointerDepth);
+        Assert.Equal(1, Assert.Single(compilation.Functions, static function => function.NativeName == "get_payload_alias_pointer").ReturnPointerDepth);
+    }
+
+    [Fact]
     public void Parse_maps_primitive_pointer_function_types_to_intptr()
     {
         var compilation = ParseTempHeader(

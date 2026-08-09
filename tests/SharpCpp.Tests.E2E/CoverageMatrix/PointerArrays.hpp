@@ -28,6 +28,17 @@ inline int sum_pointer_values(const int* values, unsigned int count)
     return result;
 }
 
+inline int sum_keyword_pointer_values(const int* out, unsigned int count)
+{
+    return sum_pointer_values(out, count);
+}
+
+inline pointer_array_payload* get_pointer_payload_array()
+{
+    static pointer_array_payload values[] = {pointer_array_payload(17), pointer_array_payload(19)};
+    return values;
+}
+
 inline void increment_pointer_values(int* values, unsigned int count)
 {
     for (unsigned int i = 0; i < count; ++i)

@@ -19,7 +19,10 @@ public sealed class BindingMetadataExporterTests
 
         var zoo = new RecordBinding("record:Zoo", "Zoo", "Zoo");
         var alpha = new RecordBinding("record:Alpha", "Alpha", "Alpha");
-        var zebra = new FunctionBinding("function:zebra", "zebra", "Zebra", alpha.HandleType, "entry_zebra");
+        var zebra = new FunctionBinding("function:zebra", "zebra", "Zebra", alpha.HandleType, "entry_zebra")
+        {
+            ReturnPointerDepth = 1
+        };
         zebra.Parameters.Add(new ParameterBinding("parameter:zebra:value", "value", "value", BindingType.Int32));
         var add = new FunctionBinding("function:add", "add", "Add", BindingType.Int32, "entry_add");
 
@@ -40,6 +43,7 @@ public sealed class BindingMetadataExporterTests
 
         Assert.Equal(new[] { "Alpha", "Zoo" }, document.Types.Select(static type => type.ManagedName).Take(2));
         Assert.Equal(new[] { "Add", "Zebra" }, document.Functions.Select(static function => function.ManagedName));
+        Assert.Equal(1, document.Functions.Single(static function => function.ManagedName == "Zebra").ReturnPointerDepth);
         Assert.Equal(new[] { "Alpha.Package", "Zoo.Package" }, document.Imports.Select(static importItem => importItem.Package));
         Assert.Equal(new[] { "a.hpp", "z.hpp" }, document.Fingerprint.HeaderFiles);
     }
@@ -59,7 +63,7 @@ public sealed class BindingMetadataExporterTests
         var json = BindingMetadataSerializer.Serialize(original);
         var roundTripped = BindingMetadataSerializer.Deserialize(json);
 
-        Assert.Contains("\"schema_version\": 8", json, StringComparison.Ordinal);
+        Assert.Contains("\"schema_version\": 9", json, StringComparison.Ordinal);
         Assert.EndsWith(Environment.NewLine, json, StringComparison.Ordinal);
         Assert.Equal(original.SchemaVersion, roundTripped.SchemaVersion);
         Assert.Equal(original.GeneratorVersion, roundTripped.GeneratorVersion);

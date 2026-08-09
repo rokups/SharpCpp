@@ -1016,7 +1016,8 @@ public sealed partial class ClangSharpHeaderParser
             IsVirtual = methodDecl.IsVirtual,
             IsPureVirtual = methodDecl.IsPure,
             IsConstMethod = methodDecl.IsConst,
-            OwningRecordCppTypeName = record.CppQualifiedName
+            OwningRecordCppTypeName = record.CppQualifiedName,
+            ReturnPointerDepth = GetPointerDepth(methodDecl.ReturnType.Handle)
         };
         function.ReturnsOwnedHandle = ShouldReturnOwnedHandle(methodDecl.ReturnType.Handle, returnType, managedTypeOverrides);
         ApplyOperatorMetadata(function, methodDecl);
@@ -1139,7 +1140,8 @@ public sealed partial class ClangSharpHeaderParser
             IsVirtual = templatedFunction is CXXMethodDecl cxxMethod && cxxMethod.IsVirtual,
             IsPureVirtual = templatedFunction is CXXMethodDecl cxxMethod2 && cxxMethod2.IsPure,
             IsConstMethod = templatedFunction is CXXMethodDecl cxxMethod3 && cxxMethod3.IsConst,
-            OwningRecordCppTypeName = record.CppQualifiedName
+            OwningRecordCppTypeName = record.CppQualifiedName,
+            ReturnPointerDepth = GetPointerDepth(templatedFunction.ReturnType.Handle)
         };
         function.ReturnsOwnedHandle = ShouldReturnOwnedHandle(templatedFunction.ReturnType.Handle, returnType, managedTypeOverrides);
         if (templatedFunction is CXXConstructorDecl)
@@ -1221,7 +1223,8 @@ public sealed partial class ClangSharpHeaderParser
         {
             IsStatic = true,
             AccessModifier = MapAccessModifier(methodDecl.Access),
-            OwningRecordCppTypeName = record.CppQualifiedName
+            OwningRecordCppTypeName = record.CppQualifiedName,
+            ReturnPointerDepth = GetPointerDepth(methodDecl.ReturnType.Handle)
         };
         function.ReturnsOwnedHandle = ShouldReturnOwnedHandle(methodDecl.ReturnType.Handle, returnType, managedTypeOverrides);
         ApplyOperatorMetadata(function, methodDecl);
@@ -1858,7 +1861,10 @@ public sealed partial class ClangSharpHeaderParser
             returnType,
             entryPointName: $"{entryPointPrefix}_{nativeName}",
             cppReturnTypeName: cppReturnTypeName,
-            cppQualifiedName: GetCppQualifiedName(functionDecl));
+            cppQualifiedName: GetCppQualifiedName(functionDecl))
+        {
+            ReturnPointerDepth = GetPointerDepth(functionDecl.ReturnType.Handle)
+        };
         function.ReturnsOwnedHandle = ShouldReturnOwnedHandle(functionDecl.ReturnType.Handle, returnType, managedTypeOverrides);
 
         for (int parameterIndex = 0; parameterIndex < functionDecl.Parameters.Count; parameterIndex++)
@@ -1928,7 +1934,10 @@ public sealed partial class ClangSharpHeaderParser
             ToPascalCase(nativeName),
             returnType,
             cppReturnTypeName: cppReturnTypeName,
-            cppQualifiedName: GetCppQualifiedName(templateDecl));
+            cppQualifiedName: GetCppQualifiedName(templateDecl))
+        {
+            ReturnPointerDepth = GetPointerDepth(templatedFunction.ReturnType.Handle)
+        };
         function.ReturnsOwnedHandle = ShouldReturnOwnedHandle(templatedFunction.ReturnType.Handle, returnType, managedTypeOverrides);
 
         foreach (var templateParameter in templateParameters)
@@ -1992,6 +2001,20 @@ public sealed partial class ClangSharpHeaderParser
     private static bool TypeIsLValueReference(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_LValueReference;
     private static bool TypeIsAnyReference(CXType type) => type.TypeClass is CX_TypeClass.CX_TypeClass_LValueReference or CX_TypeClass.CX_TypeClass_RValueReference;
     private static bool TypeIsPointer(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_Pointer;
+
+    private static int GetPointerDepth(CXType type)
+    {
+        var depth = 0;
+        var current = type.CanonicalType;
+        while (TypeIsPointer(current))
+        {
+            ++depth;
+            current = current.PointeeType.CanonicalType;
+        }
+
+        return depth;
+    }
+
     private static bool TypeIsFunctionProto(CXType type) => type.TypeClass is CX_TypeClass.CX_TypeClass_FunctionProto or CX_TypeClass.CX_TypeClass_FunctionNoProto;
     private static bool TypeIsRecord(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_Record;
     private static bool TypeIsEnum(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_Enum;
