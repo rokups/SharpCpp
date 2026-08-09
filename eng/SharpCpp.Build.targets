@@ -36,7 +36,7 @@
     <ItemGroup>
       <_MSBuildProjectReferenceExistent Update="@(_MSBuildProjectReferenceExistent)">
         <SetConfiguration>%(_MSBuildProjectReferenceExistent.SetConfiguration);Configuration=$(Configuration)</SetConfiguration>
-        <GlobalPropertiesToRemove>TargetFramework;RuntimeIdentifier;SelfContained;Platform;SharpCppBuildE2E;SharpCppBuildRbfx</GlobalPropertiesToRemove>
+        <GlobalPropertiesToRemove>TargetFramework;RuntimeIdentifier;SelfContained;SharpCppBuildE2E;SharpCppBuildRbfx</GlobalPropertiesToRemove>
       </_MSBuildProjectReferenceExistent>
       <_MSBuildProjectReferenceExistent Update="@(_MSBuildProjectReferenceExistent)"
                                         Condition="'%(_MSBuildProjectReferenceExistent.SharpCppProperties)' != ''">

@@ -10,6 +10,11 @@ The repository still contains model, metadata, generated E2E, and rbfx E2E suite
 
 Current worktree verification passes with generic complex C++ values crossing callback/native ABI as pointers by default, while explicitly configured value marshallers such as `StringHash`, math structs, and smart-pointer projections keep their configured ABI. Thin managed convenience wrappers remain acceptable when they delegate to generated APIs without handwritten native entrypoints; rbfx event subscription ownership is now covered by generated `Object::SubscribeToEvent<T>` wrappers discovered from C++ template instantiations.
 
+### Parallel managed build graph (current change)
+
+- Internal project references preserve the solution's global `Platform` property, so direct solution entries and their transitive references share one MSBuild project instance instead of racing over the same output and intermediate files.
+- A cleaned parallel RedBolt build regenerated `SharpCpp.Metadata.deps.json` without duplicate writers, and the generated-binding E2E suite passes all 234 tests.
+
 ### Shared standard-library wrappers (current change)
 
 - `SharpCpp.Std` owns the public `Std.*` wrappers and provider contracts; `SharpCpp.Ea` owns the corresponding `Ea.*` wrappers for the rbfx third-party implementation.
