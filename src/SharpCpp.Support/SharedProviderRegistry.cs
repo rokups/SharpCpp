@@ -18,7 +18,7 @@ public interface ISharedProvider
 /// </summary>
 /// <remarks>
 /// The root provider type keeps unrelated wrapper assemblies isolated. A lookup prefers
-/// the requesting module and falls back only when one compatible provider exists.
+/// the requesting module and falls back when one compatible native shape exists.
 /// </remarks>
 public static class SharedProviderRegistry<TRootProvider>
     where TRootProvider : class, ISharedProvider
@@ -122,7 +122,8 @@ public static class SharedProviderRegistry<TRootProvider>
             }
         }
 
-        if (candidates.Length == 1)
+        if (candidates.Length > 0 && candidates.All(candidate =>
+                string.Equals(candidate.ShapeKey, candidates[0].ShapeKey, StringComparison.Ordinal)))
         {
             return candidates[0];
         }
