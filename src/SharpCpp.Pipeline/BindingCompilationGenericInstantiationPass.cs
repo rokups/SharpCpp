@@ -26,24 +26,52 @@ public static class BindingCompilationGenericInstantiationPass
             }
         }
 
-        foreach (var function in compilation.Functions)
+        ResetFunctionInstantiations(compilation);
+        CollectInferredInstantiations(compilation);
+    }
+
+    /// <summary>
+    /// Rebuild inferred specializations after validation has removed unsupported uses.
+    /// Explicit and target-configured specializations are preserved.
+    /// </summary>
+    public static void RefreshInferred(BindingCompilation compilation)
+    {
+        ArgumentNullException.ThrowIfNull(compilation);
+
+        var allowedInferredInstantiations = compilation.Records.ToDictionary(
+            static record => record,
+            static record => record.SupportedGenericInstantiations
+                .Where(static instantiation => instantiation.IsInferred)
+                .ToArray());
+
+        foreach (var record in compilation.Records)
         {
-            function.SupportedGenericInstantiations.Clear();
-
-            if (function.IsIgnored())
+            for (var index = record.SupportedGenericInstantiations.Count - 1; index >= 0; --index)
             {
-                continue;
-            }
-
-            if (function.TryGetMetadata(MetadataKeys.ExplicitGenericInstantiations, out GenericInstantiationMetadata? explicitInstantiations))
-            {
-                foreach (var instantiation in explicitInstantiations!.Instantiations)
-                {
-                    function.SupportedGenericInstantiations.Add(instantiation);
-                }
+                if (record.SupportedGenericInstantiations[index].IsInferred)
+                    record.SupportedGenericInstantiations.RemoveAt(index);
             }
         }
 
+        CollectInferredInstantiations(compilation);
+
+        // Target configuration may deliberately narrow the inferred surface. Refreshing
+        // after degradation is an intersection with the still-live uses, not permission
+        // to resurrect specializations that the target already removed.
+        foreach (var record in compilation.Records)
+        {
+            var allowed = allowedInferredInstantiations[record];
+            for (var index = record.SupportedGenericInstantiations.Count - 1; index >= 0; --index)
+            {
+                var instantiation = record.SupportedGenericInstantiations[index];
+                if (instantiation.IsInferred && !allowed.Any(candidate => InstantiationShapesEqual(candidate, instantiation)))
+                    record.SupportedGenericInstantiations.RemoveAt(index);
+            }
+        }
+    }
+
+    private static void CollectInferredInstantiations(BindingCompilation compilation)
+    {
         foreach (var function in compilation.Functions)
         {
             if (function.IsIgnored() || function.IsGeneric || (function.Parent as RecordBinding)?.IsGeneric == true)
@@ -68,9 +96,35 @@ public static class BindingCompilationGenericInstantiationPass
             CollectRecordInstantiations(compilation, field.Type);
         }
 
+        foreach (var baseBinding in compilation.Records.SelectMany(static record => record.Bases))
+        {
+            CollectRecordInstantiations(compilation, baseBinding.Type);
+        }
+
         foreach (var alias in compilation.TypeAliases)
         {
             CollectRecordInstantiations(compilation, alias.TargetType);
+        }
+    }
+
+    private static void ResetFunctionInstantiations(BindingCompilation compilation)
+    {
+        foreach (var function in compilation.Functions)
+        {
+            function.SupportedGenericInstantiations.Clear();
+
+            if (function.IsIgnored())
+            {
+                continue;
+            }
+
+            if (function.TryGetMetadata(MetadataKeys.ExplicitGenericInstantiations, out GenericInstantiationMetadata? explicitInstantiations))
+            {
+                foreach (var instantiation in explicitInstantiations!.Instantiations)
+                {
+                    function.SupportedGenericInstantiations.Add(instantiation);
+                }
+            }
         }
     }
 
@@ -99,14 +153,29 @@ public static class BindingCompilationGenericInstantiationPass
         if (type.Kind != BindingTypeKind.Handle ||
             string.IsNullOrWhiteSpace(type.RecordId) ||
             type.GenericArguments.Count == 0 ||
-            type.ContainsGenericParameters ||
-            ContainsOpenNativeTemplateParameter(type))
+            type.ContainsGenericParameters)
         {
             return;
         }
 
         var record = compilation.Records.FirstOrDefault(candidate => string.Equals(candidate.SymbolId, type.RecordId, StringComparison.Ordinal));
         if (record is null || record.IsIgnored() || !record.IsGeneric)
+        {
+            return;
+        }
+
+        // A managed projection may hide native-only template parameters, but the native
+        // specialization must still provide every argument. An incomplete AST shape is
+        // not a valid C++ type and must not become a generated specialization.
+        var nativeTemplateParameterCount = record.NativeTemplateParameterCount > 0
+            ? record.NativeTemplateParameterCount
+            : record.GenericParameters.Count;
+        var requiredNativeTemplateParameterCount = record.NativeTemplateRequiredParameterCount > 0
+            ? record.NativeTemplateRequiredParameterCount
+            : nativeTemplateParameterCount;
+        if (!type.NativeTemplateArgumentsAreAstVerified &&
+            type.NativeTemplateArguments.Count < requiredNativeTemplateParameterCount ||
+            type.NativeTemplateArguments.Count > nativeTemplateParameterCount)
         {
             return;
         }
@@ -124,29 +193,19 @@ public static class BindingCompilationGenericInstantiationPass
             return;
         }
 
-        if (record.SupportedGenericInstantiations.Any(existing => InstantiationsEqual(existing.TypeArguments, type.GenericArguments)))
+        if (record.SupportedGenericInstantiations.Any(existing =>
+                InstantiationsEqual(existing.TypeArguments, type.GenericArguments) &&
+                (existing.NativeTemplateArguments.All(static argument => argument.Kind == BindingTemplateArgumentKind.Type) &&
+                 type.NativeTemplateArguments.All(static argument => argument.Kind == BindingTemplateArgumentKind.Type) ||
+                 NativeTemplateArgumentsEqual(existing.NativeTemplateArguments, type.NativeTemplateArguments))))
         {
             return;
         }
 
-        record.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding(type.GenericArguments));
-    }
-
-    private static bool ContainsOpenNativeTemplateParameter(BindingType type)
-    {
-        if (type.CppTypeName.Contains("type-parameter-", StringComparison.Ordinal) ||
-            type.ManagedTypeName.Contains("type-parameter-", StringComparison.Ordinal))
-        {
-            return true;
-        }
-
-        if (type.IsCallback)
-        {
-            return (type.CallbackReturnType is not null && ContainsOpenNativeTemplateParameter(type.CallbackReturnType)) ||
-                type.CallbackParameterTypes.Any(ContainsOpenNativeTemplateParameter);
-        }
-
-        return type.GenericArguments.Any(ContainsOpenNativeTemplateParameter);
+        record.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding(
+            type.GenericArguments,
+            type.NativeTemplateArguments,
+            isInferred: true));
     }
 
     private static bool InstantiationsEqual(IReadOnlyList<BindingType> left, IReadOnlyList<BindingType> right)
@@ -168,6 +227,34 @@ public static class BindingCompilationGenericInstantiationPass
         return true;
     }
 
+    private static bool NativeTemplateArgumentsEqual(
+        IReadOnlyList<BindingTemplateArgument> left,
+        IReadOnlyList<BindingTemplateArgument> right)
+    {
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < left.Count; ++index)
+        {
+            if (left[index].Kind != right[index].Kind ||
+                left[index].IntegralValue != right[index].IntegralValue ||
+                !string.Equals(left[index].Type?.CppTypeName, right[index].Type?.CppTypeName, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool InstantiationShapesEqual(
+        RecordGenericInstantiationBinding left,
+        RecordGenericInstantiationBinding right) =>
+        InstantiationsEqual(left.TypeArguments, right.TypeArguments) &&
+        NativeTemplateArgumentsEqual(left.NativeTemplateArguments, right.NativeTemplateArguments);
+
     private static int GetVisibleGenericParameterCount(RecordBinding record)
     {
         var usedIndices = new HashSet<int>();
@@ -184,12 +271,6 @@ public static class BindingCompilationGenericInstantiationPass
     {
         if (type.IsGenericParameter &&
             record.GenericParameters.Any(parameter => string.Equals(parameter.Name, type.GenericParameterName, StringComparison.Ordinal)))
-        {
-            return true;
-        }
-
-        var trimmedTypeName = type.CppTypeName.Trim().TrimEnd('*', '&').Trim();
-        if (record.GenericParameters.Any(parameter => string.Equals(parameter.Name, trimmedTypeName, StringComparison.Ordinal)))
         {
             return true;
         }

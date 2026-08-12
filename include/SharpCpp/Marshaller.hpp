@@ -589,6 +589,68 @@ struct ListCollectionMarshallerBase : OwnedHandleMarshallerBase<TList>
     }
 };
 
+/// Collection adapter for containers that have indexed access and a maximum
+/// capacity but no insert operation (for example JPH::StaticArray).
+template <class TSequence, class T>
+struct IndexedSequenceCollectionMarshallerBase : OwnedHandleMarshallerBase<TSequence>
+{
+    using cpp_type = TSequence;
+    using abi_type = typename OwnedHandleMarshallerBase<TSequence>::abi_type;
+
+    [[sharpcpp::expose_member(shape = "protected_override", exposed = false, disambiguate = false)]]
+    static unsigned long long GetCountCore(const cpp_type& self)
+    {
+        return self.size();
+    }
+
+    [[sharpcpp::expose_member(shape = "protected_override", exposed = false, disambiguate = false)]]
+    static void ClearCore(cpp_type& self)
+    {
+        self.clear();
+    }
+
+    [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
+    static T GetAtCore(const cpp_type& self, unsigned long long index)
+    {
+        return self[static_cast<typename cpp_type::size_type>(index)];
+    }
+
+    [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
+    static void SetAtCore(cpp_type& self, unsigned long long index, const T& value)
+    {
+        self[static_cast<typename cpp_type::size_type>(index)] = value;
+    }
+
+    [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
+    static void AddCore(cpp_type& self, const T& value)
+    {
+        self.push_back(value);
+    }
+
+    [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
+    static void InsertAtCore(cpp_type& self, unsigned long long index, const T& value)
+    {
+        const auto size = self.size();
+        const auto position = static_cast<typename cpp_type::size_type>(index);
+        if (position >= size)
+        {
+            self.push_back(value);
+            return;
+        }
+
+        self.push_back(self.back());
+        for (auto current = size; current > position; --current)
+            self[current] = self[current - 1];
+        self[position] = value;
+    }
+
+    [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
+    static void RemoveAtCore(cpp_type& self, unsigned long long index)
+    {
+        self.erase(self.begin() + static_cast<typename cpp_type::size_type>(index));
+    }
+};
+
 template <class TMap, class TKey, class TValue>
 struct MapCollectionMarshallerBase : OwnedHandleMarshallerBase<TMap>
 {
@@ -1194,6 +1256,29 @@ struct Marshaller<const unsigned char*&>
 private:
     mutable const unsigned char* storage_{};
     mutable abi_type abi_argument_{};
+};
+
+template <class T>
+struct Marshaller<T&&>
+{
+    using cpp_type = T&&;
+    using value_marshaller_type = Marshaller<T>;
+    using abi_type = typename value_marshaller_type::abi_type;
+
+    abi_type ConvertToAbi(cpp_type value) noexcept
+    {
+        return value_marshaller_.ConvertToAbi(value);
+    }
+
+    cpp_type ConvertToCpp(abi_type value) noexcept
+    {
+        storage_ = value_marshaller_.ConvertToCpp(value);
+        return std::move(storage_);
+    }
+
+private:
+    value_marshaller_type value_marshaller_;
+    T storage_{};
 };
 
 template <class T>

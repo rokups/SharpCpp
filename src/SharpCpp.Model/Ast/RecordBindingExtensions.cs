@@ -113,6 +113,23 @@ public static class RecordBindingExtensions
         return true;
     }
 
+    public static bool OverridesSignature(FunctionBinding overrideMethod, FunctionBinding baseMethod)
+    {
+        ArgumentNullException.ThrowIfNull(overrideMethod);
+        ArgumentNullException.ThrowIfNull(baseMethod);
+
+        if (!overrideMethod.IsOverride ||
+            !baseMethod.IsVirtual ||
+            string.IsNullOrWhiteSpace(baseMethod.NativeDeclarationId))
+        {
+            return false;
+        }
+
+        return overrideMethod.OverriddenNativeDeclarationIds.Contains(
+            baseMethod.NativeDeclarationId,
+            StringComparer.Ordinal);
+    }
+
     public static RecordBinding? FindOwningRecord(this FunctionBinding function)
     {
         ArgumentNullException.ThrowIfNull(function);
@@ -204,7 +221,9 @@ public static class RecordBindingExtensions
         {
             foreach (var abstractMethod in baseRecord.Members.OfType<FunctionBinding>().Where(static method => !method.IsIgnored() && method.IsPureVirtual))
             {
-                if (!concreteImplementations.Any(candidate => SignaturesMatch(candidate, abstractMethod)))
+                if (!concreteImplementations.Any(candidate =>
+                        SignaturesMatch(candidate, abstractMethod) ||
+                        OverridesSignature(candidate, abstractMethod)))
                 {
                     return true;
                 }
@@ -253,7 +272,8 @@ public static class RecordBindingExtensions
         var existingIndex = -1;
         for (var index = 0; index < methods.Count; index++)
         {
-            if (!SignaturesMatch(methods[index], candidate))
+            if (!SignaturesMatch(methods[index], candidate) &&
+                !OverridesSignature(candidate, methods[index]))
             {
                 continue;
             }

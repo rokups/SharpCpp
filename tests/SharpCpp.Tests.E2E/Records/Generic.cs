@@ -126,4 +126,14 @@ public sealed class GenericTests
         Assert.Equal(12, clone.GetValue());
     }
 
+    [Fact]
+    public void Concrete_record_can_implement_abstract_generic_base()
+    {
+        using var sink = new GenericIntSink();
+
+        sink.Set(42);
+
+        Assert.Equal(42, sink.Get());
+    }
+
 }

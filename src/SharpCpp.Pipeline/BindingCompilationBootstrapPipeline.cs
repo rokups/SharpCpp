@@ -44,6 +44,7 @@ public static class BindingCompilationBootstrapPipeline
         if (configureBeforeValidation is not null)
             RunTimed("ConfigureBeforeValidation", () => configureBeforeValidation(compilation));
         RunTimed("DegradeUnsupportedSurface", () => DegradeUnsupportedSurfacePass.Apply(compilation));
+        RunTimed("RefreshGenericInstantiations", () => BindingCompilationGenericInstantiationPass.RefreshInferred(compilation));
         RunTimed("Inheritance", () => BindingCompilationInheritancePass.Apply(compilation));
         RunTimed("InheritManagedRuntimePolicy", () => InheritManagedRuntimePolicyPass.Apply(compilation));
         RunTimed("Polymorphism", () => BindingCompilationPolymorphismPass.Apply(compilation));

@@ -112,6 +112,7 @@ internal static class MarshallerConfigExtractor
     // ManagedTypeOverride record (same shape as ClangSharpHeaderParser's private record).
     internal sealed record ManagedTypeOverride(string CppTypeName, string PublicTypeName)
     {
+        public CppTypePattern? NativeTypePattern { get; init; }
         public bool Undefaultable { get; init; }
         public string? MarshallerTypeName { get; init; }
         public string? ManagedMarshaller { get; init; }
@@ -135,6 +136,26 @@ internal static class MarshallerConfigExtractor
         public bool EmitDefaultNativeReleaseOverride { get; init; } = true;
         public bool HasPublicTypeMapping { get; init; } = true;
     }
+
+    internal enum CppTypePatternKind
+    {
+        Builtin,
+        Declared,
+        TemplateParameter,
+        Pointer,
+        LValueReference,
+        RValueReference
+    }
+
+    internal sealed record CppTypePattern(
+        CppTypePatternKind Kind,
+        bool IsConst = false,
+        string? DeclarationId = null,
+        CXTypeKind BuiltinKind = CXTypeKind.CXType_Invalid,
+        uint TemplateParameterDepth = 0,
+        uint TemplateParameterIndex = 0,
+        CppTypePattern? Pointee = null,
+        IReadOnlyList<CppTypePattern>? TemplateArguments = null);
 
     /// <summary>
     /// Lightweight representation of a <c>[[sharpcpp::expose_member(...)]]</c> member function
@@ -367,7 +388,7 @@ internal static class MarshallerConfigExtractor
         var releaseStrategyMatch = ReleaseStrategyExpression.Match(body);
         var hasManagedBaseType = body.Contains("managed_base_type", StringComparison.Ordinal);
         var hasExposedMembers = ExtractExposedMembersFromDecl(decl, declIndex).Count > 0;
-        var templateParameterNames = ExtractTemplateParameterNames(decl, cppTypeName);
+        var templateParameterNames = ExtractTemplateParameterNames(decl);
         var publicTypeName = publicTypeMatch.Success ? publicTypeMatch.Groups["value"].Value : cppTypeName;
         var visibleTemplateParameterIndices = publicTypeMatch.Success
             ? ExtractVisibleTemplateParameterIndices(publicTypeName, templateParameterNames.Count)
@@ -377,6 +398,10 @@ internal static class MarshallerConfigExtractor
             cppTypeName,
             publicTypeName)
         {
+            NativeTypePattern = decl is ClassTemplateSpecializationDecl { TemplateArgs: { Count: > 0 } configured } &&
+                configured[0].Kind == CXTemplateArgumentKind.CXTemplateArgumentKind_Type
+                    ? CreateCppTypePattern(configured[0].AsType)
+                    : null,
             Undefaultable = undefaultableMatch.Success &&
                 string.Equals(undefaultableMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase),
             MarshallerTypeName = marshallerTypeMatch.Success ? marshallerTypeMatch.Groups["value"].Value : null,
@@ -443,15 +468,16 @@ internal static class MarshallerConfigExtractor
         Dictionary<string, MarshallerBodyConfig> result)
     {
         var sourceText = GetSourceText(decl.Handle.TranslationUnit, decl.Extent);
+        var exposedMembers = ExtractExposedMembersFromDecl(decl, declIndex);
 
         var attrMatch = SharpCppAttributeScanner.Scan(sourceText)
             .FirstOrDefault(static match => string.Equals(match.Name, "managed_type", StringComparison.Ordinal));
-        if (attrMatch is null)
+        if (attrMatch is null && exposedMembers.Count == 0)
         {
             return;
         }
 
-        var body = attrMatch.Body;
+        var body = attrMatch?.Body ?? string.Empty;
         var managedMarshallerMatch = ManagedMarshallerInAttributeExpression.Match(body);
         var managedInstanceCacheFactoryMatch = ManagedInstanceCacheFactoryExpression.Match(body);
         var managedInstanceCacheTypeMatch = ManagedInstanceCacheTypeExpression.Match(body);
@@ -465,13 +491,10 @@ internal static class MarshallerConfigExtractor
 
         cppTypeName = NormalizeTypeName(cppTypeName);
 
-        // Walk struct children for [[sharpcpp::expose_member(...)]] on member functions.
-        var exposedMembers = ExtractExposedMembersFromDecl(decl, declIndex);
-
         result[cppTypeName] = new MarshallerBodyConfig(
             AttributeBody: body,
             ExposedMembers: exposedMembers,
-            TemplateParameterNames: ExtractTemplateParameterNames(decl, cppTypeName),
+            TemplateParameterNames: ExtractTemplateParameterNames(decl),
             ManagedMarshaller: managedMarshallerMatch.Success ? managedMarshallerMatch.Groups["value"].Value : null,
             ManagedInstanceCacheFactoryExpression: managedInstanceCacheFactoryMatch.Success ? managedInstanceCacheFactoryMatch.Groups["value"].Value : null,
             ManagedInstanceCacheTypeName: managedInstanceCacheTypeMatch.Success ? managedInstanceCacheTypeMatch.Groups["value"].Value : null,
@@ -797,18 +820,22 @@ internal static class MarshallerConfigExtractor
         return $"{Path.GetFullPath(filePath)}:{line}:{column}";
     }
 
-    private static IReadOnlyList<string> ExtractTemplateParameterNames(Decl decl, string cppTypeName)
+    private static IReadOnlyList<string> ExtractTemplateParameterNames(Decl decl)
     {
-        var sourceText = GetSourceText(decl.Handle.TranslationUnit, decl.Extent);
-        if (TryExtractTemplateParameterNamesFromSource(sourceText, out var sourceParameters))
-        {
-            return sourceParameters;
-        }
+        return GetTemplateParameters(decl)
+            .Select(static parameter => parameter.Name ?? parameter.Spelling.ToString())
+            .Where(static name => !string.IsNullOrWhiteSpace(name))
+            .ToArray();
+    }
 
-        var patternParameters = ExtractTemplateParameterNamesFromTypePattern(cppTypeName);
-        return patternParameters.Count > 0
-            ? patternParameters
-            : Array.Empty<string>();
+    private static IReadOnlyList<NamedDecl> GetTemplateParameters(Decl decl)
+    {
+        return decl switch
+        {
+            ClassTemplatePartialSpecializationDecl partialSpecialization => partialSpecialization.TemplateParameters,
+            ClassTemplateDecl classTemplate => classTemplate.TemplateParameters,
+            _ => Array.Empty<NamedDecl>()
+        };
     }
 
     private static IReadOnlyList<int> ExtractVisibleTemplateParameterIndices(string publicTypeName, int parameterCount)
@@ -847,116 +874,6 @@ internal static class MarshallerConfigExtractor
             : usedIndices.OrderBy(static index => index).ToArray();
     }
 
-    private static IReadOnlyList<string> ExtractTemplateParameterNamesFromTypePattern(string cppTypeName)
-    {
-        var genericStart = cppTypeName.IndexOf('<');
-        var genericEnd = cppTypeName.LastIndexOf('>');
-        if (genericStart < 0 || genericEnd <= genericStart)
-        {
-            return Array.Empty<string>();
-        }
-
-        var argumentText = cppTypeName[(genericStart + 1)..genericEnd];
-
-        var builtinTokens = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "bool", "char", "signed char", "unsigned char", "short", "unsigned short",
-            "int", "unsigned int", "long", "unsigned long", "long long", "unsigned long long",
-            "float", "double", "size_t", "std::size_t", "void"
-        };
-
-        return SplitTopLevelTypeArguments(argumentText)
-            .Where(static token => !token.Contains("::", StringComparison.Ordinal))
-            .Where(static token => !token.Contains('<', StringComparison.Ordinal))
-            .Where(token => !builtinTokens.Contains(token))
-            .Where(static token => Regex.IsMatch(token, "^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.CultureInvariant))
-            .ToArray();
-    }
-
-    private static bool TryExtractTemplateParameterNamesFromSource(string sourceText, out IReadOnlyList<string> parameterNames)
-    {
-        parameterNames = Array.Empty<string>();
-        var templateIndex = sourceText.IndexOf("template", StringComparison.Ordinal);
-        if (templateIndex < 0)
-        {
-            return false;
-        }
-
-        var genericStart = sourceText.IndexOf('<', templateIndex);
-        if (genericStart < 0)
-        {
-            return false;
-        }
-
-        var depth = 0;
-        for (var index = genericStart; index < sourceText.Length; index++)
-        {
-            switch (sourceText[index])
-            {
-                case '<':
-                    depth++;
-                    break;
-
-                case '>':
-                    depth--;
-                    if (depth == 0)
-                    {
-                        var parameterText = sourceText[(genericStart + 1)..index];
-                        parameterNames = SplitTemplateParameterNames(parameterText);
-                        return parameterNames.Count > 0;
-                    }
-                    break;
-            }
-        }
-
-        return false;
-    }
-
-    private static IReadOnlyList<string> SplitTemplateParameterNames(string parameterText)
-    {
-        return parameterText
-            .Split(',', StringSplitOptions.RemoveEmptyEntries)
-            .Select(static part => part.Trim())
-            .Select(static part => part.Split(' ', StringSplitOptions.RemoveEmptyEntries).LastOrDefault())
-            .Where(static name => !string.IsNullOrWhiteSpace(name))
-            .Cast<string>()
-            .ToArray();
-    }
-
-    private static IReadOnlyList<string> SplitTopLevelTypeArguments(string parameterText)
-    {
-        var result = new List<string>();
-        var segmentStart = 0;
-        var angleDepth = 0;
-        var parenDepth = 0;
-
-        for (var index = 0; index < parameterText.Length; index++)
-        {
-            switch (parameterText[index])
-            {
-                case '<':
-                    angleDepth++;
-                    break;
-                case '>':
-                    angleDepth = Math.Max(0, angleDepth - 1);
-                    break;
-                case '(':
-                    parenDepth++;
-                    break;
-                case ')':
-                    parenDepth = Math.Max(0, parenDepth - 1);
-                    break;
-                case ',' when angleDepth == 0 && parenDepth == 0:
-                    result.Add(NormalizeTypeName(parameterText[segmentStart..index]));
-                    segmentStart = index + 1;
-                    break;
-            }
-        }
-
-        result.Add(NormalizeTypeName(parameterText[segmentStart..]));
-        return result;
-    }
-
     private static readonly ILogger Logger = SharpCppLog.For(nameof(MarshallerConfigExtractor));
 
     // ─── Utilities ───────────────────────────────────────────────────────────
@@ -986,151 +903,404 @@ internal static class MarshallerConfigExtractor
         }
     }
 
-    /// <summary>
-    /// Extracts the template argument type from a Marshaller/ReturnMarsharker struct
-    /// declaration cursor using the cursor's AST extent source text.
-    ///
-    /// For <c>template&lt;&gt; struct Marshaller&lt;const char*&gt; { ... };</c>,
-    /// this returns <c>"const char*"</c> by matching <c>Marshaller&lt;...&gt;</c>
-    /// in the cursor extent text (with spaces preserved between tokens).
-    /// The cursor extent IS the AST's definitive representation of the node.
-    /// </summary>
     private static string? ExtractTemplateArgFromCursorType(Decl decl, bool isReturn)
     {
-        var sourceText = GetSourceText(decl.Handle.TranslationUnit, decl.Extent);
-        var hasSourceTypeName = TryExtractTemplateArgumentFromSource(sourceText, isReturn, out var sourceTypeName);
-
-        // Prefer Clang's desugared template-argument type when available so
-        // marshaller metadata is keyed on the canonical container surface
-        // (for example, a hash-map implementation instead of its template alias).
-        if (decl is ClassTemplateSpecializationDecl specDecl)
-        {
-            var templateArgs = specDecl.TemplateArgs;
-            if (templateArgs.Count > 0)
-            {
-                var typeName = templateArgs[0].AsType.AsString;
-                if (!string.IsNullOrWhiteSpace(typeName))
-                {
-                    var normalizedTypeName = NormalizeTypeName(typeName);
-                    return hasSourceTypeName
-                        ? QualifyDesugaredTypeName(normalizedTypeName, NormalizeTypeName(sourceTypeName))
-                        : normalizedTypeName;
-                }
-            }
-        }
-
-        if (hasSourceTypeName)
-        {
-            return NormalizeTypeName(sourceTypeName);
-        }
-
-        return null;
+        _ = isReturn;
+        return decl is ClassTemplateSpecializationDecl { TemplateArgs: { Count: > 0 } arguments } &&
+            arguments[0].Kind == CXTemplateArgumentKind.CXTemplateArgumentKind_Type
+                ? FormatConfiguredCppType(arguments[0].AsType, GetTemplateParameters(decl))
+                : null;
     }
 
-    private static string QualifyDesugaredTypeName(string desugaredTypeName, string sourceTypeName)
+    internal static CppTypePattern? CreateCppTypePattern(
+        ClangSharp.Type type,
+        IReadOnlyDictionary<(uint Depth, uint Index), ClangSharp.Type>? substitutions = null)
     {
-        if (string.IsNullOrWhiteSpace(desugaredTypeName) ||
-            desugaredTypeName.Contains("::", StringComparison.Ordinal))
+        CppTypePattern? pattern = type switch
         {
-            return desugaredTypeName;
-        }
+            LValueReferenceType reference => CreateIndirectionPattern(
+                CppTypePatternKind.LValueReference,
+                reference.PointeeType,
+                substitutions),
+            RValueReferenceType reference => CreateIndirectionPattern(
+                CppTypePatternKind.RValueReference,
+                reference.PointeeType,
+                substitutions),
+            PointerType pointer => CreateIndirectionPattern(
+                CppTypePatternKind.Pointer,
+                pointer.PointeeType,
+                substitutions),
+            ElaboratedType elaborated => CreateCppTypePattern(elaborated.NamedType, substitutions),
+            ParenType paren => CreateCppTypePattern(paren.InnerType, substitutions),
+            TypedefType typedef => CreateCppTypePattern(typedef.Desugar, substitutions),
+            SubstTemplateTypeParmType substitution => CreateCppTypePattern(substitution.ReplacementType, substitutions),
+            TemplateTypeParmType parameter when substitutions?.TryGetValue(
+                (parameter.Depth, parameter.Index), out var replacement) == true =>
+                    CreateCppTypePattern(replacement, substitutions),
+            TemplateTypeParmType parameter => new(
+                CppTypePatternKind.TemplateParameter,
+                TemplateParameterDepth: parameter.Depth,
+                TemplateParameterIndex: parameter.Index),
+            TemplateSpecializationType specialization => CreateDeclaredPattern(
+                specialization.TemplateName.AsTemplateDecl,
+                specialization.Args,
+                substitutions),
+            RecordType { Decl: ClassTemplateSpecializationDecl specialization } => CreateDeclaredPattern(
+                GetSpecializedTemplateDecl(specialization) ?? specialization,
+                specialization.TemplateArgs,
+                substitutions),
+            RecordType record => CreateDeclaredPattern(record.Decl, [], substitutions),
+            EnumType @enum => CreateDeclaredPattern(@enum.Decl, [], substitutions),
+            BuiltinType => new(
+                CppTypePatternKind.Builtin,
+                BuiltinKind: type.Handle.kind),
+            _ => null
+        };
 
-        var sourceHead = sourceTypeName;
-        var sourceGenericStart = sourceHead.IndexOf('<');
-        if (sourceGenericStart >= 0)
+        if (pattern is not null && type.IsLocalConstQualified)
         {
-            sourceHead = sourceHead[..sourceGenericStart];
+            pattern = pattern with { IsConst = true };
         }
-
-        var sourceNamespaceSeparator = sourceHead.LastIndexOf("::", StringComparison.Ordinal);
-        if (sourceNamespaceSeparator < 0)
-        {
-            return desugaredTypeName;
-        }
-
-        var sourceNamespace = sourceHead[..sourceNamespaceSeparator];
-        return $"{sourceNamespace}::{desugaredTypeName}";
+        return pattern;
     }
 
-    private static bool TryGetMarshallerTemplateKind(Decl decl, out bool isReturn)
+    internal static bool ReturnTypeOwnsHandle(
+        CppTypePattern? actualType,
+        IEnumerable<ManagedTypeOverride> managedTypeOverrides)
     {
-        var sourceText = GetSourceText(decl.Handle.TranslationUnit, decl.Extent);
-        if (TryFindTemplateArgumentStart(sourceText, "ReturnMarshaller", out _))
-        {
-            isReturn = true;
-            return true;
-        }
-
-        if (TryFindTemplateArgumentStart(sourceText, "Marshaller", out _))
-        {
-            isReturn = false;
-            return true;
-        }
-
-        isReturn = false;
-        return false;
-    }
-
-    private static bool TryExtractTemplateArgumentFromSource(string sourceText, bool isReturn, out string typeName)
-    {
-        typeName = string.Empty;
-        var templateName = isReturn ? "ReturnMarshaller" : "Marshaller";
-        if (!TryFindTemplateArgumentStart(sourceText, templateName, out var genericStart))
+        if (actualType is null)
         {
             return false;
         }
 
-        var depth = 0;
-        for (var index = genericStart; index < sourceText.Length; index++)
-        {
-            switch (sourceText[index])
-            {
-                case '<':
-                    depth++;
-                    break;
-
-                case '>':
-                    depth--;
-                    if (depth == 0)
-                    {
-                        typeName = sourceText[(genericStart + 1)..index];
-                        return true;
-                    }
-                    break;
-            }
-        }
-
-        return false;
+        return managedTypeOverrides.Any(managedTypeOverride =>
+            string.Equals(managedTypeOverride.ReturnOwnership, "owning", StringComparison.OrdinalIgnoreCase) &&
+            managedTypeOverride.NativeTypePattern is { } configuredType &&
+            MatchesCppTypePattern(configuredType, actualType, new Dictionary<(uint Depth, uint Index), CppTypePattern>()));
     }
 
-    private static bool TryFindTemplateArgumentStart(string sourceText, string templateName, out int genericStart)
+    internal static bool MatchesManagedTypeOverride(
+        ManagedTypeOverride managedTypeOverride,
+        CXType actualType)
     {
-        var searchIndex = 0;
-        while (searchIndex < sourceText.Length)
+        ArgumentNullException.ThrowIfNull(managedTypeOverride);
+
+        if (managedTypeOverride.NativeTypePattern is not { } configuredType)
+            return true;
+
+        var actualKind = actualType.CanonicalType.kind;
+        return configuredType.Kind switch
         {
-            var templateNameIndex = sourceText.IndexOf(templateName, searchIndex, StringComparison.Ordinal);
-            if (templateNameIndex < 0)
-            {
-                break;
-            }
+            CppTypePatternKind.Pointer => actualKind == CXTypeKind.CXType_Pointer,
+            CppTypePatternKind.LValueReference => actualKind == CXTypeKind.CXType_LValueReference,
+            CppTypePatternKind.RValueReference => actualKind == CXTypeKind.CXType_RValueReference,
+            _ => actualKind is not CXTypeKind.CXType_Pointer and
+                not CXTypeKind.CXType_LValueReference and
+                not CXTypeKind.CXType_RValueReference
+        };
+    }
 
-            var nextIndex = templateNameIndex + templateName.Length;
-            while (nextIndex < sourceText.Length && char.IsWhiteSpace(sourceText[nextIndex]))
-            {
-                nextIndex++;
-            }
+    private static CppTypePattern? CreateIndirectionPattern(
+        CppTypePatternKind kind,
+        ClangSharp.Type pointeeType,
+        IReadOnlyDictionary<(uint Depth, uint Index), ClangSharp.Type>? substitutions)
+    {
+        return CreateCppTypePattern(pointeeType, substitutions) is { } pointee
+            ? new CppTypePattern(kind, Pointee: pointee)
+            : null;
+    }
 
-            if (nextIndex < sourceText.Length && sourceText[nextIndex] == '<')
-            {
-                genericStart = nextIndex;
-                return true;
-            }
-
-            searchIndex = templateNameIndex + templateName.Length;
+    private static CppTypePattern? CreateDeclaredPattern(
+        NamedDecl declaration,
+        IReadOnlyList<TemplateArgument> templateArguments,
+        IReadOnlyDictionary<(uint Depth, uint Index), ClangSharp.Type>? substitutions)
+    {
+        var declarationId = declaration.Handle.Usr.CString;
+        if (string.IsNullOrWhiteSpace(declarationId))
+        {
+            return null;
         }
 
-        genericStart = -1;
-        return false;
+        var arguments = new List<CppTypePattern>(templateArguments.Count);
+        foreach (var templateArgument in templateArguments)
+        {
+            if (templateArgument.Kind != CXTemplateArgumentKind.CXTemplateArgumentKind_Type ||
+                CreateCppTypePattern(templateArgument.AsType, substitutions) is not { } argument)
+            {
+                return null;
+            }
+            arguments.Add(argument);
+        }
+
+        return new(
+            CppTypePatternKind.Declared,
+            DeclarationId: declarationId,
+            TemplateArguments: arguments);
+    }
+
+    private static bool MatchesCppTypePattern(
+        CppTypePattern configured,
+        CppTypePattern actual,
+        IDictionary<(uint Depth, uint Index), CppTypePattern> parameterBindings)
+    {
+        if (configured.Kind == CppTypePatternKind.TemplateParameter)
+        {
+            var key = (configured.TemplateParameterDepth, configured.TemplateParameterIndex);
+            if (parameterBindings.TryGetValue(key, out var bound))
+            {
+                return CppTypePatternsEqual(bound, actual);
+            }
+            parameterBindings[key] = actual;
+            return true;
+        }
+
+        if (configured.Kind != actual.Kind || configured.IsConst != actual.IsConst)
+        {
+            return false;
+        }
+
+        return configured.Kind switch
+        {
+            CppTypePatternKind.Builtin => configured.BuiltinKind == actual.BuiltinKind,
+            CppTypePatternKind.Declared =>
+                string.Equals(configured.DeclarationId, actual.DeclarationId, StringComparison.Ordinal) &&
+                MatchCppTypePatternArguments(configured, actual, parameterBindings),
+            CppTypePatternKind.Pointer or
+            CppTypePatternKind.LValueReference or
+            CppTypePatternKind.RValueReference =>
+                configured.Pointee is not null && actual.Pointee is not null &&
+                MatchesCppTypePattern(configured.Pointee, actual.Pointee, parameterBindings),
+            _ => false
+        };
+    }
+
+    private static bool MatchCppTypePatternArguments(
+        CppTypePattern configured,
+        CppTypePattern actual,
+        IDictionary<(uint Depth, uint Index), CppTypePattern> parameterBindings)
+    {
+        var configuredArguments = configured.TemplateArguments ?? [];
+        var actualArguments = actual.TemplateArguments ?? [];
+        return configuredArguments.Count == actualArguments.Count &&
+            configuredArguments.Zip(actualArguments).All(pair =>
+                MatchesCppTypePattern(pair.First, pair.Second, parameterBindings));
+    }
+
+    private static bool CppTypePatternsEqual(CppTypePattern left, CppTypePattern right)
+    {
+        if (left.Kind != right.Kind ||
+            left.IsConst != right.IsConst ||
+            left.BuiltinKind != right.BuiltinKind ||
+            !string.Equals(left.DeclarationId, right.DeclarationId, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (left.Pointee is not null || right.Pointee is not null)
+        {
+            return left.Pointee is not null && right.Pointee is not null &&
+                CppTypePatternsEqual(left.Pointee, right.Pointee);
+        }
+
+        var leftArguments = left.TemplateArguments ?? [];
+        var rightArguments = right.TemplateArguments ?? [];
+        return leftArguments.Count == rightArguments.Count &&
+            leftArguments.Zip(rightArguments).All(static pair => CppTypePatternsEqual(pair.First, pair.Second));
+    }
+
+    private static string? FormatConfiguredCppType(
+        ClangSharp.Type type,
+        IReadOnlyList<NamedDecl> templateParameters)
+    {
+        string? rendered = type switch
+        {
+            LValueReferenceType referenceType => AppendIndirection(
+                FormatConfiguredCppType(referenceType.PointeeType, templateParameters), "&"),
+            RValueReferenceType referenceType => AppendIndirection(
+                FormatConfiguredCppType(referenceType.PointeeType, templateParameters), "&&"),
+            PointerType pointerType => AppendIndirection(
+                FormatConfiguredCppType(pointerType.PointeeType, templateParameters),
+                pointerType.IsLocalConstQualified ? "* const" : "*"),
+            ElaboratedType elaboratedType => FormatConfiguredCppType(elaboratedType.NamedType, templateParameters),
+            ParenType parenType => FormatConfiguredCppType(parenType.InnerType, templateParameters),
+            TypedefType typedefType => FormatConfiguredCppType(typedefType.Desugar, templateParameters),
+            SubstTemplateTypeParmType substitutionType => FormatConfiguredCppType(substitutionType.ReplacementType, templateParameters),
+            TemplateTypeParmType parameterType => GetTemplateParameterName(parameterType, templateParameters),
+            TemplateSpecializationType specializationType => FormatTemplateSpecialization(
+                specializationType.TemplateName.AsTemplateDecl,
+                specializationType.Args,
+                templateParameters),
+            RecordType { Decl: ClassTemplateSpecializationDecl specialization } => FormatTemplateSpecialization(
+                GetSpecializedTemplateDecl(specialization) ?? specialization,
+                specialization.TemplateArgs,
+                templateParameters),
+            RecordType recordType => GetCppQualifiedName(recordType.Decl),
+            EnumType enumType => GetCppQualifiedName(enumType.Decl),
+            BuiltinType => type.AsString,
+            _ => null
+        };
+
+        if (string.IsNullOrWhiteSpace(rendered))
+        {
+            return null;
+        }
+
+        return type.IsLocalConstQualified &&
+            type is not PointerType &&
+            !rendered.StartsWith("const ", StringComparison.Ordinal)
+            ? "const " + rendered
+            : rendered;
+    }
+
+    private static string? FormatTemplateSpecialization(
+        NamedDecl? templateDeclaration,
+        IReadOnlyList<TemplateArgument> arguments,
+        IReadOnlyList<NamedDecl> templateParameters)
+    {
+        if (templateDeclaration is null)
+        {
+            return null;
+        }
+
+        var renderedArguments = new string[arguments.Count];
+        for (var index = 0; index < arguments.Count; index++)
+        {
+            var renderedArgument = FormatTemplateArgument(arguments[index], templateParameters);
+            if (string.IsNullOrWhiteSpace(renderedArgument))
+            {
+                return null;
+            }
+
+            renderedArguments[index] = renderedArgument;
+        }
+
+        return $"{GetCppQualifiedName(templateDeclaration)}<{string.Join(", ", renderedArguments)}>";
+    }
+
+    private static string? FormatTemplateArgument(
+        TemplateArgument argument,
+        IReadOnlyList<NamedDecl> templateParameters)
+    {
+        return argument.Kind switch
+        {
+            CXTemplateArgumentKind.CXTemplateArgumentKind_Type => FormatConfiguredCppType(argument.AsType, templateParameters),
+            CXTemplateArgumentKind.CXTemplateArgumentKind_Declaration => GetDeclarationName(argument.AsDecl),
+            CXTemplateArgumentKind.CXTemplateArgumentKind_Integral =>
+                argument.AsIntegral.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            CXTemplateArgumentKind.CXTemplateArgumentKind_Template or
+            CXTemplateArgumentKind.CXTemplateArgumentKind_TemplateExpansion =>
+                GetDeclarationName(argument.AsTemplateOrTemplatePattern.AsTemplateDecl),
+            CXTemplateArgumentKind.CXTemplateArgumentKind_Expression =>
+                FormatTemplateArgumentExpression(argument.AsExpr, templateParameters),
+            CXTemplateArgumentKind.CXTemplateArgumentKind_NullPtr => "nullptr",
+            _ => null
+        };
+    }
+
+    private static string? FormatTemplateArgumentExpression(
+        Expr expression,
+        IReadOnlyList<NamedDecl> templateParameters)
+    {
+        return expression.IgnoreImplicit.IgnoreParens switch
+        {
+            DeclRefExpr { Decl: NonTypeTemplateParmDecl parameter } =>
+                GetTemplateParameterName(parameter, templateParameters),
+            DeclRefExpr declarationReference => GetDeclarationName(declarationReference.Decl),
+            IntegerLiteral integerLiteral => integerLiteral.ValueString,
+            _ => null
+        };
+    }
+
+    private static string? GetDeclarationName(NamedDecl? declaration)
+    {
+        return declaration is null
+            ? null
+            : declaration.Name ?? declaration.Spelling.ToString();
+    }
+
+    private static string? GetTemplateParameterName(
+        TemplateTypeParmType parameterType,
+        IReadOnlyList<NamedDecl> templateParameters)
+    {
+        return GetTemplateParameterName(parameterType.Index, templateParameters) ??
+            GetDeclarationName(parameterType.Decl);
+    }
+
+    private static string? GetTemplateParameterName(
+        NonTypeTemplateParmDecl parameter,
+        IReadOnlyList<NamedDecl> templateParameters)
+    {
+        return GetTemplateParameterName(parameter.Index, templateParameters) ??
+            GetDeclarationName(parameter);
+    }
+
+    private static string? GetTemplateParameterName(
+        uint parameterIndex,
+        IReadOnlyList<NamedDecl> templateParameters)
+    {
+        return parameterIndex < templateParameters.Count
+            ? GetDeclarationName(templateParameters[(int)parameterIndex])
+            : null;
+    }
+
+    private static string GetCppQualifiedName(Decl declaration)
+    {
+        var names = new List<string>();
+        var current = declaration.SemanticParentCursor;
+        while (current is NamespaceDecl or RecordDecl)
+        {
+            if (current is NamedDecl parentDeclaration &&
+                GetDeclarationName(parentDeclaration) is { Length: > 0 } parentName)
+            {
+                names.Add(parentName);
+            }
+
+            current = current.SemanticParentCursor;
+        }
+
+        names.Reverse();
+        if (declaration is NamedDecl namedDeclaration &&
+            GetDeclarationName(namedDeclaration) is { Length: > 0 } declarationName)
+        {
+            names.Add(declarationName);
+        }
+
+        return string.Join("::", names);
+    }
+
+    private static string? AppendIndirection(string? typeName, string indirection)
+    {
+        return string.IsNullOrWhiteSpace(typeName) ? null : typeName + indirection;
+    }
+
+    private static bool TryGetMarshallerTemplateKind(Decl decl, out bool isReturn)
+    {
+        var templateName = decl is ClassTemplateSpecializationDecl specialization
+            ? GetSpecializedTemplateDecl(specialization)?.Name
+            : null;
+        isReturn = string.Equals(templateName, "ReturnMarshaller", StringComparison.Ordinal);
+        return isReturn || string.Equals(templateName, "Marshaller", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Resolve the AST declaration selected by a class-template specialization without
+    /// assuming it is the primary <see cref="ClassTemplateDecl"/>. Clang may point a
+    /// concrete specialization at the matching partial specialization, while
+    /// ClangSharp's <see cref="ClassTemplateSpecializationDecl.SpecializedTemplate"/>
+    /// property always casts that cursor to <see cref="ClassTemplateDecl"/>.
+    /// </summary>
+    internal static NamedDecl? GetSpecializedTemplateDecl(ClassTemplateSpecializationDecl specialization)
+    {
+        var cursor = specialization.Handle.SpecializedCursorTemplate;
+        if (cursor.IsNull)
+        {
+            return null;
+        }
+
+        var translationUnit = TranslationUnit.GetOrCreate(specialization.Handle.TranslationUnit);
+        return TryCreateDecl(translationUnit, cursor, out var declaration)
+            ? declaration as NamedDecl
+            : null;
     }
 
     internal static string NormalizeTypeName(string spelling)

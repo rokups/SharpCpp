@@ -40,3 +40,17 @@ struct [[sharpcpp::director]] mi_counter : mi_left, mi_right
         return left_value() + right_value();
     }
 };
+
+struct mi_pure_right
+{
+    virtual int pure_right_value() const = 0;
+};
+
+struct mi_concrete_private_override : mi_left, mi_pure_right
+{
+private:
+    int pure_right_value() const override
+    {
+        return 30;
+    }
+};

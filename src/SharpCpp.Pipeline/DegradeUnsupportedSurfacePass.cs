@@ -404,7 +404,7 @@ public static class DegradeUnsupportedSurfacePass
 
         if (!string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
             !record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal) &&
-            !compilation.Records.Any(candidate => !candidate.IsIgnored() && string.Equals(candidate.ManagedName, record.ManagedBaseTypeName, StringComparison.Ordinal)))
+            !HasAvailableNativeBaseRecord(compilation, record))
         {
             record.SetWarning($"dropping managed base type '{record.ManagedBaseTypeName}' from record '{record.ManagedName}' because the managed base type is not available for a coherent managed hierarchy; the derived record will still be generated without that base");
             record.ManagedBaseTypeName = null;
@@ -424,12 +424,26 @@ public static class DegradeUnsupportedSurfacePass
         return false;
     }
 
+    private static bool HasAvailableNativeBaseRecord(BindingCompilation compilation, RecordBinding record)
+    {
+        var primaryBase = record.Bases.FirstOrDefault(static candidate => !candidate.IsVirtual);
+        return primaryBase is not null &&
+            compilation.FindRecordBySymbolId(primaryBase.RecordId) is { } baseRecord &&
+            !baseRecord.IsIgnored();
+    }
+
     private static bool TryGetUnsupportedFieldReason(
         FieldBinding field,
         IReadOnlyDictionary<string, RecordBinding> recordsById,
         IReadOnlyDictionary<string, EnumBinding> enumsById,
         out string reason)
     {
+        if ((field.Parent as RecordBinding)?.IsGeneric == true)
+        {
+            reason = "fields on generic records are not yet specialized by the native renderer";
+            return true;
+        }
+
         if ((field.Parent as RecordBinding)?.IsGeneric != true && field.Type.ContainsGenericParameters)
         {
             reason = "field type is unsupported in this bootstrap surface: open generic parameter usage is not renderer-ready in a non-generic record";
@@ -575,17 +589,6 @@ public static class DegradeUnsupportedSurfacePass
         {
             reason = $"managed type name '{type.ManagedTypeName}' contains a ref struct generic argument which is not yet supported in this bootstrap surface";
             return true;
-        }
-
-        if (disallowNonPointerHandles && type.Kind == BindingTypeKind.Handle &&
-            type.Marshaller.CppIsRecordValue)
-        {
-            if (!recordsById.TryGetValue(type.RecordId ?? string.Empty, out var wrapperRecord) ||
-                !IsMarshallerBackedWrapperSurface(wrapperRecord))
-            {
-                reason = $"record value type '{rawCppTypeName}' is not yet supported";
-                return true;
-            }
         }
 
         if (type.GenericArguments.Count > 0 && !IsSupportedGenericHandleType(type, recordsById))

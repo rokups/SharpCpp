@@ -111,7 +111,10 @@ public static partial class BindingOutputRenderer
         }
 
         var writer = new CodeWriter();
-        var constructors = record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.Parameters.Count).ToArray();
+        var hasNativeNonTypeArguments = HasNativeNonTypeTemplateArguments(record);
+        var constructors = hasNativeNonTypeArguments
+            ? Array.Empty<FunctionBinding>()
+            : record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.Parameters.Count).ToArray();
         var instanceMethods = record.Members.OfType<FunctionBinding>().Where(static function => !function.IsConstructor && !function.IsStatic && function.OperatorToken is null && !function.IsConversionOperator && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.ManagedName, StringComparer.Ordinal).ToArray();
         var genericInstanceMethods = instanceMethods.Where(static function => function.IsGeneric).ToArray();
         var concreteInstanceMethods = instanceMethods.Where(static function => !function.IsGeneric).ToArray();
@@ -120,8 +123,16 @@ public static partial class BindingOutputRenderer
         var concreteStaticMethods = staticMethods.Where(static function => !function.IsGeneric).ToArray();
         var instantiations = GetCanonicalManagedGenericInstantiations(compilation, record);
         var baseTypeName = GetGenericManagedBaseTypeName(compilation, record);
+        var hasManagedBase = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName);
+        var hidesPrimaryBaseHelpers = record.GetPrimaryBaseRecord(compilation) is not null;
+        var staticHelperModifier = hidesPrimaryBaseHelpers ? "new " : string.Empty;
         var genericConstraints = GetGenericRecordConstraints(record);
-        var canEmitClone = CanEmitClone(record, isEffectivelyAbstract: false, canEmitDeleteThunk: true);
+        var isEffectivelyAbstract = IsManagedWrapperAbstract(
+            compilation,
+            record,
+            record.GetEffectiveVirtualMethodSlots(compilation));
+        var canEmitClone = CanEmitClone(record, isEffectivelyAbstract, canEmitDeleteThunk: true);
+        var classModifier = isEffectivelyAbstract ? "abstract " : string.Empty;
         var additionalInterfaces = GetConfiguredManagedStaticInterfaces(compilation, record);
         var additionalInterfaceClause = additionalInterfaces.Count == 0
             ? string.Empty
@@ -129,28 +140,37 @@ public static partial class BindingOutputRenderer
 
         WriteDocumentationComment(writer, record);
         writer.Write($$"""
-            public partial class {{GetGenericRecordDeclarationName(record)}} : {{baseTypeName}}, global::SharpCpp.Support.INativeObjectRegistration<{{GetGenericRecordDeclarationName(record)}}>{{(canEmitClone ? ", global::System.ICloneable" : string.Empty)}}{{additionalInterfaceClause}}{{genericConstraints}}
+            public {{classModifier}}partial class {{GetGenericRecordDeclarationName(record)}} : {{baseTypeName}}, global::SharpCpp.Support.INativeObjectRegistration<{{GetGenericRecordDeclarationName(record)}}>{{(canEmitClone ? ", global::System.ICloneable" : string.Empty)}}{{additionalInterfaceClause}}{{genericConstraints}}
             {
-            internal static readonly {{GetInstanceCacheFieldTypeName(record)}} s_instanceCache = {{GetInstanceCacheFactoryExpression(record)}};
+            {{staticHelperModifier}}internal static readonly {{GetInstanceCacheFieldTypeName(record)}} s_instanceCache = {{GetInstanceCacheFactoryExpression(record)}};
 
             protected override global::SharpCpp.Support.INativeInstanceCache? InstanceCache => s_instanceCache;
 
-            internal {{record.ManagedName}}(nint handle, bool ownsHandle = false)
+            {{(hasNativeNonTypeArguments ? "private readonly string _nativeTemplateKey;" : string.Empty)}}
+
+            internal {{record.ManagedName}}(nint handle, bool ownsHandle = false{{(hasNativeNonTypeArguments ? ", string nativeTemplateKey = \"\"" : string.Empty)}})
                 : base(handle, ownsHandle)
             {
+            {{(hasNativeNonTypeArguments ? "_nativeTemplateKey = nativeTemplateKey;" : string.Empty)}}
             }
 
-            public nint Handle => DangerousGetHandle();
-            public bool OwnsHandle => OwnsNativeHandle;
-            public bool IsNull => IsClosed || IsInvalid;
+            {{(!hasManagedBase && !record.HasOwnManagedMemberNamed("Handle") ? "public nint Handle => DangerousGetHandle();" : string.Empty)}}
+            {{(!hasManagedBase && !record.HasOwnManagedMemberNamed("OwnsHandle") ? "public bool OwnsHandle => OwnsNativeHandle;" : string.Empty)}}
+            {{(!hasManagedBase && !record.HasOwnManagedMemberNamed("IsNull") ? "public bool IsNull => IsClosed || IsInvalid;" : string.Empty)}}
 
-            internal static {{GetGenericRecordDeclarationName(record)}} CreateManagedWrapper(nint handle, bool ownsHandle)
+            {{staticHelperModifier}}internal static {{GetGenericRecordDeclarationName(record)}} CreateManagedWrapper(nint handle, bool ownsHandle)
             {
+            {{(hasNativeNonTypeArguments
+                ? RenderDefaultNativeTemplateWrapperDispatch(record, instantiations, isEffectivelyAbstract)
+                : $$"""
             if (handle == 0)
-                return new {{GetGenericRecordDeclarationName(record)}}(0, ownsHandle);
+                {{(isEffectivelyAbstract ? "return null!;" : $"return new {GetGenericRecordDeclarationName(record)}(0, ownsHandle);")}}
 
             return ({{GetGenericRecordDeclarationName(record)}})global::SharpCpp.Support.NativeObjectRegistry.Create<{{GetGenericRecordDeclarationName(record)}}>(handle, ownsHandle);
+            """)}}
             }
+
+            {{(hasNativeNonTypeArguments ? RenderNativeTemplateWrapperFactory(record, isEffectivelyAbstract) : string.Empty)}}
 
             static bool global::SharpCpp.Support.INativeObjectRegistration<{{GetGenericRecordDeclarationName(record)}}>.RegistrationIsPolymorphic => false;
 
@@ -160,7 +180,7 @@ public static partial class BindingOutputRenderer
 
             static global::SharpCpp.Support.INativeInstanceCache global::SharpCpp.Support.INativeObjectRegistration<{{GetGenericRecordDeclarationName(record)}}>.RegistrationInstanceCache => s_instanceCache;
 
-            static global::System.Func<nint, bool, global::SharpCpp.Support.NativeObject>? global::SharpCpp.Support.INativeObjectRegistration<{{GetGenericRecordDeclarationName(record)}}>.RegistrationCreateFactory => static (handle, ownsHandle) => new {{GetGenericRecordDeclarationName(record)}}(handle, ownsHandle);
+            static global::System.Func<nint, bool, global::SharpCpp.Support.NativeObject>? global::SharpCpp.Support.INativeObjectRegistration<{{GetGenericRecordDeclarationName(record)}}>.RegistrationCreateFactory => {{(isEffectivelyAbstract || hasNativeNonTypeArguments ? "null" : $"static (handle, ownsHandle) => new {GetGenericRecordDeclarationName(record)}(handle, ownsHandle)")}};
 
             static global::SharpCpp.Support.NativeObjectMetadata global::SharpCpp.Support.INativeObjectRegistration<{{GetGenericRecordDeclarationName(record)}}>.RegistrationGetMetadata(nint handle)
             {
@@ -318,16 +338,73 @@ public static partial class BindingOutputRenderer
         BindingCompilation compilation,
         RecordBinding record)
     {
+        var preserveNativeShape = HasNativeNonTypeTemplateArguments(record);
         return record.SupportedGenericInstantiations
-            .GroupBy(instantiation => GetManagedGenericInstantiationKey(compilation, record, instantiation), StringComparer.Ordinal)
+            .GroupBy(instantiation =>
+                GetManagedGenericInstantiationKey(compilation, record, instantiation) +
+                (preserveNativeShape ? $"|native:{GetNativeTemplateArgumentKey(instantiation.NativeTemplateArguments)}" : string.Empty),
+                StringComparer.Ordinal)
             .Select(group => group
-                .OrderBy(instantiation => CountPointerLikeGenericArguments(instantiation.TypeArguments))
+                .OrderBy(static instantiation => instantiation.IsInferred)
+                .ThenBy(instantiation => CountPointerLikeGenericArguments(instantiation.TypeArguments))
                 .ThenByDescending(instantiation => CountManagedNativeNamespaceMatches(instantiation.TypeArguments))
                 .ThenByDescending(instantiation => CountRecordValueGenericArguments(instantiation.TypeArguments))
                 .ThenBy(instantiation => string.Join("|", instantiation.TypeArguments.Select(static argument => argument.CppTypeName)), StringComparer.Ordinal)
                 .First())
             .OrderBy(static instantiation => string.Join("|", instantiation.TypeArguments.Select(static argument => argument.CppTypeName)), StringComparer.Ordinal)
             .ToArray();
+    }
+
+    private static bool HasNativeNonTypeTemplateArguments(RecordBinding record) =>
+        record.SupportedGenericInstantiations.Any(static instantiation =>
+            instantiation.NativeTemplateArguments.Any(static argument => argument.Kind != BindingTemplateArgumentKind.Type));
+
+    private static bool HasNativeNonTypeTemplateArguments(BindingType type) =>
+        type.NativeTemplateArguments.Any(static argument => argument.Kind != BindingTemplateArgumentKind.Type);
+
+    private static string RenderDefaultNativeTemplateWrapperDispatch(
+        RecordBinding record,
+        IReadOnlyList<RecordGenericInstantiationBinding> instantiations,
+        bool isEffectivelyAbstract)
+    {
+        if (isEffectivelyAbstract)
+        {
+            return "return null!;";
+        }
+
+        var shapes = instantiations
+            .Select(static instantiation => GetNativeTemplateArgumentKey(instantiation.NativeTemplateArguments))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        return shapes.Length == 1
+            ? $"return CreateManagedWrapper(handle, ownsHandle, \"{EscapeCSharpString(shapes[0])}\");"
+            : $"throw new InvalidOperationException(\"Native template arguments are required to wrap '{record.ManagedName}'.\");";
+    }
+
+    private static string RenderNativeTemplateWrapperFactory(RecordBinding record, bool isEffectivelyAbstract)
+    {
+        var declarationName = GetGenericRecordDeclarationName(record);
+        if (isEffectivelyAbstract)
+        {
+            return $$"""
+                internal static {{declarationName}} CreateManagedWrapper(nint handle, bool ownsHandle, string nativeTemplateKey) => null!;
+                """;
+        }
+
+        return $$"""
+            internal static {{declarationName}} CreateManagedWrapper(nint handle, bool ownsHandle, string nativeTemplateKey)
+            {
+            if (handle == 0)
+                return new {{declarationName}}(0, ownsHandle, nativeTemplateKey);
+
+            if (s_instanceCache.TryGetExisting(handle, ownsHandle, out var existing) && existing is {{declarationName}} cached)
+                return cached;
+
+            var result = new {{declarationName}}(handle, ownsHandle, nativeTemplateKey);
+            global::SharpCpp.Support.NativeObjectRegistry.RegisterInstance<{{declarationName}}>(result);
+            return result;
+            }
+            """;
     }
 
     private static string GetManagedGenericInstantiationKey(
@@ -981,10 +1058,10 @@ public static partial class BindingOutputRenderer
             .Where(instantiation => IsSupportedFixedArrayInstantiation(compilation, instantiation))
             .Concat(CollectFixedArrayInstantiations(compilation, record))
             .Where(instantiation => IsSupportedFixedArrayInstantiation(compilation, instantiation))
-            .GroupBy(static instantiation => $"{instantiation.TypeArguments[0].CppTypeName}|{instantiation.TypeArguments[1].CppTypeName}", StringComparer.Ordinal)
+            .GroupBy(static instantiation => GetNativeTemplateArgumentKey(instantiation.NativeTemplateArguments), StringComparer.Ordinal)
             .Select(static group => group.First())
             .OrderBy(static instantiation => instantiation.TypeArguments[0].CppTypeName, StringComparer.Ordinal)
-            .ThenBy(static instantiation => int.Parse(instantiation.TypeArguments[1].CppTypeName, System.Globalization.CultureInfo.InvariantCulture));
+            .ThenBy(static instantiation => GetFixedArrayLength(instantiation));
 
         return instantiations;
     }
@@ -1004,7 +1081,7 @@ public static partial class BindingOutputRenderer
 
     private static bool IsSupportedFixedArrayInstantiation(BindingCompilation compilation, RecordGenericInstantiationBinding instantiation)
     {
-        return instantiation.TypeArguments.Count >= 2 &&
+        return instantiation.TypeArguments.Count >= 1 &&
             TryGetFixedArrayLength(instantiation, out _) &&
             IsSupportedFixedArrayElementType(compilation, instantiation.TypeArguments[0]);
     }
@@ -1160,17 +1237,15 @@ public static partial class BindingOutputRenderer
         if (type.Kind != BindingTypeKind.Handle ||
             !string.Equals(type.RecordId, record.SymbolId, StringComparison.Ordinal) ||
             type.GenericArguments.Count == 0 ||
-            !TryGetSecondTopLevelTemplateArgument(type.CppTypeName, out var lengthText) ||
-            !int.TryParse(lengthText, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var length) ||
+            type.FixedArrayLength is not { } length ||
             length < 0)
         {
             yield break;
         }
 
-        var arguments = type.GenericArguments.Count >= 2
-            ? type.GenericArguments
-            : type.GenericArguments.Concat([BindingType.CreateConfigured(lengthText, lengthText)]).ToArray();
-        yield return new RecordGenericInstantiationBinding(arguments);
+        yield return new RecordGenericInstantiationBinding(
+            type.GenericArguments,
+            type.NativeTemplateArguments);
     }
 
     private static IEnumerable<RecordGenericInstantiationBinding> CollectDynamicArrayInstantiations(RecordBinding record, BindingType type)
@@ -1210,75 +1285,40 @@ public static partial class BindingOutputRenderer
         }
 
         var elementType = type.DynamicArrayElementType ?? type.GenericArguments[0];
-        yield return new RecordGenericInstantiationBinding([elementType]);
-    }
-
-    private static bool TryGetSecondTopLevelTemplateArgument(string cppTypeName, out string argument)
-    {
-        argument = string.Empty;
-        var genericStart = cppTypeName.IndexOf('<');
-        var genericEnd = cppTypeName.LastIndexOf('>');
-        if (genericStart < 0 || genericEnd <= genericStart)
-        {
-            return false;
-        }
-
-        var arguments = SplitTopLevelArguments(cppTypeName[(genericStart + 1)..genericEnd]);
-        if (arguments.Count < 2)
-        {
-            return false;
-        }
-
-        argument = arguments[1];
-        return true;
-    }
-
-    private static IReadOnlyList<string> SplitTopLevelArguments(string text)
-    {
-        var result = new List<string>();
-        var segmentStart = 0;
-        var angleDepth = 0;
-        var parenDepth = 0;
-
-        for (var index = 0; index < text.Length; index++)
-        {
-            switch (text[index])
-            {
-                case '<':
-                    angleDepth++;
-                    break;
-                case '>':
-                    angleDepth--;
-                    break;
-                case '(':
-                    parenDepth++;
-                    break;
-                case ')':
-                    parenDepth--;
-                    break;
-                case ',' when angleDepth == 0 && parenDepth == 0:
-                    result.Add(text[segmentStart..index].Trim());
-                    segmentStart = index + 1;
-                    break;
-            }
-        }
-
-        result.Add(text[segmentStart..].Trim());
-        return result;
+        yield return new RecordGenericInstantiationBinding(
+            [elementType],
+            type.NativeTemplateArguments);
     }
 
     private static bool TryGetFixedArrayLength(RecordGenericInstantiationBinding instantiation, out int length)
     {
-        if (instantiation.TypeArguments.Count >= 2 &&
-            int.TryParse(instantiation.TypeArguments[1].CppTypeName, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out length) &&
-            length >= 0)
+        var argument = instantiation.NativeTemplateArguments
+            .FirstOrDefault(static argument => argument.Kind == BindingTemplateArgumentKind.Integral);
+        if (argument is not null && argument.IntegralValue is >= 0 and <= int.MaxValue)
         {
+            length = checked((int)argument.IntegralValue);
             return true;
         }
 
         length = 0;
         return false;
     }
+
+    private static int GetFixedArrayLength(RecordGenericInstantiationBinding instantiation) =>
+        TryGetFixedArrayLength(instantiation, out var length) ? length : -1;
+
+    private static string GetNativeTemplateArgumentKey(IReadOnlyList<BindingTemplateArgument> arguments) =>
+        string.Join("|", arguments.Select(static argument => argument.Kind switch
+        {
+            BindingTemplateArgumentKind.Type => $"type:{argument.Type!.CppTypeName}",
+            BindingTemplateArgumentKind.Integral => $"integral:{argument.IntegralValue.ToString(System.Globalization.CultureInfo.InvariantCulture)}",
+            _ => throw new ArgumentOutOfRangeException(nameof(argument))
+        }));
+
+    private static string FormatConcreteRecordCppTypeName(
+        RecordBinding record,
+        RecordGenericInstantiationBinding instantiation) =>
+        record.FormatCppTypeName(instantiation.NativeTemplateArguments);
 
     private static string GetFixedArrayInstantiationToken(RecordGenericInstantiationBinding instantiation)
     {
@@ -1575,7 +1615,7 @@ public static partial class BindingOutputRenderer
             return record.CppQualifiedName;
         }
 
-        return record.FormatCppTypeName(instantiation.TypeArguments);
+        return FormatConcreteRecordCppTypeName(record, instantiation);
     }
 
     private static string GetSharedProviderToken(RecordBinding record, RecordGenericInstantiationBinding? instantiation)
@@ -1697,7 +1737,7 @@ public static partial class BindingOutputRenderer
         };
 
         foreach (var instantiation in instantiations
-                     .GroupBy(item => string.Join("|", item.TypeArguments.Select(type => type.CppTypeName)), StringComparer.Ordinal)
+                     .GroupBy(item => GetSharedProviderShapeKey(record, item), StringComparer.Ordinal)
                      .Select(group => group.First()))
         {
             yield return instantiation;
@@ -1971,7 +2011,7 @@ public static partial class BindingOutputRenderer
     {
         var concreteType = instantiation is null
             ? record.CppQualifiedName
-            : record.FormatCppTypeName(instantiation.TypeArguments);
+            : FormatConcreteRecordCppTypeName(record, instantiation);
         return $$"""
             // Native shared-wrapper shape: {{concreteType}}
             SHARPCPP_EXPORT ret_t<{{concreteType}}*> {{GetSharedProviderCreateEntryPointName(compilation, record, instantiation)}}()
@@ -2050,9 +2090,16 @@ public static partial class BindingOutputRenderer
         var parameterList = string.Join(", ", function.Parameters.Select(p => RenderManagedPublicParameter(p, compilation)));
         var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType, compilation);
         var visibility = GetManagedVisibilityNormalized(compilation, record, function);
+        var modifier = GetManagedInstanceMethodModifier(compilation, record, function);
+
+        if (IsManagedAbstractMethod(function))
+        {
+            writer.Write($"{visibility} {modifier}{returnTypeName} {function.ManagedName}({parameterList});");
+            return writer.ToString();
+        }
 
         writer.Write($$"""
-            {{visibility}} {{GetManagedInstanceMethodModifier(compilation, record, function)}}{{returnTypeName}} {{function.ManagedName}}({{parameterList}})
+            {{visibility}} {{modifier}}{{returnTypeName}} {{function.ManagedName}}({{parameterList}})
             {
             {{RenderGenericManagedDispatchBranches(compilation, record, function, instantiations, includeSelf: true)}}
             throw new NotSupportedException("SharpCpp does not support the requested generic argument combination for '{{function.ManagedName}}'.");
@@ -2119,12 +2166,19 @@ public static partial class BindingOutputRenderer
         var declarationName = GetGenericRecordDeclarationName(record);
         foreach (var instantiation in instantiations)
         {
-            writer.WriteLine($"if ({BuildGenericInstantiationCondition(compilation, record, instantiation)})");
+            var concreteHandleType = SubstituteGenericType(record, record.HandleType, instantiation);
+            var usesManagedMarshaller = CanUseManagedHandleReturnMarshaller(compilation, concreteHandleType);
+            var resultExpression = BuildManagedHandleReturnResultExpression(
+                compilation,
+                concreteHandleType,
+                "__result",
+                ownsHandle: true);
+            writer.WriteLine($"if ({BuildGenericInstantiationCondition(compilation, record, instantiation, includeNativeTemplateShape: true)})");
             writer.WriteLine("{");
             writer.WriteLine($"    var __result = {GetGenericImportAccessor(compilation)}.{GetGenericCloneImportMethodName(record, instantiation)}(global::SharpCpp.Support.NativeObject.GetHandle(this));");
-            writer.WriteLine("    if (__result is null)");
+            writer.WriteLine(usesManagedMarshaller ? "    if (__result is null)" : "    if (__result == 0)");
             writer.WriteLine("        throw new NotSupportedException(\"SharpCpp could not clone this native object because the native type is not copy-constructible.\");");
-            writer.WriteLine($"    return ({declarationName})(object)__result;");
+            writer.WriteLine($"    return ({declarationName})(object){resultExpression};");
             writer.WriteLine("}");
         }
 
@@ -2173,7 +2227,7 @@ public static partial class BindingOutputRenderer
                 var concreteParameters = function.Parameters.Select(parameter =>
                     SubstituteGenericType(record, parameter.Type, recordInstantiation, methodParams, methodInstantiation)).ToArray();
                 var concreteReturnType = SubstituteGenericType(record, function.ReturnType, recordInstantiation, methodParams, methodInstantiation);
-                var concreteRecordType = record.FormatCppTypeName(recordInstantiation.TypeArguments);
+                var concreteRecordType = FormatConcreteRecordCppTypeName(record, recordInstantiation);
 
                 var condition = BuildCombinedGenericInstantiationCondition(compilation, record, recordInstantiation, function, methodInstantiation);
                 var importMethodName = GetGenericMethodImportName(function, recordInstantiation, methodInstantiation);
@@ -2192,6 +2246,7 @@ public static partial class BindingOutputRenderer
                     writer,
                     compilation,
                     function,
+                    recordInstantiation,
                     returnTypeName,
                     concreteReturnType,
                     concreteParameters,
@@ -2262,6 +2317,7 @@ public static partial class BindingOutputRenderer
                     writer,
                     compilation,
                     function,
+                    recordInstantiation,
                     returnTypeName,
                     concreteReturnType,
                     concreteParameters,
@@ -2283,6 +2339,7 @@ public static partial class BindingOutputRenderer
         CodeWriter writer,
         BindingCompilation compilation,
         FunctionBinding function,
+        RecordGenericInstantiationBinding recordInstantiation,
         string returnTypeName,
         BindingType concreteReturnType,
         IReadOnlyList<BindingType> concreteParameters,
@@ -2297,6 +2354,7 @@ public static partial class BindingOutputRenderer
             writer,
             compilation,
             function,
+            recordInstantiation,
             returnTypeName,
             concreteReturnType,
             concreteParameters,
@@ -2311,6 +2369,7 @@ public static partial class BindingOutputRenderer
         CodeWriter writer,
         BindingCompilation compilation,
         FunctionBinding function,
+        RecordGenericInstantiationBinding recordInstantiation,
         string returnTypeName,
         BindingType concreteReturnType,
         IReadOnlyList<BindingType> concreteParameters,
@@ -2338,7 +2397,7 @@ public static partial class BindingOutputRenderer
             }
             if (concreteReturnType.Kind == BindingTypeKind.Handle)
             {
-                writer.WriteLine($"{indent}return ({returnTypeName})(object){BuildManagedHandleReturnResultExpression(compilation, concreteReturnType, "__result", ReturnsOwnedHandle(function, concreteReturnType))}!;");
+                writer.WriteLine($"{indent}return ({returnTypeName})(object){BuildManagedHandleReturnResultExpression(compilation, concreteReturnType, "__result", ReturnsOwnedHandle(function, concreteReturnType, recordInstantiation))}!;");
             }
             else
             {
@@ -2352,7 +2411,7 @@ public static partial class BindingOutputRenderer
             {
                 writer.WriteLine($"{indent}{keepAlive}");
             }
-            writer.WriteLine($"{indent}return {BuildManagedHandleReturnResultExpression(compilation, concreteReturnType, "__result", ReturnsOwnedHandle(function, concreteReturnType))};");
+            writer.WriteLine($"{indent}return {BuildManagedHandleReturnResultExpression(compilation, concreteReturnType, "__result", ReturnsOwnedHandle(function, concreteReturnType, recordInstantiation))};");
         }
         else
         {
@@ -2595,7 +2654,7 @@ public static partial class BindingOutputRenderer
             }
 
             var importMethodName = GetGenericImportMethodName(function, instantiation);
-            writer.WriteLine($"if ({BuildGenericInstantiationCondition(compilation, record, instantiation)})");
+            writer.WriteLine($"if ({BuildGenericInstantiationCondition(compilation, record, instantiation, includeNativeTemplateShape: includeSelf)})");
             writer.WriteLine("{");
             var keepAliveStatements = BuildGenericKeepAliveStatements(function.Parameters, concreteParameters);
 
@@ -2621,7 +2680,7 @@ public static partial class BindingOutputRenderer
                 }
                 if (concreteReturnType.Kind == BindingTypeKind.Handle)
                 {
-                    writer.WriteLine($"    return ({GetManagedPublicReturnTypeName(function.ReturnType, compilation)})(object){BuildManagedHandleReturnResultExpression(compilation, concreteReturnType, "__result", ReturnsOwnedHandle(function, concreteReturnType))}!;");
+                    writer.WriteLine($"    return ({GetManagedPublicReturnTypeName(function.ReturnType, compilation)})(object){BuildManagedHandleReturnResultExpression(compilation, concreteReturnType, "__result", ReturnsOwnedHandle(function, concreteReturnType, instantiation))}!;");
                 }
                 else
                 {
@@ -2631,7 +2690,7 @@ public static partial class BindingOutputRenderer
             else if (concreteReturnType.Kind == BindingTypeKind.Handle)
             {
                 writer.WriteLine($"    var __result = {GetGenericImportAccessor(compilation)}.{importMethodName}({string.Join(", ", invocationArguments)});");
-                var wrapExpression = BuildManagedHandleReturnResultExpression(compilation, concreteReturnType, "__result", ReturnsOwnedHandle(function, concreteReturnType));
+                var wrapExpression = BuildManagedHandleReturnResultExpression(compilation, concreteReturnType, "__result", ReturnsOwnedHandle(function, concreteReturnType, instantiation));
                 foreach (var keepAlive in keepAliveStatements)
                 {
                     writer.WriteLine($"    {keepAlive}");
@@ -2664,15 +2723,14 @@ public static partial class BindingOutputRenderer
     private static string RenderGenericDeleteHelper(BindingCompilation compilation, RecordBinding record, IReadOnlyList<RecordGenericInstantiationBinding> instantiations)
     {
         var writer = new CodeWriter();
-        writer.Write(
-            """
-            private static void DeleteHandle(nint handle)
+        writer.Write($$"""
+            private {{(HasNativeNonTypeTemplateArguments(record) ? string.Empty : "static ")}}void DeleteHandle(nint handle)
             {
             """);
 
         foreach (var instantiation in instantiations)
         {
-            writer.WriteLine($"if ({BuildGenericInstantiationCondition(compilation, record, instantiation)})");
+            writer.WriteLine($"if ({BuildGenericInstantiationCondition(compilation, record, instantiation, includeNativeTemplateShape: true)})");
             writer.WriteLine("{");
             writer.WriteLine($"    {GetGenericImportAccessor(compilation)}.{GetGenericDeleteImportMethodName(record, instantiation)}(handle);");
             writer.WriteLine("    return;");
@@ -2715,7 +2773,7 @@ public static partial class BindingOutputRenderer
         var parameterList = string.Join(", ", new[] { "nint self" }.Concat(function.Parameters.Select((parameter, index) => RenderConcreteManagedParameter(compilation, parameter, SubstituteGenericType(record, parameter.Type, instantiation)))));
         var concreteReturnType = SubstituteGenericType(record, function.ReturnType, instantiation);
         var returnTypeName = GetManagedImportReturnTypeName(compilation, concreteReturnType);
-        var returnAttribute = GetManagedImportReturnAttribute(compilation, concreteReturnType, ReturnsOwnedHandle(function, concreteReturnType));
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, concreteReturnType, ReturnsOwnedHandle(function, concreteReturnType, instantiation));
         var importMethodName = importMethodNameOverride ?? GetGenericImportMethodName(function, instantiation);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static partial {returnTypeName} {importMethodName}({parameterList});"
@@ -2748,7 +2806,7 @@ public static partial class BindingOutputRenderer
             ? concreteParameters
             : new[] { "nint self" }.Concat(concreteParameters));
         var returnTypeName = GetManagedImportReturnTypeName(compilation, concreteReturnType);
-        var returnAttribute = GetManagedImportReturnAttribute(compilation, concreteReturnType, ReturnsOwnedHandle(function, concreteReturnType));
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, concreteReturnType, ReturnsOwnedHandle(function, concreteReturnType, recordInstantiation));
         var baseImportMethodName = GetGenericMethodImportName(function, recordInstantiation, methodInstantiation);
         var baseEntryPointName = GetGenericMethodEntryPointName(function, recordInstantiation, methodInstantiation);
         var importMethodName = keepCount.HasValue
@@ -2773,7 +2831,7 @@ public static partial class BindingOutputRenderer
         var parameterList = string.Join(", ", function.Parameters.Select((parameter, index) => RenderConcreteManagedParameter(compilation, parameter, SubstituteGenericType(record, parameter.Type, instantiation))));
         var concreteReturnType = SubstituteGenericType(record, function.ReturnType, instantiation);
         var returnTypeName = GetManagedImportReturnTypeName(compilation, concreteReturnType);
-        var returnAttribute = GetManagedImportReturnAttribute(compilation, concreteReturnType, ReturnsOwnedHandle(function, concreteReturnType));
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, concreteReturnType, ReturnsOwnedHandle(function, concreteReturnType, instantiation));
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static partial {returnTypeName} {GetGenericImportMethodName(function, instantiation)}({parameterList});"
             : $"{returnAttribute}\ninternal static partial {returnTypeName} {GetGenericImportMethodName(function, instantiation)}({parameterList});";
@@ -2843,36 +2901,73 @@ public static partial class BindingOutputRenderer
         return RenderManagedImportParameter(concreteParameter, concreteType, compilation, callbackMarshallerParameter);
     }
 
-    private static BindingType SubstituteGenericType(RecordBinding record, BindingType type, RecordGenericInstantiationBinding instantiation, IReadOnlyList<BindingGenericParameter>? methodParameters = null, RecordGenericInstantiationBinding? methodInstantiation = null)
+    private static BindingType SubstituteGenericType(
+        RecordBinding record,
+        BindingType type,
+        RecordGenericInstantiationBinding instantiation,
+        IReadOnlyList<BindingGenericParameter>? methodParameters = null,
+        RecordGenericInstantiationBinding? methodInstantiation = null,
+        bool useNativeArguments = false)
     {
+        var typeArguments = useNativeArguments
+            ? GetNativeTypeArguments(instantiation)
+            : instantiation.TypeArguments;
         if (type.IsGenericParameter)
         {
             if (methodParameters is not null && methodInstantiation is not null)
             {
+                var methodTypeArguments = useNativeArguments
+                    ? GetNativeTypeArguments(methodInstantiation)
+                    : methodInstantiation.TypeArguments;
                 var methodIndex = methodParameters.ToList().FindIndex(parameter => string.Equals(parameter.Name, type.GenericParameterName, StringComparison.Ordinal));
-                if (methodIndex >= 0 && methodIndex < methodInstantiation.TypeArguments.Count)
+                if (methodIndex >= 0 && methodIndex < methodTypeArguments.Count)
                 {
-                    return methodInstantiation.TypeArguments[methodIndex];
+                    return PreserveGenericTypeQualifiers(type, methodTypeArguments[methodIndex]);
                 }
             }
 
             var index = record.GenericParameters.ToList().FindIndex(parameter => string.Equals(parameter.Name, type.GenericParameterName, StringComparison.Ordinal));
-            return index >= 0 && index < instantiation.TypeArguments.Count
-                ? instantiation.TypeArguments[index]
+            return index >= 0 && index < typeArguments.Count
+                ? PreserveGenericTypeQualifiers(type, typeArguments[index])
                 : type;
         }
 
-        if (type.GenericArguments.Count == 0)
+        if (type.GenericArguments.Count == 0 &&
+            !type.NativeTemplateArguments.Any(static argument =>
+                argument.Kind == BindingTemplateArgumentKind.Type &&
+                argument.Type!.ContainsGenericParameters))
         {
             return type;
         }
 
-        var substitutedArguments = type.GenericArguments.Select(argument => SubstituteGenericType(record, argument, instantiation, methodParameters, methodInstantiation)).ToArray();
+        var substitutedArguments = type.GenericArguments.Select(argument => SubstituteGenericType(
+            record,
+            argument,
+            instantiation,
+            methodParameters,
+            methodInstantiation,
+            useNativeArguments)).ToArray();
+        var substitutedNativeArguments = type.NativeTemplateArguments
+            .Select(argument => argument.Kind == BindingTemplateArgumentKind.Type
+                ? BindingTemplateArgument.FromType(SubstituteGenericType(
+                    record,
+                    argument.Type!,
+                    instantiation,
+                    methodParameters,
+                    methodInstantiation,
+                    useNativeArguments))
+                : argument)
+            .ToArray();
         if (type.Kind == BindingTypeKind.Handle)
         {
             var resolvedRecord = record.SymbolId == type.RecordId ? record : null;
+            if (resolvedRecord is not null)
+            {
+                substitutedNativeArguments = instantiation.NativeTemplateArguments.ToArray();
+            }
+
             var cppTypeName = resolvedRecord is not null
-                ? $"{resolvedRecord.FormatCppTypeName(substitutedArguments)}*"
+                ? $"{FormatConcreteRecordCppTypeName(resolvedRecord, instantiation)}*"
                 : type.CppTypeName;
             return BindingType.CreateHandle(
                 cppTypeName,
@@ -2880,28 +2975,54 @@ public static partial class BindingOutputRenderer
                 type.RecordId,
                 type.MarshallerTypeName,
                 substitutedArguments,
-                type.Marshaller.CppIsRecordValue);
+                type.Marshaller.CppIsRecordValue)
+                .WithNativeTemplateArguments(substitutedNativeArguments);
         }
 
-        return type;
+        return type
+            .WithGenericArguments(substitutedArguments)
+            .WithNativeTemplateArguments(substitutedNativeArguments);
     }
 
-    private static BindingType SubstituteFunctionGenericType(BindingType type, IReadOnlyList<BindingGenericParameter> functionParameters, RecordGenericInstantiationBinding instantiation)
+    private static BindingType SubstituteFunctionGenericType(
+        BindingType type,
+        IReadOnlyList<BindingGenericParameter> functionParameters,
+        RecordGenericInstantiationBinding instantiation,
+        bool useNativeArguments = false)
     {
+        var typeArguments = useNativeArguments
+            ? GetNativeTypeArguments(instantiation)
+            : instantiation.TypeArguments;
         if (type.IsGenericParameter)
         {
             var index = functionParameters.ToList().FindIndex(parameter => string.Equals(parameter.Name, type.GenericParameterName, StringComparison.Ordinal));
-            return index >= 0 && index < instantiation.TypeArguments.Count
-                ? instantiation.TypeArguments[index]
+            return index >= 0 && index < typeArguments.Count
+                ? PreserveGenericTypeQualifiers(type, typeArguments[index])
                 : type;
         }
 
-        if (type.GenericArguments.Count == 0)
+        if (type.GenericArguments.Count == 0 &&
+            !type.NativeTemplateArguments.Any(static argument =>
+                argument.Kind == BindingTemplateArgumentKind.Type &&
+                argument.Type!.ContainsGenericParameters))
         {
             return type;
         }
 
-        var substitutedArguments = type.GenericArguments.Select(argument => SubstituteFunctionGenericType(argument, functionParameters, instantiation)).ToArray();
+        var substitutedArguments = type.GenericArguments.Select(argument => SubstituteFunctionGenericType(
+            argument,
+            functionParameters,
+            instantiation,
+            useNativeArguments)).ToArray();
+        var substitutedNativeArguments = type.NativeTemplateArguments
+            .Select(argument => argument.Kind == BindingTemplateArgumentKind.Type
+                ? BindingTemplateArgument.FromType(SubstituteFunctionGenericType(
+                    argument.Type!,
+                    functionParameters,
+                    instantiation,
+                    useNativeArguments))
+                : argument)
+            .ToArray();
         if (type.Kind == BindingTypeKind.Handle)
         {
             return BindingType.CreateHandle(
@@ -2910,27 +3031,52 @@ public static partial class BindingOutputRenderer
                 type.RecordId,
                 type.MarshallerTypeName,
                 substitutedArguments,
-                type.Marshaller.CppIsRecordValue);
+                type.Marshaller.CppIsRecordValue)
+                .WithNativeTemplateArguments(substitutedNativeArguments);
         }
 
-        return type;
+        return type
+            .WithGenericArguments(substitutedArguments)
+            .WithNativeTemplateArguments(substitutedNativeArguments);
     }
 
-    private static string BuildGenericInstantiationCondition(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
+    private static BindingType PreserveGenericTypeQualifiers(BindingType source, BindingType replacement)
+    {
+        return source.Marshaller.CppIsReference
+            ? replacement.WithCppIsReference(true)
+            : replacement;
+    }
+
+    private static IReadOnlyList<BindingType> GetNativeTypeArguments(RecordGenericInstantiationBinding instantiation)
+    {
+        var arguments = instantiation.NativeTemplateArguments
+            .Where(static argument => argument.Kind == BindingTemplateArgumentKind.Type)
+            .Select(static argument => argument.Type!)
+            .ToArray();
+        return arguments.Length == 0 ? instantiation.TypeArguments : arguments;
+    }
+
+    private static string BuildGenericInstantiationCondition(
+        BindingCompilation compilation,
+        RecordBinding record,
+        RecordGenericInstantiationBinding instantiation,
+        bool includeNativeTemplateShape = false)
     {
         var visibleIndices = GetManagedVisibleGenericParameterIndices(record);
         // Projected records may intentionally omit native-only template arguments.
         var comparableIndices = visibleIndices
             .Where(index => index < instantiation.TypeArguments.Count)
             .ToArray();
-        if (comparableIndices.Length == 0)
+        var parts = comparableIndices
+            .Select(index => $"typeof({record.GenericParameters[index].Name}) == typeof({GetManagedWrapperTypeName(instantiation.TypeArguments[index], compilation)})")
+            .ToList();
+        if (includeNativeTemplateShape &&
+            instantiation.NativeTemplateArguments.Any(static argument => argument.Kind != BindingTemplateArgumentKind.Type))
         {
-            return "true";
+            parts.Add($"_nativeTemplateKey == \"{EscapeCSharpString(GetNativeTemplateArgumentKey(instantiation.NativeTemplateArguments))}\"");
         }
 
-        return string.Join(
-            " && ",
-            comparableIndices.Select(index => $"typeof({record.GenericParameters[index].Name}) == typeof({GetManagedWrapperTypeName(instantiation.TypeArguments[index], compilation)})"));
+        return parts.Count == 0 ? "true" : string.Join(" && ", parts);
     }
 
     private static IReadOnlyList<BindingGenericParameter> GetManagedVisibleGenericParameters(RecordBinding record)
@@ -3099,14 +3245,18 @@ public static partial class BindingOutputRenderer
 
     private static string RenderNativeGenericConstructor(RecordBinding record, FunctionBinding constructor, RecordGenericInstantiationBinding instantiation)
     {
-        var concreteParameters = constructor.Parameters.Select(parameter => SubstituteGenericType(record, parameter.Type, instantiation)).ToArray();
+        var concreteParameters = constructor.Parameters.Select(parameter => SubstituteGenericType(
+            record,
+            parameter.Type,
+            instantiation,
+            useNativeArguments: true)).ToArray();
         var constructorParameterTypes = constructor.Parameters
             .Select((parameter, index) => FormatConcreteGenericParameterCppType(parameter, concreteParameters[index]))
             .ToArray();
         var parameterList = string.Join(", ", constructor.Parameters.Select((parameter, index) => $"arg_t<{constructorParameterTypes[index]}> {parameter.NativeName}"));
         var abiArguments = string.Join(", ", constructor.Parameters.Select(static parameter => parameter.NativeName));
         var constructorArgTypes = string.Join(", ", constructorParameterTypes);
-        var concreteRecordType = record.FormatCppTypeName(instantiation.TypeArguments);
+        var concreteRecordType = FormatConcreteRecordCppTypeName(record, instantiation);
 
         return $$"""
             SHARPCPP_EXPORT ret_t<{{concreteRecordType}}*> {{GetGenericEntryPointName(constructor, instantiation)}}({{parameterList}})
@@ -3129,8 +3279,11 @@ public static partial class BindingOutputRenderer
         foreach (var instantiation in GetFixedArrayInstantiations(compilation, record))
         {
             _ = TryGetFixedArrayLength(instantiation, out var length);
-            var elementType = instantiation.TypeArguments[0];
+            var elementType = GetNativeArrayElementType(instantiation);
             var elementCppType = GetNativeFixedArrayElementCppType(compilation, elementType);
+            var getMarshallerCppType = elementType.Marshaller.CppIsRecordValue
+                ? $"{elementCppType}&"
+                : elementCppType;
             if (record.GetMetadata<bool>(MetadataKeys.NativeArrayRecord))
             {
                 if (elementType.IsFixedArray)
@@ -3235,14 +3388,14 @@ public static partial class BindingOutputRenderer
                         return { value, {{length}} };
                     }
 
-                    SHARPCPP_EXPORT ret_t<{{elementCppType}}> {{GetFixedArrayGetEntryPointName(compilation, record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index)
+                    SHARPCPP_EXPORT ret_t<{{getMarshallerCppType}}> {{GetFixedArrayGetEntryPointName(compilation, record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index)
                     {
                         if (self.handle == nullptr || self.length != {{length}} || index >= {{length}})
                         {
                             throw std::runtime_error("SharpCpp fixed array access out of range.");
                         }
 
-                        ReturnMarshaller<{{elementCppType}}> marshaller;
+                        ReturnMarshaller<{{getMarshallerCppType}}> marshaller;
                         return marshaller.ConvertToAbi(static_cast<{{elementCppType}}*>(self.handle)[index]);
                     }
 
@@ -3261,7 +3414,7 @@ public static partial class BindingOutputRenderer
                 continue;
             }
 
-            var concreteArrayType = record.FormatCppTypeName(instantiation.TypeArguments);
+            var concreteArrayType = FormatConcreteRecordCppTypeName(record, instantiation);
             writer.Write($$"""
                 SHARPCPP_EXPORT NativeArrayAbi {{GetFixedArrayCreateEntryPointName(compilation, record, instantiation)}}()
                 {
@@ -3288,14 +3441,14 @@ public static partial class BindingOutputRenderer
                     return { value, {{length}} };
                 }
 
-                SHARPCPP_EXPORT ret_t<{{elementCppType}}> {{GetFixedArrayGetEntryPointName(compilation, record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index)
+                SHARPCPP_EXPORT ret_t<{{getMarshallerCppType}}> {{GetFixedArrayGetEntryPointName(compilation, record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index)
                 {
                     if (self.handle == nullptr || self.length != {{length}} || index >= {{length}})
                     {
                         throw std::runtime_error("SharpCpp fixed array access out of range.");
                     }
 
-                    ReturnMarshaller<{{elementCppType}}> marshaller;
+                    ReturnMarshaller<{{getMarshallerCppType}}> marshaller;
                     return marshaller.ConvertToAbi((*static_cast<{{concreteArrayType}}*>(self.handle))[index]);
                 }
 
@@ -3327,8 +3480,12 @@ public static partial class BindingOutputRenderer
         var writer = new CodeWriter();
         foreach (var instantiation in GetDynamicArrayInstantiations(compilation, record))
         {
-            var concreteArrayType = record.FormatCppTypeName(instantiation.TypeArguments);
-            var elementCppType = instantiation.TypeArguments[0].CppTypeName;
+            var concreteArrayType = FormatConcreteRecordCppTypeName(record, instantiation);
+            var elementType = GetNativeArrayElementType(instantiation);
+            var elementCppType = elementType.CppTypeName;
+            var getMarshallerCppType = elementType.Marshaller.CppIsRecordValue
+                ? $"{elementCppType}&"
+                : elementCppType;
             writer.Write($$"""
                 SHARPCPP_EXPORT ret_t<{{concreteArrayType}}*> {{GetDynamicArrayCreateEntryPointName(compilation, record, instantiation)}}(arg_t<std::size_t> length)
                 {
@@ -3340,14 +3497,14 @@ public static partial class BindingOutputRenderer
                     delete self;
                 }
 
-                SHARPCPP_EXPORT ret_t<{{elementCppType}}> {{GetDynamicArrayGetEntryPointName(compilation, record, instantiation)}}(arg_t<{{concreteArrayType}}*> self, arg_t<std::size_t> index)
+                SHARPCPP_EXPORT ret_t<{{getMarshallerCppType}}> {{GetDynamicArrayGetEntryPointName(compilation, record, instantiation)}}(arg_t<{{concreteArrayType}}*> self, arg_t<std::size_t> index)
                 {
                     if (self == nullptr)
                     {
                         throw std::runtime_error("SharpCpp dynamic array access on null array.");
                     }
 
-                    ReturnMarshaller<{{elementCppType}}> marshaller;
+                    ReturnMarshaller<{{getMarshallerCppType}}> marshaller;
                     return marshaller.ConvertToAbi((*self)[index]);
                 }
 
@@ -3368,9 +3525,14 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
+    private static BindingType GetNativeArrayElementType(RecordGenericInstantiationBinding instantiation) =>
+        instantiation.NativeTemplateArguments
+            .FirstOrDefault(static argument => argument.Kind == BindingTemplateArgumentKind.Type)?.Type
+        ?? instantiation.TypeArguments[0];
+
     private static string RenderNativeGenericClone(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        var concreteRecordType = record.FormatCppTypeName(instantiation.TypeArguments);
+        var concreteRecordType = FormatConcreteRecordCppTypeName(record, instantiation);
         return $$"""
             SHARPCPP_EXPORT ret_t<{{concreteRecordType}}*> {{GetGenericCloneEntryPointName(compilation, record, instantiation)}}(arg_t<{{concreteRecordType}}*> self)
             {
@@ -3383,9 +3545,17 @@ public static partial class BindingOutputRenderer
 
     private static string RenderNativeGenericInstanceMethod(RecordBinding record, FunctionBinding method, RecordGenericInstantiationBinding instantiation)
     {
-        var concreteRecordType = record.FormatCppTypeName(instantiation.TypeArguments);
-        var concreteParameters = method.Parameters.Select(parameter => SubstituteGenericType(record, parameter.Type, instantiation)).ToArray();
-        var concreteReturnType = SubstituteGenericType(record, method.ReturnType, instantiation);
+        var concreteRecordType = FormatConcreteRecordCppTypeName(record, instantiation);
+        var concreteParameters = method.Parameters.Select(parameter => SubstituteGenericType(
+            record,
+            parameter.Type,
+            instantiation,
+            useNativeArguments: true)).ToArray();
+        var concreteReturnType = SubstituteGenericType(
+            record,
+            method.ReturnType,
+            instantiation,
+            useNativeArguments: true);
         var signatureParameterTypes = method.Parameters.Select((parameter, index) => FormatConcreteGenericParameterCppType(parameter, concreteParameters[index])).ToArray();
         var marshallerParameterTypes = method.Parameters.Select((parameter, index) => FormatConcreteGenericMarshallerCppType(parameter, concreteParameters[index])).ToArray();
         var isMarshallerExposedMethod = method.HasMetadata(MetadataKeys.MarshallerExposedMethod);
@@ -3393,14 +3563,14 @@ public static partial class BindingOutputRenderer
         var parameterList = string.Join(", ", new[] { $"arg_t<{concreteRecordType}*> self" }.Concat(method.Parameters.Select((parameter, index) => $"arg_t<{nativeParameterTypes[index]}> {parameter.NativeName}")));
         var abiArguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
         var signatureReturnType = SubstituteCppGenericParameters(
-            method.CppReturnTypeName, record.GenericParameters, instantiation.TypeArguments);
-        var memberSignature = $"{signatureReturnType}({concreteRecordType}::*)({string.Join(", ", signatureParameterTypes)}){(method.IsConstMethod ? " const" : string.Empty)}";
+            method.CppReturnTypeName, record.GenericParameters, GetNativeTypeArguments(instantiation));
+        var memberSignature = $"auto({concreteRecordType}::*)({string.Join(", ", signatureParameterTypes)}){(method.IsConstMethod ? " const" : string.Empty)} -> {signatureReturnType}";
         var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", signatureParameterTypes);
 
         if (isMarshallerExposedMethod)
         {
             return $$"""
-                SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(concreteReturnType)}} {{GetGenericEntryPointName(method, instantiation)}}({{parameterList}})
+                SHARPCPP_EXPORT {{GetNativeGenericEntrypointReturnType(concreteReturnType, signatureReturnType)}} {{GetGenericEntryPointName(method, instantiation)}}({{parameterList}})
                 {
                 {{RenderNativeGenericMarshallerExposedInvocation(method, concreteRecordType, concreteReturnType, concreteParameters, abiArguments)}}
                 }
@@ -3408,7 +3578,7 @@ public static partial class BindingOutputRenderer
         }
 
         return $$"""
-            SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(concreteReturnType)}} {{GetGenericEntryPointName(method, instantiation)}}({{parameterList}})
+            SHARPCPP_EXPORT {{GetNativeGenericEntrypointReturnType(concreteReturnType, signatureReturnType)}} {{GetGenericEntryPointName(method, instantiation)}}({{parameterList}})
             {
             using FT = {{memberSignature}};
             {{(concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void
@@ -3424,19 +3594,27 @@ public static partial class BindingOutputRenderer
 
     private static string RenderNativeGenericStaticMethod(RecordBinding record, FunctionBinding method, RecordGenericInstantiationBinding instantiation)
     {
-        var concreteRecordType = record.FormatCppTypeName(instantiation.TypeArguments);
-        var concreteParameters = method.Parameters.Select(parameter => SubstituteGenericType(record, parameter.Type, instantiation)).ToArray();
-        var concreteReturnType = SubstituteGenericType(record, method.ReturnType, instantiation);
+        var concreteRecordType = FormatConcreteRecordCppTypeName(record, instantiation);
+        var concreteParameters = method.Parameters.Select(parameter => SubstituteGenericType(
+            record,
+            parameter.Type,
+            instantiation,
+            useNativeArguments: true)).ToArray();
+        var concreteReturnType = SubstituteGenericType(
+            record,
+            method.ReturnType,
+            instantiation,
+            useNativeArguments: true);
         var signatureParameterTypes = method.Parameters.Select((parameter, index) => FormatConcreteGenericParameterCppType(parameter, concreteParameters[index])).ToArray();
         var parameterList = string.Join(", ", method.Parameters.Select((parameter, index) => $"arg_t<{signatureParameterTypes[index]}> {parameter.NativeName}"));
         var abiArguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
         var signatureReturnType = SubstituteCppGenericParameters(
-            method.CppReturnTypeName, record.GenericParameters, instantiation.TypeArguments);
-        var signature = $"{signatureReturnType}({string.Join(", ", signatureParameterTypes)})";
+            method.CppReturnTypeName, record.GenericParameters, GetNativeTypeArguments(instantiation));
+        var signature = $"auto({string.Join(", ", signatureParameterTypes)}) -> {signatureReturnType}";
         var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", signatureParameterTypes);
 
         return $$"""
-            SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(concreteReturnType)}} {{GetGenericEntryPointName(method, instantiation)}}({{parameterList}})
+            SHARPCPP_EXPORT {{GetNativeGenericEntrypointReturnType(concreteReturnType, signatureReturnType)}} {{GetGenericEntryPointName(method, instantiation)}}({{parameterList}})
             {
             using FT = {{signature}};
             {{(concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void
@@ -3453,19 +3631,27 @@ public static partial class BindingOutputRenderer
     internal static string RenderNativeGenericFreeFunction(FunctionBinding function, RecordGenericInstantiationBinding instantiation)
     {
         var methodParams = (IReadOnlyList<BindingGenericParameter>)function.GenericParameters.ToList();
-        var concreteParameters = function.Parameters.Select(parameter => SubstituteFunctionGenericType(parameter.Type, methodParams, instantiation)).ToArray();
-        var concreteReturnType = SubstituteFunctionGenericType(function.ReturnType, methodParams, instantiation);
+        var concreteParameters = function.Parameters.Select(parameter => SubstituteFunctionGenericType(
+            parameter.Type,
+            methodParams,
+            instantiation,
+            useNativeArguments: true)).ToArray();
+        var concreteReturnType = SubstituteFunctionGenericType(
+            function.ReturnType,
+            methodParams,
+            instantiation,
+            useNativeArguments: true);
         var signatureParameterTypes = function.Parameters.Select((parameter, index) => FormatConcreteGenericParameterCppType(parameter, concreteParameters[index])).ToArray();
         var parameterList = string.Join(", ", function.Parameters.Select((parameter, index) => $"arg_t<{signatureParameterTypes[index]}> {parameter.NativeName}"));
         var abiArguments = string.Join(", ", function.Parameters.Select(static parameter => parameter.NativeName));
         var signatureReturnType = SubstituteCppGenericParameters(
-            function.CppReturnTypeName, function.GenericParameters, instantiation.TypeArguments);
-        var signature = $"{signatureReturnType}({string.Join(", ", signatureParameterTypes)})";
-        var methodCppTypeArgs = string.Join(", ", instantiation.TypeArguments.Select(RecordBinding.FormatCppTemplateArgument));
+            function.CppReturnTypeName, function.GenericParameters, GetNativeTypeArguments(instantiation));
+        var signature = $"auto({string.Join(", ", signatureParameterTypes)}) -> {signatureReturnType}";
+        var methodCppTypeArgs = string.Join(", ", GetNativeTypeArguments(instantiation).Select(RecordBinding.FormatCppTemplateArgument));
         var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", signatureParameterTypes);
 
         return $$"""
-            SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(concreteReturnType)}} {{GetGenericEntryPointName(function, instantiation)}}({{parameterList}})
+            SHARPCPP_EXPORT {{GetNativeGenericEntrypointReturnType(concreteReturnType, signatureReturnType)}} {{GetGenericEntryPointName(function, instantiation)}}({{parameterList}})
             {
             using FT = {{signature}};
             {{(concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void
@@ -3481,7 +3667,7 @@ public static partial class BindingOutputRenderer
 
     private static string RenderNativeGenericDelete(BindingCompilation compilation, RecordBinding record, RecordGenericInstantiationBinding instantiation)
     {
-        var concreteRecordType = record.FormatCppTypeName(instantiation.TypeArguments);
+        var concreteRecordType = FormatConcreteRecordCppTypeName(record, instantiation);
         return $$"""
             SHARPCPP_EXPORT ret_t<void> {{GetGenericDeleteEntryPointName(compilation, record, instantiation)}}(arg_t<{{concreteRecordType}}*> self)
             {
@@ -3503,18 +3689,30 @@ public static partial class BindingOutputRenderer
 
         var writer = new CodeWriter();
         var methodParams = (IReadOnlyList<BindingGenericParameter>)method.GenericParameters.ToList();
-        var concreteRecordType = record.FormatCppTypeName(recordInstantiation.TypeArguments);
+        var concreteRecordType = FormatConcreteRecordCppTypeName(record, recordInstantiation);
         var concreteParameters = method.Parameters.Select(parameter =>
-            SubstituteGenericType(record, parameter.Type, recordInstantiation, methodParams, methodInstantiation)).ToArray();
-        var concreteReturnType = SubstituteGenericType(record, method.ReturnType, recordInstantiation, methodParams, methodInstantiation);
+            SubstituteGenericType(
+                record,
+                parameter.Type,
+                recordInstantiation,
+                methodParams,
+                methodInstantiation,
+                useNativeArguments: true)).ToArray();
+        var concreteReturnType = SubstituteGenericType(
+            record,
+            method.ReturnType,
+            recordInstantiation,
+            methodParams,
+            methodInstantiation,
+            useNativeArguments: true);
         var signatureParameterTypes = method.Parameters.Select((parameter, index) => FormatConcreteGenericParameterCppType(parameter, concreteParameters[index])).ToArray();
         var parameterList = string.Join(", ", new[] { $"arg_t<{concreteRecordType}*> self" }.Concat(method.Parameters.Select((parameter, index) => $"arg_t<{signatureParameterTypes[index]}> {parameter.NativeName}")));
         var abiArguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
         var signatureReturnType = SubstituteCppGenericParameters(
-            SubstituteCppGenericParameters(method.CppReturnTypeName, record.GenericParameters, recordInstantiation.TypeArguments),
-            method.GenericParameters, methodInstantiation.TypeArguments);
-        var memberSignature = $"{signatureReturnType}({concreteRecordType}::*)({string.Join(", ", signatureParameterTypes)}){(method.IsConstMethod ? " const" : string.Empty)}";
-        var methodCppTypeArgs = string.Join(", ", methodInstantiation.TypeArguments.Select(RecordBinding.FormatCppTemplateArgument));
+            SubstituteCppGenericParameters(method.CppReturnTypeName, record.GenericParameters, GetNativeTypeArguments(recordInstantiation)),
+            method.GenericParameters, GetNativeTypeArguments(methodInstantiation));
+        var memberSignature = $"auto({concreteRecordType}::*)({string.Join(", ", signatureParameterTypes)}){(method.IsConstMethod ? " const" : string.Empty)} -> {signatureReturnType}";
+        var methodCppTypeArgs = string.Join(", ", GetNativeTypeArguments(methodInstantiation).Select(RecordBinding.FormatCppTemplateArgument));
         var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", signatureParameterTypes);
 
         writer.Write($$"""
@@ -3562,18 +3760,30 @@ public static partial class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         var methodParams = (IReadOnlyList<BindingGenericParameter>)method.GenericParameters.ToList();
-        var concreteRecordType = record.FormatCppTypeName(recordInstantiation.TypeArguments);
+        var concreteRecordType = FormatConcreteRecordCppTypeName(record, recordInstantiation);
         var concreteParameters = method.Parameters.Select(parameter =>
-            SubstituteGenericType(record, parameter.Type, recordInstantiation, methodParams, methodInstantiation)).ToArray();
-        var concreteReturnType = SubstituteGenericType(record, method.ReturnType, recordInstantiation, methodParams, methodInstantiation);
+            SubstituteGenericType(
+                record,
+                parameter.Type,
+                recordInstantiation,
+                methodParams,
+                methodInstantiation,
+                useNativeArguments: true)).ToArray();
+        var concreteReturnType = SubstituteGenericType(
+            record,
+            method.ReturnType,
+            recordInstantiation,
+            methodParams,
+            methodInstantiation,
+            useNativeArguments: true);
         var signatureParameterTypes = method.Parameters.Select((parameter, index) => FormatConcreteGenericParameterCppType(parameter, concreteParameters[index])).ToArray();
         var parameterList = string.Join(", ", method.Parameters.Select((parameter, index) => $"arg_t<{signatureParameterTypes[index]}> {parameter.NativeName}"));
         var abiArguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
         var signatureReturnType = SubstituteCppGenericParameters(
-            SubstituteCppGenericParameters(method.CppReturnTypeName, record.GenericParameters, recordInstantiation.TypeArguments),
-            method.GenericParameters, methodInstantiation.TypeArguments);
-        var signature = $"{signatureReturnType}({string.Join(", ", signatureParameterTypes)})";
-        var methodCppTypeArgs = string.Join(", ", methodInstantiation.TypeArguments.Select(RecordBinding.FormatCppTemplateArgument));
+            SubstituteCppGenericParameters(method.CppReturnTypeName, record.GenericParameters, GetNativeTypeArguments(recordInstantiation)),
+            method.GenericParameters, GetNativeTypeArguments(methodInstantiation));
+        var signature = $"auto({string.Join(", ", signatureParameterTypes)}) -> {signatureReturnType}";
+        var methodCppTypeArgs = string.Join(", ", GetNativeTypeArguments(methodInstantiation).Select(RecordBinding.FormatCppTemplateArgument));
         var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", signatureParameterTypes);
         var methodPointer = $"&{concreteRecordType}::{method.NativeName}<{methodCppTypeArgs}>";
         var argumentsSuffix = abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty;
@@ -3649,7 +3859,7 @@ public static partial class BindingOutputRenderer
         return $$"""
             SHARPCPP_EXPORT_NAMED({{entryPointName}}) {{GetNativeGenericEntrypointReturnType(concreteReturnType)}} {{entryPointName}}({{parameterList}})
             {
-            using FT = {{concreteReturnType.CppTypeName}}({{signatureParameterList}});
+            using FT = auto({{signatureParameterList}}) -> {{concreteReturnType.CppTypeName}};
             auto fn = []({{lambdaParameterList}}) -> decltype(auto)
             {
                 {{(concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? invocation + ";" : "return " + invocation + ";")}}
@@ -3700,7 +3910,7 @@ public static partial class BindingOutputRenderer
         return $$"""
             SHARPCPP_EXPORT_NAMED({{entryPointName}}) {{GetNativeGenericEntrypointReturnType(concreteReturnType)}} {{entryPointName}}({{parameterList}})
             {
-            using FT = {{concreteReturnType.CppTypeName}}({{signatureParameterList}});
+            using FT = auto({{signatureParameterList}}) -> {{concreteReturnType.CppTypeName}};
             auto fn = []({{lambdaParameterList}}) -> decltype(auto)
             {
                 {{(concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? invocation + ";" : "return " + invocation + ";")}}
@@ -3729,6 +3939,15 @@ public static partial class BindingOutputRenderer
         return RequiresDirectGenericRecordValueReturn(returnType)
             ? returnType.CppTypeName
             : GetNativeEntrypointReturnType(returnType);
+    }
+
+    private static string GetNativeGenericEntrypointReturnType(
+        BindingType returnType,
+        string cppReturnTypeName)
+    {
+        return RequiresDirectGenericReferenceValueReturn(returnType, cppReturnTypeName)
+            ? GetNativeEntrypointReturnType(returnType)
+            : GetNativeEntrypointReturnType(returnType, cppReturnTypeName);
     }
 
     private static string FormatConcreteGenericParameterCppType(ParameterBinding parameter, BindingType concreteType)
@@ -3800,7 +4019,7 @@ public static partial class BindingOutputRenderer
                 : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(__invoke, {callArguments});";
 
         return $$"""
-            using FT = {{concreteReturnType.CppTypeName}}({{signatureParameters}});
+            using FT = auto({{signatureParameters}}) -> {{concreteReturnType.CppTypeName}};
             auto __invoke = []({{lambdaParameters}}) -> {{concreteReturnType.CppTypeName}}
             {
             {{returnStatement}}

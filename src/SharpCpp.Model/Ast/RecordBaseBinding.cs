@@ -7,7 +7,8 @@ public sealed class RecordBaseBinding
         string nativeName,
         string managedName,
         string cppQualifiedName,
-        bool isVirtual)
+        bool isVirtual,
+        BindingType? type = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(recordId);
         ArgumentException.ThrowIfNullOrWhiteSpace(nativeName);
@@ -19,6 +20,7 @@ public sealed class RecordBaseBinding
         ManagedName = managedName;
         CppQualifiedName = cppQualifiedName;
         IsVirtual = isVirtual;
+        Type = type ?? BindingType.CreateHandle($"{cppQualifiedName}*", managedName, recordId);
     }
 
     public string RecordId { get; }
@@ -30,4 +32,6 @@ public sealed class RecordBaseBinding
     public string CppQualifiedName { get; }
 
     public bool IsVirtual { get; }
+
+    public BindingType Type { get; }
 }

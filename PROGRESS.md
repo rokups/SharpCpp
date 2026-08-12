@@ -10,6 +10,13 @@ The repository still contains model, metadata, generated E2E, and rbfx E2E suite
 
 Current worktree verification passes with generic complex C++ values crossing callback/native ABI as pointers by default, while explicitly configured value marshallers such as `StringHash`, math structs, and smart-pointer projections keep their configured ABI. Thin managed convenience wrappers remain acceptable when they delegate to generated APIs without handwritten native entrypoints; rbfx event subscription ownership is now covered by generated `Object::SubscribeToEvent<T>` wrappers discovered from C++ template instantiations.
 
+### AST-native custom containers (current change)
+
+- Verified AST native template arguments survive managed generic projection and drive native generic substitution.
+- Custom containers such as `JPH::Array<T>` remain distinct from `std::vector<T>`, including record-value element types declared by the source AST.
+- Native fixed arrays preserve AST alias element identity while exposing the correct managed ABI type.
+- Verification: model 250/250, metadata 17/17, generated E2E 236/236, RedBolt build succeeded, and focused Jolt physics tests 51/51.
+
 ### Linux compiler include discovery (current change)
 
 - The standalone generator and parser tests recognize both `x86_64-pc-linux-gnu` and Debian-style `x86_64-linux-gnu` GCC include layouts.

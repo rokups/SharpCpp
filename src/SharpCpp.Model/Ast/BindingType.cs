@@ -46,6 +46,7 @@ public sealed record MarshallerDescriptor(
 public sealed class BindingType
 {
     private readonly IReadOnlyList<BindingType> _genericArguments;
+    private readonly IReadOnlyList<BindingTemplateArgument> _nativeTemplateArguments;
     private readonly IReadOnlyList<BindingType> _callbackParameterTypes;
     private string? _managedTypeFormatOverride;
 
@@ -59,12 +60,14 @@ public sealed class BindingType
         string? aliasNativeName = null,
         string? genericParameterName = null,
         IEnumerable<BindingType>? genericArguments = null,
+        IEnumerable<BindingTemplateArgument>? nativeTemplateArguments = null,
         bool isCallback = false,
         BindingType? callbackReturnType = null,
         IEnumerable<BindingType>? callbackParameterTypes = null,
         BindingType? fixedArrayElementType = null,
         int? fixedArrayLength = null,
-        BindingType? dynamicArrayElementType = null)
+        BindingType? dynamicArrayElementType = null,
+        bool nativeTemplateArgumentsAreAstVerified = false)
     {
         Kind = kind;
         PrimitiveKind = primitiveKind;
@@ -75,6 +78,9 @@ public sealed class BindingType
         AliasNativeName = aliasNativeName;
         GenericParameterName = genericParameterName;
         _genericArguments = genericArguments?.ToArray() ?? Array.Empty<BindingType>();
+        _nativeTemplateArguments = nativeTemplateArguments?.ToArray() ??
+            _genericArguments.Select(BindingTemplateArgument.FromType).ToArray();
+        NativeTemplateArgumentsAreAstVerified = nativeTemplateArgumentsAreAstVerified;
         IsCallback = isCallback;
         CallbackReturnType = callbackReturnType;
         _callbackParameterTypes = callbackParameterTypes?.ToArray() ?? Array.Empty<BindingType>();
@@ -151,6 +157,18 @@ public sealed class BindingType
 
     public IReadOnlyList<BindingType> GenericArguments => _genericArguments;
 
+    /// <summary>
+    /// Native template arguments in declaration order. Unlike <see cref="GenericArguments"/>,
+    /// this includes non-type arguments and is never used as a managed generic surface.
+    /// </summary>
+    public IReadOnlyList<BindingTemplateArgument> NativeTemplateArguments => _nativeTemplateArguments;
+
+    /// <summary>
+    /// True when the native template argument shape came directly from Clang's AST.
+    /// Such a shape is complete even when defaulted arguments are omitted in source.
+    /// </summary>
+    public bool NativeTemplateArgumentsAreAstVerified { get; }
+
     public bool IsCallback { get; }
 
     public BindingType? CallbackReturnType { get; }
@@ -216,12 +234,14 @@ public sealed class BindingType
             AliasNativeName,
             GenericParameterName,
             GenericArguments,
+            NativeTemplateArguments,
             IsCallback,
             CallbackReturnType,
             CallbackParameterTypes,
             FixedArrayElementType,
             FixedArrayLength,
-            DynamicArrayElementType)
+            DynamicArrayElementType,
+            NativeTemplateArgumentsAreAstVerified)
         {
             _managedTypeFormatOverride = normalizedOverride
         };
@@ -248,12 +268,55 @@ public sealed class BindingType
             AliasNativeName,
             GenericParameterName,
             arguments,
+            !NativeTemplateArgumentsAreAstVerified &&
+                NativeTemplateArguments.Count == GenericArguments.Count &&
+                NativeTemplateArguments.All(static argument => argument.Kind == BindingTemplateArgumentKind.Type)
+                ? arguments.Select(BindingTemplateArgument.FromType)
+                : NativeTemplateArguments,
             IsCallback,
             CallbackReturnType,
             CallbackParameterTypes,
             FixedArrayElementType,
             FixedArrayLength,
-            DynamicArrayElementType)
+            DynamicArrayElementType,
+            NativeTemplateArgumentsAreAstVerified)
+        {
+            _managedTypeFormatOverride = _managedTypeFormatOverride
+        };
+        return copy;
+    }
+
+    public BindingType WithNativeTemplateArguments(
+        IEnumerable<BindingTemplateArgument> nativeTemplateArguments,
+        bool astVerified = false)
+    {
+        ArgumentNullException.ThrowIfNull(nativeTemplateArguments);
+
+        var arguments = nativeTemplateArguments.ToArray();
+        if (NativeTemplateArguments.SequenceEqual(arguments) &&
+            (!astVerified || NativeTemplateArgumentsAreAstVerified))
+        {
+            return this;
+        }
+
+        var copy = new BindingType(
+            Kind,
+            PrimitiveKind,
+            Marshaller,
+            RecordId,
+            EnumId,
+            AliasCppQualifiedName,
+            AliasNativeName,
+            GenericParameterName,
+            GenericArguments,
+            arguments,
+            IsCallback,
+            CallbackReturnType,
+            CallbackParameterTypes,
+            FixedArrayElementType,
+            FixedArrayLength,
+            DynamicArrayElementType,
+            NativeTemplateArgumentsAreAstVerified || astVerified)
         {
             _managedTypeFormatOverride = _managedTypeFormatOverride
         };
@@ -277,6 +340,7 @@ public sealed class BindingType
             ManagedMarshaller,
             callbackReturnType,
             callbackParameterTypes)
+            .WithNativeTemplateArguments(NativeTemplateArguments, NativeTemplateArgumentsAreAstVerified)
             .WithManagedTypeFormatOverride(_managedTypeFormatOverride);
         return copy;
     }
@@ -299,12 +363,14 @@ public sealed class BindingType
             AliasNativeName,
             GenericParameterName,
             GenericArguments,
+            NativeTemplateArguments,
             IsCallback,
             CallbackReturnType,
             CallbackParameterTypes,
             elementType,
             length,
-            DynamicArrayElementType)
+            DynamicArrayElementType,
+            NativeTemplateArgumentsAreAstVerified)
         {
             _managedTypeFormatOverride = _managedTypeFormatOverride
         };
@@ -329,12 +395,14 @@ public sealed class BindingType
             AliasNativeName,
             GenericParameterName,
             GenericArguments,
+            NativeTemplateArguments,
             IsCallback,
             CallbackReturnType,
             CallbackParameterTypes,
             FixedArrayElementType,
             FixedArrayLength,
-            elementType)
+            elementType,
+            NativeTemplateArgumentsAreAstVerified)
         {
             _managedTypeFormatOverride = _managedTypeFormatOverride
         };
@@ -499,12 +567,14 @@ public sealed class BindingType
             AliasNativeName,
             GenericParameterName,
             GenericArguments,
+            NativeTemplateArguments,
             IsCallback,
             CallbackReturnType,
             CallbackParameterTypes,
             FixedArrayElementType,
             FixedArrayLength,
-            DynamicArrayElementType)
+            DynamicArrayElementType,
+            NativeTemplateArgumentsAreAstVerified)
         {
             _managedTypeFormatOverride = _managedTypeFormatOverride
         };
@@ -530,12 +600,14 @@ public sealed class BindingType
             nativeName,
             GenericParameterName,
             GenericArguments,
+            NativeTemplateArguments,
             IsCallback,
             CallbackReturnType,
             CallbackParameterTypes,
             FixedArrayElementType,
             FixedArrayLength,
-            DynamicArrayElementType)
+            DynamicArrayElementType,
+            NativeTemplateArgumentsAreAstVerified)
         {
             _managedTypeFormatOverride = _managedTypeFormatOverride
         };

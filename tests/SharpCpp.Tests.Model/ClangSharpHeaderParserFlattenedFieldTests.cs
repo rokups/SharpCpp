@@ -83,6 +83,96 @@ public sealed class ClangSharpHeaderParserFlattenedFieldTests
     }
 
     [Fact]
+    public void Parse_preserves_callable_records_nested_in_plain_data_fields()
+    {
+        var compilation = ParseTempHeader(
+            "CallableNestedField.hpp",
+            """
+            struct curve
+            {
+                void clear();
+                void add_point(float x, float y);
+                int implementation_detail;
+            };
+
+            struct engine
+            {
+                curve torque;
+                float maximum;
+            };
+
+            struct settings
+            {
+                engine engine_settings;
+                curve friction;
+            };
+            """,
+            ["-x", "c++", "-std=c++20"]);
+
+        var settings = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "settings");
+        var torque = Assert.Single(settings.Members.OfType<FieldBinding>(), static field => field.NativeName == "engine_settings_torque");
+        var friction = Assert.Single(settings.Members.OfType<FieldBinding>(), static field => field.NativeName == "friction");
+
+        Assert.Equal(BindingTypeKind.Handle, torque.Type.Kind);
+        Assert.Equal("engine_settings.torque", torque.GetMetadata<string>(MetadataKeys.NativeFieldAccessExpression));
+        Assert.Equal(BindingTypeKind.Handle, friction.Type.Kind);
+        Assert.DoesNotContain(settings.Members.OfType<FieldBinding>(), static field => field.NativeName.Contains("implementation_detail", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Parse_flattens_fields_of_callable_class_template_specializations()
+    {
+        var compilation = ParseTempHeader(
+            "TemplateField.hpp",
+            """
+            template <class T> struct buffer
+            {
+                int size;
+                T* data;
+                void clear();
+            };
+
+            struct draw_list
+            {
+                buffer<int> vertices;
+            };
+            """,
+            ["-x", "c++", "-std=c++20"]);
+
+        var drawList = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "draw_list");
+        var size = Assert.Single(drawList.Members.OfType<FieldBinding>(), static field => field.NativeName == "vertices_size");
+
+        Assert.Equal("VerticesSize", size.ManagedName);
+        Assert.Equal("vertices.size", size.GetMetadata<string>(MetadataKeys.NativeFieldAccessExpression));
+    }
+
+    [Fact]
+    public void Parse_flattens_plain_data_records_with_only_static_helpers()
+    {
+        var compilation = ParseTempHeader(
+            "StaticHelperNestedField.hpp",
+            """
+            struct features
+            {
+                int enabled;
+                static bool equal(const features&, const features&);
+                template <class T> static void enumerate(T&&);
+                bool operator==(const features&) const;
+            };
+
+            struct settings
+            {
+                features requested;
+            };
+            """,
+            ["-x", "c++", "-std=c++20"]);
+
+        var settings = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "settings");
+        var enabled = Assert.Single(settings.Members.OfType<FieldBinding>(), static field => field.NativeName == "requested_enabled");
+        Assert.Equal("requested.enabled", enabled.GetMetadata<string>(MetadataKeys.NativeFieldAccessExpression));
+    }
+
+    [Fact]
     public void Parse_does_not_flatten_static_members_into_instance_paths()
     {
         var compilation = ParseTempHeader(
@@ -105,6 +195,99 @@ public sealed class ClangSharpHeaderParserFlattenedFieldTests
 
         Assert.Contains(record.Members.OfType<FieldBinding>(), static field => field.NativeName == "state_value");
         Assert.DoesNotContain(record.Members.OfType<FieldBinding>(), static field => field.NativeName == "state_shared_value");
+    }
+
+    [Fact]
+    public void Parse_does_not_flatten_named_record_alias_storage()
+    {
+        var compilation = ParseTempHeader(
+            "AliasedStorage.hpp",
+            """
+            struct vector
+            {
+                using storage = struct { float data[4]; };
+
+                union
+                {
+                    storage value;
+                    float components[4];
+                };
+            };
+            """,
+            ["-x", "c++", "-std=c++20"]);
+
+        var record = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "vector");
+        Assert.DoesNotContain(record.Members.OfType<FieldBinding>(), static field => field.NativeName == "value_data");
+        Assert.Contains(record.Members.OfType<FieldBinding>(), static field => field.NativeName == "components");
+    }
+
+    [Fact]
+    public void Parse_flattens_c_style_typedef_of_named_record()
+    {
+        var compilation = ParseTempHeader(
+            "NamedTypedef.hpp",
+            """
+            struct features
+            {
+                int enabled;
+            };
+            typedef struct features features;
+
+            struct settings
+            {
+                features capabilities;
+            };
+            """,
+            ["-x", "c++", "-std=c++20"]);
+
+        var record = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "settings");
+        Assert.Contains(record.Members.OfType<FieldBinding>(), static field => field.NativeName == "capabilities_enabled");
+    }
+
+    [Fact]
+    public void Parse_flattens_c_style_typedef_of_anonymous_record()
+    {
+        var compilation = ParseTempHeader(
+            "AnonymousTypedef.h",
+            """
+            typedef struct
+            {
+                int enabled;
+            } features;
+
+            typedef struct
+            {
+                features capabilities;
+            } settings;
+            """,
+            ["-x", "c", "-std=c17"]);
+
+        var record = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "settings");
+        Assert.Contains(record.Members.OfType<FieldBinding>(), static field => field.NativeName == "capabilities_enabled");
+    }
+
+    [Fact]
+    public void Parse_preserves_c_style_typedef_of_anonymous_union()
+    {
+        var compilation = ParseTempHeader(
+            "AnonymousUnionTypedef.h",
+            """
+            typedef union
+            {
+                int integer;
+                float scalar;
+            } value;
+
+            typedef struct
+            {
+                value data;
+            } settings;
+            """,
+            ["-x", "c", "-std=c17"]);
+
+        var record = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "settings");
+        Assert.Contains(record.Members.OfType<FieldBinding>(), static field => field.NativeName == "data");
+        Assert.DoesNotContain(record.Members.OfType<FieldBinding>(), static field => field.NativeName == "data_integer");
     }
 
     [Fact]
@@ -143,6 +326,106 @@ public sealed class ClangSharpHeaderParserFlattenedFieldTests
         Assert.Equal("Position", field.ManagedName);
         Assert.Equal("Vector3", field.Type.ManagedTypeName);
         Assert.DoesNotContain(record.Members.OfType<FieldBinding>(), static field => field.NativeName == "position_x");
+    }
+
+    [Fact]
+    public void Parse_preserves_marshaller_backed_record_inside_flattened_data()
+    {
+        var compilation = ParseTempHeader(
+            "NestedMarshallerBackedField.hpp",
+            """
+            struct vector3
+            {
+                float x;
+                float y;
+                float z;
+            };
+
+            struct material_data
+            {
+                vector3 color;
+            };
+
+            struct material
+            {
+                material_data data;
+            };
+
+            namespace SharpCpp
+            {
+            template <class T> struct Marshaller;
+            template <>
+            struct [[sharpcpp::managed_type(public_type = "Vector3")]] Marshaller<vector3>
+            {
+            };
+            }
+            """,
+            ["-x", "c++", "-std=c++20"],
+            useHeaderAsMarshallerConfiguration: true);
+
+        var record = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "material");
+        var field = Assert.Single(record.Members.OfType<FieldBinding>(), static field => field.NativeName == "data_color");
+
+        Assert.Equal("DataColor", field.ManagedName);
+        Assert.Equal("Vector3", field.Type.ManagedTypeName);
+        Assert.Equal("data.color", field.GetMetadata<string>(MetadataKeys.NativeFieldAccessExpression));
+    }
+
+    [Fact]
+    public void Parse_does_not_apply_value_marshaller_to_flattened_pointer_field()
+    {
+        var compilation = ParseTempHeader(
+            "NestedProjectedPointerField.hpp",
+            """
+            struct text_view
+            {
+                const char* begin;
+                const char* end;
+            };
+
+            struct native_string
+            {
+                int size;
+            };
+
+            struct buffer
+            {
+                int size;
+                text_view* data;
+                native_string* name;
+            };
+
+            struct owner
+            {
+                buffer values;
+            };
+
+            namespace SharpCpp
+            {
+            template <class T> struct Marshaller;
+            template <>
+            struct [[sharpcpp::managed_type(public_type = "global::System.ReadOnlySpan<byte>")]] Marshaller<text_view>
+            {
+            };
+            template <>
+            struct [[sharpcpp::managed_type(
+                public_type = "global::Std.String",
+                managed_wrapper_assembly = "SharpCpp.Std"
+            )]] Marshaller<native_string>
+            {
+            };
+            }
+            """,
+            ["-x", "c++", "-std=c++20"],
+            useHeaderAsMarshallerConfiguration: true);
+
+        var record = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "owner");
+        var data = Assert.Single(record.Members.OfType<FieldBinding>(), static field => field.NativeName == "values_data");
+        var name = Assert.Single(record.Members.OfType<FieldBinding>(), static field => field.NativeName == "values_name");
+
+        Assert.Equal(BindingPrimitiveKind.IntPtr, data.Type.PrimitiveKind);
+        Assert.Equal("global::System.IntPtr", data.Type.ManagedTypeName);
+        Assert.Equal(BindingTypeKind.Handle, name.Type.Kind);
     }
 
     [Fact]

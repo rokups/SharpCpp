@@ -26,6 +26,7 @@ public static class MetadataKeys
     public const string PlaceholderRecord = "placeholder_record";
     public const string SuppressEmission = "suppress_emission";
     public const string HasNativeDefinition = "has_native_definition";
+    public const string NativeCallableDeleted = "native_callable_deleted";
     public const string NonPublicDestructor = "non_public_destructor";
     public const string UnexpressibleDefault = "unexpressible_default";
     public const string MarshallerExposedMethod = "marshaller_exposed_method";

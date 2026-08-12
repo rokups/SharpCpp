@@ -12,6 +12,171 @@ namespace SharpCpp.Tests.Model;
 public sealed class ClangSharpHeaderParserMarshallerTests
 {
     [Fact]
+    public void Parse_preserves_integral_template_arguments_as_ast_facts()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "ConfiguredSequence");
+        var includeDir = Path.Combine(repoRoot, "include");
+        var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+        var marshallerHeader = Path.Combine(fixtureDir, "SampleMarshallers.h");
+        var clangArgs = CreateStandardLibraryClangArgs(fixtureDir, includeDir);
+
+        var compilation = new ClangSharpHeaderParser().Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: clangArgs,
+            MarshallerConfigurationFiles: [marshallerHeader],
+            EntryPointPrefix: "Test_"));
+
+        var owner = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "sample::bounded_owner");
+        var values = Assert.Single(owner.Members.OfType<FieldBinding>(), static field => field.NativeName == "values");
+
+        Assert.Collection(
+            values.Type.NativeTemplateArguments,
+            argument =>
+            {
+                Assert.Equal(BindingTemplateArgumentKind.Type, argument.Kind);
+                Assert.Equal("sample::id", argument.Type!.CppTypeName);
+            },
+            argument =>
+            {
+                Assert.Equal(BindingTemplateArgumentKind.Integral, argument.Kind);
+                Assert.Equal(4, argument.IntegralValue);
+            });
+        Assert.Equal("sample::id", Assert.Single(values.Type.GenericArguments).CppTypeName);
+        Assert.Equal("StaticBuffer<uint>", values.Type.ManagedTypeName);
+
+        var callback = Assert.Single(compilation.Functions, static function => function.NativeName == "consume_callback")
+            .Parameters[0].Type;
+        var callbackBox = callback.CallbackReturnType!;
+        var callbackArray = Assert.Single(callbackBox.GenericArguments);
+        Assert.True(callbackArray.NativeTemplateArgumentsAreAstVerified);
+        Assert.True(callbackArray.IsFixedArray);
+        Assert.Equal(4, callbackArray.FixedArrayLength);
+        Assert.Equal("int", Assert.Single(callbackArray.GenericArguments).CppTypeName);
+    }
+
+    [Fact]
+    public void Bootstrap_pipeline_maps_exposed_void_pointer_return_to_intptr()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "InheritedMarshallerConfig");
+        var headerPath = Path.Combine(fixtureDir, "InheritedMarshallerConfig.hpp");
+        var clangArgs = new[] { "-x", "c++", "-std=c++20", $"-I{fixtureDir}" };
+        var compilation = new ClangSharpHeaderParser().Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: clangArgs,
+            MarshallerConfigurationFiles: [headerPath],
+            EntryPointPrefix: "Test_"));
+
+        BindingCompilationBootstrapPipeline.Apply(compilation, [headerPath], clangArgs);
+
+        var listener = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "listener");
+        var getHandle = Assert.Single(listener.Members.OfType<FunctionBinding>(), static method => method.NativeName == "GetHandle");
+        Assert.Equal(BindingPrimitiveKind.IntPtr, getHandle.ReturnType.PrimitiveKind);
+    }
+
+    [Fact]
+    public void Bootstrap_pipeline_does_not_add_default_constructor_to_configured_type_with_declared_constructor()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "InheritedMarshallerConfig");
+        var headerPath = Path.Combine(fixtureDir, "InheritedMarshallerConfig.hpp");
+        var clangArgs = new[] { "-x", "c++", "-std=c++20", $"-I{fixtureDir}" };
+        var compilation = new ClangSharpHeaderParser().Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: clangArgs,
+            MarshallerConfigurationFiles: [headerPath],
+            EntryPointPrefix: "Test_"));
+
+        BindingCompilationBootstrapPipeline.Apply(compilation, [headerPath], clangArgs);
+
+        var constructed = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "constructed");
+        var constructor = Assert.Single(constructed.Members.OfType<FunctionBinding>(), static member => member.IsConstructor);
+        Assert.Single(constructor.Parameters);
+    }
+
+    [Fact]
+    public void Bootstrap_pipeline_generates_distinct_configured_sequences_and_preserves_projected_element_native_types()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "ConfiguredSequence");
+        var includeDir = Path.Combine(repoRoot, "include");
+        var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+        var marshallerHeader = Path.Combine(fixtureDir, "SampleMarshallers.h");
+        var clangArgs = CreateStandardLibraryClangArgs(fixtureDir, includeDir);
+        var marshallerFiles = new[] { marshallerHeader };
+
+        var compilation = new ClangSharpHeaderParser().Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: clangArgs,
+            MarshallerConfigurationFiles: marshallerFiles,
+            EntryPointPrefix: "Test_"));
+
+        BindingCompilationBootstrapPipeline.Apply(compilation, marshallerFiles, clangArgs);
+
+        var array = Assert.Single(compilation.Records.Where(static record => record.CppQualifiedName == "sample::array"));
+        Assert.False(array.IsIgnored(), array.GetIgnoreReason());
+        Assert.Equal("Array", array.ManagedName);
+        Assert.Equal("Test", array.ManagedNamespace);
+        Assert.Equal("Test.Array<{0}>", array.ManagedTypeFormat);
+        Assert.All(array.Members.Where(static member => !member.IsIgnored()), static member =>
+            Assert.True(member.HasMetadata(MetadataKeys.MarshallerExposedMethod)));
+
+        var buffer = Assert.Single(compilation.Records.Where(static record => record.CppQualifiedName == "sample::buffer"));
+        Assert.Equal("Array<uint>", buffer.ManagedBaseTypeName);
+
+        var owner = Assert.Single(compilation.Records.Where(static record => record.CppQualifiedName == "sample::owner"));
+        var values = Assert.Single(owner.Members.OfType<FieldBinding>(), static field => field.NativeName == "values");
+        Assert.Equal("Test.Array<uint>", values.Type.ManagedTypeName);
+        var element = Assert.Single(values.Type.GenericArguments);
+        Assert.Equal("sample::id", element.CppTypeName);
+        Assert.Equal("uint", element.ManagedTypeName);
+
+        var instantiation = Assert.Single(array.SupportedGenericInstantiations, static item =>
+            Assert.Single(item.TypeArguments).CppTypeName == "sample::id");
+        Assert.Equal("sample::id", Assert.Single(instantiation.TypeArguments).CppTypeName);
+
+        var referenceInstantiation = Assert.Single(array.SupportedGenericInstantiations, static item =>
+            Assert.Single(item.TypeArguments).CppTypeName == "sample::ref<sample::target>");
+        Assert.Equal(
+            "sample::ref<sample::target>",
+            Assert.Single(referenceInstantiation.NativeTemplateArguments).Type!.CppTypeName);
+
+        var consume = Assert.Single(compilation.Functions.Where(static function => function.CppQualifiedName == "sample::consume"));
+        Assert.Equal("const sample::view&", Assert.Single(consume.Parameters).CppTypeName);
+
+        var result = Assert.Single(compilation.Records.Where(static record => record.CppQualifiedName == "sample::result"));
+        var get = Assert.Single(result.Members.OfType<FunctionBinding>(), static method => method.NativeName == "get");
+        Assert.False(get.ReturnsOwnedHandle);
+        var ownedReturn = Assert.Single(get.OwnedReturnRecordInstantiations);
+        Assert.Equal("sample::ref<sample::target>", Assert.Single(ownedReturn.TypeArguments).CppTypeName);
+        Assert.Contains(result.SupportedGenericInstantiations, static item =>
+            Assert.Single(item.TypeArguments).CppTypeName == "sample::ref<sample::target>");
+        Assert.Contains(result.SupportedGenericInstantiations, static item =>
+            Assert.Single(item.TypeArguments).CppTypeName == "sample::value");
+    }
+
+    [Fact]
     public void Parse_applies_marshaller_metadata_from_token_spaced_configuration_text()
     {
         var repoRoot = FindRepositoryRoot();
@@ -472,6 +637,9 @@ public sealed class ClangSharpHeaderParserMarshallerTests
             EntryPointPrefix: "Test_"));
 
         BindingCompilationBootstrapPipeline.Apply(compilation, marshallerFiles, clangArgs);
+        var vector = Assert.Single(compilation.Records.Where(static record => record.CppQualifiedName == "eastl::vector"));
+        Assert.Equal(2, vector.NativeTemplateParameterCount);
+        Assert.Equal(1, vector.NativeTemplateRequiredParameterCount);
         var eventHub = Assert.Single(compilation.Records.Where(static record => record.NativeName == "EventHub"));
         var method = Assert.Single(eventHub.Members.OfType<FunctionBinding>().Where(static function => function.NativeName == "UnsubscribeFromAllEventsExcept"));
 
@@ -949,12 +1117,29 @@ public sealed class ClangSharpHeaderParserMarshallerTests
 
         var box = Assert.Single(compilation.Records.Where(static record => record.NativeName == "field_box"));
         var samples = Assert.Single(box.Members.OfType<FieldBinding>().Where(static field => field.NativeName == "samples"));
+        var wideSamples = Assert.Single(box.Members.OfType<FieldBinding>().Where(static field => field.NativeName == "wide_samples"));
 
         Assert.False(samples.IsIgnored(), samples.GetIgnoreReason());
         Assert.True(samples.Type.IsFixedArray);
         Assert.Equal(3, samples.Type.FixedArrayLength);
         Assert.Equal("SharpCpp.NativeArray<int>", samples.Type.ManagedTypeName);
         Assert.Equal("int", samples.Type.FixedArrayElementType!.ManagedTypeName);
+        Assert.Single(samples.Type.GenericArguments);
+        Assert.Collection(
+            samples.Type.NativeTemplateArguments,
+            argument =>
+            {
+                Assert.Equal(BindingTemplateArgumentKind.Type, argument.Kind);
+                Assert.Equal("int", argument.Type!.CppTypeName);
+            },
+            argument =>
+            {
+                Assert.Equal(BindingTemplateArgumentKind.Integral, argument.Kind);
+                Assert.Equal(3, argument.IntegralValue);
+            });
+        Assert.Equal("SharpCpp.NativeArray<FieldUint64>", wideSamples.Type.ManagedTypeName);
+        Assert.Equal("field_uint64", wideSamples.Type.FixedArrayElementType!.AliasNativeName);
+        Assert.Contains(compilation.TypeAliases, static alias => alias.ManagedName == "FieldUint64");
     }
 
     [Fact]
@@ -1081,6 +1266,10 @@ public sealed class ClangSharpHeaderParserMarshallerTests
                 ClangArguments: ["-x", "c++", "-std=c++20", $"-I{fixtureDir}"],
                 MarshallerConfigurationFiles: Array.Empty<string>(),
                 EntryPointPrefix: "Test_"));
+
+            var parsedSample = Assert.Single(compilation.Records, static record => record.CppQualifiedName == "Test::Sample");
+            var parsedSet = Assert.Single(parsedSample.Members.OfType<FunctionBinding>(), static function => function.ManagedName == "Set");
+            Assert.Equal(BindingTypeKind.GenericParameter, Assert.Single(parsedSet.Parameters).Type.Kind);
 
             BindingCompilationGenericInstantiationPass.Apply(compilation);
 

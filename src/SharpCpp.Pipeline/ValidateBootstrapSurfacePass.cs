@@ -61,21 +61,16 @@ public static class ValidateBootstrapSurfacePass
             return;
         }
 
-        if (record.IsDirector || record.IsPolymorphic || record.Bases.Count > 0)
+        if (record.IsDirector)
         {
-            record.SetIgnoreReason($"generic record '{record.ManagedName}' is limited to non-polymorphic, non-director, non-inheriting surface in this slice");
+            record.SetIgnoreReason($"generic record '{record.ManagedName}' does not support managed directors in this slice");
             return;
         }
 
         var isGenericArray = record.GetMetadata<bool>(MetadataKeys.FixedArrayRecord) ||
             record.GetMetadata<bool>(MetadataKeys.DynamicArrayRecord);
-        if (!isGenericArray && record.Members.OfType<FieldBinding>().Any())
-        {
-            record.SetIgnoreReason($"generic record '{record.ManagedName}' does not support field projection in this slice");
-            return;
-        }
-
-        if (!isGenericArray && record.Members.OfType<FunctionBinding>().Any(static function => function.OperatorToken is not null || function.IsConversionOperator))
+        if (!isGenericArray && record.Members.OfType<FunctionBinding>().Any(static function =>
+                !function.IsIgnored() && (function.OperatorToken is not null || function.IsConversionOperator)))
         {
             record.SetIgnoreReason($"generic record '{record.ManagedName}' does not support operators in this slice");
             return;
@@ -223,23 +218,14 @@ public static class ValidateBootstrapSurfacePass
         IReadOnlyDictionary<string, RecordBinding> recordsById,
         IReadOnlyCollection<string> configuredNativeNamespaces)
     {
-        var supportsRecordValueArguments =
-            !string.IsNullOrWhiteSpace(record.ManagedTypeFormat) ||
-            !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ||
-            record.Members.OfType<FunctionBinding>()
-                .Any(static method => method.HasMetadata(MetadataKeys.MarshallerExposedMethod));
         for (var i = instantiations.Count - 1; i >= 0; i--)
         {
-            if (!ValidateInstantiationKinds(record, instantiations[i], recordsById, configuredNativeNamespaces) ||
-                !supportsRecordValueArguments && instantiations[i].TypeArguments.Any(ContainsAbiProjectedRecordValue))
+            if (!ValidateInstantiationKinds(record, instantiations[i], recordsById, configuredNativeNamespaces))
             {
                 instantiations.RemoveAt(i);
             }
         }
     }
-
-    private static bool ContainsAbiProjectedRecordValue(BindingType type) =>
-        type.Marshaller.CppPointerIsRecordValueProjection || type.GenericArguments.Any(ContainsAbiProjectedRecordValue);
 
     private static IEnumerable<BindingType> SelectManagedVisibleNestedTypeArguments(
         BindingType type,

@@ -220,3 +220,19 @@ inline value_box<float>* create_float_box(float value)
 {
     return value_box<float>::create(value);
 }
+
+template <typename T>
+struct [[sharpcpp::instantiate("int")]] generic_abstract_sink
+{
+    virtual ~generic_abstract_sink() = default;
+    virtual void set(T value) = 0;
+};
+
+struct generic_int_sink : generic_abstract_sink<int>
+{
+    void set(int value) override { value_ = value; }
+    int get() const { return value_; }
+
+private:
+    int value_{};
+};

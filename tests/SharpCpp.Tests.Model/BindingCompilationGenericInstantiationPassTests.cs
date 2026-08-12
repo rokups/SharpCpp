@@ -8,6 +8,48 @@ namespace SharpCpp.Tests.Model;
 public sealed class BindingCompilationGenericInstantiationPassTests
 {
     [Fact]
+    public void ValidateBootstrapSurface_ignores_excluded_implementation_members_on_configured_generic_wrappers()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Array.h"]);
+        var array = new RecordBinding("record:array", "array", "Array", "Test::array")
+        {
+            ManagedTypeFormat = "Test.Array<{0}>",
+            ManagedBaseTypeName = "global::SharpCpp.Support.VectorBase<{0}>"
+        };
+        array.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        array.SupportedGenericInstantiations.Add(new RecordGenericInstantiationBinding([BindingType.Int32]));
+
+        var implementationField = new FieldBinding(
+            "field:array:storage",
+            "storage",
+            "Storage",
+            BindingType.Int32,
+            "int",
+            array.CppQualifiedName);
+        implementationField.SetSilentExclusionReason("configured wrapper implementation detail");
+        array.Members.Add(implementationField);
+
+        var implementationOperator = new FunctionBinding(
+            "method:array:operator==",
+            "operator==",
+            "OperatorEquals",
+            BindingType.Boolean,
+            "Test_array_equals")
+        {
+            OperatorToken = "==",
+            OwningRecordCppTypeName = array.CppQualifiedName
+        };
+        implementationOperator.SetSilentExclusionReason("configured wrapper implementation detail");
+        array.Members.Add(implementationOperator);
+        compilation.Members.Add(array);
+
+        ValidateBootstrapSurfacePass.Apply(compilation);
+
+        Assert.False(array.IsIgnored(), array.GetIgnoreReason());
+        Assert.Single(array.SupportedGenericInstantiations);
+    }
+
+    [Fact]
     public void Apply_collects_record_instantiations_from_callback_parameter_types()
     {
         var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Callbacks.h"]);
@@ -56,10 +98,10 @@ public sealed class BindingCompilationGenericInstantiationPassTests
         };
         vector.GenericParameters.Add(new BindingGenericParameter("T", 0));
         var openVectorType = BindingType.CreateHandle(
-            "eastl::vector<type-parameter-0-0>*",
+            "eastl::vector<T>*",
             vector.ManagedName,
             vector.SymbolId,
-            genericArguments: [BindingType.CreateConfigured("type-parameter-0-0", "type-parameter-0-0")]);
+            genericArguments: [BindingType.CreateGenericParameter("T")]);
         var add = new FunctionBinding("method:vector:Add", "Add", "Add", BindingType.Void, "eastl::vector::Add")
         {
             OwningRecordCppTypeName = vector.CppQualifiedName
@@ -72,6 +114,129 @@ public sealed class BindingCompilationGenericInstantiationPassTests
         compilation.Members.Add(rootFunction);
 
         BindingCompilationGenericInstantiationPass.Apply(compilation);
+
+        Assert.Empty(vector.SupportedGenericInstantiations);
+    }
+
+    [Fact]
+    public void Apply_does_not_collect_incomplete_native_template_specializations()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["StaticArray.h"]);
+        var staticArray = new RecordBinding("record:static_array", "static_array", "StaticArray", "Test::static_array")
+        {
+            ManagedTypeFormat = "Test.StaticArray<{0}>",
+            ManagedBaseTypeName = "global::SharpCpp.Support.VectorBase<{0}>",
+            NativeTemplateParameterCount = 2,
+            NativeTemplateRequiredParameterCount = 2
+        };
+        staticArray.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        staticArray.GenericParameters.Add(new BindingGenericParameter("N", 1));
+        compilation.Members.Add(staticArray);
+
+        var incompleteType = BindingType.CreateHandle(
+            "Test::static_array<int>*",
+            staticArray.ManagedName,
+            staticArray.SymbolId,
+            genericArguments: [BindingType.Int32]);
+        var use = new FunctionBinding("function:Use", "Use", "Use", BindingType.Void, "Test::Use");
+        use.Parameters.Add(new ParameterBinding("parameter:value", "value", "value", incompleteType));
+        compilation.Members.Add(use);
+
+        BindingCompilationGenericInstantiationPass.Apply(compilation);
+
+        Assert.Empty(staticArray.SupportedGenericInstantiations);
+    }
+
+    [Fact]
+    public void Apply_collects_native_template_specializations_that_omit_defaulted_arguments()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Vector.h"]);
+        var vector = new RecordBinding("record:vector", "vector", "Vector", "Test::vector")
+        {
+            ManagedTypeFormat = "Test.Vector<{0}>",
+            NativeTemplateParameterCount = 2,
+            NativeTemplateRequiredParameterCount = 1
+        };
+        vector.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        compilation.Members.Add(vector);
+
+        var vectorOfInt = BindingType.CreateHandle(
+            "Test::vector<int>*",
+            vector.ManagedName,
+            vector.SymbolId,
+            genericArguments: [BindingType.Int32]);
+        var use = new FunctionBinding("function:Use", "Use", "Use", BindingType.Void, "Test::Use");
+        use.Parameters.Add(new ParameterBinding("parameter:value", "value", "value", vectorOfInt));
+        compilation.Members.Add(use);
+
+        BindingCompilationGenericInstantiationPass.Apply(compilation);
+
+        var instantiation = Assert.Single(vector.SupportedGenericInstantiations);
+        Assert.Single(instantiation.TypeArguments);
+        Assert.Single(instantiation.NativeTemplateArguments);
+    }
+
+    [Fact]
+    public void RefreshInferred_removes_degraded_uses_and_preserves_explicit_instantiations()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Vector.h"]);
+        var vector = new RecordBinding("record:vector", "vector", "Vector", "Test::vector")
+        {
+            ManagedTypeFormat = "Test.Vector<{0}>"
+        };
+        vector.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        vector.SetMetadata(
+            MetadataKeys.ExplicitGenericInstantiations,
+            new GenericInstantiationMetadata([new RecordGenericInstantiationBinding([BindingType.UInt32])]));
+        compilation.Members.Add(vector);
+
+        var vectorOfInt = BindingType.CreateHandle(
+            "Test::vector<int>*",
+            vector.ManagedName,
+            vector.SymbolId,
+            genericArguments: [BindingType.Int32]);
+        var use = new FunctionBinding("function:Use", "Use", "Use", BindingType.Void, "Test::Use");
+        use.Parameters.Add(new ParameterBinding("parameter:value", "value", "value", vectorOfInt));
+        compilation.Members.Add(use);
+
+        BindingCompilationGenericInstantiationPass.Apply(compilation);
+
+        Assert.Equal(2, vector.SupportedGenericInstantiations.Count);
+        Assert.Contains(vector.SupportedGenericInstantiations, static item => item.IsInferred);
+
+        use.SetIgnoreReason("unsupported use");
+        BindingCompilationGenericInstantiationPass.RefreshInferred(compilation);
+
+        var remaining = Assert.Single(vector.SupportedGenericInstantiations);
+        Assert.False(remaining.IsInferred);
+        Assert.Equal(BindingPrimitiveKind.UInt32, Assert.Single(remaining.TypeArguments).PrimitiveKind);
+    }
+
+    [Fact]
+    public void RefreshInferred_does_not_restore_target_filtered_instantiations()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Vector.h"]);
+        var vector = new RecordBinding("record:vector", "vector", "Vector", "Test::vector")
+        {
+            ManagedTypeFormat = "Test.Vector<{0}>"
+        };
+        vector.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        compilation.Members.Add(vector);
+
+        var vectorOfInt = BindingType.CreateHandle(
+            "Test::vector<int>*",
+            vector.ManagedName,
+            vector.SymbolId,
+            genericArguments: [BindingType.Int32]);
+        var use = new FunctionBinding("function:Use", "Use", "Use", BindingType.Void, "Test::Use");
+        use.Parameters.Add(new ParameterBinding("parameter:value", "value", "value", vectorOfInt));
+        compilation.Members.Add(use);
+
+        BindingCompilationGenericInstantiationPass.Apply(compilation);
+        Assert.Single(vector.SupportedGenericInstantiations);
+
+        vector.SupportedGenericInstantiations.Clear();
+        BindingCompilationGenericInstantiationPass.RefreshInferred(compilation);
 
         Assert.Empty(vector.SupportedGenericInstantiations);
     }

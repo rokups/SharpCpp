@@ -932,6 +932,26 @@ public static partial class BindingOutputRenderer
         return function.ReturnsOwnedHandle || RequiresOwnedRecordValueReturn(returnType);
     }
 
+    private static bool ReturnsOwnedHandle(
+        FunctionBinding function,
+        BindingType returnType,
+        RecordGenericInstantiationBinding recordInstantiation)
+    {
+        return ReturnsOwnedHandle(function, returnType) ||
+            function.OwnedReturnRecordInstantiations.Any(owned =>
+                GenericInstantiationsEqual(owned, recordInstantiation));
+    }
+
+    private static bool GenericInstantiationsEqual(
+        RecordGenericInstantiationBinding left,
+        RecordGenericInstantiationBinding right)
+    {
+        return left.TypeArguments.Count == right.TypeArguments.Count &&
+            left.TypeArguments.Zip(right.TypeArguments).All(static pair =>
+                pair.First.Kind == pair.Second.Kind &&
+                string.Equals(pair.First.CppTypeName, pair.Second.CppTypeName, StringComparison.Ordinal));
+    }
+
     private static string GetNativeEntrypointReturnType(FunctionBinding function)
     {
         return GetNativeEntrypointReturnType(function.ReturnType, function.CppReturnTypeName);
@@ -1352,12 +1372,12 @@ public static partial class BindingOutputRenderer
         }
 
         var elementCppType = GetNativeFixedArrayElementCppType(compilation, elementType);
-        var valueExpression = field.CppTypeName.Contains('*', StringComparison.Ordinal)
-            ? $"{arrayAccessExpression}[index]"
-            : $"&({arrayAccessExpression}[index])";
+        var marshallerCppType = elementType.Marshaller.CppIsRecordValue
+            ? $"{elementCppType}&"
+            : elementCppType;
         return $$"""
-            ReturnMarshaller<{{elementCppType}}> marshaller;
-            return marshaller.ConvertToAbi({{valueExpression}});
+            ReturnMarshaller<{{marshallerCppType}}> marshaller;
+            return marshaller.ConvertToAbi({{arrayAccessExpression}}[index]);
             """;
     }
 
@@ -1387,23 +1407,9 @@ public static partial class BindingOutputRenderer
         }
 
         var elementCppType = GetNativeFixedArrayElementCppType(compilation, elementType);
-        if (field.CppTypeName.Contains('*', StringComparison.Ordinal))
-        {
-            return $$"""
-                ParameterMarshaller<{{elementCppType}}> marshaller;
-                {{arrayAccessExpression}}[index] = marshaller.ConvertToCpp(value);
-                """;
-        }
-
         return $$"""
             ParameterMarshaller<{{elementCppType}}> marshaller;
-            auto* source = marshaller.ConvertToCpp(value);
-            if (source == nullptr)
-            {
-                throw std::runtime_error("SharpCpp fixed array element assignment encountered a null handle.");
-            }
-
-            {{arrayAccessExpression}}[index] = *source;
+            {{arrayAccessExpression}}[index] = marshaller.ConvertToCpp(value);
             """;
     }
 
@@ -1411,9 +1417,15 @@ public static partial class BindingOutputRenderer
     {
         var elementType = field.Type.FixedArrayElementType
             ?? throw new InvalidOperationException($"Fixed array field '{field.ManagedName}' is missing element type metadata.");
-        return elementType.IsFixedArray
-            ? "NativeArrayAbi"
-            : $"ret_t<{GetNativeFixedArrayElementCppType(compilation, elementType)}>";
+        if (elementType.IsFixedArray)
+        {
+            return "NativeArrayAbi";
+        }
+
+        var elementCppType = GetNativeFixedArrayElementCppType(compilation, elementType);
+        return elementType.Marshaller.CppIsRecordValue
+            ? $"ret_t<{elementCppType}&>"
+            : $"ret_t<{elementCppType}>";
     }
 
     private static string GetNativeFixedArrayItemSetterParameterType(BindingCompilation compilation, FieldBinding field)
@@ -2043,6 +2055,11 @@ public static partial class BindingOutputRenderer
             return RenderManagedGenericArrayMarshallerHelpers(compilation, record, recordDeclarationName);
         }
 
+        if (HasNativeNonTypeTemplateArguments(record))
+        {
+            return RenderManagedNativeTemplateMarshallerHelper(compilation, record, recordDeclarationName);
+        }
+
         if (!CanUseUnifiedHandleMarshaller(record))
         {
             return RenderManagedGenericHandleMarshallerHelpers(compilation, record, recordDeclarationName);
@@ -2070,6 +2087,29 @@ public static partial class BindingOutputRenderer
                 public static {{qualifiedRecordTypeName}} ConvertToManaged(nint unmanaged)
                 {
                     return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: TOwnership.OwnsHandle{{moduleArgument}});
+                }
+            }
+            """;
+    }
+
+    private static string RenderManagedNativeTemplateMarshallerHelper(
+        BindingCompilation compilation,
+        RecordBinding record,
+        string recordDeclarationName)
+    {
+        var qualifiedRecordTypeName = GetQualifiedManagedRecordDeclarationTypeName(compilation, record, recordDeclarationName);
+        var qualifiedOpenRecordTypeName = GetQualifiedManagedOpenRecordTypeName(compilation, record);
+        var marshallerDeclarationName = GetHandleInMarshallerDeclarationName(record);
+        var marshallerTypeName = GetQualifiedHandleInMarshallerTypeName(compilation, record);
+        var genericConstraints = GetGenericRecordConstraints(record);
+
+        return $$"""
+            [CustomMarshaller(typeof({{qualifiedOpenRecordTypeName}}), MarshalMode.ManagedToUnmanagedIn, typeof({{marshallerTypeName}}))]
+            internal static class {{marshallerDeclarationName}}{{genericConstraints}}
+            {
+                public static nint ConvertToUnmanaged({{qualifiedRecordTypeName}} managed)
+                {
+                    return global::SharpCpp.Support.NativeObject.GetHandle(managed);
                 }
             }
             """;
@@ -2748,6 +2788,7 @@ public static partial class BindingOutputRenderer
         var hidesArrayElement = InheritsArrayElementAccess(compilation, record);
         var staticHelperModifier = hidesStaticHelpers ? "new " : string.Empty;
         var managedTypeIdHelperModifier = record.GetPrimaryBaseRecord(compilation) is { } primaryBase &&
+            !primaryBase.IsGeneric &&
             primaryBase.IsPolymorphic &&
             !IsNativeInterfaceWrapper(primaryBase)
                 ? "new "
@@ -2757,9 +2798,9 @@ public static partial class BindingOutputRenderer
                 ? "new "
                 : string.Empty;
         var cacheFieldModifier = hidesStaticHelpers ? "new " : string.Empty;
-        var interfaceNames = record.GetSecondaryBaseRecords(compilation)
-            .Where(baseRecord => !baseRecord.IsIgnored() && baseRecord.GetRenderableInterfaceMethods(compilation).Count > 0)
-            .Select(baseRecord => $"global::{GetManagedNamespace(compilation, baseRecord)}.{baseRecord.GetManagedInterfaceName()}")
+        var interfaceNames = GetManagedInterfaceBaseBindings(compilation, record)
+            .Where(pair => !pair.Record.IsIgnored() && pair.Record.GetRenderableInterfaceMethods(compilation).Count > 0)
+            .Select(pair => GetManagedInterfaceTypeName(compilation, pair.Record, pair.Binding.Type))
             .Cast<string>()
             .ToArray();
         var canEmitClone = CanEmitClone(record, isEffectivelyAbstract, canEmitDeleteThunk);
@@ -2965,6 +3006,53 @@ public static partial class BindingOutputRenderer
             }
         }
 
+        foreach (var (baseBinding, baseRecord) in GetManagedInterfaceBaseBindings(compilation, record))
+        {
+            if (!baseRecord.IsGeneric || baseBinding.Type.GenericArguments.Count == 0)
+            {
+                continue;
+            }
+
+            var requestedInstantiation = new RecordGenericInstantiationBinding(
+                baseBinding.Type.GenericArguments,
+                baseBinding.Type.NativeTemplateArguments);
+            var requestedKey = GetManagedGenericInstantiationKey(compilation, baseRecord, requestedInstantiation);
+            var instantiation = GetCanonicalManagedGenericInstantiations(compilation, baseRecord)
+                .FirstOrDefault(candidate => string.Equals(
+                    GetManagedGenericInstantiationKey(compilation, baseRecord, candidate),
+                    requestedKey,
+                    StringComparison.Ordinal));
+            if (instantiation is null)
+            {
+                continue;
+            }
+            foreach (var method in baseRecord.GetRenderableInterfaceMethods(compilation)
+                .Where(static method => !method.IsStatic && !method.IsGeneric && !method.IsPureVirtual)
+                .OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+            {
+                if (record.Members.OfType<FunctionBinding>().Any(candidate =>
+                    !candidate.IsConstructor &&
+                    !candidate.IsStatic &&
+                    !candidate.IsGeneric &&
+                    !candidate.IsConversionOperator &&
+                    candidate.OperatorToken is null &&
+                    !candidate.IsSilentlyExcluded() &&
+                    !candidate.HasMetadata(MetadataKeys.IgnoreReason) &&
+                    string.Equals(candidate.ManagedName, method.ManagedName, StringComparison.Ordinal) &&
+                    candidate.Parameters.Count == method.Parameters.Count))
+                {
+                    continue;
+                }
+
+                WriteRecordMemberSeparator(isIgnoredStub: false);
+                writer.Write(RenderGenericSecondaryBaseInterfaceMethod(
+                    compilation,
+                    baseRecord,
+                    method,
+                    instantiation));
+            }
+        }
+
         foreach (var method in record.Members.OfType<FunctionBinding>().Where(static function => function.IsStatic && !function.IsConversionOperator && function.OperatorToken is null && !function.IsSilentlyExcluded()).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             var isIgnoredStub = method.HasMetadata(MetadataKeys.IgnoreReason);
@@ -3127,8 +3215,7 @@ public static partial class BindingOutputRenderer
         }
 
         var hasGeneratedBase = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
-            (!record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal) ||
-             record.GetPrimaryBaseRecord(compilation) is not null);
+            record.GetPrimaryBaseRecord(compilation) is { IsGeneric: false };
         writer.Write(
             hasGeneratedBase
             ? $$"""
@@ -3245,7 +3332,7 @@ public static partial class BindingOutputRenderer
 
         if (memberModifier.Contains("abstract ", StringComparison.Ordinal))
         {
-            var parameterList = RenderManagedPublicParameterList(function.Parameters, compilation);
+            var parameterList = RenderManagedInstancePublicParameterList(compilation, record, function);
             writer.Write($$"""
                 {{GetManagedVisibilityNormalized(compilation, record, function)}} {{memberModifier}}{{returnTypeName}} {{function.ManagedName}}({{parameterList}});
                 """);
@@ -3254,7 +3341,7 @@ public static partial class BindingOutputRenderer
 
         if (ShouldRenderPureVirtualManagedStub(function))
         {
-            var parameterList = RenderManagedPublicParameterList(function.Parameters, compilation);
+            var parameterList = RenderManagedInstancePublicParameterList(compilation, record, function);
             writer.Write($$"""
                 {{GetManagedVisibilityNormalized(compilation, record, function)}} {{memberModifier}}{{returnTypeName}} {{function.ManagedName}}({{parameterList}})
                 {
@@ -3295,7 +3382,7 @@ public static partial class BindingOutputRenderer
                 isConstructor: false);
         }
 
-        var parameterListFull = RenderManagedPublicParameterList(function.Parameters, compilation);
+        var parameterListFull = RenderManagedInstancePublicParameterList(compilation, record, function);
 
         writer.Write($$"""
             {{GetManagedVisibilityNormalized(compilation, record, function)}} {{memberModifier}}{{returnTypeName}} {{function.ManagedName}}({{parameterListFull}})
@@ -4507,15 +4594,15 @@ public static partial class BindingOutputRenderer
     private static string RenderInterface(BindingCompilation compilation, RecordBinding record)
     {
         var writer = new CodeWriter();
-        var interfaceBaseNames = record.GetManagedInterfaceBaseRecords(compilation)
-            .Select(baseRecord => $"global::{GetManagedNamespace(compilation, baseRecord)}.{baseRecord.GetManagedInterfaceName()}")
+        var interfaceBaseNames = GetManagedInterfaceBaseBindings(compilation, record)
+            .Select(pair => GetManagedInterfaceTypeName(compilation, pair.Record, pair.Binding.Type))
             .ToArray();
         var baseClause = interfaceBaseNames.Length == 0
             ? string.Empty
             : $" : {string.Join(", ", interfaceBaseNames)}";
 
         writer.Write($$"""
-            public partial interface {{record.GetManagedInterfaceName()}}{{baseClause}}
+            public partial interface {{record.GetManagedInterfaceName()}}{{GetGenericParameterList(record)}}{{baseClause}}
             {
             """);
 
@@ -4535,6 +4622,80 @@ public static partial class BindingOutputRenderer
             }
             """);
         return writer.ToString();
+    }
+
+    private static string RenderGenericSecondaryBaseInterfaceMethod(
+        BindingCompilation compilation,
+        RecordBinding baseRecord,
+        FunctionBinding method,
+        RecordGenericInstantiationBinding instantiation)
+    {
+        var writer = new CodeWriter();
+        var concreteParameters = method.Parameters
+            .Select(parameter => SubstituteGenericType(baseRecord, parameter.Type, instantiation))
+            .ToArray();
+        var concreteReturnType = SubstituteGenericType(baseRecord, method.ReturnType, instantiation);
+        var parameterList = string.Join(", ", method.Parameters.Select((parameter, index) =>
+            RenderConcreteManagedPublicParameter(compilation, parameter, concreteParameters[index])));
+        var returnTypeName = GetManagedPublicReturnTypeName(concreteReturnType, compilation);
+        var invocationArguments = new List<string>
+        {
+            "global::SharpCpp.Support.NativeObject.GetHandle(this)"
+        };
+        for (var index = 0; index < method.Parameters.Count; index++)
+        {
+            invocationArguments.Add(BuildGenericInvocationArgument(
+                compilation,
+                method.Parameters[index],
+                concreteParameters[index]));
+        }
+
+        WriteDocumentationComment(writer, method);
+        writer.WriteLine($"public {returnTypeName} {method.ManagedName}({parameterList})");
+        writer.WriteLine("{");
+        WriteGenericManagedMethodInvocation(
+            writer,
+            compilation,
+            method,
+            instantiation,
+            returnTypeName,
+            concreteReturnType,
+            concreteParameters,
+            GetGenericImportMethodName(method, instantiation),
+            invocationArguments,
+            "    ");
+        writer.WriteLine("}");
+        return writer.ToString();
+    }
+
+    private static IReadOnlyList<(RecordBaseBinding Binding, RecordBinding Record)> GetManagedInterfaceBaseBindings(
+        BindingCompilation compilation,
+        RecordBinding record)
+    {
+        var primaryBase = record.Bases.FirstOrDefault(static candidate => !candidate.IsVirtual);
+        return record.Bases
+            .Where(candidate => !candidate.IsVirtual && !ReferenceEquals(candidate, primaryBase))
+            .Select(binding => (Binding: binding, Record: compilation.FindRecordBySymbolId(binding.RecordId)))
+            .Where(static pair => pair.Record is not null)
+            .Select(static pair => (pair.Binding, pair.Record!))
+            .ToArray();
+    }
+
+    private static string GetManagedInterfaceTypeName(
+        BindingCompilation compilation,
+        RecordBinding interfaceRecord,
+        BindingType implementedType)
+    {
+        var qualifiedName = $"global::{GetManagedNamespace(compilation, interfaceRecord)}.{interfaceRecord.GetManagedInterfaceName()}";
+        if (!interfaceRecord.IsGeneric || implementedType.GenericArguments.Count == 0)
+        {
+            return qualifiedName;
+        }
+
+        var arguments = GetManagedVisibleGenericParameterIndices(interfaceRecord)
+            .Where(index => index < implementedType.GenericArguments.Count)
+            .Select(index => GetManagedPublicReturnTypeName(implementedType.GenericArguments[index], compilation));
+        return $"{qualifiedName}<{string.Join(", ", arguments)}>";
     }
 
     private static string RenderEnum(EnumBinding @enum)
@@ -4969,6 +5130,7 @@ public static partial class BindingOutputRenderer
 
         foreach (var record in records.Where(static record => record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static record => record.ManagedName, StringComparer.Ordinal))
         {
+            var recordInstantiations = GetCanonicalManagedGenericInstantiations(compilation, record);
             if (IsSharedManagedWrapper(record) && !IsGenericArrayRecord(record))
             {
                 foreach (var instantiation in GetSharedProviderInstantiations(compilation, record))
@@ -4984,7 +5146,7 @@ public static partial class BindingOutputRenderer
                 continue;
             }
 
-            foreach (var instantiation in record.SupportedGenericInstantiations)
+            foreach (var instantiation in recordInstantiations)
             {
                 foreach (var constructor in record.Members.OfType<FunctionBinding>().Where(static function => function.IsConstructor && !function.HasMetadata(MetadataKeys.IgnoreReason)).OrderBy(static function => function.Parameters.Count))
                 {
@@ -5025,7 +5187,7 @@ public static partial class BindingOutputRenderer
                     continue;
                 }
 
-                foreach (var instantiation in record.SupportedGenericInstantiations)
+                foreach (var instantiation in recordInstantiations)
                 {
                     foreach (var methodInstantiation in methodInstantiations)
                     {
@@ -5607,7 +5769,10 @@ public static partial class BindingOutputRenderer
 
     private static bool CanUseManagedHandleReturnMarshaller(BindingCompilation compilation, BindingType type)
     {
-        return !type.IsFixedArray && type.Kind == BindingTypeKind.Handle && ResolveRecord(compilation, type) is not null;
+        return !type.IsFixedArray &&
+            !HasNativeNonTypeTemplateArguments(type) &&
+            type.Kind == BindingTypeKind.Handle &&
+            ResolveRecord(compilation, type) is not null;
     }
 
     private static string GetManagedHandleReturnMarshallerTypeName(BindingCompilation compilation, BindingType type, bool ownsHandle)
@@ -5735,6 +5900,11 @@ public static partial class BindingOutputRenderer
         if (record is null)
         {
             return string.Empty;
+        }
+
+        if (HasNativeNonTypeTemplateArguments(type))
+        {
+            return $"[MarshalUsing(typeof({GetQualifiedHandleInMarshallerTypeName(compilation, record)}))] ";
         }
 
         return CanUseUnifiedHandleMarshaller(record)
@@ -5865,6 +6035,49 @@ public static partial class BindingOutputRenderer
         }
 
         return string.Join(", ", parts);
+    }
+
+    private static string RenderManagedInstancePublicParameterList(
+        BindingCompilation compilation,
+        RecordBinding record,
+        FunctionBinding function)
+    {
+        var baseMethod = FindPrimaryBaseVirtualMatch(compilation, record, function);
+        if (baseMethod is null || baseMethod.Parameters.Count != function.Parameters.Count)
+        {
+            return RenderManagedPublicParameterList(function.Parameters, compilation);
+        }
+
+        var parameters = function.Parameters
+            .Select((parameter, index) => CreateManagedOverrideParameter(parameter, baseMethod.Parameters[index]))
+            .ToArray();
+        return RenderManagedPublicParameterList(parameters, compilation);
+    }
+
+    private static ParameterBinding CreateManagedOverrideParameter(
+        ParameterBinding parameter,
+        ParameterBinding baseParameter)
+    {
+        if (!baseParameter.Type.IsGenericParameter ||
+            parameter.Direction == baseParameter.Direction && parameter.AbiKind == baseParameter.AbiKind)
+        {
+            return parameter;
+        }
+
+        return new ParameterBinding(
+            parameter.SymbolId,
+            parameter.NativeName,
+            parameter.ManagedName,
+            parameter.Type,
+            baseParameter.Direction,
+            baseParameter.AbiKind,
+            parameter.CppTypeName)
+        {
+            ManagedDefaultValueExpression = parameter.ManagedDefaultValueExpression,
+            UseCallbackDelegate = parameter.UseCallbackDelegate,
+            CallbackDelegateTypeName = parameter.CallbackDelegateTypeName,
+            CallbackTakesOwnership = parameter.CallbackTakesOwnership
+        };
     }
 
     private static void WriteManagedUnexpressibleDefaultConvenienceOverloads(
@@ -6197,7 +6410,7 @@ public static partial class BindingOutputRenderer
     {
         var returnTypeName = function.CppReturnTypeName;
         var parameterTypes = string.Join(", ", function.Parameters.Select(static p => p.CppTypeName));
-        return $"{returnTypeName}({parameterTypes})";
+        return $"auto({parameterTypes}) -> {returnTypeName}";
     }
 
     private static string BuildNativeMethodSignature(FunctionBinding method)
@@ -6205,7 +6418,7 @@ public static partial class BindingOutputRenderer
         var returnTypeName = method.CppReturnTypeName;
         var parameterTypes = string.Join(", ", method.Parameters.Select(static p => p.CppTypeName));
         var constQualifier = method.IsConstMethod ? " const" : string.Empty;
-        return $"{returnTypeName}({method.OwningRecordCppTypeName}::*)({parameterTypes}){constQualifier}";
+        return $"auto({method.OwningRecordCppTypeName}::*)({parameterTypes}){constQualifier} -> {returnTypeName}";
     }
 
     private static string GetNativeFieldCppType(BindingCompilation compilation, FieldBinding field)
@@ -6234,7 +6447,9 @@ public static partial class BindingOutputRenderer
 
         var pointerSuffix = string.Empty;
         var cppTypeName = type.CppTypeName.TrimEnd();
-        while (cppTypeName.EndsWith('*'))
+        while (!type.Marshaller.CppIsRecordValue &&
+               !type.Marshaller.CppPointerIsRecordValueProjection &&
+               cppTypeName.EndsWith('*'))
         {
             pointerSuffix += "*";
             cppTypeName = cppTypeName[..^1].TrimEnd();
@@ -6545,13 +6760,17 @@ public static partial class BindingOutputRenderer
                 break;
             }
 
-            var match = current.Members
+            var candidates = current.Members
                 .OfType<FunctionBinding>()
-                .FirstOrDefault(candidate =>
+                .Where(candidate =>
                     !candidate.IsIgnored() &&
-                    candidate.IsVirtual &&
-                    RecordBindingExtensions.SignaturesMatch(candidate, function) &&
-                    string.Equals(candidate.ReturnType.ManagedTypeName, function.ReturnType.ManagedTypeName, StringComparison.Ordinal));
+                    candidate.IsVirtual)
+                .ToArray();
+            var match = candidates.FirstOrDefault(candidate =>
+                RecordBindingExtensions.SignaturesMatch(candidate, function) &&
+                string.Equals(candidate.ReturnType.ManagedTypeName, function.ReturnType.ManagedTypeName, StringComparison.Ordinal));
+            match ??= candidates.FirstOrDefault(candidate =>
+                RecordBindingExtensions.OverridesSignature(function, candidate));
             if (match is not null)
             {
                 return match;
@@ -6643,7 +6862,10 @@ public static partial class BindingOutputRenderer
         if (record is not null)
         {
             var moduleArgument = GetSharedManagedProviderModuleArgument(compilation, record);
-            return $"{GetManagedWrapperTypeName(type, compilation)}.CreateManagedWrapper({handleExpression}, ownsHandle: {ownsHandle.ToString().ToLowerInvariant()}{moduleArgument})";
+            var nativeTemplateArgument = HasNativeNonTypeTemplateArguments(type)
+                ? $", nativeTemplateKey: \"{EscapeCSharpString(GetNativeTemplateArgumentKey(type.NativeTemplateArguments))}\""
+                : string.Empty;
+            return $"{GetManagedWrapperTypeName(type, compilation)}.CreateManagedWrapper({handleExpression}, ownsHandle: {ownsHandle.ToString().ToLowerInvariant()}{moduleArgument}{nativeTemplateArgument})";
         }
 
         var wrapperTypeName = GetManagedWrapperTypeName(type, compilation);
@@ -7006,7 +7228,9 @@ public static partial class BindingOutputRenderer
         {
             foreach (var abstractMethod in baseRecord.Members.OfType<FunctionBinding>().Where(static method => !method.IsIgnored() && IsManagedAbstractMethod(method)))
             {
-                if (!concreteImplementations.Any(candidate => ManagedSignaturesMatch(candidate, abstractMethod)))
+                if (!concreteImplementations.Any(candidate =>
+                        ManagedSignaturesMatch(candidate, abstractMethod) ||
+                        RecordBindingExtensions.OverridesSignature(candidate, abstractMethod)))
                 {
                     return true;
                 }

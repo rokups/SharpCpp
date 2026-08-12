@@ -4,6 +4,8 @@ public sealed class FunctionBinding : BindingNamedNode
 {
     private readonly BindingNodeCollection<ParameterBinding> _parameters;
     private readonly List<BindingGenericParameter> _genericParameters = new();
+    private readonly List<string> _overriddenNativeDeclarationIds = new();
+    private readonly List<RecordGenericInstantiationBinding> _ownedReturnRecordInstantiations = new();
 
     public FunctionBinding(
         string symbolId,
@@ -57,6 +59,10 @@ public sealed class FunctionBinding : BindingNamedNode
 
     public bool IsOverride { get; set; }
 
+    public string? NativeDeclarationId { get; set; }
+
+    public IList<string> OverriddenNativeDeclarationIds => _overriddenNativeDeclarationIds;
+
     public string? NativeDispatchRecordCppTypeName { get; set; }
 
     public string? OwningRecordCppTypeName { get; set; }
@@ -72,6 +78,8 @@ public sealed class FunctionBinding : BindingNamedNode
     public bool IsExplicitConversionOperator { get; set; }
 
     public bool ReturnsOwnedHandle { get; set; }
+
+    public IList<RecordGenericInstantiationBinding> OwnedReturnRecordInstantiations => _ownedReturnRecordInstantiations;
 
     public IList<BindingGenericParameter> GenericParameters => _genericParameters;
 

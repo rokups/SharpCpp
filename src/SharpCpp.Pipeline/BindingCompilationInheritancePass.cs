@@ -90,7 +90,7 @@ public static class BindingCompilationInheritancePass
             ImportMethodName = sourceMethod.ImportMethodName,
             IsStatic = false,
             IsVirtual = sourceMethod.IsVirtual,
-            IsPureVirtual = sourceMethod.IsPureVirtual,
+            IsPureVirtual = sourceMethod.IsPureVirtual && targetRecord.IsAbstract,
             IsConstMethod = sourceMethod.IsConstMethod,
             NativeDispatchRecordCppTypeName = dispatchRecordCppTypeName,
             OwningRecordCppTypeName = targetRecord.CppQualifiedName,
@@ -122,6 +122,11 @@ public static class BindingCompilationInheritancePass
                 CallbackDelegateTypeName = parameter.CallbackDelegateTypeName,
                 CallbackTakesOwnership = parameter.CallbackTakesOwnership
             });
+        }
+
+        foreach (var instantiation in sourceMethod.OwnedReturnRecordInstantiations)
+        {
+            projectedMethod.OwnedReturnRecordInstantiations.Add(instantiation);
         }
 
         return projectedMethod;

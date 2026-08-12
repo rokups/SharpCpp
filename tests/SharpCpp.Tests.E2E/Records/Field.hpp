@@ -1,5 +1,7 @@
 #pragma once
 
+using field_uint64 = unsigned long long;
+
 enum class field_mode : int
 {
     idle = 1,
@@ -30,6 +32,7 @@ struct field_box
     bool enabled{};
     field_mode mode{field_mode::idle};
     field_payload* payload{};
+    field_payload embedded{7};
     field_payload payload_samples[2]{};
     field_payload* payload_handles[2]{};
     field_payload* single_payload[1]{};
@@ -38,6 +41,7 @@ struct field_box
     int pair[2]{11, 13};
     int matrix[2][3]{{1, 2, 3}, {4, 5, 6}};
     int samples[3]{};
+    field_uint64 wide_samples[2]{};
     const int fixed_value{};
 };
 

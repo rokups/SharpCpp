@@ -116,6 +116,12 @@ public static class MarshallerMetadataPhase2
             }
 
             var record = FindRecordByName(recordsByNativeName, recordName);
+            if (record is not null &&
+                !string.IsNullOrWhiteSpace(config.ManagedWrapperProviderKind) &&
+                !string.Equals(record.NativeName, recordName, StringComparison.Ordinal))
+            {
+                record = null;
+            }
 
             // When the record found is a generic template (e.g., BaseVector2<T>)
             // and the Marshaller config targets a concrete typedef (e.g.,
@@ -184,6 +190,16 @@ public static class MarshallerMetadataPhase2
             ApplyTemplateParameters(record, config.TemplateParameterNames);
 
             var body = config.AttributeBody;
+
+            if (config.ExposedMembers.Count > 0 &&
+                config.ExposedMembers.All(static member => !member.Exposed))
+            {
+                foreach (var member in record.Members.OfType<BindingNode>())
+                {
+                    member.SetSilentExclusionReason(
+                        "native member is replaced by the configured marshaller wrapper surface");
+                }
+            }
 
             if (OwnedHandleExpression.IsMatch(body))
             {
@@ -422,9 +438,18 @@ public static class MarshallerMetadataPhase2
         string cppTypeName,
         MarshallerConfigExtractor.MarshallerBodyConfig config)
     {
+        var constructors = record.Members
+            .OfType<FunctionBinding>()
+            .Where(static member => member.IsConstructor)
+            .ToArray();
         if (config.ExposedMembers.Count == 0 ||
             string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ||
-            record.Members.OfType<FunctionBinding>().Any(static member => member.IsConstructor && member.Parameters.Count == 0))
+            constructors.Any(static constructor =>
+                !constructor.HasMetadata(MetadataKeys.IgnoreReason) &&
+                !constructor.IsSilentlyExcluded()) ||
+            constructors.Length > 0 && !constructors.Any(static constructor =>
+                constructor.Parameters.Count == 0 &&
+                !constructor.GetMetadata<bool>(MetadataKeys.NativeCallableDeleted)))
         {
             return;
         }
@@ -845,6 +870,11 @@ public static class MarshallerMetadataPhase2
         }
 
         record.CppQualifiedName = StripGenericArguments(record.CppQualifiedName);
+        if (record.NativeTemplateParameterCount == 0)
+        {
+            record.NativeTemplateRequiredParameterCount = templateParameterNames.Count;
+        }
+        record.NativeTemplateParameterCount = Math.Max(record.NativeTemplateParameterCount, templateParameterNames.Count);
 
         if (record.GenericParameters.Count > 0)
         {
@@ -875,13 +905,9 @@ public static class MarshallerMetadataPhase2
             string.Equals(parameter.Name, stripped, StringComparison.Ordinal));
         if (genericParameter is not null)
         {
-            return BindingType.CreateGenericParameter(genericParameter.Name);
-        }
-
-        var primitiveType = MapManagedPrimitiveType(stripped);
-        if (primitiveType is not null)
-        {
-            return primitiveType;
+            return normalized.EndsWith("*", StringComparison.Ordinal)
+                ? BindingType.IntPtr
+                : BindingType.CreateGenericParameter(genericParameter.Name);
         }
 
         var recordMatch = FindRecordByName(recordsByNativeName, StripGenericArguments(stripped));
@@ -892,6 +918,17 @@ public static class MarshallerMetadataPhase2
                 recordMatch.ManagedName,
                 recordMatch.SymbolId,
                 recordMatch.HandleMarshallerTypeName);
+        }
+
+        if (normalized.EndsWith("*", StringComparison.Ordinal))
+        {
+            return BindingType.IntPtr;
+        }
+
+        var primitiveType = MapManagedPrimitiveType(stripped);
+        if (primitiveType is not null)
+        {
+            return primitiveType;
         }
 
         return null;
@@ -1076,13 +1113,14 @@ public static class MarshallerMetadataPhase2
 
     private static BindingType StampAlias(BindingType type, IReadOnlyDictionary<BindingAliasTargetKey, string> aliasByTarget)
     {
-        return StampAlias(type, aliasByTarget, new Dictionary<string, string>(StringComparer.Ordinal));
+        return StampAlias(type, aliasByTarget, new Dictionary<string, string>(StringComparer.Ordinal), isNestedGenericArgument: false);
     }
 
     private static BindingType StampAlias(
         BindingType type,
         IReadOnlyDictionary<BindingAliasTargetKey, string> aliasByTarget,
-        IReadOnlyDictionary<string, string> aliasByCppType)
+        IReadOnlyDictionary<string, string> aliasByCppType,
+        bool isNestedGenericArgument = false)
     {
         if (type.Kind == BindingTypeKind.Primitive && type.PrimitiveKind != BindingPrimitiveKind.Unsupported)
         {
@@ -1107,12 +1145,17 @@ public static class MarshallerMetadataPhase2
         else if (type.GenericArguments.Count > 0)
         {
             var genericArguments = type.GenericArguments
-                .Select(argument => StampAlias(argument, aliasByTarget, aliasByCppType))
+                .Select(argument => StampAlias(argument, aliasByTarget, aliasByCppType, isNestedGenericArgument: true))
                 .ToArray();
             if (!genericArguments.SequenceEqual(type.GenericArguments))
             {
                 type = type.WithGenericArguments(genericArguments);
             }
+        }
+
+        if (isNestedGenericArgument && !string.IsNullOrWhiteSpace(type.MarshallerTypeName))
+        {
+            return type;
         }
 
         var targetKey = BindingAliasTargetKey.From(type.WithManagedTypeFormatOverride(null));
@@ -1270,7 +1313,12 @@ public static class MarshallerMetadataPhase2
             record.SymbolId,
             type.MarshallerTypeName,
             type.GenericArguments,
-            type.Marshaller.CppIsRecordValue);
+            type.Marshaller.CppIsRecordValue,
+            type.Marshaller.CppPointerIsRecordValueProjection)
+            .WithCppIsReference(type.Marshaller.CppIsReference)
+            .WithNativeTemplateArguments(
+                type.NativeTemplateArguments,
+                type.NativeTemplateArgumentsAreAstVerified);
         if (type.IsFixedArray)
         {
             rebound = rebound.WithFixedArray(type.FixedArrayElementType!, type.FixedArrayLength!.Value);
@@ -1290,12 +1338,14 @@ public static class MarshallerMetadataPhase2
     {
         var sourceArguments = type.GenericArguments;
         var sourceArgumentsChanged = false;
-        if (TryRecoverGenericArgumentsFromCppType(type.CppTypeName, recordsByNativeName, out var recoveredArguments) &&
+        if (!type.NativeTemplateArgumentsAreAstVerified &&
+            TryRecoverGenericArgumentsFromCppType(type.CppTypeName, recordsByNativeName, out var recoveredArguments) &&
             recoveredArguments.Count >= sourceArguments.Count)
         {
             sourceArguments = MergeRecoveredGenericArguments(
                 type.GenericArguments,
                 recoveredArguments,
+                recordsByNativeName,
                 out sourceArgumentsChanged);
         }
 
@@ -1328,6 +1378,23 @@ public static class MarshallerMetadataPhase2
         RecordBinding record,
         IReadOnlyList<BindingType> genericArguments)
     {
+        if (type.NativeTemplateArgumentsAreAstVerified)
+        {
+            var nativeArguments = type.NativeTemplateArguments;
+            if (record.GetMetadata<bool>(MetadataKeys.FixedArrayRecord) &&
+                nativeArguments.Count >= 2 &&
+                nativeArguments[0] is { Kind: BindingTemplateArgumentKind.Type, Type: { } elementType } &&
+                nativeArguments[1] is { Kind: BindingTemplateArgumentKind.Integral, IntegralValue: >= 0 and <= int.MaxValue } astLength)
+            {
+                type = type.WithFixedArray(elementType, checked((int)astLength.IntegralValue));
+            }
+
+            return record.GetMetadata<bool>(MetadataKeys.DynamicArrayRecord) &&
+                nativeArguments.FirstOrDefault(static argument => argument.Kind == BindingTemplateArgumentKind.Type)?.Type is { } dynamicElementType
+                    ? type.WithDynamicArray(dynamicElementType)
+                    : type;
+        }
+
         if (record.GetMetadata<bool>(MetadataKeys.FixedArrayRecord) &&
             genericArguments.Count >= 2 &&
             int.TryParse(
@@ -1364,6 +1431,7 @@ public static class MarshallerMetadataPhase2
     private static IReadOnlyList<BindingType> MergeRecoveredGenericArguments(
         IReadOnlyList<BindingType> currentArguments,
         IReadOnlyList<BindingType> recoveredArguments,
+        IReadOnlyDictionary<string, RecordBinding> recordsByNativeName,
         out bool changed)
     {
         var mergedArguments = recoveredArguments.ToArray();
@@ -1372,6 +1440,21 @@ public static class MarshallerMetadataPhase2
         {
             var currentArgument = currentArguments[index];
             var recoveredArgument = mergedArguments[index];
+            if (currentArgument.Kind == BindingTypeKind.Primitive &&
+                recoveredArgument.Kind == BindingTypeKind.Handle &&
+                recoveredArgument.RecordId is not null &&
+                recordsByNativeName.Values.Any(record =>
+                    string.Equals(record.SymbolId, recoveredArgument.RecordId, StringComparison.Ordinal) &&
+                    record.GetMetadata<bool>(MetadataKeys.SuppressEmission)))
+            {
+                mergedArguments[index] = currentArgument.WithCppTypeName(recoveredArgument.CppTypeName);
+                changed |= !string.Equals(
+                    currentArgument.CppTypeName,
+                    recoveredArgument.CppTypeName,
+                    StringComparison.Ordinal);
+                continue;
+            }
+
             if (ShouldPreferRecoveredGenericArgument(currentArgument, recoveredArgument))
             {
                 mergedArguments[index] = currentArgument.ManagedTypeFormatOverride is null

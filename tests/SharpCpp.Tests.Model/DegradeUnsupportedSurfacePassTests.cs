@@ -200,6 +200,25 @@ public sealed class DegradeUnsupportedSurfacePassTests
     }
 
     [Fact]
+    public void Apply_keeps_embedded_record_value_fields()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Fields.h"]);
+        var value = new RecordBinding("record:Test::Value", "Value", "Value", "Test::Value");
+        value.Members.Add(new FieldBinding("field:Test::Value::number", "number", "Number", BindingType.Int32, "int", value.CppQualifiedName));
+        var owner = new RecordBinding("record:Test::Owner", "Owner", "Owner", "Test::Owner");
+        var valueType = BindingType.CreateHandle("Test::Value", value.ManagedName, value.SymbolId, cppIsRecordValue: true);
+        var field = new FieldBinding("field:Test::Owner::value", "value", "Value", valueType, "Test::Value", owner.CppQualifiedName);
+        owner.Members.Add(field);
+        compilation.Members.Add(value);
+        compilation.Members.Add(owner);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.False(owner.IsIgnored(), owner.GetIgnoreReason());
+        Assert.False(field.IsIgnored(), field.GetIgnoreReason());
+    }
+
+    [Fact]
     public void Apply_ignores_protected_handle_fields_when_target_record_is_ignored()
     {
         var compilation = new BindingCompilation("SharpCpp.Tests", "Urho3D", "Bindings", "Native", ["Object.h"]);

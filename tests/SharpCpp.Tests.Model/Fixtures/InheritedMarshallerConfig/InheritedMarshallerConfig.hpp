@@ -4,6 +4,11 @@ template <class T>
 struct Marshaller;
 
 struct widget {};
+struct listener {};
+struct constructed
+{
+    explicit constructed(int value);
+};
 
 template <class T>
 struct helper_base
@@ -21,4 +26,19 @@ Marshaller<widget> : helper_base<widget>
 {
     [[sharpcpp::expose_member(shape = "method", exposed = false)]]
     static void AddCore(widget& self, unsigned char value);
+};
+
+template <>
+struct Marshaller<listener>
+{
+    [[sharpcpp::expose_member]]
+    static void* GetHandle(listener& self);
+};
+
+template <>
+struct [[sharpcpp::managed_type(public_type = "Ea.Constructed", managed_base_type = "global::SharpCpp.Support.StringBase")]]
+Marshaller<constructed>
+{
+    [[sharpcpp::expose_member]]
+    static void* GetHandle(constructed& self);
 };

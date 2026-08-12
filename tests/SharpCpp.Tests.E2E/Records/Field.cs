@@ -21,14 +21,17 @@ public sealed class FieldTests
         Assert.Equal(FieldMode.Active, box.Mode);
         Assert.False(box.Payload.OwnsHandle);
         Assert.Equal(10, box.Payload.Value);
+        Assert.Equal(7, box.EmbeddedValue);
         Assert.Equal(new[] { 0, 0 }, box.PayloadSamples.Select(static sample => sample.Value).ToArray());
         Assert.Equal(new[] { 0, 0, 0 }, box.Samples.ToArray());
+        Assert.Equal(typeof(global::SharpCpp.NativeArray<ulong>), box.WideSamples.GetType());
         Assert.Equal(99, box.FixedValue);
 
         box.Count = 7;
         box.Enabled = false;
         box.Mode = FieldMode.Suspended;
         box.Payload = replacement;
+        box.EmbeddedValue = 30;
         using var payloadSamples = new global::SharpCpp.NativeArray<FieldPayload>(
             (IEnumerable<FieldPayload>)new[] { payload, replacement });
         using var samples = new global::SharpCpp.NativeArray<int>(
@@ -54,6 +57,7 @@ public sealed class FieldTests
         Assert.Equal(FieldMode.Suspended, box.Mode);
         Assert.False(box.Payload.OwnsHandle);
         Assert.Equal(30, box.Payload.Value);
+        Assert.Equal(30, box.EmbeddedValue);
         Assert.Equal(new[] { 10, 30 }, box.PayloadSamples.Select(static sample => sample.Value).ToArray());
         Assert.Equal(new[] { 3, 5, 7 }, box.Samples.ToArray());
         Assert.Equal(99, box.FixedValue);

@@ -49,6 +49,18 @@ public sealed class RecordBinding : BindingNamedContainerNode
 
     public IList<BindingGenericParameter> GenericParameters => _genericParameters;
 
+    /// <summary>
+    /// Number of native C++ template parameters, including non-type parameters that
+    /// intentionally do not appear on the managed generic type.
+    /// </summary>
+    public int NativeTemplateParameterCount { get; set; }
+
+    /// <summary>
+    /// Minimum number of native C++ template arguments required by the declaration.
+    /// Parameters with AST-declared defaults are excluded.
+    /// </summary>
+    public int NativeTemplateRequiredParameterCount { get; set; }
+
     public IList<RecordGenericInstantiationBinding> SupportedGenericInstantiations => _supportedGenericInstantiations;
 
     public bool IsGeneric => GenericParameters.Count > 0;
@@ -82,9 +94,28 @@ public sealed class RecordBinding : BindingNamedContainerNode
             : $"{CppQualifiedName}<{string.Join(", ", arguments.Select(FormatCppTemplateArgument))}>";
     }
 
+    public string FormatCppTypeName(IEnumerable<BindingTemplateArgument> templateArguments)
+    {
+        ArgumentNullException.ThrowIfNull(templateArguments);
+        var arguments = templateArguments.ToArray();
+        return arguments.Length == 0
+            ? CppQualifiedName
+            : $"{CppQualifiedName}<{string.Join(", ", arguments.Select(FormatCppTemplateArgument))}>";
+    }
+
     public static string FormatCppTemplateArgument(BindingType type)
     {
         return type.CppTypeName;
+    }
+
+    public static string FormatCppTemplateArgument(BindingTemplateArgument argument)
+    {
+        return argument.Kind switch
+        {
+            BindingTemplateArgumentKind.Type => argument.Type!.CppTypeName,
+            BindingTemplateArgumentKind.Integral => argument.IntegralValue.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            _ => throw new ArgumentOutOfRangeException(nameof(argument))
+        };
     }
 
 }

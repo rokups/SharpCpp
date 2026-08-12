@@ -128,6 +128,7 @@ public sealed class MarshallerConfigExtractorTests
 
         Assert.Equal(new[] { "T", "N" }, templateParameterNames);
         Assert.True((bool)arrayOverride.GetType().GetProperty("FixedArray")!.GetValue(arrayOverride)!);
+        Assert.True(overrides.Contains("const char*"), string.Join("; ", overrides.Keys.Cast<string>()));
     }
 
     [Fact]
@@ -609,6 +610,14 @@ public sealed class MarshallerConfigExtractorTests
         Assert.Contains(members, member => (string)member.GetType().GetProperty("MethodName")!.GetValue(member)! == "GetCountCore");
         var addCore = Assert.Single(members.Where(member => (string)member.GetType().GetProperty("MethodName")!.GetValue(member)! == "AddCore"));
         Assert.Equal("method", (string)addCore.GetType().GetProperty("Shape")!.GetValue(addCore)!);
+
+        var listenerBody = bodies["listener"]!;
+        Assert.Equal(string.Empty, (string)listenerBody.GetType().GetProperty("AttributeBody")!.GetValue(listenerBody)!);
+        var listenerMembers = ((System.Collections.IEnumerable)listenerBody.GetType().GetProperty("ExposedMembers")!.GetValue(listenerBody)!)
+            .Cast<object>()
+            .ToArray();
+        var getHandle = Assert.Single(listenerMembers);
+        Assert.Equal("GetHandle", (string)getHandle.GetType().GetProperty("MethodName")!.GetValue(getHandle)!);
     }
 
     private static string FindRepositoryRoot([CallerFilePath] string sourceFilePath = "")

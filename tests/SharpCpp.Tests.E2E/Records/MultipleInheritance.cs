@@ -47,4 +47,12 @@ public sealed class MultipleInheritanceTests
         Assert.Equal(12, counter.SumVirtuals());
         Assert.Equal(6, counter.RightOnly());
     }
+
+    [Fact]
+    public void Concrete_record_with_private_secondary_override_stays_constructible()
+    {
+        using var value = new MiConcretePrivateOverride();
+
+        Assert.Equal(30, value.PureRightValue());
+    }
 }
