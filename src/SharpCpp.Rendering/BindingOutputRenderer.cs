@@ -2795,7 +2795,8 @@ public static partial class BindingOutputRenderer
         var hidesStaticHelpers = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
             (!record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal) ||
              record.GetPrimaryBaseRecord(compilation) is not null);
-        var hidesArrayElement = InheritsArrayElementAccess(compilation, record);
+        var hidesArrayElement = InheritsArrayElementAccess(compilation, record) ||
+            IsNativeInterfaceWrapper(record) && !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName);
         var staticHelperModifier = hidesStaticHelpers ? "new " : string.Empty;
         var managedTypeIdHelperModifier = record.GetPrimaryBaseRecord(compilation) is { } primaryBase &&
             !primaryBase.IsGeneric &&
@@ -3120,8 +3121,7 @@ public static partial class BindingOutputRenderer
                 writer.Write(RenderManagedProperty(
                     compilation,
                     field,
-                    hidesInheritedMember: string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
-                        string.Equals(field.ManagedName, "Close", StringComparison.Ordinal)));
+                    hidesInheritedMember: HidesInheritedManagedField(compilation, record, field)));
                 if (TryGetPointerCountNativeArrayShape(compilation, field, out var pointerCountShape))
                 {
                     writer.WriteLine();
@@ -3224,10 +3224,11 @@ public static partial class BindingOutputRenderer
             writer.WriteLine();
         }
 
-        var hasGeneratedBase = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
-            record.GetPrimaryBaseRecord(compilation) is { IsGeneric: false };
+        var hidesPInvoke = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
+            record.GetPrimaryBaseRecord(compilation) is { IsGeneric: false } ||
+            IsNativeInterfaceWrapper(record) && !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName);
         writer.Write(
-            hasGeneratedBase
+            hidesPInvoke
             ? $$"""
             new internal static partial class __PInvoke
             {
@@ -5773,7 +5774,7 @@ public static partial class BindingOutputRenderer
     {
         if (type.IsFixedArray)
         {
-            return GetManagedWrapperTypeName(type, compilation);
+            return GetManagedPublicReturnTypeName(type, compilation);
         }
 
         return CanUseManagedHandleReturnMarshaller(compilation, type)
@@ -5976,7 +5977,7 @@ public static partial class BindingOutputRenderer
         if (type.IsFixedArray)
         {
             var attribute = compilation is null ? string.Empty : GetManagedFixedArrayInMarshallerAttribute(compilation, type);
-            return $"{attribute}{GetManagedWrapperTypeName(type, compilation)} {parameter.ManagedName}";
+            return $"{attribute}{GetManagedPublicReturnTypeName(type, compilation)} {parameter.ManagedName}";
         }
 
         if (CanUseManagedHandleParameterImport(parameter, type))
@@ -8012,8 +8013,7 @@ public static partial class BindingOutputRenderer
 
     private static bool InheritsArrayElementAccess(BindingCompilation compilation, RecordBinding record)
     {
-        if (string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ||
-            record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal))
+        if (string.IsNullOrWhiteSpace(record.ManagedBaseTypeName))
         {
             return false;
         }
@@ -8022,6 +8022,30 @@ public static partial class BindingOutputRenderer
              current = current.GetPrimaryBaseRecord(compilation))
         {
             if (RequiresArrayElementAccess(compilation, current))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool HidesInheritedManagedField(
+        BindingCompilation compilation,
+        RecordBinding record,
+        FieldBinding field)
+    {
+        if (string.Equals(field.ManagedName, "GetType", StringComparison.Ordinal) ||
+            IsNativeInterfaceWrapper(record) &&
+            string.Equals(field.NativeName, "pVtbl", StringComparison.Ordinal) &&
+            !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ||
+            string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
+            string.Equals(field.ManagedName, "Close", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        for (var current = record.GetPrimaryBaseRecord(compilation); current is not null;
+             current = current.GetPrimaryBaseRecord(compilation))
+        {
+            if (current.HasOwnManagedMemberNamed(field.ManagedName))
                 return true;
         }
         return false;

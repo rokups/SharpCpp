@@ -1621,7 +1621,16 @@ public sealed partial class ClangSharpHeaderParser
         };
         field.ReturnsOwnedHandle = ShouldReturnOwnedHandle(fieldDecl.Type, field.Type, managedTypeOverrides, preferReturnOverride: false);
         if (isFunctionPointer)
+        {
             field.SetMetadata(MetadataKeys.FunctionPointerField, true);
+            field.FunctionPointerSignature = CreateFunctionPointerSignature(
+                record,
+                fieldDecl,
+                recordsByName,
+                enumsByName,
+                managedTypeOverrides,
+                genericParameters);
+        }
         if (fieldDecl is FieldDecl { IsBitField: true })
             field.SetMetadata(MetadataKeys.BitField, true);
 
@@ -1633,6 +1642,74 @@ public sealed partial class ClangSharpHeaderParser
         field.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(fieldDecl));
 
         return field;
+    }
+
+    private static FunctionBinding CreateFunctionPointerSignature(
+        RecordBinding record,
+        ValueDecl fieldDecl,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        IReadOnlyDictionary<string, BindingType> genericParameters)
+    {
+        var functionType = fieldDecl.Type;
+        while (functionType is TypedefType typedefType)
+            functionType = typedefType.Desugar;
+        if (functionType is PointerType pointerType)
+            functionType = pointerType.PointeeType;
+        while (functionType is TypedefType typedefType)
+            functionType = typedefType.Desugar;
+        var canonicalFunctionType = fieldDecl.Type.CanonicalType;
+        if (canonicalFunctionType is PointerType canonicalPointerType)
+            canonicalFunctionType = canonicalPointerType.PointeeType.CanonicalType;
+        var prototype = functionType as FunctionProtoType ??
+            canonicalFunctionType as FunctionProtoType ??
+            throw new InvalidOperationException($"Function pointer field '{record.CppQualifiedName}::{fieldDecl.Name}' has no function prototype.");
+
+        var nativeName = fieldDecl.Name ?? fieldDecl.Spelling.ToString();
+        var (returnType, ignoreReason) = TryMapType(
+            prototype.ReturnType,
+            recordsByName,
+            enumsByName,
+            managedTypeOverrides,
+            genericParameters,
+            isReturn: true);
+        var signature = new FunctionBinding(
+            $"function-pointer:{record.NativeName}:{nativeName}",
+            nativeName,
+            ToPascalCase(nativeName),
+            returnType,
+            cppReturnTypeName: ResolveQualifiedTypeName(prototype.ReturnType, recordsByName, genericParameters, returnType),
+            cppQualifiedName: nativeName)
+        {
+            ReturnPointerDepth = GetPointerDepth(prototype.ReturnType.Handle),
+            ReturnsOwnedHandle = ShouldReturnOwnedHandle(prototype.ReturnType, returnType, managedTypeOverrides)
+        };
+
+        for (var parameterIndex = 0; parameterIndex < prototype.ParamTypes.Count; ++parameterIndex)
+        {
+            var parameterType = prototype.ParamTypes[parameterIndex];
+            var (mappedType, direction, abiKind, parameterIgnoreReason) = TryMapFunctionPointerParameter(
+                parameterType,
+                recordsByName,
+                enumsByName,
+                managedTypeOverrides,
+                genericParameters);
+            ignoreReason ??= parameterIgnoreReason;
+            var parameterName = $"arg{parameterIndex}";
+            signature.Parameters.Add(new ParameterBinding(
+                $"parameter:{record.NativeName}:{nativeName}:{parameterName}",
+                parameterName,
+                parameterName,
+                mappedType,
+                direction,
+                abiKind,
+                ResolveParameterCppTypeName(parameterType, recordsByName, genericParameters, mappedType)));
+        }
+
+        if (ignoreReason is not null)
+            signature.SetIgnoreReason(ignoreReason);
+        return signature;
     }
 
     private static bool TryAddFlattenedRecordFields(
@@ -2419,6 +2496,121 @@ public sealed partial class ClangSharpHeaderParser
         {
             var (direction, abiKind) = InferFallbackParameterPassing(functionCursor, parameterCursor);
             return (CreateIgnoredFallbackType(parameterCursor.Type), direction, abiKind, exception.Message);
+        }
+    }
+
+    private static (BindingType Type, BindingParameterDirection Direction, BindingParameterAbiKind AbiKind, string? IgnoreReason) TryMapFunctionPointerParameter(
+        ClangSharp.Type parameterType,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        IReadOnlyDictionary<string, BindingType> genericParameters)
+    {
+        var type = parameterType.Handle;
+        if (IsFunctionPointerType(type))
+            return (CreateIgnoredFallbackType(type), BindingParameterDirection.In, BindingParameterAbiKind.Value, null);
+
+        try
+        {
+            var normalizedType = type.CanonicalType;
+            if (IsIncompleteArrayType(normalizedType))
+            {
+                var elementType = normalizedType.ArrayElementType;
+                var mappedElementType = MapType(
+                    elementType,
+                    recordsByName,
+                    enumsByName,
+                    managedTypeOverrides,
+                    genericParameters);
+                return (
+                    mappedElementType,
+                    BindingParameterDirection.In,
+                    BindingParameterAbiKind.Pointer,
+                    null);
+            }
+
+            if (TypeIsLValueReference(normalizedType))
+            {
+                var sourcePointeeType = type.PointeeType;
+                var normalizedPointeeType = normalizedType.PointeeType.CanonicalType;
+                if (TypeIsRecord(normalizedPointeeType))
+                {
+                    var mappedType = MapType(
+                        normalizedPointeeType,
+                        recordsByName,
+                        enumsByName,
+                        managedTypeOverrides,
+                        genericParameters);
+                    var isProjectedValue = mappedType.Kind == BindingTypeKind.Primitive;
+                    return (
+                        mappedType,
+                        isProjectedValue && !sourcePointeeType.IsConstQualified
+                            ? BindingParameterDirection.Ref
+                            : BindingParameterDirection.In,
+                        isProjectedValue ? BindingParameterAbiKind.Reference : BindingParameterAbiKind.Value,
+                        null);
+                }
+
+                return (
+                    MapType(
+                        normalizedPointeeType,
+                        recordsByName,
+                        enumsByName,
+                        managedTypeOverrides,
+                        genericParameters),
+                    sourcePointeeType.IsConstQualified
+                        ? BindingParameterDirection.In
+                        : BindingParameterDirection.Ref,
+                    BindingParameterAbiKind.Reference,
+                    null);
+            }
+
+            if (TypeIsPointer(normalizedType))
+            {
+                var sourcePointeeType = type.PointeeType;
+                var normalizedPointeeType = normalizedType.PointeeType.CanonicalType;
+                if (normalizedPointeeType.kind == CXTypeKind.CXType_Void || TypeIsRecord(normalizedPointeeType))
+                {
+                    return (
+                        MapType(type, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
+                        BindingParameterDirection.In,
+                        BindingParameterAbiKind.Value,
+                        null);
+                }
+
+                return (
+                    MapType(
+                        normalizedPointeeType,
+                        recordsByName,
+                        enumsByName,
+                        managedTypeOverrides,
+                        genericParameters,
+                        allowPrimitivePointer: true),
+                    sourcePointeeType.IsConstQualified
+                        ? BindingParameterDirection.In
+                        : BindingParameterDirection.Out,
+                    BindingParameterAbiKind.Pointer,
+                    null);
+            }
+
+            return (
+                MapType(type, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
+                BindingParameterDirection.In,
+                BindingParameterAbiKind.Value,
+                null);
+        }
+        catch (NotSupportedException exception)
+        {
+            var normalizedType = type.CanonicalType;
+            var direction = TypeIsPointer(normalizedType) && !type.PointeeType.IsConstQualified
+                ? BindingParameterDirection.Out
+                : BindingParameterDirection.In;
+            var abiKind = TypeIsPointer(normalizedType)
+                ? BindingParameterAbiKind.Pointer
+                : TypeIsAnyReference(normalizedType)
+                    ? BindingParameterAbiKind.Reference
+                    : BindingParameterAbiKind.Value;
+            return (CreateIgnoredFallbackType(type), direction, abiKind, exception.Message);
         }
     }
 

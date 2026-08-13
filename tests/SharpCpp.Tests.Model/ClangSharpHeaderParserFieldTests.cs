@@ -59,6 +59,25 @@ public sealed class ClangSharpHeaderParserFieldTests
         Assert.True(writer.IsPointer);
         Assert.Equal(BindingPrimitiveKind.IntPtr, writer.Type.PrimitiveKind);
         Assert.True(writer.GetMetadata<bool>(MetadataKeys.FunctionPointerField));
+
+        var signature = Assert.IsType<FunctionBinding>(writer.FunctionPointerSignature);
+        Assert.Equal(BindingPrimitiveKind.Int32, signature.ReturnType.PrimitiveKind);
+        Assert.Collection(
+            signature.Parameters,
+            data =>
+            {
+                Assert.Equal(BindingPrimitiveKind.UInt8, data.Type.PrimitiveKind);
+                Assert.Equal(BindingParameterDirection.In, data.Direction);
+                Assert.Equal(BindingParameterAbiKind.Pointer, data.AbiKind);
+                Assert.Equal("const unsigned char*", data.CppTypeName);
+            },
+            size =>
+            {
+                Assert.Equal(BindingPrimitiveKind.NativeUInt, size.Type.PrimitiveKind);
+                Assert.Equal(BindingParameterDirection.In, size.Direction);
+                Assert.Equal(BindingParameterAbiKind.Value, size.AbiKind);
+                Assert.Equal("unsigned long", size.CppTypeName);
+            });
     }
 
     [Fact]
