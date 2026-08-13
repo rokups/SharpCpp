@@ -224,7 +224,9 @@ inline value_box<float>* create_float_box(float value)
 template <typename T>
 struct [[sharpcpp::instantiate("int")]] generic_abstract_sink
 {
+    generic_abstract_sink() = default;
     virtual ~generic_abstract_sink() = default;
+    generic_abstract_sink(const generic_abstract_sink&) = default;
     virtual void set(T value) = 0;
 };
 

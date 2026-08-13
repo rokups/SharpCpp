@@ -131,7 +131,10 @@ public static partial class BindingOutputRenderer
             compilation,
             record,
             record.GetEffectiveVirtualMethodSlots(compilation));
-        var canEmitClone = CanEmitClone(record, isEffectivelyAbstract, canEmitDeleteThunk: true);
+        var canEmitClone = CanEmitClone(
+            record,
+            isEffectivelyAbstract || record.IsEffectivelyAbstract || record.HasUnimplementedAbstractBaseMethods(compilation),
+            canEmitDeleteThunk: true);
         var classModifier = isEffectivelyAbstract ? "abstract " : string.Empty;
         var additionalInterfaces = GetConfiguredManagedStaticInterfaces(compilation, record);
         var additionalInterfaceClause = additionalInterfaces.Count == 0
@@ -286,7 +289,10 @@ public static partial class BindingOutputRenderer
             }
         }
 
-        if (CanEmitClone(record, isEffectivelyAbstract: false, canEmitDeleteThunk: true))
+        if (CanEmitClone(
+                record,
+                record.IsEffectivelyAbstract || record.HasUnimplementedAbstractBaseMethods(compilation),
+                canEmitDeleteThunk: true))
         {
             foreach (var instantiation in instantiations)
             {
@@ -2132,7 +2138,7 @@ public static partial class BindingOutputRenderer
 
         if (!record.HasOwnManagedNonFieldMemberNamed("Clone"))
         {
-            var hidesBaseClone = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) && !record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal);
+            var hidesBaseClone = InheritsCloneInterface(compilation, record);
             writer.Write($$"""
                 public {{(hidesBaseClone ? "new " : string.Empty)}}{{declarationName}} Clone()
                 {

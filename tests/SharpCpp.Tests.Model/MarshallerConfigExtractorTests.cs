@@ -129,6 +129,16 @@ public sealed class MarshallerConfigExtractorTests
         Assert.Equal(new[] { "T", "N" }, templateParameterNames);
         Assert.True((bool)arrayOverride.GetType().GetProperty("FixedArray")!.GetValue(arrayOverride)!);
         Assert.True(overrides.Contains("const char*"), string.Join("; ", overrides.Keys.Cast<string>()));
+
+        var stringPointerOverrides = overrides.Values.Cast<object>().Where(candidate =>
+        {
+            var candidateType = candidate.GetType();
+            if ((string)candidateType.GetProperty("PublicTypeName")!.GetValue(candidate)! != "Std.String")
+                return false;
+            var nativePattern = candidateType.GetProperty("NativeTypePattern")!.GetValue(candidate);
+            return nativePattern?.GetType().GetProperty("Kind")!.GetValue(nativePattern)!.ToString() == "Pointer";
+        });
+        Assert.Equal(2, stringPointerOverrides.Count());
     }
 
     [Fact]

@@ -707,6 +707,51 @@ public sealed class ClangSharpHeaderParserMarshallerTests
     }
 
     [Fact]
+    public void Bootstrap_pipeline_substitutes_alias_template_arguments_from_ast()
+    {
+        var repoRoot = FindRepositoryRoot();
+        var fixtureDir = Path.Combine(repoRoot, "tests", "SharpCpp.Tests.Model", "Fixtures", "AliasTemplateAllocator");
+        var includeDir = Path.Combine(repoRoot, "include");
+        var headerPath = Path.Combine(fixtureDir, "Sample.hpp");
+        var marshallerHeader = Path.Combine(includeDir, "SharpCpp", "Marshaller.hpp");
+        var clangArgs = CreateStandardLibraryClangArgs(fixtureDir, includeDir);
+        var marshallerFiles = new[] { marshallerHeader };
+
+        var compilation = new ClangSharpHeaderParser().Parse(new ClangSharpParseRequest(
+            ProjectName: "TestProject",
+            ManagedNamespace: "Test",
+            ManagedClassName: "Bindings",
+            NativeLibraryName: "Test.Native",
+            HeaderFilePath: headerPath,
+            HeaderIncludePath: fixtureDir,
+            ClangArguments: clangArgs,
+            MarshallerConfigurationFiles: marshallerFiles,
+            EntryPointPrefix: "Test_",
+            OwnedFileRoots: [fixtureDir]));
+
+        BindingCompilationBootstrapPipeline.Apply(compilation, marshallerFiles, clangArgs);
+
+        Assert.Contains(compilation.Records, static record => record.CppQualifiedName == "sample::InlineValue");
+        Assert.DoesNotContain(compilation.Records, static record => record.CppQualifiedName == "sample::abi::InlineValue");
+        var result = Assert.Single(compilation.Records.Where(static record => record.CppQualifiedName == "sample::Result"));
+        var getError = Assert.Single(result.Members.OfType<FunctionBinding>().Where(static method => method.NativeName == "GetError"));
+        Assert.False(getError.IsIgnored(), getError.GetIgnoreReason());
+        Assert.Equal("String", getError.ReturnType.ManagedTypeName);
+        Assert.DoesNotContain("T", getError.ReturnType.ManagedTypeName, StringComparison.Ordinal);
+
+        var loader = Assert.Single(compilation.Records.Where(static record => record.CppQualifiedName == "sample::Loader"));
+        var load = Assert.Single(loader.Members.OfType<FunctionBinding>().Where(static method => method.NativeName == "Load"));
+        Assert.False(load.IsIgnored(), load.GetIgnoreReason());
+        Assert.Equal("String", Assert.Single(load.Parameters).Type.ManagedTypeName);
+        var loadStd = Assert.Single(loader.Members.OfType<FunctionBinding>().Where(static method => method.NativeName == "LoadStd"));
+        Assert.False(loadStd.IsIgnored(), loadStd.GetIgnoreReason());
+        var loadStdType = Assert.Single(loadStd.Parameters).Type;
+        Assert.Equal("String", loadStdType.ManagedTypeName);
+        Assert.Equal("record:std::basic_string", loadStdType.RecordId);
+        Assert.Null(loadStdType.AliasCppQualifiedName);
+    }
+
+    [Fact]
     public void Bootstrap_pipeline_keeps_hash_map_wrapper_after_multi_header_merge()
     {
         var repoRoot = FindRepositoryRoot();

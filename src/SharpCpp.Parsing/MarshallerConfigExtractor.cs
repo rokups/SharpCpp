@@ -211,6 +211,7 @@ internal static class MarshallerConfigExtractor
         {
             var declIndex = BuildRecordLikeDeclIndex(rootDecl);
             WalkForMarshallerDeclarations(rootDecl, declIndex, result);
+            AddExplicitIndirectionMarshallerOverrides(rootDecl, result);
         });
 
         return result;
@@ -440,6 +441,47 @@ internal static class MarshallerConfigExtractor
                 !string.Equals(releaseStrategyMatch.Groups["value"].Value, "base", StringComparison.OrdinalIgnoreCase),
             HasPublicTypeMapping = publicTypeMatch.Success || isCallback
         };
+    }
+
+    private static void AddExplicitIndirectionMarshallerOverrides(
+        Decl rootDecl,
+        Dictionary<string, ManagedTypeOverride> result)
+    {
+        var configuredOverrides = result.ToArray();
+        foreach (var specialization in EnumerateDescendantDecls(rootDecl).OfType<ClassTemplateSpecializationDecl>())
+        {
+            if (!TryGetMarshallerTemplateKind(specialization, out var isReturn) ||
+                specialization.TemplateArgs is not { Count: > 0 } arguments ||
+                arguments[0].Kind != CXTemplateArgumentKind.CXTemplateArgumentKind_Type ||
+                CreateCppTypePattern(arguments[0].AsType) is not { Pointee: { } pointee } nativeTypePattern ||
+                nativeTypePattern.Kind is not (CppTypePatternKind.Pointer or CppTypePatternKind.LValueReference or CppTypePatternKind.RValueReference) ||
+                FormatConfiguredCppType(arguments[0].AsType, GetTemplateParameters(specialization)) is not { Length: > 0 } cppTypeName)
+            {
+                continue;
+            }
+
+            var key = isReturn ? "return:" + cppTypeName : cppTypeName;
+            if (result.ContainsKey(key))
+            {
+                continue;
+            }
+
+            var projectedTypePattern = pointee with { IsConst = false };
+            var inherited = configuredOverrides.FirstOrDefault(candidate =>
+                candidate.Key.StartsWith("return:", StringComparison.Ordinal) == isReturn &&
+                candidate.Value.NativeTypePattern is { } configuredTypePattern &&
+                MatchesCppTypePattern(
+                    configuredTypePattern with { IsConst = false },
+                    projectedTypePattern,
+                    new Dictionary<(uint Depth, uint Index), CppTypePattern>()));
+            if (inherited.Value is not null)
+            {
+                result[key] = inherited.Value with
+                {
+                    NativeTypePattern = nativeTypePattern
+                };
+            }
+        }
     }
 
     // ─── Body extraction (attribute + exposed members from AST cursors) ─────────
@@ -1249,7 +1291,9 @@ internal static class MarshallerConfigExtractor
         var current = declaration.SemanticParentCursor;
         while (current is NamespaceDecl or RecordDecl)
         {
-            if (current is NamedDecl parentDeclaration &&
+            if (!(current is NamespaceDecl namespaceDeclaration &&
+                  clang.Cursor_isInlineNamespace(namespaceDeclaration.Handle) != 0) &&
+                current is NamedDecl parentDeclaration &&
                 GetDeclarationName(parentDeclaration) is { Length: > 0 } parentName)
             {
                 names.Add(parentName);

@@ -471,7 +471,12 @@ public sealed partial class ClangSharpHeaderParser
 
         while (current is NamespaceDecl or RecordDecl)
         {
-            var parentName = current is NamedDecl named ? named.Name ?? named.Spelling.ToString() : string.Empty;
+            var parentName = current is NamespaceDecl namespaceDecl &&
+                clang.Cursor_isInlineNamespace(namespaceDecl.Handle) != 0
+                ? string.Empty
+                : current is NamedDecl named
+                    ? named.Name ?? named.Spelling.ToString()
+                    : string.Empty;
             if (!string.IsNullOrWhiteSpace(parentName))
             {
                 names.Add(parentName);
@@ -2483,7 +2488,7 @@ public sealed partial class ClangSharpHeaderParser
             {
                 case CXTemplateArgumentKind.CXTemplateArgumentKind_Type:
                     var argumentType = argument.AsType;
-                    var mappedArgument = mappedType.IsCallback && argumentType is FunctionType
+                    var mappedArgument = argumentType.CanonicalType is FunctionType
                         ? BindingType.CreateConfigured(
                             FormatCppTypeFromAst(argumentType, recordsByName, genericParameters),
                             FormatCppTypeFromAst(argumentType, recordsByName, genericParameters))
@@ -2589,7 +2594,7 @@ public sealed partial class ClangSharpHeaderParser
                 if (argument.AsType.kind != CXTypeKind.CXType_Invalid)
                 {
                     var cppTypeName = ResolveQualifiedTypeName(argument.AsType, recordsByName, genericParameters);
-                    var mappedArgument = mappedType.IsCallback && TypeIsFunctionProto(argument.AsType.CanonicalType)
+                    var mappedArgument = TypeIsFunctionProto(argument.AsType.CanonicalType)
                         ? BindingType.CreateConfigured(cppTypeName, cppTypeName)
                         : index < mappedType.GenericArguments.Count
                             ? mappedType.GenericArguments[index]
@@ -3144,10 +3149,28 @@ public sealed partial class ClangSharpHeaderParser
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         bool isReturn,
         out ManagedTypeOverride? managedTypeOverride)
+        => TryGetManagedTypeOverride(
+            spelledTypeName,
+            canonicalTypeName,
+            qualifiedSpelledTypeName,
+            managedTypeOverrides,
+            isReturn,
+            predicate: null,
+            out managedTypeOverride);
+
+    private static bool TryGetManagedTypeOverride(
+        string spelledTypeName,
+        string canonicalTypeName,
+        string qualifiedSpelledTypeName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        bool isReturn,
+        Predicate<ManagedTypeOverride>? predicate,
+        out ManagedTypeOverride? managedTypeOverride)
     {
         foreach (var candidate in EnumerateManagedTypeOverrideKeys(spelledTypeName, canonicalTypeName, qualifiedSpelledTypeName, isReturn))
         {
-            if (managedTypeOverrides.TryGetValue(candidate, out managedTypeOverride))
+            if (managedTypeOverrides.TryGetValue(candidate, out managedTypeOverride) &&
+                (predicate is null || predicate(managedTypeOverride)))
             {
                 return true;
             }
@@ -3161,8 +3184,9 @@ public sealed partial class ClangSharpHeaderParser
                 continue;
             }
 
-            if (ConcreteTypePrefixMatches(spelledTypeName, candidateOverride.CppTypeName) ||
-                ConcreteTypePrefixMatches(canonicalTypeName, candidateOverride.CppTypeName))
+            if ((ConcreteTypePrefixMatches(spelledTypeName, candidateOverride.CppTypeName) ||
+                ConcreteTypePrefixMatches(canonicalTypeName, candidateOverride.CppTypeName)) &&
+                (predicate is null || predicate(candidateOverride)))
             {
                 managedTypeOverride = candidateOverride;
                 return true;
@@ -3182,7 +3206,8 @@ public sealed partial class ClangSharpHeaderParser
                     canonicalTypeName,
                     candidateOverride.CppTypeName,
                     candidateOverride.TemplateParameterNames.Count,
-                    GetVisibleTemplateArgumentCount(candidateOverride, managedTypeOverrides)))
+                    GetVisibleTemplateArgumentCount(candidateOverride, managedTypeOverrides)) &&
+                (predicate is null || predicate(candidateOverride)))
             {
                 managedTypeOverride = candidateOverride;
                 return true;
@@ -3403,9 +3428,15 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         if (isReturn &&
-            TryGetManagedTypeOverride(overrideLookupTypeName, managedOverrideTypeName, qualifiedSpelledTypeName, managedTypeOverrides, isReturn: true, out var returnOverride) &&
-            returnOverride!.HasPublicTypeMapping &&
-            MarshallerConfigExtractor.MatchesManagedTypeOverride(returnOverride, type))
+            TryGetManagedTypeOverride(
+                overrideLookupTypeName,
+                managedOverrideTypeName,
+                qualifiedSpelledTypeName,
+                managedTypeOverrides,
+                isReturn: true,
+                candidate => MarshallerConfigExtractor.MatchesManagedTypeOverride(candidate, type),
+                out var returnOverride) &&
+            returnOverride!.HasPublicTypeMapping)
         {
             var mapped = CreateConfiguredOrWrapperType(returnOverride!, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName)
                 .WithCppIsReference(TypeIsAnyReference(normalizedType));
@@ -3415,10 +3446,16 @@ public sealed partial class ClangSharpHeaderParser
                 : mapped;
         }
 
-        TryGetManagedTypeOverride(overrideLookupTypeName, managedOverrideTypeName, qualifiedSpelledTypeName, managedTypeOverrides, isReturn: false, out var managedTypeOverride);
+        TryGetManagedTypeOverride(
+            overrideLookupTypeName,
+            managedOverrideTypeName,
+            qualifiedSpelledTypeName,
+            managedTypeOverrides,
+            isReturn: false,
+            candidate => MarshallerConfigExtractor.MatchesManagedTypeOverride(candidate, type),
+            out var managedTypeOverride);
 
-        if (managedTypeOverride is { HasPublicTypeMapping: true } &&
-            MarshallerConfigExtractor.MatchesManagedTypeOverride(managedTypeOverride, type))
+        if (managedTypeOverride is { HasPublicTypeMapping: true })
         {
             var mapped = CreateConfiguredOrWrapperType(managedTypeOverride, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName)
                 .WithCppIsReference(TypeIsAnyReference(normalizedType));
@@ -3441,18 +3478,6 @@ public sealed partial class ClangSharpHeaderParser
                     spelledTypeName,
                     BindingType.IntPtr.ManagedTypeName,
                     primitiveKind: BindingPrimitiveKind.IntPtr),
-                preserveAliasSurface,
-                enumsByName);
-        }
-
-        if (ownedAliasInfo is not null && TypeIsLValueReference(normalizedType))
-        {
-            var aliasTargetTypeName = ResolveAliasTypeName(ownedAliasInfo.CppQualifiedName);
-            return TryApplyManagedAliasSurface(
-                type,
-                ParseTypeToken(aliasTargetTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters)
-                    .WithCppIsRecordValue(false)
-                    .WithCppIsReference(true),
                 preserveAliasSurface,
                 enumsByName);
         }
@@ -5134,7 +5159,10 @@ public sealed partial class ClangSharpHeaderParser
             or CXCursorKind.CXCursor_ClassDecl
             or CXCursorKind.CXCursor_StructDecl)
         {
-            var parentName = current.Spelling.ToString();
+            var parentName = current.Kind == CXCursorKind.CXCursor_Namespace &&
+                clang.Cursor_isInlineNamespace(current) != 0
+                    ? string.Empty
+                    : current.Spelling.ToString();
             if (!string.IsNullOrWhiteSpace(parentName))
             {
                 names.Add(parentName);

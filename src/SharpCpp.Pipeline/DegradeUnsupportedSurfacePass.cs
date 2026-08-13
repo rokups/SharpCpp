@@ -341,8 +341,14 @@ public static class DegradeUnsupportedSurfacePass
     {
         if (record.IsDirector)
         {
-            foreach (var method in record.Members.OfType<FunctionBinding>().Where(static method => method.IsPureVirtual && !method.IsIgnored()))
+            foreach (var method in record.Members.OfType<FunctionBinding>().Where(static method => method.IsPureVirtual))
             {
+                if (method.IsIgnored())
+                {
+                    reason = $"pure virtual director callback '{method.ManagedName}' is unavailable in this bootstrap surface: {method.GetIgnoreReason()}";
+                    return true;
+                }
+
                 if (TryGetUnsupportedDirectorCallbackReason(method, out var callbackReason))
                 {
                     reason = $"pure virtual director callback '{method.ManagedName}' is unsupported in this bootstrap surface: {callbackReason}";

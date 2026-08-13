@@ -7272,7 +7272,14 @@ public static partial class BindingOutputRenderer
                 break;
             }
 
-            if (current.HasCopyConstructor)
+            var isManagedAbstract = IsManagedWrapperAbstract(
+                compilation,
+                current,
+                current.GetEffectiveVirtualMethodSlots(compilation));
+            if (CanEmitClone(
+                    current,
+                    isManagedAbstract || current.IsEffectivelyAbstract || current.HasUnimplementedAbstractBaseMethods(compilation),
+                    current.IsGeneric || CanEmitDeleteThunk(current)))
             {
                 return true;
             }

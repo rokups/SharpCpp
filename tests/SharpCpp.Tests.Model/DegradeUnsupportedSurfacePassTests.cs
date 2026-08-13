@@ -296,6 +296,32 @@ public sealed class DegradeUnsupportedSurfacePassTests
     }
 
     [Fact]
+    public void Apply_ignores_director_records_with_already_excluded_pure_virtual_callbacks()
+    {
+        var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Abstract.h"]);
+        var record = new RecordBinding("record:Test::AbstractThing", "AbstractThing", "AbstractThing", "Test::AbstractThing")
+        {
+            IsDirector = true,
+            IsAbstract = true
+        };
+        var compute = new FunctionBinding("method:Test::AbstractThing::Compute", "Compute", "Compute", BindingType.Int32, cppQualifiedName: "Test::AbstractThing::Compute")
+        {
+            IsVirtual = true,
+            IsPureVirtual = true,
+            OwningRecordCppTypeName = record.CppQualifiedName
+        };
+        compute.SetIgnoreReason("return type is unavailable");
+        record.Members.Add(compute);
+        compilation.Members.Add(record);
+
+        DegradeUnsupportedSurfacePass.Apply(compilation);
+
+        Assert.True(record.IsIgnored());
+        Assert.Contains("pure virtual director callback", record.GetIgnoreReason(), StringComparison.Ordinal);
+        Assert.Contains("return type is unavailable", record.GetIgnoreReason(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Apply_keeps_director_owned_handle_returns()
     {
         var compilation = new BindingCompilation("SharpCpp.Tests", "Test", "Bindings", "Native", ["Callbacks.h"]);

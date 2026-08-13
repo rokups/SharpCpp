@@ -15,7 +15,15 @@ Current worktree verification passes with generic complex C++ values crossing ca
 - Verified AST native template arguments survive managed generic projection and drive native generic substitution.
 - Custom containers such as `JPH::Array<T>` remain distinct from `std::vector<T>`, including record-value element types declared by the source AST.
 - Native fixed arrays preserve AST alias element identity while exposing the correct managed ABI type.
-- Verification: model 250/250, metadata 17/17, generated E2E 236/236, RedBolt build succeeded, and focused Jolt physics tests 51/51.
+- Verification: model 252/252, metadata 17/17, generated E2E 236/236, RedBolt build succeeded, and focused Jolt physics tests 59/59.
+
+### Director degradation (current change)
+
+- Director records are excluded when any native pure virtual callback is unavailable, including callbacks excluded by an earlier fixed-point iteration.
+- This prevents incomplete generated directors from attempting to instantiate abstract C++ records on platform-specific surfaces.
+- Managed clone methods/imports and native clone thunks now use the same AST-derived abstractness facts, including copy-constructible generic abstract records.
+- Inline namespaces, alias-template arguments, and explicit pointer/reference marshaller specializations are resolved from Clang AST declarations rather than platform-specific type spellings.
+- This keeps libc++ aliases such as `std::string*` mapped to their configured managed wrapper on Android without target-specific generator normalization.
 
 ### Linux compiler include discovery (current change)
 
