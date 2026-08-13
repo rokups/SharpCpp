@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <concepts>
+#include <cstdint>
 #include <exception>
 #include <functional>
 #include <iterator>
@@ -80,6 +81,26 @@ using DefaultPointerAbi = std::conditional_t<
     std::add_pointer_t<std::add_const_t<remove_cvref_t<T>>>,
     std::add_pointer_t<remove_cvref_t<T>>>;
 
+template <class T, bool IsEnum = std::is_enum_v<remove_cvref_t<T>>>
+struct DefaultValueAbi
+{
+    using type = T;
+};
+
+template <class T>
+struct DefaultValueAbi<T, true>
+{
+    using enum_type = remove_cvref_t<T>;
+    using underlying_type = std::underlying_type_t<enum_type>;
+    using type = std::conditional_t<
+        sizeof(underlying_type) < sizeof(std::uint32_t),
+        std::conditional_t<std::is_signed_v<underlying_type>, std::int32_t, std::uint32_t>,
+        underlying_type>;
+};
+
+template <class T>
+using DefaultValueAbiType = typename DefaultValueAbi<T>::type;
+
 template <class T>
 using DefaultAbi = std::conditional_t<DefaultPassesByValue<T>, T, DefaultPointerAbi<T>>;
 
@@ -91,16 +112,16 @@ struct DefaultMarshallerBase<T, true>
 {
     using is_default_marshaller = std::true_type;
     using cpp_type = T;
-    using abi_type = T;
+    using abi_type = DefaultValueAbiType<T>;
 
     constexpr abi_type ConvertToAbi(cpp_type value) noexcept
     {
-        return value;
+        return static_cast<abi_type>(value);
     }
 
     constexpr cpp_type ConvertToCpp(abi_type value) noexcept
     {
-        return value;
+        return static_cast<cpp_type>(value);
     }
 };
 
@@ -1771,6 +1792,20 @@ struct DefaultMarshallerComplexSmoke
 {
     int Value{};
 };
+
+enum class DefaultMarshallerSignedEnumSmoke : std::int16_t
+{
+    Value = -1
+};
+
+enum class DefaultMarshallerUnsignedEnumSmoke : std::uint16_t
+{
+    Value = 1
+};
+
+static_assert(std::is_same_v<arg_t<DefaultMarshallerSignedEnumSmoke>, std::int32_t>);
+static_assert(std::is_same_v<arg_t<DefaultMarshallerUnsignedEnumSmoke>, std::uint32_t>);
+static_assert(std::is_same_v<field_t<DefaultMarshallerUnsignedEnumSmoke>, DefaultMarshallerUnsignedEnumSmoke*>);
 }
 
 namespace detail
@@ -1801,4 +1836,6 @@ static_assert(std::is_same_v<arg_t<const detail::DefaultMarshallerComplexSmoke&>
 static_assert(std::is_same_v<arg_t<void* const&>, void* const*>);
 static_assert(std::is_same_v<ret_t<int>, int>);
 static_assert(std::is_same_v<ret_t<detail::DefaultMarshallerComplexSmoke>, detail::DefaultMarshallerComplexSmoke*>);
+static_assert(std::is_same_v<ret_t<detail::DefaultMarshallerSignedEnumSmoke>, std::int32_t>);
+static_assert(std::is_same_v<ret_t<detail::DefaultMarshallerUnsignedEnumSmoke>, std::uint32_t>);
 }

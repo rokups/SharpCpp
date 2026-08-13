@@ -2,11 +2,12 @@
 
 using field_uint64 = unsigned long long;
 
-enum class field_mode : int
+enum class field_mode : unsigned short
 {
     idle = 1,
     active = 2,
-    suspended = 3
+    suspended = 3,
+    high = 0xe001
 };
 
 struct field_payload

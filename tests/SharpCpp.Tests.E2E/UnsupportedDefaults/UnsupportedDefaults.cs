@@ -134,4 +134,14 @@ public sealed class UnsupportedDefaultsTests
         Assert.Equal(195, UnsupportedDefaultCounter.Add(1, 9));
         Assert.Equal(193, UnsupportedDefaultCounter.Add(1, 9, 3));
     }
+
+    [Fact]
+    public void Small_enum_constructor_defaults_use_the_widened_abi()
+    {
+        using var defaulted = new UnsupportedDefaultEnumBox();
+        using var explicitValue = new UnsupportedDefaultEnumBox(UnsupportedDefaultMode.High);
+
+        Assert.Equal(UnsupportedDefaultMode.High, defaulted.GetMode());
+        Assert.Equal(UnsupportedDefaultMode.High, explicitValue.GetMode());
+    }
 }

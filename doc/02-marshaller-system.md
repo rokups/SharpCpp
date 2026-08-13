@@ -246,6 +246,7 @@ The C# marshaller implementation mirrors the declared contract of the C++ `Marsh
 | Category | Where the C# marshaller lives | Who emits it |
 |---|---|---|
 | Primitives (int, bool, etc.) | No marshaller needed (blittable) | N/A |
+| Enums | No C# marshaller type; generated imports use the matching 32/64-bit integral ABI type | N/A |
 | Handles (nint) | No marshaller needed (blittable) | N/A |
 | Strings (span, owned, managed) | `SharpCpp.Support` library | N/A (pre-built) |
 | `std::optional<T>` | Generated per-T | Generator |
@@ -253,6 +254,8 @@ The C# marshaller implementation mirrors the declared contract of the C++ `Marsh
 | `std::vector<T>` | `SharpCpp.Support` base + per-T generated accessors | Generator |
 | Callbacks | Generated per-signature | Generator |
 | User value types | Generated per-type or referenced from support lib | Generator |
+
+The public managed API and native field storage retain the declared enum type. At function boundaries, enum values whose underlying type is narrower than 32 bits are widened to signed or unsigned 32-bit integers and explicitly converted back by the native default marshaller. This matches CLR and WebAssembly calling conventions, where the unused upper bits of a small integer argument are not guaranteed to be normalized.
 
 ## Member injection
 

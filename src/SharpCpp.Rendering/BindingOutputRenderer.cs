@@ -1229,6 +1229,7 @@ public static partial class BindingOutputRenderer
     {
         ValuePointer,
         ProjectedValuePointer,
+        ValueAbi,
         HandleAbi,
         BorrowedStorage
     }
@@ -1241,6 +1242,7 @@ public static partial class BindingOutputRenderer
         public string SetterParameterCppType => SetterMode switch
         {
             FieldSetterMode.ProjectedValuePointer => $"arg_t<{StorageCppType}>*",
+            FieldSetterMode.ValueAbi => $"arg_t<{StorageCppType}>",
             FieldSetterMode.HandleAbi => $"arg_t<{StorageCppType}>",
             _ => $"field_t<{StorageCppType}>"
         };
@@ -1252,6 +1254,8 @@ public static partial class BindingOutputRenderer
         var borrowsStorage = ShouldBorrowFieldStorage(compilation, field);
         var setterMode = borrowsStorage
             ? FieldSetterMode.BorrowedStorage
+            : field.Type.Kind == BindingTypeKind.Enum
+                ? FieldSetterMode.ValueAbi
             : field.Type.Kind == BindingTypeKind.Handle
                 ? FieldSetterMode.HandleAbi
                 : RequiresNativeFieldValueConversion(compilation, field)
@@ -1318,6 +1322,9 @@ public static partial class BindingOutputRenderer
         {
             var arrayAccessExpression = GetNativeFixedArrayFieldAccessExpression(field, selfExpression);
             var elementCppType = GetNativeFixedArrayElementCppType(compilation, field.Type);
+            var elementValueExpression = field.Type.FixedArrayElementType?.Kind == BindingTypeKind.Enum
+                ? "source[index]"
+                : "marshaller.ConvertToCpp(source[index])";
             var length = field.Type.FixedArrayLength ?? 0;
             return $$"""
                 if (value.handle == nullptr || value.length != {{length}})
@@ -1329,7 +1336,7 @@ public static partial class BindingOutputRenderer
                 ParameterMarshaller<{{elementCppType}}> marshaller;
                 for (std::size_t index = 0; index < {{length}}; ++index)
                 {
-                    {{arrayAccessExpression}}[index] = marshaller.ConvertToCpp(source[index]);
+                    {{arrayAccessExpression}}[index] = {{elementValueExpression}};
                 }
                 """;
         }
@@ -1342,15 +1349,19 @@ public static partial class BindingOutputRenderer
             if (plan.SetterMode == FieldSetterMode.BorrowedStorage)
                 return $"detail::AssignBorrowedStorage({accessExpression}, value);";
 
-            var valueExpression = plan.SetterMode == FieldSetterMode.ProjectedValuePointer
-                ? "marshaller.ConvertToCpp(*value)"
-                : plan.SetterMode == FieldSetterMode.ValuePointer ? "*value" : "value";
+            var valueExpression = plan.SetterMode switch
+            {
+                FieldSetterMode.ProjectedValuePointer => "marshaller.ConvertToCpp(*value)",
+                FieldSetterMode.ValueAbi => "marshaller.ConvertToCpp(value)",
+                FieldSetterMode.ValuePointer => "*value",
+                _ => "value"
+            };
             if (ShouldCastDirectNativeFieldSetValue(field, plan))
             {
                 valueExpression = $"static_cast<decltype({accessExpression})>({valueExpression})";
             }
 
-            return plan.SetterMode == FieldSetterMode.ProjectedValuePointer
+            return plan.SetterMode is FieldSetterMode.ProjectedValuePointer or FieldSetterMode.ValueAbi
                 ? $"ParameterMarshaller<{plan.StorageCppType}> marshaller;\n{accessExpression} = {valueExpression};"
                 : $"{accessExpression} = {valueExpression};";
         }
@@ -1657,9 +1668,8 @@ public static partial class BindingOutputRenderer
                 writer.Write(statement);
             }
 
-            writer.Write(
-                """
-                return __result;
+            writer.Write($$"""
+                return {{BuildManagedImportToPublicExpression(compilation, function.ReturnType, "__result")}};
                 """);
         }
 
@@ -1931,14 +1941,14 @@ public static partial class BindingOutputRenderer
     {
         return type.Kind == BindingTypeKind.Handle
             ? BuildManagedHandleWrap(compilation, type, valueExpression, ownsHandle: false)
-            : valueExpression;
+            : BuildManagedImportToPublicExpression(compilation, type, valueExpression);
     }
 
     private static string BuildManagedCallbackReturnExpression(BindingCompilation compilation, BindingType type, string valueExpression)
     {
         return type.Kind == BindingTypeKind.Handle
             ? $"global::SharpCpp.Support.NativeObject.GetHandle({valueExpression})"
-            : valueExpression;
+            : BuildManagedPublicToImportExpression(compilation, type, valueExpression);
     }
 
     private static string GetManagedCallbackMarshallerTypeName(BindingCompilation compilation, ParameterBinding parameter)
@@ -2025,7 +2035,7 @@ public static partial class BindingOutputRenderer
     {
         return type.Kind == BindingTypeKind.Handle
             ? GetManagedWrapperTypeName(type, compilation)
-            : GetManagedImportTypeName(type, compilation);
+            : GetManagedPublicReturnTypeName(type, compilation);
     }
 
     private static string GetCallbackSignatureKey(BindingType type)
@@ -3444,9 +3454,8 @@ public static partial class BindingOutputRenderer
                     writer.Write(statement);
                 }
 
-                writer.Write(
-                    """
-                    return __result;
+                writer.Write($$"""
+                    return {{BuildManagedImportToPublicExpression(compilation, function.ReturnType, "__result")}};
                     """);
             }
         }
@@ -3596,7 +3605,7 @@ public static partial class BindingOutputRenderer
             {
                 writer.Write(statement);
             }
-            writer.WriteLine("return __result;");
+            writer.WriteLine($"return {BuildManagedImportToPublicExpression(compilation, function.ReturnType, "__result")};");
         }
 
         if (pointerArrayParameters.Length > 0)
@@ -3941,11 +3950,11 @@ public static partial class BindingOutputRenderer
 
             if (hasNativeDefaultDispatch)
             {
-                WriteUnexpressibleDefaultConstructorCascade(writer, function, importMethodName);
+                WriteUnexpressibleDefaultConstructorCascade(compilation, writer, function, importMethodName);
             }
             else
             {
-                var invocationPlan = BuildManagedInvocationPlan(null!, function.Parameters);
+                var invocationPlan = BuildManagedInvocationPlan(compilation, function.Parameters);
                 writer.Write($$"""
                     var __handle = __PInvoke.{{importMethodName}}({{invokeArguments}});
                     """);
@@ -4036,11 +4045,11 @@ public static partial class BindingOutputRenderer
             }
             else if (aHasUnexpressible)
             {
-                WriteUnexpressibleDefaultConstructorCascade(writer, function, importMethodName, firstU);
+                WriteUnexpressibleDefaultConstructorCascade(compilation, writer, function, importMethodName, firstU);
             }
             else
             {
-                var aPlan = BuildManagedInvocationPlan(null!, beforeParams);
+                var aPlan = BuildManagedInvocationPlan(compilation, beforeParams);
                 var aInvokeArgs = string.Join(", ", beforeParams.Select(parameter => RenderManagedInvocationArgument(compilation, parameter)));
                 writer.Write($$"""
                     var __handle = __PInvoke.{{GetUnexpressibleVariantImportName(importMethodName, firstU)}}({{aInvokeArgs}});
@@ -4113,7 +4122,7 @@ public static partial class BindingOutputRenderer
                 // Write a targeted cascade for the after-params only.
                 // Filter defaultIndices to only after-firstU positions, since
                 // before-firstU params are non-nullable in Overload B.
-                WriteUndefaultableConstructorCascade_Filtered(writer, function, importMethodName, uFirst, afterDefaultIndices);
+                WriteUndefaultableConstructorCascade_Filtered(compilation, writer, function, importMethodName, uFirst, afterDefaultIndices);
             }
             else
             {
@@ -4247,7 +4256,7 @@ public static partial class BindingOutputRenderer
 
         var returnExpression = method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Boolean
             ? $"{invocation} ? (byte)1 : (byte)0"
-            : invocation;
+            : BuildManagedPublicToImportExpression(compilation, method.ReturnType, invocation);
         writer.Write($$"""
             return {{returnExpression}};
             }
@@ -4356,9 +4365,8 @@ public static partial class BindingOutputRenderer
                     writer.Write(statement);
                 }
 
-                writer.Write(
-                    """
-                    return __result;
+                writer.Write($$"""
+                    return {{BuildManagedImportToPublicExpression(compilation, function.ReturnType, "__result")}};
                     """);
             }
         }
@@ -4796,7 +4804,9 @@ public static partial class BindingOutputRenderer
                     "value",
                     field.Type,
                     BindingParameterDirection.In,
-                    BindingParameterAbiKind.Pointer,
+                    field.Type.Kind is BindingTypeKind.Handle or BindingTypeKind.Enum
+                        ? BindingParameterAbiKind.Value
+                        : BindingParameterAbiKind.Pointer,
                     field.CppTypeName);
                 var setterArgument = field.Type.IsFixedArray
                     ? "value"
@@ -4932,7 +4942,9 @@ public static partial class BindingOutputRenderer
                 "value",
                 field.Type,
                 BindingParameterDirection.In,
-                field.Type.Kind == BindingTypeKind.Handle ? BindingParameterAbiKind.Value : BindingParameterAbiKind.Pointer,
+                field.Type.Kind is BindingTypeKind.Handle or BindingTypeKind.Enum
+                    ? BindingParameterAbiKind.Value
+                    : BindingParameterAbiKind.Pointer,
                 field.CppTypeName),
             compilation);
         var parameters = field.IsStatic ? parameter : $"{recordManagedName} self, {parameter}";
@@ -4998,7 +5010,9 @@ public static partial class BindingOutputRenderer
                 "value",
                 elementType,
                 BindingParameterDirection.In,
-                elementType.Kind == BindingTypeKind.Handle ? BindingParameterAbiKind.Value : BindingParameterAbiKind.Pointer,
+                elementType.Kind is BindingTypeKind.Handle or BindingTypeKind.Enum
+                    ? BindingParameterAbiKind.Value
+                    : BindingParameterAbiKind.Pointer,
                 elementType.CppTypeName),
             compilation);
 
@@ -5382,14 +5396,15 @@ public static partial class BindingOutputRenderer
             var abiArguments = string.Join(", ", constructor.Parameters.Select(static p => p.NativeName));
             var constructorArgTypes = string.Join(", ", constructor.Parameters.Select(static p => p.CppTypeName));
             var owningRecord = constructor.Parent as RecordBinding;
+            var constructedTypeName = owningRecord is not null && owningRecord.RequiresDirector(compilation)
+                ? GetNativeDirectorClassName(owningRecord)
+                : constructor.OwningRecordCppTypeName;
 
             writer.WriteLine();
             writer.Write($$"""
                 SHARPCPP_EXPORT_NAMED({{constructor.EntryPointName}}) ret_t<{{constructor.CppReturnTypeName}}> {{constructor.EntryPointName}}({{parameterList}})
                 {
-                {{(owningRecord is not null && owningRecord.RequiresDirector(compilation)
-                    ? $"return new {GetNativeDirectorClassName(owningRecord)}({abiArguments});"
-                    : $"return MarshallerInvoker::construct<{constructor.OwningRecordCppTypeName}{(constructorArgTypes.Length > 0 ? $", {constructorArgTypes}" : string.Empty)}>({abiArguments});")}}
+                return MarshallerInvoker::construct<{{constructedTypeName}}{{(constructorArgTypes.Length > 0 ? $", {constructorArgTypes}" : string.Empty)}}>({{abiArguments}});
                 }
                 """);
 
@@ -5722,7 +5737,7 @@ public static partial class BindingOutputRenderer
                 BindingTypeKind.Primitive when type.PrimitiveKind != BindingPrimitiveKind.Unsupported => GetConcretePrimitiveManagedTypeName(type),
                 BindingTypeKind.Primitive => FormatGlobalTypeName(type, compilation),
                 BindingTypeKind.Handle => BindingType.NativeInt.ManagedTypeName,
-                BindingTypeKind.Enum => FormatGlobalTypeName(type, compilation),
+                BindingTypeKind.Enum => GetManagedEnumAbiTypeName(compilation, type),
                 BindingTypeKind.GenericParameter => type.UnaliasedManagedTypeName,
                 _ => throw new NotSupportedException($"Managed import emission does not support '{type.Kind}'.")
             };
@@ -5737,6 +5752,20 @@ public static partial class BindingOutputRenderer
             BindingTypeKind.Enum => NormalizeEnumManagedTypeName(type.UnaliasedManagedTypeName),
             BindingTypeKind.GenericParameter => type.UnaliasedManagedTypeName,
             _ => throw new NotSupportedException($"Managed import emission does not support '{type.Kind}'.")
+        };
+    }
+
+    private static string GetManagedEnumAbiTypeName(BindingCompilation compilation, BindingType type)
+    {
+        var @enum = compilation.FindEnumBySymbolId(type.EnumId)
+            ?? throw new InvalidOperationException($"Enum binding '{type.EnumId ?? type.CppTypeName}' was not found.");
+        return @enum.UnderlyingPrimitiveKind switch
+        {
+            BindingPrimitiveKind.Int8 or BindingPrimitiveKind.Int16 or BindingPrimitiveKind.Int32 => "int",
+            BindingPrimitiveKind.UInt8 or BindingPrimitiveKind.UInt16 or BindingPrimitiveKind.UInt32 => "uint",
+            BindingPrimitiveKind.Int64 => "long",
+            BindingPrimitiveKind.UInt64 => "ulong",
+            _ => throw new NotSupportedException($"Enum '{@enum.CppQualifiedName}' has unsupported underlying type '{@enum.UnderlyingPrimitiveKind}'.")
         };
     }
 
@@ -5974,7 +6003,9 @@ public static partial class BindingOutputRenderer
             _ => string.Empty
         };
         var attributeFallback = GetManagedParameterAttribute(callbackMarshallerParameter ?? parameter, type, compilation);
-        var importTypeName = GetManagedImportTypeName(type, compilation);
+        var importTypeName = type.Kind == BindingTypeKind.Enum && parameter.AbiKind != BindingParameterAbiKind.Value
+            ? GetManagedPublicReturnTypeName(type, compilation)
+            : GetManagedImportTypeName(type, compilation);
         var typeNameFallback = type.IsCallback && parameter.Direction == BindingParameterDirection.In && parameter.AbiKind == BindingParameterAbiKind.Value
             ? $"{GetManagedCallbackParameterTypeName(compilation!, parameter)}?"
             : IsNullableManagedReferenceDefaultParameter(parameter) && IsManagedReferenceTypeName(type.ManagedTypeName)
@@ -6794,7 +6825,7 @@ public static partial class BindingOutputRenderer
             ? $"{parameter.ManagedName} != 0"
             : parameter.Type.IsPointerType
             ? BuildManagedHandleWrap(compilation, parameter.Type, parameter.ManagedName, parameter.CallbackTakesOwnership)
-            : parameter.ManagedName;
+            : BuildManagedImportToPublicExpression(compilation, parameter.Type, parameter.ManagedName);
     }
 
     private static string GetManagedVirtualCallbackAbiTypeName(BindingCompilation compilation, BindingType type)
@@ -7027,6 +7058,8 @@ public static partial class BindingOutputRenderer
 
     private static string GetManagedPrimitiveTypeName(BindingPrimitiveKind kind) => kind switch
     {
+        BindingPrimitiveKind.Int8 => "sbyte",
+        BindingPrimitiveKind.UInt8 => "byte",
         BindingPrimitiveKind.Int32 => "int",
         BindingPrimitiveKind.UInt32 => "uint",
         BindingPrimitiveKind.UInt16 => "ushort",
@@ -7857,14 +7890,17 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string BuildManagedDispatchArgument(ParameterBinding parameter, string plannedArgument)
+    private static string BuildManagedDispatchArgument(BindingCompilation compilation, ParameterBinding parameter, string plannedArgument)
     {
         if (!parameter.HasMetadata(MetadataKeys.UnexpressibleDefault) || IsManagedReferenceDefaultParameter(parameter))
         {
             return plannedArgument;
         }
 
-        var valueExpression = $"{parameter.ManagedName}.Value";
+        var valueExpression = BuildManagedPublicToImportExpression(
+            compilation,
+            parameter.Type,
+            $"{parameter.ManagedName}.Value");
         return parameter.Direction switch
         {
             BindingParameterDirection.Ref => $"ref {valueExpression}",
@@ -7873,13 +7909,13 @@ public static partial class BindingOutputRenderer
         };
     }
 
-    private static string BuildManagedDispatchArguments(FunctionBinding function, ManagedInvocationPlan plan, IReadOnlyList<string> leadingArguments, int keepCount)
+    private static string BuildManagedDispatchArguments(BindingCompilation compilation, FunctionBinding function, ManagedInvocationPlan plan, IReadOnlyList<string> leadingArguments, int keepCount)
     {
         var arguments = new List<string>(leadingArguments);
         for (var i = 0; i < keepCount; i++)
         {
             var parameter = function.Parameters[i];
-            arguments.Add(BuildManagedDispatchArgument(parameter, plan.Arguments[i]));
+            arguments.Add(BuildManagedDispatchArgument(compilation, parameter, plan.Arguments[i]));
         }
 
         return string.Join(", ", arguments);
@@ -8265,7 +8301,7 @@ public static partial class BindingOutputRenderer
             else
             {
                 // May have unexpressible default — use .Value unwrapping if needed
-                args.Add(BuildManagedDispatchArgument(param, plan.Arguments[i]));
+                args.Add(BuildManagedDispatchArgument(compilation, param, plan.Arguments[i]));
             }
         }
         var invokeArgs = string.Join(", ", args);
@@ -8390,7 +8426,7 @@ public static partial class BindingOutputRenderer
         ManagedInvocationPlan plan, IReadOnlyList<string> leadingArguments, int keepCount)
     {
         var resultVar = "__result";
-        var args = BuildManagedDispatchArguments(function, plan, leadingArguments, keepCount);
+        var args = BuildManagedDispatchArguments(compilation, function, plan, leadingArguments, keepCount);
 
         WriteOmittedOutParameterAssignments(writer, function, keepCount);
         if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
@@ -8425,18 +8461,18 @@ public static partial class BindingOutputRenderer
                 writer.Write(statement);
 
             writer.Write($$"""
-                return {{resultVar}};
+                return {{BuildManagedImportToPublicExpression(compilation, function.ReturnType, resultVar)}};
                 """);
         }
     }
 
-    private static void WriteUnexpressibleDefaultConstructorCascade(CodeWriter writer, FunctionBinding function, string importMethodName, int? maxParameterCount = null)
+    private static void WriteUnexpressibleDefaultConstructorCascade(BindingCompilation compilation, CodeWriter writer, FunctionBinding function, string importMethodName, int? maxParameterCount = null)
     {
         var parameterCount = maxParameterCount ?? function.Parameters.Count;
         var defaultIndices = GetNativeDefaultDispatchParameterIndices(function)
             .Where(index => index < parameterCount)
             .ToArray();
-        var invocationPlan = BuildManagedInvocationPlan(null!, GetUnexpressibleVariantParams(function, parameterCount));
+        var invocationPlan = BuildManagedInvocationPlan(compilation, GetUnexpressibleVariantParams(function, parameterCount));
         var fullImportName = parameterCount == function.Parameters.Count
             ? importMethodName
             : GetUnexpressibleVariantImportName(importMethodName, parameterCount);
@@ -8446,14 +8482,14 @@ public static partial class BindingOutputRenderer
             writer.Write(statement);
         }
 
-        WriteUnexpressibleDefaultConstructorBranch(writer, function, fullImportName, invocationPlan, parameterCount, defaultIndices, defaultIndices.Length);
+        WriteUnexpressibleDefaultConstructorBranch(compilation, writer, function, fullImportName, invocationPlan, parameterCount, defaultIndices, defaultIndices.Length);
 
         for (var providedDefaultCount = defaultIndices.Length - 1; providedDefaultCount >= 0; providedDefaultCount--)
         {
             var keepCount = defaultIndices[providedDefaultCount];
-            var variantPlan = BuildManagedInvocationPlan(null!, GetUnexpressibleVariantParams(function, keepCount));
+            var variantPlan = BuildManagedInvocationPlan(compilation, GetUnexpressibleVariantParams(function, keepCount));
             var variantImportName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
-            WriteUnexpressibleDefaultConstructorBranch(writer, function, variantImportName, variantPlan, keepCount, defaultIndices, providedDefaultCount);
+            WriteUnexpressibleDefaultConstructorBranch(compilation, writer, function, variantImportName, variantPlan, keepCount, defaultIndices, providedDefaultCount);
         }
 
         writer.Write(
@@ -8463,6 +8499,7 @@ public static partial class BindingOutputRenderer
     }
 
     private static void WriteUndefaultableConstructorCascade_Filtered(
+        BindingCompilation compilation,
         CodeWriter writer,
         FunctionBinding function,
         string importMethodName,
@@ -8476,7 +8513,7 @@ public static partial class BindingOutputRenderer
 
         // Use only the full-params import variant for Overload B (before-firstU params
         // are always present, so we never call __ArgsN for before-firstU positions).
-        var invocationPlan = BuildManagedInvocationPlan(null!, function.Parameters);
+        var invocationPlan = BuildManagedInvocationPlan(compilation, function.Parameters);
 
         foreach (var statement in invocationPlan.PreCallStatements)
         {
@@ -8487,7 +8524,7 @@ public static partial class BindingOutputRenderer
         var conditionAll = BuildUndefaultableBCondition(function, afterDefaultIndices, afterDefaultIndices.Count);
         writer.WriteLine($"if ({conditionAll})");
         writer.WriteLine("{");
-        WriteConstructorDispatchCall(writer, function, importMethodName, invocationPlan, function.Parameters.Count);
+        WriteConstructorDispatchCall(compilation, writer, function, importMethodName, invocationPlan, function.Parameters.Count);
         writer.WriteLine("}");
         writer.WriteLine();
 
@@ -8500,8 +8537,8 @@ public static partial class BindingOutputRenderer
             writer.WriteLine($"if ({condition})");
             writer.WriteLine("{");
             var variantImportName = GetUnexpressibleVariantImportName(importMethodName, keepCount);
-            var variantPlan = BuildManagedInvocationPlan(null!, GetUnexpressibleVariantParams(function, keepCount));
-            WriteConstructorDispatchCall(writer, function, variantImportName, variantPlan, keepCount);
+            var variantPlan = BuildManagedInvocationPlan(compilation, GetUnexpressibleVariantParams(function, keepCount));
+            WriteConstructorDispatchCall(compilation, writer, function, variantImportName, variantPlan, keepCount);
             writer.WriteLine("}");
             writer.WriteLine();
         }
@@ -8512,20 +8549,20 @@ public static partial class BindingOutputRenderer
             """);
     }
 
-    private static void WriteUnexpressibleDefaultConstructorBranch(CodeWriter writer, FunctionBinding function, string importName,
+    private static void WriteUnexpressibleDefaultConstructorBranch(BindingCompilation compilation, CodeWriter writer, FunctionBinding function, string importName,
         ManagedInvocationPlan plan, int keepCount, IReadOnlyList<int> defaultIndices, int providedDefaultCount)
     {
         writer.WriteLine($"if ({BuildUnexpressibleDefaultCondition(function, defaultIndices, providedDefaultCount)})");
         writer.WriteLine("{");
-        WriteConstructorDispatchCall(writer, function, importName, plan, keepCount);
+        WriteConstructorDispatchCall(compilation, writer, function, importName, plan, keepCount);
         writer.WriteLine("}");
         writer.WriteLine();
     }
 
-    private static void WriteConstructorDispatchCall(CodeWriter writer, FunctionBinding function, string importName,
+    private static void WriteConstructorDispatchCall(BindingCompilation compilation, CodeWriter writer, FunctionBinding function, string importName,
         ManagedInvocationPlan plan, int keepCount)
     {
-        var args = BuildManagedDispatchArguments(function, plan, [], keepCount);
+        var args = BuildManagedDispatchArguments(compilation, function, plan, [], keepCount);
 
         WriteOmittedOutParameterAssignments(writer, function, keepCount);
         writer.Write($$"""

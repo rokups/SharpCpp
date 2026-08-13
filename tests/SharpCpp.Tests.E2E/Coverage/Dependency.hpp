@@ -23,13 +23,15 @@ enum class [[sharpcpp::flags]] dependency_permissions : unsigned int
 enum class dependency_small_state : unsigned short
 {
     idle = 0,
-    ready = 1
+    ready = 1,
+    high = 0xe001
 };
 
 enum class dependency_i8_state : signed char
 {
     idle = 0,
-    ready = 1
+    ready = 1,
+    negative = -8
 };
 
 enum class dependency_u8_state : unsigned char

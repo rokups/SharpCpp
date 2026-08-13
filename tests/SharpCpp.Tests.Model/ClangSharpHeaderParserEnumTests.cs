@@ -126,6 +126,27 @@ public sealed class ClangSharpHeaderParserEnumTests
     }
 
     [Fact]
+    public void Parse_preserves_small_enum_underlying_types()
+    {
+        var compilation = ParseTempHeader(
+            "Sample.hpp",
+            """
+            enum class SignedByte : signed char { Value };
+            enum class UnsignedByte : unsigned char { Value };
+            enum class SignedShort : short { Value };
+            enum class UnsignedShort : unsigned short { Value };
+            """,
+            ["-x", "c++", "-std=c++20"]);
+
+        Assert.Collection(
+            compilation.Enums.OrderBy(static @enum => @enum.NativeName, StringComparer.Ordinal),
+            @enum => Assert.Equal(BindingPrimitiveKind.Int8, @enum.UnderlyingPrimitiveKind),
+            @enum => Assert.Equal(BindingPrimitiveKind.Int16, @enum.UnderlyingPrimitiveKind),
+            @enum => Assert.Equal(BindingPrimitiveKind.UInt8, @enum.UnderlyingPrimitiveKind),
+            @enum => Assert.Equal(BindingPrimitiveKind.UInt16, @enum.UnderlyingPrimitiveKind));
+    }
+
+    [Fact]
     public void Parse_distinguishes_same_named_nested_enums()
     {
         var compilation = ParseTempHeader(

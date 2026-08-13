@@ -29,7 +29,7 @@ public sealed class FieldTests
 
         box.Count = 7;
         box.Enabled = false;
-        box.Mode = FieldMode.Suspended;
+        box.Mode = FieldMode.High;
         box.Payload = replacement;
         box.EmbeddedValue = 30;
         using var payloadSamples = new global::SharpCpp.NativeArray<FieldPayload>(
@@ -54,7 +54,7 @@ public sealed class FieldTests
 
         Assert.Equal(7, box.Count);
         Assert.False(box.Enabled);
-        Assert.Equal(FieldMode.Suspended, box.Mode);
+        Assert.Equal(FieldMode.High, box.Mode);
         Assert.False(box.Payload.OwnsHandle);
         Assert.Equal(30, box.Payload.Value);
         Assert.Equal(30, box.EmbeddedValue);
@@ -107,11 +107,11 @@ public sealed class FieldTests
         Assert.Equal(new[] { 1, 2, 3 }, box.Matrix[0].ToArray());
         Assert.Equal(new[] { 4, 5, 6 }, box.Matrix[1].ToArray());
 
-        using var modes = new global::SharpCpp.NativeArray<FieldMode>([FieldMode.Suspended, FieldMode.Active]);
+        using var modes = new global::SharpCpp.NativeArray<FieldMode>([FieldMode.High, FieldMode.Active]);
         using var switches = new global::SharpCpp.NativeArray<bool>([true, false]);
         box.Modes = modes;
         box.Switches = switches;
-        Assert.Equal(new[] { FieldMode.Suspended, FieldMode.Active }, box.Modes.ToArray());
+        Assert.Equal(new[] { FieldMode.High, FieldMode.Active }, box.Modes.ToArray());
         Assert.Equal(new[] { true, false }, box.Switches.ToArray());
     }
 

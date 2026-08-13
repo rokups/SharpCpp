@@ -28,6 +28,9 @@ public sealed class MetadataDependencyTests
         Assert.Equal(
             (ushort)DependencySmallState.Ready,
             ConsumerBindings.ConsumeDependencySmallStateAlias((ushort)DependencySmallState.Ready));
+        Assert.Equal(
+            DependencySmallState.High,
+            DependencyBindings.RoundTripDependencySmallStateAlias(DependencySmallState.High));
         Assert.Equal(6UL, DependencyBindings.ConsumeDependencyEnumMatrix(
             DependencyI8State.Ready,
             DependencyU8State.Ready,

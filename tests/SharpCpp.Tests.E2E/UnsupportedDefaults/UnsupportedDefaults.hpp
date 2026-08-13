@@ -8,6 +8,11 @@
 #define E2E_UNSUPPORTED_DEFAULT_RHS 7
 #define E2E_UNSUPPORTED_DEFAULT_ALTERNATING_OFFSET 8
 #define E2E_UNSUPPORTED_DEFAULT_ALTERNATING_DELTA 6
+enum class unsupported_default_mode : unsigned short
+{
+    idle = 0,
+    high = 0xe001
+};
 
 /// Returns 0 when x is less than the threshold (defaults to 42.0f).
 inline int check_threshold_single_default(float x, float threshold = E2E_UNSUPPORTED_DEFAULT_SINGLE)
@@ -159,4 +164,21 @@ struct unsupported_default_counter
 
 private:
     int value_{};
+};
+
+struct unsupported_default_enum_box
+{
+    explicit unsupported_default_enum_box(
+        unsupported_default_mode mode = (unsupported_default_mode::high))
+        : mode_(mode)
+    {
+    }
+
+    unsupported_default_mode get_mode() const
+    {
+        return mode_;
+    }
+
+private:
+    unsupported_default_mode mode_{};
 };

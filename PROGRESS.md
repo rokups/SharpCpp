@@ -10,6 +10,13 @@ The repository still contains model, metadata, generated E2E, and rbfx E2E suite
 
 Current worktree verification passes with generic complex C++ values crossing callback/native ABI as pointers by default, while explicitly configured value marshallers such as `StringHash`, math structs, and smart-pointer projections keep their configured ABI. Thin managed convenience wrappers remain acceptable when they delegate to generated APIs without handwritten native entrypoints; rbfx event subscription ownership is now covered by generated `Object::SubscribeToEvent<T>` wrappers discovered from C++ template instantiations.
 
+### Enum ABI normalization (current change)
+
+- Default enum marshalling now uses one generic ABI rule: 8- and 16-bit enums cross function boundaries as signed or unsigned 32-bit integers, while 32- and 64-bit enums retain their matching integral width. Public managed APIs and native field storage still expose the declared enum type; generated imports and native thunks perform explicit value conversions.
+- The rule applies consistently to functions, methods, constructors and native-default dispatch, callbacks, fields, fixed/dynamic arrays, generics, and shared container providers. Director construction now also passes constructor arguments through `MarshallerInvoker`.
+- Regression coverage includes signed and unsigned byte/short parser facts plus native round trips of a high-bit `unsigned short` enum through direct calls, returns, scalar fields, fixed arrays, and a defaulted constructor.
+- Verification: model 253/253, metadata 17/17, generated E2E 237/237, and the RedBolt Web Release project builds through native compilation, managed compilation, AOT, and Wasm linking. The emitted `GetTextureFormatInfoExt` thunk masks its enum argument with `65535` before the Diligent virtual call.
+
 ### AST-native custom containers (current change)
 
 - Verified AST native template arguments survive managed generic projection and drive native generic substitution.

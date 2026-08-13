@@ -5286,10 +5286,12 @@ public sealed partial class ClangSharpHeaderParser
         var normalized = NormalizeTypeName(spelling);
         return normalized switch
         {
+            "unsigned char" => BindingPrimitiveKind.UInt8,
             "unsigned int" => BindingPrimitiveKind.UInt32,
             "unsigned short" => BindingPrimitiveKind.UInt16,
             "unsigned long long" => BindingPrimitiveKind.UInt64,
             "unsigned long" => BindingPrimitiveKind.UInt64,
+            "signed char" => BindingPrimitiveKind.Int8,
             "int" => BindingPrimitiveKind.Int32,
             "short" => BindingPrimitiveKind.Int16,
             "long long" => BindingPrimitiveKind.Int64,

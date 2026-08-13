@@ -61,7 +61,7 @@ public static partial class BindingOutputRenderer
                 }
                 else
                 {
-                    writer.WriteLine($"        return ({returnTypeName})(object)__result!;");
+                    writer.WriteLine($"        return ({returnTypeName})(object)({BuildManagedImportToPublicExpression(compilation, concreteReturnType, "__result")});");
                 }
             }
             else if (concreteReturnType.Kind == BindingTypeKind.Handle)
@@ -80,7 +80,7 @@ public static partial class BindingOutputRenderer
                 {
                     writer.WriteLine($"        {keepAlive}");
                 }
-                writer.WriteLine("        return __result;");
+                writer.WriteLine($"        return {BuildManagedImportToPublicExpression(compilation, concreteReturnType, "__result")};");
             }
 
             writer.WriteLine("    }");
@@ -759,8 +759,8 @@ public static partial class BindingOutputRenderer
             global::SharpCpp.NativeArray<{{managedElementType}}>.__RegisterDynamic(
                 static length => {{importAccessor}}.__DynamicNativeArray_Create_{{token}}(length),
                 static self => {{importAccessor}}.__DynamicNativeArray_Delete_{{token}}(self),
-                static (self, index) => {{importAccessor}}.__DynamicNativeArray_Get_{{token}}(self, index),
-                static (self, index, value) => {{importAccessor}}.__DynamicNativeArray_Set_{{token}}(self, index, value));
+                static (self, index) => {{BuildManagedImportToPublicExpression(compilation, elementType, $"{importAccessor}.__DynamicNativeArray_Get_{token}(self, index)")}},
+                static (self, index, value) => {{importAccessor}}.__DynamicNativeArray_Set_{{token}}(self, index, {{BuildManagedPublicToImportExpression(compilation, elementType, "value")}}));
             """;
     }
 
@@ -925,8 +925,8 @@ public static partial class BindingOutputRenderer
                 {{length}},
                 static () => {{importAccessor}}.__Array_Create_{{importToken}}(),
                 static self => {{importAccessor}}.__Array_Delete_{{importToken}}(self),
-                static (self, index) => {{importAccessor}}.__Array_Get_{{importToken}}(self, index),
-                static (self, index, value) => {{importAccessor}}.__Array_Set_{{importToken}}(self, index, value));
+                static (self, index) => {{BuildManagedImportToPublicExpression(compilation, elementType, $"{importAccessor}.__Array_Get_{importToken}(self, index)")}},
+                static (self, index, value) => {{importAccessor}}.__Array_Set_{{importToken}}(self, index, {{BuildManagedPublicToImportExpression(compilation, elementType, "value")}}));
             """;
     }
 
@@ -991,9 +991,12 @@ public static partial class BindingOutputRenderer
         {
             var token = GetDynamicArrayImportMethodToken(record, instantiation);
             var elementType = instantiation.TypeArguments[0];
-            var managedElementType = FormatGlobalTypeName(elementType, compilation);
-            var getReturnType = elementType.Kind == BindingTypeKind.Handle ? "nint" : managedElementType;
-            var setParameterType = elementType.Kind == BindingTypeKind.Handle ? "nint" : managedElementType;
+            var getReturnType = elementType.Kind == BindingTypeKind.Handle
+                ? "nint"
+                : GetManagedImportTypeName(elementType, compilation);
+            var setParameterType = elementType.Kind == BindingTypeKind.Handle
+                ? "nint"
+                : GetManagedImportTypeName(elementType, compilation);
             yield return $$"""
                 [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetDynamicArrayCreateEntryPointName(compilation, record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1482,6 +1485,10 @@ public static partial class BindingOutputRenderer
             {
                 resultExpression = BuildManagedHandleWrap(compilation, element, resultExpression, ownsHandle: true);
             }
+            else
+            {
+                resultExpression = BuildManagedImportToPublicExpression(compilation, element, resultExpression);
+            }
 
             writer.Write($$"""
                 if (typeof(T) == typeof({{elementType}}) && Length == {{length}})
@@ -1504,7 +1511,7 @@ public static partial class BindingOutputRenderer
             var elementType = FormatGlobalTypeName(element, compilation);
             var valueExpression = element.Kind == BindingTypeKind.Handle
                 ? "global::SharpCpp.Support.NativeObject.GetHandle(value)"
-                : $"({elementType})(object)value!";
+                : BuildManagedPublicToImportExpression(compilation, element, $"({elementType})(object)value!");
             var keepAlive = element.Kind == BindingTypeKind.Handle ? "\n            global::System.GC.KeepAlive(value);" : string.Empty;
             writer.Write($$"""
                 if (typeof(T) == typeof({{elementType}}) && Length == {{length}})
@@ -1894,7 +1901,13 @@ public static partial class BindingOutputRenderer
         }
         else if (kind is "vector" or "list" or "sequence")
         {
-            var element = GetSharedManagedTypeName(compilation, instantiation!.TypeArguments[0]);
+            var elementBinding = instantiation!.TypeArguments[0];
+            var element = GetSharedManagedTypeName(compilation, elementBinding);
+            var getAt = BuildManagedImportToPublicExpression(
+                compilation,
+                elementBinding,
+                GetSharedProviderMethodCall(compilation, record, instantiation, "GetAtCore", "handle, index"));
+            var value = BuildManagedPublicToImportExpression(compilation, elementBinding, "value");
             writer.Write($$"""
 
                 public nint Create() => {{accessor}}.{{GetSharedProviderCreateImportMethodName(record, instantiation)}}();
@@ -1902,17 +1915,33 @@ public static partial class BindingOutputRenderer
                 public void Delete(nint handle) => {{GetSharedProviderDeleteCall(compilation, record, instantiation, "handle")}};
                 public ulong GetCount(nint handle) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetCountCore", "handle")}};
                 public void Clear(nint handle) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "ClearCore", "handle")}};
-                public {{element}} GetAt(nint handle, ulong index) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetAtCore", "handle, index")}};
-                public void SetAt(nint handle, ulong index, {{element}} value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "SetAtCore", "handle, index, value")}};
-                public void Add(nint handle, {{element}} value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "AddCore", "handle, value")}};
-                public void InsertAt(nint handle, ulong index, {{element}} value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "InsertAtCore", "handle, index, value")}};
+                public {{element}} GetAt(nint handle, ulong index) => {{getAt}};
+                public void SetAt(nint handle, ulong index, {{element}} value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "SetAtCore", $"handle, index, {value}")}};
+                public void Add(nint handle, {{element}} value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "AddCore", $"handle, {value}")}};
+                public void InsertAt(nint handle, ulong index, {{element}} value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "InsertAtCore", $"handle, index, {value}")}};
                 public void RemoveAt(nint handle, ulong index) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "RemoveAtCore", "handle, index")}};
             """);
         }
         else if (kind is "map" or "unordered_map")
         {
-            var key = GetSharedManagedTypeName(compilation, instantiation!.TypeArguments[0]);
-            var value = GetSharedManagedTypeName(compilation, instantiation.TypeArguments[1]);
+            var keyBinding = instantiation!.TypeArguments[0];
+            var valueBinding = instantiation.TypeArguments[1];
+            var key = GetSharedManagedTypeName(compilation, keyBinding);
+            var value = GetSharedManagedTypeName(compilation, valueBinding);
+            var keyArgument = BuildManagedPublicToImportExpression(compilation, keyBinding, "key");
+            var valueArgument = BuildManagedPublicToImportExpression(compilation, valueBinding, "value");
+            var getValue = BuildManagedImportToPublicExpression(
+                compilation,
+                valueBinding,
+                GetSharedProviderMethodCall(compilation, record, instantiation, "GetValueCore", $"handle, {keyArgument}"));
+            var getKeyAt = BuildManagedImportToPublicExpression(
+                compilation,
+                keyBinding,
+                GetSharedProviderMethodCall(compilation, record, instantiation, "GetKeyAtCore", "handle, index"));
+            var getValueAt = BuildManagedImportToPublicExpression(
+                compilation,
+                valueBinding,
+                GetSharedProviderMethodCall(compilation, record, instantiation, "GetValueAtCore", "handle, index"));
             writer.Write($$"""
 
                 public nint Create() => {{accessor}}.{{GetSharedProviderCreateImportMethodName(record, instantiation)}}();
@@ -1920,13 +1949,13 @@ public static partial class BindingOutputRenderer
                 public void Delete(nint handle) => {{GetSharedProviderDeleteCall(compilation, record, instantiation, "handle")}};
                 public ulong GetCount(nint handle) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetCountCore", "handle")}};
                 public void Clear(nint handle) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "ClearCore", "handle")}};
-                public bool ContainsKey(nint handle, {{key}} key) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "ContainsKeyCore", "handle, key")}};
-                public {{value}} GetValue(nint handle, {{key}} key) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetValueCore", "handle, key")}};
-                public void SetValue(nint handle, {{key}} key, {{value}} value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "SetValueCore", "handle, key, value")}};
-                public bool Add(nint handle, {{key}} key, {{value}} value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "AddCore", "handle, key, value")}};
-                public bool Remove(nint handle, {{key}} key) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "RemoveCore", "handle, key")}};
-                public {{key}} GetKeyAt(nint handle, ulong index) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetKeyAtCore", "handle, index")}};
-                public {{value}} GetValueAt(nint handle, ulong index) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "GetValueAtCore", "handle, index")}};
+                public bool ContainsKey(nint handle, {{key}} key) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "ContainsKeyCore", $"handle, {keyArgument}")}};
+                public {{value}} GetValue(nint handle, {{key}} key) => {{getValue}};
+                public void SetValue(nint handle, {{key}} key, {{value}} value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "SetValueCore", $"handle, {keyArgument}, {valueArgument}")}};
+                public bool Add(nint handle, {{key}} key, {{value}} value) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "AddCore", $"handle, {keyArgument}, {valueArgument}")}};
+                public bool Remove(nint handle, {{key}} key) => {{GetSharedProviderMethodCall(compilation, record, instantiation, "RemoveCore", $"handle, {keyArgument}")}};
+                public {{key}} GetKeyAt(nint handle, ulong index) => {{getKeyAt}};
+                public {{value}} GetValueAt(nint handle, ulong index) => {{getValueAt}};
             """);
         }
         else if (kind == "array")
@@ -1938,13 +1967,13 @@ public static partial class BindingOutputRenderer
             var getExpression = $"{accessor}.__Array_Get_{token}(new global::SharpCpp.Support.NativeArrayAbi(handle, (nuint)Length), index)";
             var setValue = elementBinding.Kind == BindingTypeKind.Handle
                 ? "global::SharpCpp.Support.NativeObject.GetHandle(value)"
-                : "value";
+                : BuildManagedPublicToImportExpression(compilation, elementBinding, "value");
             var setKeepAlive = elementBinding.Kind == BindingTypeKind.Handle
                 ? "\n            global::System.GC.KeepAlive(value);"
                 : string.Empty;
             var wrappedGet = elementBinding.Kind == BindingTypeKind.Handle
                 ? BuildManagedHandleWrap(compilation, elementBinding, getExpression, elementBinding.Marshaller.CppIsRecordValue)
-                : getExpression;
+                : BuildManagedImportToPublicExpression(compilation, elementBinding, getExpression);
             writer.Write($$"""
 
                 public int Length => {{length}};
@@ -1966,13 +1995,13 @@ public static partial class BindingOutputRenderer
             var getExpression = $"{accessor}.__Array_Get_{token}(handle, index)";
             var setValue = elementBinding.Kind == BindingTypeKind.Handle
                 ? "global::SharpCpp.Support.NativeObject.GetHandle(value)"
-                : "value";
+                : BuildManagedPublicToImportExpression(compilation, elementBinding, "value");
             var setKeepAlive = elementBinding.Kind == BindingTypeKind.Handle
                 ? "\n            global::System.GC.KeepAlive(value);"
                 : string.Empty;
             var wrappedGet = elementBinding.Kind == BindingTypeKind.Handle
                 ? BuildManagedHandleWrap(compilation, elementBinding, getExpression, elementBinding.Marshaller.CppIsRecordValue)
-                : getExpression;
+                : BuildManagedImportToPublicExpression(compilation, elementBinding, getExpression);
             writer.Write($$"""
 
                 public nint Create(int length) => {{accessor}}.__Array_Create_{{token}}((nuint)length);
@@ -2407,7 +2436,7 @@ public static partial class BindingOutputRenderer
             }
             else
             {
-                writer.WriteLine($"{indent}return ({returnTypeName})(object)__result!;");
+                writer.WriteLine($"{indent}return ({returnTypeName})(object)({BuildManagedImportToPublicExpression(compilation, concreteReturnType, "__result")});");
             }
         }
         else if (concreteReturnType.Kind == BindingTypeKind.Handle)
@@ -2426,7 +2455,7 @@ public static partial class BindingOutputRenderer
             {
                 writer.WriteLine($"{indent}{keepAlive}");
             }
-            writer.WriteLine($"{indent}return __result;");
+            writer.WriteLine($"{indent}return {BuildManagedImportToPublicExpression(compilation, concreteReturnType, "__result")};");
         }
     }
 
@@ -2490,7 +2519,7 @@ public static partial class BindingOutputRenderer
             }
             else
             {
-                writer.WriteLine("    return __result;");
+                writer.WriteLine($"    return {BuildManagedImportToPublicExpression(compilation, concreteReturnType, "__result")};");
             }
 
             writer.WriteLine("}");
@@ -2717,7 +2746,7 @@ public static partial class BindingOutputRenderer
                 {
                     writer.WriteLine($"    {keepAlive}");
                 }
-                writer.WriteLine("    return __result;");
+                writer.WriteLine($"    return {BuildManagedImportToPublicExpression(compilation, concreteReturnType, "__result")};");
             }
 
             writer.WriteLine("}");
@@ -3171,7 +3200,8 @@ public static partial class BindingOutputRenderer
                 : $"global::SharpCpp.Support.NativeObject.GetHandle({parameter.ManagedName})";
         }
 
-        return $"({GetManagedWrapperTypeName(concreteType, compilation)})(object){parameter.ManagedName}!";
+        var valueExpression = $"({GetManagedWrapperTypeName(concreteType, compilation)})(object){parameter.ManagedName}!";
+        return BuildManagedPublicToImportExpression(compilation, concreteType, valueExpression);
     }
 
     private static IReadOnlyList<string> BuildGenericKeepAliveStatements(IList<ParameterBinding> parameters, IReadOnlyList<BindingType> concreteTypes)
