@@ -74,6 +74,6 @@ execute_process(
     "${CMAKE_COMMAND}" --build "${SHARPCPP_NATIVE_BUILD_DIR}"
     --config "${SHARPCPP_CONFIGURATION}"
     --target "${SHARPCPP_NATIVE_TARGET}"
-    --parallel 16
+    --parallel 4
   WORKING_DIRECTORY "${SHARPCPP_SOURCE_DIR}"
   COMMAND_ERROR_IS_FATAL ANY)
