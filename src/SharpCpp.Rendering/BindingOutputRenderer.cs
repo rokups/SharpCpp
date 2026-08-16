@@ -3561,7 +3561,9 @@ public static partial class BindingOutputRenderer
             writer.WriteLine("{");
             foreach (var parameter in pointerArrayParameters)
             {
-                var pointerTypeName = GetManagedImportTypeName(parameter.Type, compilation);
+                var pointerTypeName = parameter.Type.Kind == BindingTypeKind.Enum
+                    ? GetManagedPublicReturnTypeName(parameter.Type, compilation)
+                    : GetManagedImportTypeName(parameter.Type, compilation);
                 var spanName = IsInputHandlePointerArrayParameter(parameter)
                     ? GetPointerArrayAbiSpanName(parameter)
                     : parameter.ManagedName;
@@ -5592,7 +5594,7 @@ public static partial class BindingOutputRenderer
         var pointerExpression = GetNativeFixedArrayFieldAccessExpression(field, selfExpression);
         var countExpression = GetNativeFixedArrayFieldAccessExpression(countField, selfExpression);
         var itemCppTypeName = GetNativePointerCountFieldItemCppTypeName(field);
-        var valueExpression = field.CppTypeName.IndexOf('*') == field.CppTypeName.LastIndexOf('*')
+        var valueExpression = field.PointerDepth == 1
             ? $"&({pointerExpression}[index])"
             : $"{pointerExpression}[index]";
         return $$"""
@@ -5606,10 +5608,17 @@ public static partial class BindingOutputRenderer
             """;
     }
 
-    private static string GetNativePointerCountFieldItemCppTypeName(FieldBinding field) =>
-        field.CppTypeName.IndexOf('*') == field.CppTypeName.LastIndexOf('*')
-            ? field.CppTypeName
+    private static string GetNativePointerCountFieldItemCppTypeName(FieldBinding field)
+    {
+        if (field.PointerDepth == 1)
+        {
+            return field.CppTypeName;
+        }
+
+        return field.PointerElementPointeeIsConst
+            ? $"const {field.Type.CppTypeName}"
             : field.Type.CppTypeName;
+    }
 
     private static string GetManagedWrapperTypeName(BindingType type, BindingCompilation? compilation = null)
     {
@@ -6559,7 +6568,10 @@ public static partial class BindingOutputRenderer
         {
             if (IsInputPointerArrayParameter(parameter))
             {
-                arguments.Add(GetPointerArrayPointerName(parameter));
+                var pointerName = GetPointerArrayPointerName(parameter);
+                arguments.Add(parameter.Type.Kind == BindingTypeKind.Enum
+                    ? $"({GetManagedImportTypeName(parameter.Type, compilation)}*){pointerName}"
+                    : pointerName);
                 continue;
             }
 
@@ -7981,7 +7993,7 @@ public static partial class BindingOutputRenderer
         return parameter.HasMetadata(MetadataKeys.InputPointerArray) &&
             parameter.Direction == BindingParameterDirection.In &&
             parameter.AbiKind == BindingParameterAbiKind.Pointer &&
-            (parameter.Type.Kind == BindingTypeKind.Primitive ||
+            (parameter.Type.Kind is BindingTypeKind.Primitive or BindingTypeKind.Enum ||
                 parameter.Type.Kind == BindingTypeKind.Handle &&
                 string.IsNullOrEmpty(parameter.Type.RecordId) &&
                 string.Equals(parameter.Type.ManagedTypeName, "global::System.IntPtr", StringComparison.Ordinal));

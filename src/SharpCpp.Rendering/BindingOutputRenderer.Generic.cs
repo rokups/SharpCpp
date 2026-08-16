@@ -806,6 +806,27 @@ public static partial class BindingOutputRenderer
         IEnumerable<RecordBinding> records)
     {
         var result = new Dictionary<string, BindingType>(StringComparer.Ordinal);
+        void AddRecordElementType(BindingType type)
+        {
+            if (type.RecordId is null)
+                return;
+
+            var elementRecord = compilation.FindRecordBySymbolId(type.RecordId);
+            if (elementRecord is null || elementRecord.IsIgnored() ||
+                elementRecord.HasMetadata(MetadataKeys.ForwardDeclaration) || elementRecord.IsGeneric ||
+                elementRecord.IsAbstract || elementRecord.IsPolymorphic)
+            {
+                return;
+            }
+
+            result.TryAdd(elementRecord.SymbolId, BindingType.CreateHandle(
+                elementRecord.CppQualifiedName,
+                type.ManagedTypeName,
+                elementRecord.SymbolId,
+                elementRecord.HandleMarshallerTypeName,
+                cppIsRecordValue: true));
+        }
+
         foreach (var owner in records.Where(static record => !record.IsIgnored()))
         {
             foreach (var field in owner.Members.OfType<FieldBinding>().Where(static field => !field.IsIgnored()))
@@ -813,6 +834,34 @@ public static partial class BindingOutputRenderer
                 if (!TryGetPointerCountNativeArrayShape(compilation, field, out var shape))
                     continue;
                 result.TryAdd(shape.ElementType.RecordId!, shape.ElementType);
+            }
+        }
+
+        foreach (var function in compilation.Functions.Where(static function => !function.IsIgnored()))
+        {
+            for (var index = 0; index < function.Parameters.Count - 2; ++index)
+            {
+                var capacity = function.Parameters[index];
+                var count = function.Parameters[index + 1];
+                var values = function.Parameters[index + 2];
+                if (capacity.Direction != BindingParameterDirection.In ||
+                    capacity.AbiKind != BindingParameterAbiKind.Value ||
+                    capacity.Type.Kind != BindingTypeKind.Primitive ||
+                    !capacity.NativeName.Contains("Capacity", StringComparison.OrdinalIgnoreCase) ||
+                    !capacity.NativeName.EndsWith("Input", StringComparison.OrdinalIgnoreCase) ||
+                    count.Direction != BindingParameterDirection.Out ||
+                    count.AbiKind != BindingParameterAbiKind.Pointer ||
+                    count.Type.Kind != BindingTypeKind.Primitive ||
+                    !count.NativeName.Contains("Count", StringComparison.OrdinalIgnoreCase) ||
+                    !count.NativeName.EndsWith("Output", StringComparison.OrdinalIgnoreCase) ||
+                    (values.AbiKind != BindingParameterAbiKind.Pointer &&
+                        !values.CppTypeName.TrimEnd().EndsWith('*')) ||
+                    values.Type.Kind != BindingTypeKind.Handle)
+                {
+                    continue;
+                }
+
+                AddRecordElementType(values.Type);
             }
         }
         return result.Values.OrderBy(static type => type.CppTypeName, StringComparer.Ordinal).ToArray();
@@ -831,6 +880,7 @@ public static partial class BindingOutputRenderer
             owner.HasOwnManagedNonFieldMemberNamed($"Get{field.ManagedName}At") ||
             field.Type.Kind != BindingTypeKind.Handle ||
             field.Type.RecordId is null ||
+            field.PointerDepth == 0 ||
             field.Type.CppTypeName.IndexOf('*') != field.Type.CppTypeName.LastIndexOf('*') ||
             !field.Type.CppTypeName.TrimEnd().EndsWith('*'))
         {
@@ -872,6 +922,8 @@ public static partial class BindingOutputRenderer
     {
         var fieldsByName = fields.ToDictionary(static field => field.NativeName, StringComparer.Ordinal);
         if (fieldsByName.TryGetValue($"Num{pointerFieldName}", out var countField))
+            return countField;
+        if (fieldsByName.TryGetValue($"count{char.ToUpperInvariant(pointerFieldName[0])}{pointerFieldName[1..]}", out countField))
             return countField;
         for (var i = pointerFieldName.Length - 1; i > 0; --i)
         {

@@ -1617,7 +1617,9 @@ public sealed partial class ClangSharpHeaderParser
             isPointer: TypeIsPointer(fieldDecl.Type.Handle.CanonicalType))
         {
             AccessModifier = MapAccessModifier(fieldDecl.Access),
-            IsStatic = isStatic
+            IsStatic = isStatic,
+            PointerDepth = GetPointerDepth(fieldDecl.Type.Handle),
+            PointerElementPointeeIsConst = IsPointerElementPointeeConst(fieldDecl.Type.Handle)
         };
         field.ReturnsOwnedHandle = ShouldReturnOwnedHandle(fieldDecl.Type, field.Type, managedTypeOverrides, preferReturnOverride: false);
         if (isFunctionPointer)
@@ -1929,7 +1931,9 @@ public sealed partial class ClangSharpHeaderParser
             isReference: TypeIsAnyReference(leafFieldDecl.Type.Handle),
             isPointer: TypeIsPointer(leafFieldDecl.Type.Handle))
         {
-            AccessModifier = accessModifier
+            AccessModifier = accessModifier,
+            PointerDepth = GetPointerDepth(leafFieldDecl.Type.Handle),
+            PointerElementPointeeIsConst = IsPointerElementPointeeConst(leafFieldDecl.Type.Handle)
         };
         field.ReturnsOwnedHandle = ShouldReturnOwnedHandle(leafFieldDecl.Type, field.Type, managedTypeOverrides, preferReturnOverride: false);
         field.SetMetadata(MetadataKeys.NativeFieldAccessExpression, accessPath);
@@ -2391,6 +2395,18 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         return depth;
+    }
+
+    private static bool IsPointerElementPointeeConst(CXType type)
+    {
+        var pointerType = type.CanonicalType;
+        if (!TypeIsPointer(pointerType))
+        {
+            return false;
+        }
+
+        var elementType = pointerType.PointeeType.CanonicalType;
+        return TypeIsPointer(elementType) && elementType.PointeeType.IsConstQualified;
     }
 
     private static bool TypeIsFunctionProto(CXType type) => type.TypeClass is CX_TypeClass.CX_TypeClass_FunctionProto or CX_TypeClass.CX_TypeClass_FunctionNoProto;
@@ -3719,6 +3735,19 @@ public sealed partial class ClangSharpHeaderParser
                 return TryApplyManagedAliasSurface(
                     type,
                     BindingType.CreateConfigured(spelledTypeName, publicTypeName, primitiveKind: BindingPrimitiveKind.IntPtr),
+                    preserveAliasSurface,
+                    enumsByName);
+            }
+
+            if (TypeIsPointer(pointeeType) &&
+                pointeeType.PointeeType.CanonicalType.kind is CXTypeKind.CXType_Char_S or CXTypeKind.CXType_Char_U)
+            {
+                return TryApplyManagedAliasSurface(
+                    type,
+                    BindingType.CreateConfigured(
+                        spelledTypeName,
+                        BindingType.IntPtr.ManagedTypeName,
+                        primitiveKind: BindingPrimitiveKind.IntPtr),
                     preserveAliasSurface,
                     enumsByName);
             }
@@ -5523,6 +5552,24 @@ public sealed partial class ClangSharpHeaderParser
 
     private static void ApplyInferredInputPointerArrayMetadata(FunctionBinding function)
     {
+        for (var index = 0; index < function.Parameters.Count - 2; ++index)
+        {
+            var capacity = function.Parameters[index];
+            var count = function.Parameters[index + 1];
+            var values = function.Parameters[index + 2];
+            if (!IsArrayCapacityInputParameter(capacity) || !IsArrayCountOutputParameter(count))
+                continue;
+
+            if (values.Direction == BindingParameterDirection.Out &&
+                values.AbiKind == BindingParameterAbiKind.Pointer &&
+                IsRawPointerArrayElementType(values.Type))
+            {
+                values.Direction = BindingParameterDirection.In;
+                values.SetMetadata(MetadataKeys.InputPointerArray, true);
+                values.SetMetadata(MetadataKeys.WritablePointerArray, true);
+            }
+        }
+
         for (var index = 0; index < function.Parameters.Count - 1; ++index)
         {
             var first = function.Parameters[index];
@@ -5568,11 +5615,11 @@ public sealed partial class ClangSharpHeaderParser
             return;
 
         if (parameter.Direction == BindingParameterDirection.In &&
-            parameter.Type.Kind == BindingTypeKind.Primitive)
+            IsRawPointerArrayElementType(parameter.Type))
         {
             parameter.SetMetadata(MetadataKeys.InputPointerArray, true);
         }
-        else if (parameter.Type.Kind == BindingTypeKind.Primitive &&
+        else if (IsRawPointerArrayElementType(parameter.Type) &&
             !parameter.CppTypeName.Contains("const", StringComparison.Ordinal))
         {
             parameter.Direction = BindingParameterDirection.In;
@@ -5592,6 +5639,9 @@ public sealed partial class ClangSharpHeaderParser
             string.IsNullOrEmpty(type.RecordId) &&
             string.Equals(type.ManagedTypeName, "global::System.IntPtr", StringComparison.Ordinal);
     }
+
+    private static bool IsRawPointerArrayElementType(BindingType type) =>
+        type.Kind is BindingTypeKind.Primitive or BindingTypeKind.Enum;
 
     private static bool IsConstPointerToPointer(ParameterBinding parameter)
     {
@@ -5618,6 +5668,24 @@ public sealed partial class ClangSharpHeaderParser
             parameter.NativeName.Contains("Count", StringComparison.OrdinalIgnoreCase) ||
             parameter.NativeName.EndsWith("Length", StringComparison.OrdinalIgnoreCase) ||
             parameter.NativeName.EndsWith("Size", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsArrayCapacityInputParameter(ParameterBinding parameter)
+    {
+        return parameter.Direction == BindingParameterDirection.In &&
+            parameter.AbiKind == BindingParameterAbiKind.Value &&
+            parameter.Type.Kind == BindingTypeKind.Primitive &&
+            parameter.NativeName.Contains("Capacity", StringComparison.OrdinalIgnoreCase) &&
+            parameter.NativeName.EndsWith("Input", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsArrayCountOutputParameter(ParameterBinding parameter)
+    {
+        return parameter.Direction == BindingParameterDirection.Out &&
+            parameter.AbiKind == BindingParameterAbiKind.Pointer &&
+            parameter.Type.Kind == BindingTypeKind.Primitive &&
+            parameter.NativeName.Contains("Count", StringComparison.OrdinalIgnoreCase) &&
+            parameter.NativeName.EndsWith("Output", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsInputHandlePointerArrayParameter(ParameterBinding parameter)

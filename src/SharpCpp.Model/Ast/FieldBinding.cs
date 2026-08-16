@@ -42,6 +42,10 @@ public sealed class FieldBinding : BindingNamedNode
 
     public bool IsPointer { get; set; }
 
+    public int PointerDepth { get; set; }
+
+    public bool PointerElementPointeeIsConst { get; set; }
+
     public bool IsStatic { get; set; }
     public BindingAccessModifier AccessModifier { get; set; } = BindingAccessModifier.Public;
 

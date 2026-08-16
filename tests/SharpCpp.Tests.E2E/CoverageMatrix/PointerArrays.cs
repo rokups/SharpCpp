@@ -25,6 +25,26 @@ public sealed class PointerArrayTests
     }
 
     [Fact]
+    public void Capacity_count_output_pointer_arrays_round_trip_as_writable_spans()
+    {
+        E2EBindings.EnumeratePointerValues(0, out var count, []);
+        Assert.Equal(3u, count);
+
+        var values = new int[count];
+        E2EBindings.EnumeratePointerValues((uint)values.Length, out count, values);
+
+        Assert.Equal(3u, count);
+        Assert.Equal(new[] { 7, 11, 13 }, values);
+
+        E2EBindings.EnumeratePointerModes(0, out count, []);
+        Assert.Equal(2u, count);
+
+        var modes = new PointerArrayMode[count];
+        E2EBindings.EnumeratePointerModes((uint)modes.Length, out count, modes);
+        Assert.Equal(new[] { PointerArrayMode.First, PointerArrayMode.Second }, modes);
+    }
+
+    [Fact]
     public void Handle_and_raw_pointer_arrays_round_trip_through_native_pointer_buffers()
     {
         using var first = new PointerArrayPayload(11);

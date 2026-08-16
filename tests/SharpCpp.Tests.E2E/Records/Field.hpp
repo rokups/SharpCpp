@@ -64,6 +64,10 @@ struct pointer_count_field_box
     unsigned int ValueCount{};
     const field_payload* ConstValues{};
     unsigned int ConstValueCount{};
+    const field_payload* const* ImmutableItems{};
+    unsigned int ImmutableItemCount{};
+    field_payload* prefixedValues{};
+    unsigned int countPrefixedValues{};
 };
 
 inline pointer_count_field_box* create_pointer_count_field_box(field_payload* first, field_payload* second)
@@ -71,9 +75,10 @@ inline pointer_count_field_box* create_pointer_count_field_box(field_payload* fi
     static field_payload* items[2];
     static field_payload values[2]{{59}, {61}};
     static const field_payload const_values[2]{{67}, {71}};
+    static const field_payload* immutable_items[2]{first, second};
     items[0] = first;
     items[1] = second;
-    return new pointer_count_field_box{items, 2, values, 2, const_values, 2};
+    return new pointer_count_field_box{items, 2, values, 2, const_values, 2, immutable_items, 2, values, 2};
 }
 
 class intrusive_field_payload

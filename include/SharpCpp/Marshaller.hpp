@@ -1507,6 +1507,23 @@ struct [[sharpcpp::managed_type(public_type = "string")]] Marshaller<const char*
 };
 
 template <>
+struct [[sharpcpp::managed_type(public_type = "global::System.IntPtr")]] Marshaller<const char* const*>
+{
+    using cpp_type = const char* const*;
+    using abi_type = const char* const*;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) noexcept
+    {
+        return value;
+    }
+
+    constexpr cpp_type ConvertToCpp(abi_type value) noexcept
+    {
+        return value;
+    }
+};
+
+template <>
 struct [[sharpcpp::managed_type(public_type = "string")]] Marshaller<char**>
 {
     using cpp_type = char**;

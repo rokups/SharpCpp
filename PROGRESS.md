@@ -10,6 +10,13 @@ The repository still contains model, metadata, generated E2E, and rbfx E2E suite
 
 Current worktree verification passes with generic complex C++ values crossing callback/native ABI as pointers by default, while explicitly configured value marshallers such as `StringHash`, math structs, and smart-pointer projections keep their configured ABI. Thin managed convenience wrappers remain acceptable when they delegate to generated APIs without handwritten native entrypoints; rbfx event subscription ownership is now covered by generated `Object::SubscribeToEvent<T>` wrappers discovered from C++ template instantiations.
 
+### OpenXR binding support (current change)
+
+- Pointer depth and pointee constness are retained for record fields, allowing generated pointer/count accessors to distinguish contiguous `T*`, handle `T**`, and immutable `const T* const*` storage.
+- Khronos-style `capacityInput`/`countOutput` enumeration functions now expose writable spans for primitive and enum arrays, while const pointer-to-pointer string tables use an explicit `IntPtr` ABI instead of the single-string fallback.
+- Record element wrappers required only by enumeration buffers are discovered before rendering, and enum buffers perform explicit public-enum/import-integer casts.
+- Verification: all 238 generated E2E tests pass. The RedBolt OpenXR 1.0.29 surface generates and compiles on Linux x64, Windows x64, and Android arm64. The legacy rbfx wrapper suite remains blocked before compilation because its local SDK build is static while that suite requires shared SDK libraries.
+
 ### C-interface vtables (current change)
 
 - Function-pointer fields retain a structured return and parameter signature in the binding model, including pointer/reference ABI direction, so consumer generators can project C vtables without reparsing C++ type spellings.

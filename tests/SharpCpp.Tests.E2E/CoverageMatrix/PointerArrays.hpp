@@ -45,6 +45,36 @@ inline void increment_pointer_values(int* values, unsigned int count)
         ++values[i];
 }
 
+inline void enumerate_pointer_values(
+    unsigned int valueCapacityInput,
+    unsigned int* valueCountOutput,
+    int* values)
+{
+    constexpr int available[] = {7, 11, 13};
+    *valueCountOutput = 3;
+    const unsigned int count = valueCapacityInput < 3 ? valueCapacityInput : 3;
+    for (unsigned int i = 0; i < count; ++i)
+        values[i] = available[i];
+}
+
+enum class pointer_array_mode : unsigned int
+{
+    first = 3,
+    second = 5,
+};
+
+inline void enumerate_pointer_modes(
+    unsigned int modeCapacityInput,
+    unsigned int* modeCountOutput,
+    pointer_array_mode* modes)
+{
+    constexpr pointer_array_mode available[] = {pointer_array_mode::first, pointer_array_mode::second};
+    *modeCountOutput = 2;
+    const unsigned int count = modeCapacityInput < 2 ? modeCapacityInput : 2;
+    for (unsigned int i = 0; i < count; ++i)
+        modes[i] = available[i];
+}
+
 inline int sum_pointer_values_with_default(
     const int* values,
     unsigned int count,
