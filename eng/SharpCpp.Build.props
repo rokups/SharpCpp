@@ -2,9 +2,16 @@
   <PropertyGroup>
     <SharpCppBuildPropsImported>true</SharpCppBuildPropsImported>
     <SharpCppRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</SharpCppRoot>
+    <RedBoltBuildMode Condition="'$(RedBoltBuildMode)' == '' and '$(BuildingSolutionFile)' == 'true' and '$(SolutionDir)' != '' and Exists('$(SolutionDir)monorepo.cs')">Monorepo</RedBoltBuildMode>
+    <RedBoltMonorepoRoot Condition="'$(RedBoltMonorepoRoot)' == '' and '$(RedBoltBuildMode)' == 'Monorepo' and '$(SolutionDir)' != ''">$([System.IO.Path]::GetFullPath('$(SolutionDir)'))</RedBoltMonorepoRoot>
+    <RedBoltBuildMode Condition="'$(RedBoltBuildMode)' == '' and '$(BuildingSolutionFile)' == 'true' and '$(SolutionDir)' != '' and Exists('$(SolutionDir)Directory.Solution.props')">Module</RedBoltBuildMode>
     <SharpCppPackageRoot Condition="'$(SharpCppPackageRoot)' == ''">$(SharpCppRoot)</SharpCppPackageRoot>
+    <SharpCppBuildRoot Condition="'$(SharpCppBuildRoot)' == '' and '$(RedBoltBuildMode)' != '' and Exists('$(SharpCppRoot)/../../RedBolt.slnx')">$([System.IO.Path]::GetFullPath('$(SharpCppRoot)/../../build'))</SharpCppBuildRoot>
     <SharpCppBuildRoot Condition="'$(SharpCppBuildRoot)' == ''">$([System.IO.Path]::GetFullPath('$(SharpCppRoot)/build'))</SharpCppBuildRoot>
     <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <SharpCppManagedOutputRoot Condition="'$(SharpCppManagedOutputRoot)' == '' and '$(RedBoltBuildMode)' != '' and Exists('$(SharpCppRoot)/../../RedBolt.slnx')">$(SharpCppBuildRoot)/bin/$(Configuration)/host/extern</SharpCppManagedOutputRoot>
+    <SharpCppOutputDir Condition="'$(SharpCppOutputDir)' == '' and '$(RedBoltBuildMode)' != '' and Exists('$(SharpCppRoot)/../../RedBolt.slnx')">$(SharpCppManagedOutputRoot)</SharpCppOutputDir>
+    <SharpCppIntermediateRoot Condition="'$(SharpCppIntermediateRoot)' == '' and '$(RedBoltBuildMode)' != '' and Exists('$(SharpCppRoot)/../../RedBolt.slnx')">$(SharpCppBuildRoot)/obj/managed/tools</SharpCppIntermediateRoot>
 
     <SharpCppNativePreset Condition="'$(SharpCppNativePreset)' == ''">dev</SharpCppNativePreset>
     <SharpCppCMakeCommand Condition="'$(SharpCppCMakeCommand)' == ''">cmake</SharpCppCMakeCommand>
