@@ -96,4 +96,20 @@
           DestinationFolder="$(OutputPath)"
           SkipUnchangedFiles="true" />
   </Target>
+
+  <Target Name="SharpCppStageManagedGeneratorDependency"
+          AfterTargets="Build"
+      Condition="'$(BuildingSolutionFile)' == 'true' and '$(OutputType)' == 'Library' and '$(CopyBuildOutputToOutputDirectory)' != 'false' and '$(SolutionDir)' != ''">
+    <PropertyGroup>
+      <SharpCppHostToolsOutputDir>$([System.IO.Path]::GetFullPath('$(SolutionDir)/build/bin/$(Configuration)/host/tools'))</SharpCppHostToolsOutputDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(SharpCppHostToolsOutputDir)" />
+    <Copy SourceFiles="$(TargetPath)"
+          DestinationFolder="$(SharpCppHostToolsOutputDir)"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(TargetDir)$(TargetName).pdb"
+          DestinationFolder="$(SharpCppHostToolsOutputDir)"
+          Condition="Exists('$(TargetDir)$(TargetName).pdb')"
+          SkipUnchangedFiles="true" />
+  </Target>
 </Project>
