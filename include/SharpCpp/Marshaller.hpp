@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <concepts>
+#include <cstdlib>
 #include <cstdint>
 #include <exception>
 #include <functional>
@@ -10,6 +11,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <new>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -430,7 +432,7 @@ template <class TFunction, class TSignature>
 struct ManagedCallbackMarshallerBase
 {
     using cpp_type = TFunction;
-    using abi_type = ManagedCallbackHandleAbi;
+    using abi_type = ManagedCallbackHandleAbi*;
 
     template <class T = cpp_type>
     abi_type ConvertToAbi(const T&) noexcept
@@ -442,7 +444,12 @@ struct ManagedCallbackMarshallerBase
 
     cpp_type ConvertToCpp(abi_type value) noexcept
     {
-        return detail::CreateManagedCallbackWrapper<cpp_type, TSignature>(value);
+        if (value == nullptr)
+            return {};
+
+        const auto handle = *value;
+        std::free(value);
+        return detail::CreateManagedCallbackWrapper<cpp_type, TSignature>(handle);
     }
 };
 
@@ -450,7 +457,7 @@ template <class TFunction, class TSignature>
 struct ManagedCallbackConstReferenceMarshallerBase
 {
     using cpp_type = const TFunction&;
-    using abi_type = ManagedCallbackHandleAbi;
+    using abi_type = ManagedCallbackHandleAbi*;
 
     template <class T = cpp_type>
     abi_type ConvertToAbi(T) noexcept
@@ -462,7 +469,15 @@ struct ManagedCallbackConstReferenceMarshallerBase
 
     cpp_type ConvertToCpp(abi_type value) noexcept
     {
-        storage_ = detail::CreateManagedCallbackWrapper<TFunction, TSignature>(value);
+        if (value == nullptr)
+        {
+            storage_ = {};
+            return storage_;
+        }
+
+        const auto handle = *value;
+        std::free(value);
+        storage_ = detail::CreateManagedCallbackWrapper<TFunction, TSignature>(handle);
         return storage_;
     }
 
@@ -923,6 +938,58 @@ struct NativeFixedArrayMarshallerBase
 
 template <class T>
 struct Marshaller : detail::DefaultMarshallerBase<T> {};
+
+template <class T>
+struct IndirectValueMarshallerBase
+{
+    static_assert(std::is_trivially_copyable_v<T> && std::is_trivially_destructible_v<T>);
+
+    using cpp_type = T;
+    using abi_type = T*;
+
+    abi_type ConvertToAbi(const cpp_type& value) noexcept
+    {
+        auto* storage = static_cast<T*>(std::malloc(sizeof(T)));
+        if (storage == nullptr)
+            std::terminate();
+
+        return new (storage) T(value);
+    }
+
+    cpp_type ConvertToCpp(abi_type value) noexcept
+    {
+        if (value == nullptr)
+            std::terminate();
+
+        return *value;
+    }
+};
+
+template <class T>
+struct IndirectConstReferenceValueMarshallerBase
+{
+    static_assert(std::is_trivially_copyable_v<T> && std::is_trivially_destructible_v<T>);
+
+    using cpp_type = const T&;
+    using abi_type = T*;
+
+    abi_type ConvertToAbi(cpp_type value) noexcept
+    {
+        auto* storage = static_cast<T*>(std::malloc(sizeof(T)));
+        if (storage == nullptr)
+            std::terminate();
+
+        return new (storage) T(value);
+    }
+
+    cpp_type ConvertToCpp(abi_type value) noexcept
+    {
+        if (value == nullptr)
+            std::terminate();
+
+        return *value;
+    }
+};
 
 template <class TResult, class... TArgs>
 struct Marshaller<TResult(TArgs...)>

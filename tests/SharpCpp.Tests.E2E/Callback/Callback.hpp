@@ -34,6 +34,23 @@ inline int invoke_copied_callback(std::function<int(int)> callback, int value)
     return copied(value);
 }
 
+inline std::function<int(int)> retained_callback;
+
+inline void retain_callback(std::function<int(int)> callback)
+{
+    retained_callback = std::move(callback);
+}
+
+inline int invoke_retained_callback(int value)
+{
+    return retained_callback(value);
+}
+
+inline void clear_retained_callback()
+{
+    retained_callback = {};
+}
+
 inline int invoke_object_pointer_callback(std::function<void(callback_box*)> callback, int value)
 {
     static callback_box box{};

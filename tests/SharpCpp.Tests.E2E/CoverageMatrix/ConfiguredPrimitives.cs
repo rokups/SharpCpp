@@ -1,8 +1,27 @@
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
+
 using SharpCpp.Tests.E2E.Generated;
 
 using Xunit;
 
 namespace SharpCpp.Tests.E2E.CoverageMatrix;
+
+[StructLayout(LayoutKind.Sequential)]
+public readonly record struct ConfiguredIndirectPair(int First, int Second);
+
+[CustomMarshaller(typeof(ConfiguredIndirectPair), MarshalMode.Default, typeof(ConfiguredIndirectPairMarshaller))]
+public static class ConfiguredIndirectPairMarshaller
+{
+    public static nint ConvertToUnmanaged(ConfiguredIndirectPair managed) =>
+        SharpCpp.Support.IndirectValueMarshaller<ConfiguredIndirectPair>.ConvertToUnmanaged(managed);
+
+    public static ConfiguredIndirectPair ConvertToManaged(nint unmanaged) =>
+        SharpCpp.Support.IndirectValueMarshaller<ConfiguredIndirectPair>.ConvertToManaged(unmanaged);
+
+    public static void Free(nint unmanaged) =>
+        SharpCpp.Support.IndirectValueMarshaller<ConfiguredIndirectPair>.Free(unmanaged);
+}
 
 public sealed class ConfiguredPrimitiveTests
 {
@@ -21,5 +40,7 @@ public sealed class ConfiguredPrimitiveTests
         Assert.Equal(2.5, E2EBindings.ConfiguredDoubleRoundTrip(2.5));
         Assert.Equal((nint)(-37), E2EBindings.ConfiguredNintRoundTrip(-37));
         Assert.Equal((nuint)41, E2EBindings.ConfiguredNuintRoundTrip(41));
+        Assert.Equal(new ConfiguredIndirectPair(20, 22),
+            E2EBindings.ConfiguredIndirectPairRoundTrip(new ConfiguredIndirectPair(20, 22)));
     }
 }

@@ -1781,7 +1781,8 @@ public static partial class BindingOutputRenderer
 
                 private static unsafe void __RegisterManagedCallbackRelease()
                 {
-                    __PInvoke.__SetManagedCallbackRelease(&__ReleaseManagedCallbackState);
+                    __PInvoke.__SetManagedCallbackRelease(
+                        (nint)(delegate* unmanaged[Cdecl]<nint, void>)&__ReleaseManagedCallbackState);
                 }
 
                 [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -1797,7 +1798,7 @@ public static partial class BindingOutputRenderer
                 {
                     [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetManagedCallbackReleaseRegistrationEntryPointName()}}", StringMarshalling = StringMarshalling.Utf8)]
                     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                    internal static unsafe partial void __SetManagedCallbackRelease(delegate* unmanaged[Cdecl]<nint, void> release);
+                    internal static partial void __SetManagedCallbackRelease(nint release);
                 }
                 """);
 
@@ -1876,12 +1877,12 @@ public static partial class BindingOutputRenderer
         var parameters = callbackType.CallbackParameterTypes
             .Select((type, index) => (type, index, abiType: GetManagedImportTypeName(type, compilation)))
             .ToArray();
-        var abiParameterTypes = string.Join(", ", parameters.Select(static item => item.abiType));
-        var invokeSignature = callbackReturnType.PrimitiveKind == BindingPrimitiveKind.Void
-            ? $"delegate* unmanaged[Cdecl]<nint{(abiParameterTypes.Length > 0 ? $", {abiParameterTypes}" : string.Empty)}, void>"
-            : $"delegate* unmanaged[Cdecl]<nint{(abiParameterTypes.Length > 0 ? $", {abiParameterTypes}" : string.Empty)}, {callbackReturnAbiType}>";
         var invokeArguments = string.Join(", ", parameters.Select(item => BuildManagedCallbackInvocationArgument(compilation, item.type, $"arg{item.index}")));
         var invokeParameterList = string.Join(", ", new[] { "nint state" }.Concat(parameters.Select(static item => $"{item.abiType} arg{item.index}")));
+        var invokeFunctionPointerTypes = string.Join(
+            ", ",
+            new[] { "nint" }.Concat(parameters.Select(static item => item.abiType)).Append(callbackReturnAbiType));
+        var invokeMethodName = $"__InvokeManagedCallback_{declarationName}";
         var invokeBody = callbackReturnType.PrimitiveKind == BindingPrimitiveKind.Void
             ? $$"""
                       callback({{invokeArguments}});
@@ -1901,32 +1902,39 @@ public static partial class BindingOutputRenderer
                     __RegisterManagedCallbackRelease();
                 }
 
-                public static __SharpCppManagedCallbackHandleAbi ConvertToUnmanaged({{callbackManagedType}}? managed)
+                private static readonly nint __Invoke =
+                    (nint)(delegate* unmanaged[Cdecl]<{{invokeFunctionPointerTypes}}>)&{{compilation.ManagedClassName}}.{{invokeMethodName}};
+
+                public static nint ConvertToUnmanaged({{callbackManagedType}}? managed)
                 {
                     if (managed is null)
                     {
-                        return default;
+                        return 0;
                     }
 
                     var handle = global::System.Runtime.InteropServices.GCHandle.Alloc(managed);
-                    return new __SharpCppManagedCallbackHandleAbi(
+                    var callback = (__SharpCppManagedCallbackHandleAbi*)global::System.Runtime.InteropServices.NativeMemory.Alloc(
+                        (nuint)sizeof(__SharpCppManagedCallbackHandleAbi));
+                    *callback = new __SharpCppManagedCallbackHandleAbi(
                         global::System.Runtime.InteropServices.GCHandle.ToIntPtr(handle),
-                        (nint)({{invokeSignature}})&Invoke);
+                        __Invoke);
+                    return (nint)callback;
                 }
 
-                [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-                private static {{callbackReturnAbiType}} Invoke({{invokeParameterList}})
+            }
+
+            [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+            private static {{callbackReturnAbiType}} {{invokeMethodName}}({{invokeParameterList}})
+            {
+                var callback = ({{callbackManagedType}})global::System.Runtime.InteropServices.GCHandle.FromIntPtr(state).Target!;
+                try
                 {
-                    var callback = ({{callbackManagedType}})global::System.Runtime.InteropServices.GCHandle.FromIntPtr(state).Target!;
-                    try
-                    {
               {{invokeBody}}
-                    }
-                    catch (global::System.Exception exception)
-                    {
-                        global::System.Environment.FailFast("SharpCpp managed callback threw an exception.", exception);
+                }
+                catch (global::System.Exception exception)
+                {
+                    global::System.Environment.FailFast("SharpCpp managed callback threw an exception.", exception);
               {{(callbackReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? "return;" : "return default;")}}
-                    }
                 }
             }
             """;
@@ -2289,7 +2297,17 @@ public static partial class BindingOutputRenderer
                     (function.Parent is not RecordBinding parentRecord || !parentRecord.IsSilentlyExcluded())))
                 .ToArray()
             : Array.Empty<ParameterBinding>();
-        if (compilation is null || (aliases.Length == 0 && !needsRegistry && callbackParameters.Length == 0 && sharedProviderShapes.Length == 0))
+        var virtualCallbacks = compilation is not null && includeSharedCallbackHelpers
+            ? compilation.Records
+                .Where(record => !record.GetMetadata<bool>(MetadataKeys.SuppressEmission) &&
+                    !record.IsSilentlyExcluded() &&
+                    record.RequiresDirector(compilation))
+                .SelectMany(record => record.GetEffectiveVirtualMethodSlots(compilation)
+                    .Select(slot => (Record: record, Slot: slot)))
+                .ToArray()
+            : Array.Empty<(RecordBinding Record, VirtualMethodSlotBinding Slot)>();
+        if (compilation is null || (aliases.Length == 0 && !needsRegistry && callbackParameters.Length == 0 &&
+            virtualCallbacks.Length == 0 && sharedProviderShapes.Length == 0))
         {
             return "// <auto-generated />\n// No alias glue is required for this bootstrap pipeline.\n";
         }
@@ -2299,7 +2317,8 @@ public static partial class BindingOutputRenderer
                 .Where(record => record.IsPolymorphic && CanCreateManagedWrapperFactory(compilation, record) && !record.HasMetadata(MetadataKeys.IgnoreReason))
                 .ToArray()
             : Array.Empty<RecordBinding>();
-        if (aliases.Length == 0 && needsRegistry && polymorphicConcreteRecords.Length == 0 && callbackParameters.Length == 0 && sharedProviderShapes.Length == 0)
+        if (aliases.Length == 0 && needsRegistry && polymorphicConcreteRecords.Length == 0 && callbackParameters.Length == 0 &&
+            virtualCallbacks.Length == 0 && sharedProviderShapes.Length == 0)
         {
             return "// <auto-generated />\n// No registry contents to generate.\n";
         }
@@ -2324,7 +2343,7 @@ public static partial class BindingOutputRenderer
             }
         }
 
-        if (callbackParameters.Length > 0 || sharedProviderShapes.Length > 0)
+        if (callbackParameters.Length > 0 || virtualCallbacks.Length > 0 || sharedProviderShapes.Length > 0)
         {
             writer.Write(
                 """
@@ -2336,7 +2355,8 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
-        if ((!needsRegistry || polymorphicConcreteRecords.Length == 0) && callbackParameters.Length == 0 && sharedProviderShapes.Length == 0)
+        if ((!needsRegistry || polymorphicConcreteRecords.Length == 0) && callbackParameters.Length == 0 &&
+            virtualCallbacks.Length == 0 && sharedProviderShapes.Length == 0)
         {
             return writer.ToString();
         }
@@ -2359,6 +2379,16 @@ public static partial class BindingOutputRenderer
             writer.Write(RenderManagedCallbackSupport(compilation, callbackParameters));
         }
 
+        if (virtualCallbacks.Length > 0)
+        {
+            writer.WriteLine();
+            foreach (var callback in virtualCallbacks)
+            {
+                writer.Write(RenderManagedVirtualCallbackEntryPoint(compilation, callback.Record, callback.Slot));
+                writer.WriteLine();
+            }
+        }
+
         if (sharedProviderShapes.Length > 0)
         {
             writer.WriteLine();
@@ -2371,6 +2401,50 @@ public static partial class BindingOutputRenderer
             }
             """);
         return writer.ToString();
+    }
+
+    private static string RenderManagedVirtualCallbackEntryPoint(
+        BindingCompilation compilation,
+        RecordBinding record,
+        VirtualMethodSlotBinding slot)
+    {
+        var method = slot.ManagedCallbackMethod;
+        var callbackReturnType = GetManagedVirtualCallbackAbiTypeName(compilation, method.ReturnType);
+        var callbackParameterList = string.Join(", ",
+            new[] { "nint self" }.Concat(method.Parameters.Select(parameter => RenderManagedCallbackParameter(compilation, parameter))));
+        var callbackFunctionPointerTypes = string.Join(", ",
+            new[] { "nint" }
+                .Concat(method.Parameters.Select(parameter => GetManagedVirtualCallbackAbiTypeName(compilation, parameter.Type)))
+                .Append(callbackReturnType));
+        var invocationArguments = string.Join(", ",
+            new[] { "self" }.Concat(method.Parameters.Select(static parameter => parameter.ManagedName)));
+        var invocation = $"{GetManagedRecordTypeName(compilation, record)}.{GetVirtualCallbackDispatchName(method)}({invocationArguments})";
+        var body = method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
+            ? $"{invocation};"
+            : $"return {invocation};";
+        var fallbackReturn = method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
+            ? "return;"
+            : "return default;";
+        var entryPointName = GetVirtualCallbackEntryPointName(record, method);
+
+        return $$"""
+            internal static readonly unsafe nint {{entryPointName}}Pointer =
+                (nint)(delegate* unmanaged[Cdecl]<{{callbackFunctionPointerTypes}}>)&{{entryPointName}};
+
+            [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+            private static {{callbackReturnType}} {{entryPointName}}({{callbackParameterList}})
+            {
+            try
+            {
+            {{body}}
+            }
+            catch (global::System.Exception exception)
+            {
+                global::System.Environment.FailFast("SharpCpp managed virtual callback threw an exception.", exception);
+                {{fallbackReturn}}
+            }
+            }
+            """;
     }
 
     private static string RenderSharedManagedProviderRegistry(
@@ -4217,19 +4291,22 @@ public static partial class BindingOutputRenderer
             ", ",
             method.Parameters.Select(parameter => BuildManagedCallbackInvocationArgument(compilation, parameter)));
 
+        var callbackPointerFieldName = $"{GetVirtualCallbackDispatchName(method)}Pointer";
         writer.Write($$"""
+            private static readonly unsafe nint {{callbackPointerFieldName}} =
+                {{compilation.ManagedClassName}}.{{GetVirtualCallbackEntryPointName(record, method)}}Pointer;
+
             internal static unsafe nint {{GetVirtualCallbackPointerAccessorName(method)}}(Type runtimeType)
             {
             return HasManagedOverride(runtimeType, typeof({{ownerTypeName}}), {{methodNameExpression}}, {{FormatReflectionParameterTypes(compilation, method)}})
-                ? (nint)(delegate* unmanaged[Cdecl]<{{callbackFunctionPointerTypes}}>)&{{GetVirtualCallbackDispatchName(method)}}
+                ? {{callbackPointerFieldName}}
                 : 0;
             }
 
             """);
 
         writer.Write($$"""
-            [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-            private static {{callbackReturnType}} {{GetVirtualCallbackDispatchName(method)}}({{callbackParameterList}})
+            internal static {{callbackReturnType}} {{GetVirtualCallbackDispatchName(method)}}({{callbackParameterList}})
             {
             var owner = {{dispatchTypeName}}.CreateManagedWrapper(self, ownsHandle: false);
             """);
@@ -6863,6 +6940,11 @@ public static partial class BindingOutputRenderer
     private static string GetVirtualCallbackDispatchName(FunctionBinding method)
     {
         return $"__Dispatch{GetVirtualCallbackTokenPrefix(method)}";
+    }
+
+    private static string GetVirtualCallbackEntryPointName(RecordBinding record, FunctionBinding method)
+    {
+        return $"__InvokeVirtualCallback_{SanitizeManagedToken(record.ManagedName)}_{SanitizeManagedToken(method.ImportMethodName)}";
     }
 
     private static string GetVirtualCallbackTokenPrefix(FunctionBinding method)

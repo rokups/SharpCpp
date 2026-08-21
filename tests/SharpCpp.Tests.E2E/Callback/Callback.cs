@@ -37,6 +37,20 @@ public sealed class CallbackTests
     }
 
     [Fact]
+    public void Native_callback_wrapper_retains_managed_callback_after_interop_returns()
+    {
+        E2EBindings.RetainCallback(value => value + 1);
+        try
+        {
+            Assert.Equal(42, E2EBindings.InvokeRetainedCallback(41));
+        }
+        finally
+        {
+            E2EBindings.ClearRetainedCallback();
+        }
+    }
+
+    [Fact]
     public void Object_pointer_callback_receives_borrowed_wrapper()
     {
         var result = E2EBindings.InvokeObjectPointerCallback(box => box.SetValue(42), 1);

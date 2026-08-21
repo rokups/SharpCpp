@@ -75,4 +75,14 @@ template <>
 struct [[sharpcpp::managed_type(public_type = "nuint", marshaller_type = "nuint", suppress_emission = true)]]
 Marshaller<configured_nuint> : ConfiguredPrimitiveMarshaller<configured_nuint, std::uintptr_t> {};
 template <> struct ReturnMarshaller<configured_nuint> : Marshaller<configured_nuint> {};
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::SharpCpp.Tests.E2E.CoverageMatrix.ConfiguredIndirectPair",
+    marshaller_type = "nint",
+    managed_marshaller = "global::SharpCpp.Tests.E2E.CoverageMatrix.ConfiguredIndirectPairMarshaller",
+    suppress_emission = true)]]
+Marshaller<configured_indirect_pair> : IndirectValueMarshallerBase<configured_indirect_pair> {};
+template <>
+struct ReturnMarshaller<configured_indirect_pair> : IndirectValueMarshallerBase<configured_indirect_pair> {};
 }

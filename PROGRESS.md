@@ -736,6 +736,15 @@ Current worktree verification passes with generic complex C++ values crossing ca
 - **Managed type format override propagation (Issues #3 & #4)**: Added `BindingType.ManagedTypeFormatOverride` property (exposes `_managedTypeFormatOverride`). `SubstituteGenericType` and `SubstituteFunctionGenericType` now consult this override in their fallback chain, ensuring concrete type names use the marshaller's configured managed type name rather than the raw C++ name.
 - **Test results**: 4/5 test suites pass (model, metadata, rendering, E2E). Rbfx E2E has 1 pre-existing failure (`BiasParametersTests` — unrelated to these fixes). Net reduction of 62 C# errors in rbfx SDK build (222→160).
 
+- **WebAssembly value and managed callback ABIs now work in interpreted Debug and AOT Release builds**:
+  - Added reusable indirect value and const-reference value marshaller bases. They copy configured native values through owned pointer ABI storage without adding type-specific cases to SharpCpp core.
+  - Managed callback handles now cross the native boundary through an allocated state-and-function-pointer container. Native code copies the container and frees its ABI storage after conversion.
+  - Generated unmanaged callback entry points now live on the top-level binding class. This gives ordinary and virtual callbacks one stable direct function-pointer surface in interpreted and AOT WebAssembly builds.
+  - Virtual callback entry points contain managed exceptions and terminate through `Environment.FailFast` before an exception can cross reverse P/Invoke. This replaces the opaque Mono interpreter assertion with the original managed exception and stack.
+  - Callback registration, ordinary callback marshallers, and virtual director callbacks use direct typed function pointers. This keeps the same generated path valid under Release WebAssembly AOT and avoids runtime table-index failures from reflection-based pointer lookup.
+  - Regression coverage includes retained-callback lifetime, indirect configured-value parameter and return round trips, top-level callback entry-point rendering, direct AOT-compatible pointers, and unsafe virtual callback pointer fields.
+  - Verification: focused `ManagedCallbackRenderingTests` pass; the unified RedBolt Debug interpreted and Release AOT WebAssembly builds pass; browser checks load RmlUI without callback/data-binding warnings. Standalone native E2E generation remains blocked in this environment because the ClangSharp native library is unavailable or crashes when supplied from the package cache.
+
 ## Doc Anchors
 
 - `doc/01-architecture.md` — overall architecture
