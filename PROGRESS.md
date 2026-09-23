@@ -6,6 +6,11 @@ Bootstrap an independent SharpCpp line from `doc/`, selectively adapting small b
 
 ## What Works Today
 
+### Clang 20 resource headers for standalone parser consumers (current change)
+
+- CMake stages pinned LLVM 20.1.2 Clang builtin headers in the build tree when the E2E or rbfx parser graph is enabled. Support-only consumers do not provision headers.
+- The E2E tool and both rbfx generators receive the staged resource directory through their CMake commands; user-code toolchain discovery prefers a valid override.
+
 The repository still contains model, metadata, generated E2E, and rbfx E2E suites; the former standalone rendering suite is no longer part of the solution. The SharpCpp coverage gate is intentionally narrower: it measures only compiled C++ headers → generated C# wrappers/native thunks → native round trips in `SharpCpp.Tests.E2E`. RedBolt and rbfx tests do not contribute to it.
 
 Current worktree verification passes with generic complex C++ values crossing callback/native ABI as pointers by default, while explicitly configured value marshallers such as `StringHash`, math structs, and smart-pointer projections keep their configured ABI. Thin managed convenience wrappers remain acceptable when they delegate to generated APIs without handwritten native entrypoints; rbfx event subscription ownership is now covered by generated `Object::SubscribeToEvent<T>` wrappers discovered from C++ template instantiations.

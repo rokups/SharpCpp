@@ -57,6 +57,12 @@ internal static class Program
             $"-I{Path.Combine(projectRoot, "include")}",
             $"-I{fixtureRoot}"
         };
+        var clangResourceDirectory = Environment.GetEnvironmentVariable("SHARPCPP_CLANG_RESOURCE_DIRECTORY");
+        if (!string.IsNullOrWhiteSpace(clangResourceDirectory) &&
+            Directory.Exists(Path.Combine(clangResourceDirectory, "include")))
+        {
+            clangArguments.Add($"-resource-dir={clangResourceDirectory}");
+        }
         clangArguments.AddRange(GetSystemCppIncludeArguments());
         var marshallerConfigurationFiles = new[]
         {

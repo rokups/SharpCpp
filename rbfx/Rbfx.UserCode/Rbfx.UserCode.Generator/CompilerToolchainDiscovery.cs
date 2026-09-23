@@ -8,9 +8,16 @@ internal static class CompilerToolchainDiscovery
 
     public static ToolchainInfo Discover(string compilerPath)
     {
+        var resourceDirectoryOverride = Environment.GetEnvironmentVariable("SHARPCPP_RBFX_CLANG_RESOURCE_DIRECTORY");
+        if (string.IsNullOrWhiteSpace(resourceDirectoryOverride) ||
+            !Directory.Exists(Path.Combine(resourceDirectoryOverride, "include")))
+        {
+            resourceDirectoryOverride = null;
+        }
+
         if (string.IsNullOrWhiteSpace(compilerPath) || !File.Exists(compilerPath))
         {
-            return new ToolchainInfo(null, null, Array.Empty<string>());
+            return new ToolchainInfo(null, resourceDirectoryOverride, Array.Empty<string>());
         }
 
         try
@@ -73,11 +80,11 @@ internal static class CompilerToolchainDiscovery
                 }
             }
 
-            return new ToolchainInfo(targetTriple, resourceDir, includeDirectories.Distinct(StringComparer.Ordinal).ToArray());
+            return new ToolchainInfo(targetTriple, resourceDirectoryOverride ?? resourceDir, includeDirectories.Distinct(StringComparer.Ordinal).ToArray());
         }
         catch
         {
-            return new ToolchainInfo(null, null, Array.Empty<string>());
+            return new ToolchainInfo(null, resourceDirectoryOverride, Array.Empty<string>());
         }
     }
 }

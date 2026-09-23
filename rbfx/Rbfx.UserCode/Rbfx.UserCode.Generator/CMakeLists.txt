@@ -6,7 +6,9 @@ add_custom_command(
           "-DGENERATED_DIR=${RBFX_USERCODE_GENERATED_ROOT}"
           -P "${SharpCpp_SOURCE_DIR}/cmake/SharpCppGeneratedStaleness.cmake"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${RBFX_USERCODE_GENERATED_ROOT}"
-  COMMAND "${DOTNET_EXECUTABLE}" "${SHARPCPP_RBFX_USERCODE_GENERATOR_DLL}"
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "SHARPCPP_RBFX_CLANG_RESOURCE_DIRECTORY=${SHARPCPP_CLANG_RESOURCE_DIRECTORY}"
+          "${DOTNET_EXECUTABLE}" "${SHARPCPP_RBFX_USERCODE_GENERATOR_DLL}"
           --sdk-root "${RBFX_SDK_ROOT}"
           --flags-file "${RBFX_SDK_FLAGS_FILE}"
           --user-code-root "${CMAKE_CURRENT_SOURCE_DIR}/.."

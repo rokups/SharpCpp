@@ -25,7 +25,9 @@ add_custom_command(
           "-DGENERATED_DIR=${SHARPCPP_E2E_GENERATED_ROOT}"
           -P "${SharpCpp_SOURCE_DIR}/cmake/SharpCppGeneratedStaleness.cmake"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${SHARPCPP_E2E_GENERATED_ROOT}"
-  COMMAND "${DOTNET_EXECUTABLE}" "${SHARPCPP_TOOL_DLL}"
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "SHARPCPP_CLANG_RESOURCE_DIRECTORY=${SHARPCPP_CLANG_RESOURCE_DIRECTORY}"
+          "${DOTNET_EXECUTABLE}" "${SHARPCPP_TOOL_DLL}"
           generate-sample
           --generated-root "${SHARPCPP_E2E_GENERATED_ROOT}"
           --project-root "${SharpCpp_SOURCE_DIR}"

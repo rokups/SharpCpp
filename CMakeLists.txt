@@ -27,6 +27,7 @@ include(SharpCppOutput)
 add_subdirectory(include)
 
 if(SHARPCPP_BUILD_E2E OR SHARPCPP_BUILD_RBFX)
+  include(SharpCppClang)
   find_program(DOTNET_EXECUTABLE dotnet REQUIRED)
 endif()
 
