@@ -64,4 +64,12 @@ struct [[sharpcpp::managed_type(
     public_type = "global::System.ReadOnlySpan<byte>",
     managed_marshaller = "global::SharpCpp.Support.Utf8SpanAbiReturnMarshaller"
 )]] ReturnMarshaller<e2e_std::string_view> : Marshaller<e2e_std::string_view> {};
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::System.ReadOnlySpan<byte>",
+    managed_marshaller = "global::SharpCpp.Support.Utf8SpanAbiMarshaller",
+    undefaultable = true
+)]]
+Marshaller<e2e_ext::text_view> : StringViewMarshallerBase<e2e_ext::text_view> {};
 }

@@ -138,15 +138,16 @@ public static class MarshallerMetadataPhase2
                     record = null;
                 }
             }
+            // managed_base_type, exposed members or suppress_emission indicate the type needs
+            // a wrapper class; other configurations (value marshallers) do not.
+            var describesWrapper = ManagedBaseTypeExpression.IsMatch(config.AttributeBody) ||
+                config.ExposedMembers.Count > 0 ||
+                SuppressEmissionExpression.IsMatch(config.AttributeBody);
             if (record is null)
             {
                 // Create a synthetic record when the Marshaller config
                 // references a type with no RecordBinding in the compilation.
-                // Gate on managed_base_type OR suppress_emission — both
-                // indicate the type needs a wrapper class.
-                if (!ManagedBaseTypeExpression.IsMatch(config.AttributeBody) &&
-                    config.ExposedMembers.Count == 0 &&
-                    !SuppressEmissionExpression.IsMatch(config.AttributeBody))
+                if (!describesWrapper)
                 {
                     continue;
                 }
@@ -183,6 +184,11 @@ public static class MarshallerMetadataPhase2
             // emits its wrapper class instead of degrading it.
             if (record.GetMetadata<bool>(MetadataKeys.PlaceholderRecord))
             {
+                if (!describesWrapper)
+                {
+                    continue;
+                }
+
                 record.SetMetadata(MetadataKeys.PlaceholderRecord, false);
                 record.SetMetadata(MetadataKeys.ForwardDeclaration, false);
             }

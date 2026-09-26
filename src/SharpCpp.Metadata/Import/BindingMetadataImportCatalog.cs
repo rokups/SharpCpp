@@ -54,6 +54,16 @@ public sealed class BindingMetadataImportCatalog
         ArgumentNullException.ThrowIfNull(recordsByName);
         ArgumentNullException.ThrowIfNull(enumsByName);
 
+        // Native thunks for imported types (generic instantiations, shared helpers) need the
+        // dependency's declarations in the consumer translation unit.
+        foreach (var headerFile in _documents.SelectMany(static document => document.Fingerprint.HeaderFiles))
+        {
+            if (!compilation.NativeSupportHeaders.Contains(headerFile, StringComparer.Ordinal))
+            {
+                compilation.NativeSupportHeaders.Add(headerFile);
+            }
+        }
+
         // First seed every top-level declaration. Member and alias references can
         // point across documents, so resolving them before this pass is complete
         // would leave dangling record/enum ids.

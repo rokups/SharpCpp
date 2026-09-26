@@ -5,6 +5,8 @@
 #include <string>
 #include <string_view>
 
+#include "ExternalText.h"
+
 namespace e2e_std
 {
 template <typename T>
@@ -153,6 +155,23 @@ inline int custom_string_view_embedded_null_length(e2e_std::string_view value)
 inline e2e_std::string_view get_custom_string_view_message()
 {
     return "Hello from custom string_view";
+}
+
+// The char text_view marshaller is found by template head; the char16_t argument is
+// unsupported, so this declaration must degrade instead of aborting generation.
+inline int custom_u16_text_view_length(e2e_ext::basic_text_view<char16_t> value)
+{
+    return static_cast<int>(value.size());
+}
+
+inline e2e_ext::u16text_view custom_u16_text_view_empty()
+{
+    return {};
+}
+
+inline int custom_text_view_length(e2e_ext::text_view value)
+{
+    return static_cast<int>(value.size());
 }
 
 inline e2e_std::string make_custom_std_string(const char* value)

@@ -110,6 +110,13 @@ public sealed class StringTests
     }
 
     [Fact]
+    public void Unsupported_template_argument_degrades_only_its_declaration()
+    {
+        Assert.Null(typeof(E2EBindings).GetMethod("CustomU16TextViewLength"));
+        Assert.Equal(3, E2EBindings.CustomTextViewLength("abc"u8));
+    }
+
+    [Fact]
     public void Custom_standard_library_string_round_trips_through_generated_storage()
     {
         using var value = E2EBindings.MakeCustomStdString("hello"u8);

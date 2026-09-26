@@ -2440,9 +2440,19 @@ public sealed partial class ClangSharpHeaderParser
             genericParameters,
             isReturn,
             allowPrimitivePointer);
-        return ignoreReason is null
-            ? (ApplyAstTemplateArguments(genericTypeNode, mappedType, recordsByName, enumsByName, managedTypeOverrides, genericParameters), null)
-            : (mappedType, ignoreReason);
+        if (ignoreReason is not null)
+        {
+            return (mappedType, ignoreReason);
+        }
+
+        try
+        {
+            return (ApplyAstTemplateArguments(genericTypeNode, mappedType, recordsByName, enumsByName, managedTypeOverrides, genericParameters), null);
+        }
+        catch (NotSupportedException exception)
+        {
+            return (CreateIgnoredFallbackType(type.Handle), exception.Message);
+        }
     }
 
     private static (BindingType Type, string? IgnoreReason) TryMapType(
