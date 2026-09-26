@@ -4,7 +4,7 @@
     <!-- Libraries are loaded through their host's dependency file; executables need their own
          so NuGet native runtime assets (libClangSharp) resolve. -->
     <GenerateDependencyFile Condition="'$(SharpCppIsTestProject)' != 'true' and '$(OutputType)' != 'Exe'">false</GenerateDependencyFile>
-    <SharpCppIsGeneratedConsumer Condition="'$(MSBuildProjectName)' == 'SharpCpp.Tests.E2E' or '$(MSBuildProjectName)' == 'SharpCpp.Rbfx.Bindings' or '$(MSBuildProjectName)' == 'Rbfx.UserCode.Bindings'">true</SharpCppIsGeneratedConsumer>
+    <SharpCppIsGeneratedConsumer Condition="'$(MSBuildProjectName)' == 'SharpCpp.Tests.E2E'">true</SharpCppIsGeneratedConsumer>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(SharpCppIsGeneratedConsumer)' == 'true'">
@@ -13,16 +13,6 @@
              Visible="false"
              SharpCppGeneratedSource="true"
              Condition="'$(MSBuildProjectName)' == 'SharpCpp.Tests.E2E' and Exists('$(SharpCppE2EGeneratedDir)')" />
-    <Compile Include="$(SharpCppRbfxGeneratedDir)/**/*.g.cs"
-             LinkBase="Generated"
-             Visible="false"
-             SharpCppGeneratedSource="true"
-             Condition="'$(MSBuildProjectName)' == 'SharpCpp.Rbfx.Bindings' and Exists('$(SharpCppRbfxGeneratedDir)')" />
-    <Compile Include="$(SharpCppUserCodeGeneratedDir)/**/*.g.cs"
-             LinkBase="Generated"
-             Visible="false"
-             SharpCppGeneratedSource="true"
-             Condition="'$(MSBuildProjectName)' == 'Rbfx.UserCode.Bindings' and Exists('$(SharpCppUserCodeGeneratedDir)')" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(SharpCppIsGeneratedConsumer)' == 'true'">
@@ -30,7 +20,7 @@
                       ReferenceOutputAssembly="false"
                       PrivateAssets="all"
                       SkipGetTargetFrameworkProperties="true"
-                      SharpCppProperties="SharpCppBuildE2E=$(SharpCppBuildE2E);SharpCppBuildRbfx=$(SharpCppBuildRbfx)" />
+                      SharpCppProperties="SharpCppBuildE2E=$(SharpCppBuildE2E)" />
   </ItemGroup>
 
   <Target Name="SharpCppSetProjectReferenceProperties"
@@ -39,7 +29,7 @@
     <ItemGroup>
       <_MSBuildProjectReferenceExistent Update="@(_MSBuildProjectReferenceExistent)">
         <SetConfiguration>%(_MSBuildProjectReferenceExistent.SetConfiguration);Configuration=$(Configuration)</SetConfiguration>
-        <GlobalPropertiesToRemove>TargetFramework;RuntimeIdentifier;SelfContained;SharpCppBuildE2E;SharpCppBuildRbfx</GlobalPropertiesToRemove>
+        <GlobalPropertiesToRemove>TargetFramework;RuntimeIdentifier;SelfContained;SharpCppBuildE2E</GlobalPropertiesToRemove>
       </_MSBuildProjectReferenceExistent>
       <_MSBuildProjectReferenceExistent Update="@(_MSBuildProjectReferenceExistent)"
                                         Condition="'%(_MSBuildProjectReferenceExistent.SharpCppProperties)' != ''">
@@ -57,10 +47,6 @@
                Condition="'%(Compile.SharpCppGeneratedSource)' == 'true' and !Exists('%(Compile.FullPath)')" />
       <SharpCppRequiredGeneratedSources Include="$(SharpCppE2EGeneratedDir)/**/*.g.cs"
                                         Condition="'$(MSBuildProjectName)' == 'SharpCpp.Tests.E2E' and Exists('$(SharpCppE2EGeneratedDir)')" />
-      <SharpCppRequiredGeneratedSources Include="$(SharpCppRbfxGeneratedDir)/**/*.g.cs"
-                                        Condition="'$(MSBuildProjectName)' == 'SharpCpp.Rbfx.Bindings' and Exists('$(SharpCppRbfxGeneratedDir)')" />
-      <SharpCppRequiredGeneratedSources Include="$(SharpCppUserCodeGeneratedDir)/**/*.g.cs"
-                                        Condition="'$(MSBuildProjectName)' == 'Rbfx.UserCode.Bindings' and Exists('$(SharpCppUserCodeGeneratedDir)')" />
       <Compile Include="@(SharpCppRequiredGeneratedSources)"
                Exclude="@(Compile)"
                LinkBase="Generated"
@@ -74,19 +60,11 @@
            Text="SharpCpp E2E generation did not produce '$(SharpCppE2EGeneratedStamp)'." />
     <Error Condition="'$(MSBuildProjectName)' == 'SharpCpp.Tests.E2E' and !Exists('$(SharpCppE2ENativeLibraryPath)')"
            Text="SharpCpp E2E native build did not produce '$(SharpCppE2ENativeLibraryPath)'." />
-    <Error Condition="'$(MSBuildProjectName)' == 'SharpCpp.Rbfx.Bindings' and !Exists('$(SharpCppRbfxGeneratedStamp)')"
-           Text="SharpCpp rbfx generation did not produce '$(SharpCppRbfxGeneratedStamp)'." />
-    <Error Condition="'$(MSBuildProjectName)' == 'SharpCpp.Rbfx.Bindings' and !Exists('$(SharpCppRbfxNativeLibraryPath)')"
-           Text="SharpCpp rbfx native build did not produce '$(SharpCppRbfxNativeLibraryPath)'." />
-    <Error Condition="'$(MSBuildProjectName)' == 'Rbfx.UserCode.Bindings' and !Exists('$(SharpCppUserCodeGeneratedStamp)')"
-           Text="SharpCpp rbfx user-code generation did not produce '$(SharpCppUserCodeGeneratedStamp)'." />
-    <Error Condition="'$(MSBuildProjectName)' == 'Rbfx.UserCode.Bindings' and !Exists('$(SharpCppRbfxUserCodeNativeLibraryPath)')"
-           Text="SharpCpp rbfx user-code native build did not produce '$(SharpCppRbfxUserCodeNativeLibraryPath)'." />
   </Target>
 
   <Target Name="SharpCppStageNativeTestRuntime"
           AfterTargets="Build"
-          Condition="'$(MSBuildProjectName)' == 'SharpCpp.Tests.E2E' or '$(MSBuildProjectName)' == 'SharpCpp.Rbfx.Tests.E2E'">
+          Condition="'$(MSBuildProjectName)' == 'SharpCpp.Tests.E2E'">
     <ItemGroup>
       <SharpCppNativeTestRuntime Include="$(SharpCppOutputDir)/*.so;$(SharpCppOutputDir)/*.so.*"
                                  Condition="$([MSBuild]::IsOSPlatform('Linux'))" />

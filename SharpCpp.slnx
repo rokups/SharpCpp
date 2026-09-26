@@ -13,14 +13,6 @@
     <Project Path="tests/SharpCpp.Tests.Metadata/SharpCpp.Tests.Metadata.csproj" />
     <Project Path="tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj" />
   </Folder>
-  <Folder Name="/rbfx/">
-    <Project Path="rbfx/SharpCpp.Ea/SharpCpp.Ea.csproj" />
-    <Project Path="rbfx/Rbfx.Application/Rbfx.Application.csproj" />
-    <Project Path="rbfx/Rbfx.UserCode/Rbfx.UserCode.Bindings/Rbfx.UserCode.Bindings.csproj" />
-    <Project Path="rbfx/SharpCpp.Rbfx.Bindings/SharpCpp.Rbfx.Bindings.csproj" />
-    <Project Path="rbfx/SharpCpp.Rbfx.SourceGenerator/SharpCpp.Rbfx.SourceGenerator.csproj" />
-    <Project Path="rbfx/SharpCpp.Rbfx.Tests.E2E/SharpCpp.Rbfx.Tests.E2E.csproj" />
-  </Folder>
   <Folder Name="/native/">
     <Project Path="native/SharpCpp.Native/SharpCpp.Native.csproj" />
   </Folder>

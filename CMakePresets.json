@@ -12,8 +12,7 @@
       "generator": "Ninja Multi-Config",
       "binaryDir": "${sourceDir}/build/native/${presetName}",
       "cacheVariables": {
-        "SHARPCPP_BUILD_E2E": "ON",
-        "SHARPCPP_BUILD_RBFX": "ON"
+        "SHARPCPP_BUILD_E2E": "ON"
       }
     }
   ],
