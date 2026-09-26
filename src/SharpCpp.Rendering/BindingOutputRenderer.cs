@@ -1903,7 +1903,7 @@ public static partial class BindingOutputRenderer
                 }
 
                 private static readonly nint __Invoke =
-                    (nint)(delegate* unmanaged[Cdecl]<{{invokeFunctionPointerTypes}}>)&{{compilation.ManagedClassName}}.{{invokeMethodName}};
+                    (nint)(delegate* unmanaged[Cdecl]<{{invokeFunctionPointerTypes}}>)&global::{{compilation.ManagedNamespace}}.{{compilation.ManagedClassName}}.{{invokeMethodName}};
 
                 public static nint ConvertToUnmanaged({{callbackManagedType}}? managed)
                 {
@@ -4294,7 +4294,7 @@ public static partial class BindingOutputRenderer
         var callbackPointerFieldName = $"{GetVirtualCallbackDispatchName(method)}Pointer";
         writer.Write($$"""
             private static readonly unsafe nint {{callbackPointerFieldName}} =
-                {{compilation.ManagedClassName}}.{{GetVirtualCallbackEntryPointName(record, method)}}Pointer;
+                global::{{compilation.ManagedNamespace}}.{{compilation.ManagedClassName}}.{{GetVirtualCallbackEntryPointName(record, method)}}Pointer;
 
             internal static unsafe nint {{GetVirtualCallbackPointerAccessorName(method)}}(Type runtimeType)
             {

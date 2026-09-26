@@ -56,7 +56,6 @@
     <NuGetAudit>false</NuGetAudit>
 
     <SharpCppIsTestProject Condition="$([System.String]::Copy('$(MSBuildProjectName)').Contains('.Tests.'))">true</SharpCppIsTestProject>
-    <GenerateDependencyFile Condition="'$(SharpCppIsTestProject)' != 'true'">false</GenerateDependencyFile>
     <OutputPath Condition="'$(SharpCppIsTestProject)' != 'true'">$(SharpCppOutputDir)/</OutputPath>
     <OutputPath Condition="'$(SharpCppIsTestProject)' == 'true'">$(SharpCppOutputDir)/SharpCpp.Tests/$(MSBuildProjectName)/</OutputPath>
     <BaseIntermediateOutputPath>$(SharpCppIntermediateRoot)/$(MSBuildProjectName)/</BaseIntermediateOutputPath>

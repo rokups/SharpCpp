@@ -1,6 +1,9 @@
 <Project>
   <PropertyGroup>
     <SharpCppBuildTargetsImported>true</SharpCppBuildTargetsImported>
+    <!-- Libraries are loaded through their host's dependency file; executables need their own
+         so NuGet native runtime assets (libClangSharp) resolve. -->
+    <GenerateDependencyFile Condition="'$(SharpCppIsTestProject)' != 'true' and '$(OutputType)' != 'Exe'">false</GenerateDependencyFile>
     <SharpCppIsGeneratedConsumer Condition="'$(MSBuildProjectName)' == 'SharpCpp.Tests.E2E' or '$(MSBuildProjectName)' == 'SharpCpp.Rbfx.Bindings' or '$(MSBuildProjectName)' == 'Rbfx.UserCode.Bindings'">true</SharpCppIsGeneratedConsumer>
   </PropertyGroup>
 

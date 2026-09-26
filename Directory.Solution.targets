@@ -1,0 +1,4 @@
+<Project>
+  <!-- Present so standalone SharpCpp.slnx builds do not import an enclosing workspace's
+       solution targets. -->
+</Project>
