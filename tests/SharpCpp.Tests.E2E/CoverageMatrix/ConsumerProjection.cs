@@ -128,6 +128,8 @@ public sealed unsafe class ConsumerProjectionTests
         Assert.Throws<NotSupportedException>(() => valueArray.RemoveAt(0));
 
         using var replacements = new global::Std.Array<ConsumerProjectionValue>([first, second]);
+        // Elements live inside the container; the wrapper must borrow them, never delete them.
+        Assert.False(replacements[0].OwnsNativeHandle);
         host.ValueArray = replacements;
         Assert.Equal(new[] { 11, 13 }, host.ValueArray.Select(item => item.GetValue()));
 

@@ -79,3 +79,24 @@ public:
         return hidden_value() * factor_;
     }
 };
+
+// A templated member record is flattened into its owner; its protected state is not
+// accessible from the owner (it is not a base), so it must not be flattened.
+template <typename T>
+class guarded_value
+{
+public:
+    T get() const
+    {
+        return value_;
+    }
+
+protected:
+    T value_{5};
+};
+
+struct guarded_value_holder
+{
+    guarded_value<int> guarded;
+    int visible{9};
+};

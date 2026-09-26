@@ -1791,6 +1791,11 @@ public sealed partial class ClangSharpHeaderParser
         foreach (var child in sourceRecordDecl.Decls.OfType<FieldDecl>())
         {
             var childNativeName = child.Name ?? child.Spelling.ToString();
+            // Only anonymous members share the owner's access scope; a named member record's
+            // protected fields are not reachable from the owner, even through a director.
+            if (!IsAnonymousRecordDecl(sourceRecordDecl) && child.Access != CX_CXXAccessSpecifier.CX_CXXPublic)
+                continue;
+
             var accessModifier = GetMostRestrictiveAccessModifier(inheritedAccessModifier, MapAccessModifier(child.Access));
             if (accessModifier == BindingAccessModifier.Private)
                 continue;

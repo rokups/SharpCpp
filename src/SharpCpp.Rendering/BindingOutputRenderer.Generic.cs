@@ -1529,13 +1529,10 @@ public static partial class BindingOutputRenderer
             var element = instantiation.TypeArguments[0];
             var elementType = FormatGlobalTypeName(element, compilation);
             var resultExpression = $"{GetGenericImportAccessor(compilation)}.__Array_Get_{GetFixedArrayImportMethodToken(record, instantiation)}(ToNativeArrayAbi(), index)";
-            if (element.Kind == BindingTypeKind.Handle)
+            // Native getters return record-value elements by reference, so the wrapper borrows.
+            if (element.Kind == BindingTypeKind.Handle || element.Marshaller.CppIsRecordValue)
             {
                 resultExpression = BuildManagedHandleWrap(compilation, element, resultExpression, ownsHandle: false);
-            }
-            else if (element.Marshaller.CppIsRecordValue)
-            {
-                resultExpression = BuildManagedHandleWrap(compilation, element, resultExpression, ownsHandle: true);
             }
             else
             {
@@ -1620,13 +1617,10 @@ public static partial class BindingOutputRenderer
             var element = instantiation.TypeArguments[0];
             var elementType = FormatGlobalTypeName(element, compilation);
             var resultExpression = $"{GetGenericImportAccessor(compilation)}.__Array_Get_{GetDynamicArrayImportMethodToken(record, instantiation)}(DangerousGetHandle(), index)";
-            if (element.Kind == BindingTypeKind.Handle)
+            // Native getters return record-value elements by reference, so the wrapper borrows.
+            if (element.Kind == BindingTypeKind.Handle || element.Marshaller.CppIsRecordValue)
             {
                 resultExpression = BuildManagedHandleWrap(compilation, element, resultExpression, ownsHandle: false);
-            }
-            else if (element.Marshaller.CppIsRecordValue)
-            {
-                resultExpression = BuildManagedHandleWrap(compilation, element, resultExpression, ownsHandle: true);
             }
 
             writer.Write($$"""
@@ -2023,8 +2017,9 @@ public static partial class BindingOutputRenderer
             var setKeepAlive = elementBinding.Kind == BindingTypeKind.Handle
                 ? "\n            global::System.GC.KeepAlive(value);"
                 : string.Empty;
+            // The native getter returns record-value elements by reference, so the wrapper borrows.
             var wrappedGet = elementBinding.Kind == BindingTypeKind.Handle
-                ? BuildManagedHandleWrap(compilation, elementBinding, getExpression, elementBinding.Marshaller.CppIsRecordValue)
+                ? BuildManagedHandleWrap(compilation, elementBinding, getExpression, ownsHandle: false)
                 : BuildManagedImportToPublicExpression(compilation, elementBinding, getExpression);
             writer.Write($$"""
 
@@ -2051,8 +2046,9 @@ public static partial class BindingOutputRenderer
             var setKeepAlive = elementBinding.Kind == BindingTypeKind.Handle
                 ? "\n            global::System.GC.KeepAlive(value);"
                 : string.Empty;
+            // The native getter returns record-value elements by reference, so the wrapper borrows.
             var wrappedGet = elementBinding.Kind == BindingTypeKind.Handle
-                ? BuildManagedHandleWrap(compilation, elementBinding, getExpression, elementBinding.Marshaller.CppIsRecordValue)
+                ? BuildManagedHandleWrap(compilation, elementBinding, getExpression, ownsHandle: false)
                 : BuildManagedImportToPublicExpression(compilation, elementBinding, getExpression);
             writer.Write($$"""
 

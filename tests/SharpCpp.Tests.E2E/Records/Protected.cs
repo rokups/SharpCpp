@@ -74,4 +74,14 @@ public sealed class ProtectedTests
         using var counter = new PlainProtectedCounter();
         Assert.Equal(21, counter.VisibleValue());
     }
+
+    [Fact]
+    public void Protected_state_of_a_flattened_member_record_is_not_exposed()
+    {
+        using var holder = new GuardedValueHolder();
+        Assert.Equal(9, holder.Visible);
+        Assert.DoesNotContain(
+            typeof(GuardedValueHolder).GetProperties(),
+            static property => property.Name.Contains("Value", System.StringComparison.Ordinal));
+    }
 }
