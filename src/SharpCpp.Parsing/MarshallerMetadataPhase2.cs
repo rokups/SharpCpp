@@ -109,6 +109,12 @@ public static class MarshallerMetadataPhase2
     {
         foreach (var (cppTypeName, config) in configs)
         {
+            // Only the matching specializations are configured, through their type mapping.
+            if (config.ConstrainsTemplateArguments)
+            {
+                continue;
+            }
+
             var recordName = GetTargetRecordName(cppTypeName);
             if (string.IsNullOrWhiteSpace(recordName))
             {

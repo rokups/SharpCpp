@@ -28,6 +28,47 @@ struct tag
     unsigned value{};
 };
 
+/// A pair whose marshaller only matches when both arguments are the same type.
+template <class TFirst, class TSecond>
+struct twin
+{
+    TFirst first;
+    TSecond second;
+};
+
+inline long long pack_twin(twin<int, int> value)
+{
+    return static_cast<long long>(value.first) * 1000 + value.second;
+}
+
+/// Different arguments do not match the configured pattern: an ordinary instantiation.
+inline long long pack_mixed(twin<int, short> value)
+{
+    return value.first + value.second;
+}
+
+/// A string without contiguous storage: the managed view copies it byte by byte.
+class rope
+{
+public:
+    unsigned long long size() const { return text_.size(); }
+    unsigned char at(unsigned long long index) const { return static_cast<unsigned char>(text_[index]); }
+    void push_back(char value) { text_.push_back(value); }
+    void clear() { text_.clear(); }
+
+private:
+    std::string text_;
+};
+
+inline rope* get_rope()
+{
+    static rope value;
+    if (value.size() == 0)
+        for (char c : std::string("knot"))
+            value.push_back(c);
+    return &value;
+}
+
 /// Its marshaller inherits exposed members from a helper base and re-declares one.
 struct tally
 {

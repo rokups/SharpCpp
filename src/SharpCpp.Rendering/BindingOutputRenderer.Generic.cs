@@ -733,14 +733,21 @@ public static partial class BindingOutputRenderer
             : declarations;
     }
 
+    // Registered where the shared NativeArray record is rendered, over the whole compilation,
+    // like its dynamic-array imports: one initializer however the output is split into files.
     private static string RenderSharedNativeArrayRegistryInitializer(BindingCompilation compilation, IReadOnlyList<RecordBinding> records)
     {
-        var registrations = records
-            .Where(IsSharedNativeArrayRecord)
+        var sharedNativeArrayRecords = records.Where(IsSharedNativeArrayRecord).ToArray();
+        if (sharedNativeArrayRecords.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var registrations = sharedNativeArrayRecords
             .SelectMany(record => GetFixedArrayInstantiations(compilation, record)
                 .Select(instantiation => RenderSharedNativeArrayRegistration(compilation, record, instantiation)))
             .Distinct(StringComparer.Ordinal)
-            .Concat(GetPointerCountNativeArrayElementTypes(compilation, records)
+            .Concat(GetPointerCountNativeArrayElementTypes(compilation)
                 .Select(elementType => RenderDynamicNativeArrayRegistration(compilation, elementType)))
             .Distinct(StringComparer.Ordinal)
             .ToArray();
@@ -822,35 +829,9 @@ public static partial class BindingOutputRenderer
     }
 
     private static IReadOnlyList<BindingType> GetPointerCountNativeArrayElementTypes(BindingCompilation compilation)
-        => GetPointerCountNativeArrayElementTypes(compilation, compilation.Records);
-
-    private static IReadOnlyList<BindingType> GetPointerCountNativeArrayElementTypes(
-        BindingCompilation compilation,
-        IEnumerable<RecordBinding> records)
     {
         var result = new Dictionary<string, BindingType>(StringComparer.Ordinal);
-        void AddRecordElementType(BindingType type)
-        {
-            if (type.RecordId is null)
-                return;
-
-            var elementRecord = compilation.FindRecordBySymbolId(type.RecordId);
-            if (elementRecord is null || elementRecord.IsIgnored() ||
-                elementRecord.HasMetadata(MetadataKeys.ForwardDeclaration) || elementRecord.IsGeneric ||
-                elementRecord.IsAbstract || elementRecord.IsPolymorphic)
-            {
-                return;
-            }
-
-            result.TryAdd(elementRecord.SymbolId, BindingType.CreateHandle(
-                elementRecord.CppQualifiedName,
-                type.ManagedTypeName,
-                elementRecord.SymbolId,
-                elementRecord.HandleMarshallerTypeName,
-                cppIsRecordValue: true));
-        }
-
-        foreach (var owner in records.Where(static record => !record.IsIgnored()))
+        foreach (var owner in compilation.Records.Where(static record => !record.IsIgnored()))
         {
             foreach (var field in owner.Members.OfType<FieldBinding>().Where(static field => !field.IsIgnored()))
             {
@@ -860,33 +841,6 @@ public static partial class BindingOutputRenderer
             }
         }
 
-        foreach (var function in compilation.Functions.Where(static function => !function.IsIgnored()))
-        {
-            for (var index = 0; index < function.Parameters.Count - 2; ++index)
-            {
-                var capacity = function.Parameters[index];
-                var count = function.Parameters[index + 1];
-                var values = function.Parameters[index + 2];
-                if (capacity.Direction != BindingParameterDirection.In ||
-                    capacity.AbiKind != BindingParameterAbiKind.Value ||
-                    capacity.Type.Kind != BindingTypeKind.Primitive ||
-                    !capacity.NativeName.Contains("Capacity", StringComparison.OrdinalIgnoreCase) ||
-                    !capacity.NativeName.EndsWith("Input", StringComparison.OrdinalIgnoreCase) ||
-                    count.Direction != BindingParameterDirection.Out ||
-                    count.AbiKind != BindingParameterAbiKind.Pointer ||
-                    count.Type.Kind != BindingTypeKind.Primitive ||
-                    !count.NativeName.Contains("Count", StringComparison.OrdinalIgnoreCase) ||
-                    !count.NativeName.EndsWith("Output", StringComparison.OrdinalIgnoreCase) ||
-                    (values.AbiKind != BindingParameterAbiKind.Pointer &&
-                        !values.CppTypeName.TrimEnd().EndsWith('*')) ||
-                    values.Type.Kind != BindingTypeKind.Handle)
-                {
-                    continue;
-                }
-
-                AddRecordElementType(values.Type);
-            }
-        }
         return result.Values.OrderBy(static type => type.CppTypeName, StringComparer.Ordinal).ToArray();
     }
 

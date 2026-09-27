@@ -75,6 +75,24 @@ inline void enumerate_pointer_modes(
         modes[i] = available[i];
 }
 
+/// An OpenXR-style output struct filled through the two-call idiom.
+struct pointer_array_record
+{
+    int id;
+    float weight;
+};
+
+inline void enumerate_pointer_records(
+    unsigned int recordCapacityInput,
+    unsigned int* recordCountOutput,
+    pointer_array_record* records)
+{
+    *recordCountOutput = 2;
+    const unsigned int count = recordCapacityInput < 2 ? recordCapacityInput : 2;
+    for (unsigned int i = 0; i < count; ++i)
+        records[i] = pointer_array_record{static_cast<int>(i) + 4, 0.5f * static_cast<float>(i + 1)};
+}
+
 inline int sum_pointer_values_with_default(
     const int* values,
     unsigned int count,

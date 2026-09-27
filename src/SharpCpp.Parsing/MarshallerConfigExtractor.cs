@@ -117,6 +117,10 @@ internal static class MarshallerConfigExtractor
     internal sealed record ManagedTypeOverride(string CppTypeName, string PublicTypeName)
     {
         public CppTypePattern? NativeTypePattern { get; init; }
+
+        /// <summary>The pattern repeats a template parameter (`twin<T, T>`); see <see cref="MarshallerBodyConfig.ConstrainsTemplateArguments"/>.</summary>
+        public bool ConstrainsTemplateArguments =>
+            NativeTypePattern is { } pattern && HasRepeatedTemplateParameter(pattern, new HashSet<(uint Depth, uint Index)>());
         public bool Undefaultable { get; init; }
         /// <summary>
         /// The public type is the pointee's projection passed by reference (`out string`
@@ -195,6 +199,12 @@ internal static class MarshallerConfigExtractor
         public string? ManagedWrapperProviderKind { get; init; }
         public string? ManagedWrapperProviderNamespace { get; init; }
         public bool? ManagedWrapperCopyable { get; init; }
+
+        /// <summary>
+        /// The configured pattern repeats a template parameter (`twin<T, T>`), so it
+        /// covers some specializations of the record, not the record itself.
+        /// </summary>
+        public bool ConstrainsTemplateArguments { get; init; }
     }
 
     internal static string? GetManagedWrapperProviderKind(string attributeBody)
@@ -556,9 +566,19 @@ internal static class MarshallerConfigExtractor
         {
             ManagedWrapperProviderKind = GetManagedWrapperProviderKind(body),
             ManagedWrapperProviderNamespace = GetManagedWrapperProviderNamespace(body),
-            ManagedWrapperCopyable = GetManagedWrapperCopyable(body)
+            ManagedWrapperCopyable = GetManagedWrapperCopyable(body),
+            ConstrainsTemplateArguments = decl is ClassTemplateSpecializationDecl { TemplateArgs: { Count: > 0 } configured } &&
+                configured[0].Kind == CXTemplateArgumentKind.CXTemplateArgumentKind_Type &&
+                CreateCppTypePattern(configured[0].AsType) is { } pattern &&
+                HasRepeatedTemplateParameter(pattern, new HashSet<(uint Depth, uint Index)>())
         };
     }
+
+    internal static bool HasRepeatedTemplateParameter(CppTypePattern pattern, ISet<(uint Depth, uint Index)> seen) =>
+        pattern.Kind == CppTypePatternKind.TemplateParameter
+            ? !seen.Add((pattern.TemplateParameterDepth, pattern.TemplateParameterIndex))
+            : pattern.Pointee is { } pointee && HasRepeatedTemplateParameter(pointee, seen) ||
+                (pattern.TemplateArguments ?? []).Any(argument => HasRepeatedTemplateParameter(argument, seen));
 
     private static string? GetManagedWrapperProviderNamespace(string attributeBody)
     {
@@ -1042,7 +1062,7 @@ internal static class MarshallerConfigExtractor
             return true;
 
         var actualKind = actualType.CanonicalType.kind;
-        return configuredType.Kind switch
+        var indirectionMatches = configuredType.Kind switch
         {
             CppTypePatternKind.Pointer => actualKind == CXTypeKind.CXType_Pointer,
             CppTypePatternKind.LValueReference => actualKind == CXTypeKind.CXType_LValueReference,
@@ -1051,6 +1071,47 @@ internal static class MarshallerConfigExtractor
                 not CXTypeKind.CXType_LValueReference and
                 not CXTypeKind.CXType_RValueReference
         };
+        return indirectionMatches &&
+            BindsTemplateParametersConsistently(configuredType, actualType.CanonicalType, new Dictionary<(uint Depth, uint Index), CXType>());
+    }
+
+    // The override is found by name; a template parameter repeated in the configured
+    // pattern (`twin<T, T>`) must still bind the same type everywhere, as C++ partial
+    // specialization matching requires.
+    private static bool BindsTemplateParametersConsistently(
+        CppTypePattern configured,
+        CXType actual,
+        IDictionary<(uint Depth, uint Index), CXType> bindings)
+    {
+        switch (configured.Kind)
+        {
+            case CppTypePatternKind.TemplateParameter:
+                var key = (configured.TemplateParameterDepth, configured.TemplateParameterIndex);
+                if (bindings.TryGetValue(key, out var bound))
+                    return clang.equalTypes(bound, actual) != 0;
+                bindings[key] = actual;
+                return true;
+
+            case CppTypePatternKind.Pointer or CppTypePatternKind.LValueReference or CppTypePatternKind.RValueReference:
+                return configured.Pointee is null ||
+                    BindsTemplateParametersConsistently(configured.Pointee, actual.PointeeType.CanonicalType, bindings);
+
+            case CppTypePatternKind.Declared when configured.TemplateArguments is { Count: > 0 } arguments &&
+                actual.NumTemplateArguments == arguments.Count:
+                for (var index = 0; index < arguments.Count; ++index)
+                {
+                    using var argument = actual.GetTemplateArgument(checked((uint)index));
+                    if (argument.AsType.kind != CXTypeKind.CXType_Invalid &&
+                        !BindsTemplateParametersConsistently(arguments[index], argument.AsType.CanonicalType, bindings))
+                    {
+                        return false;
+                    }
+                }
+                return true;
+
+            default:
+                return true;
+        }
     }
 
     private static CppTypePattern? CreateIndirectionPattern(

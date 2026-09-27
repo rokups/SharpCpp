@@ -50,11 +50,4 @@ public sealed class FieldBinding : BindingNamedNode
     public BindingAccessModifier AccessModifier { get; set; } = BindingAccessModifier.Public;
 
     public bool ReturnsOwnedHandle { get; set; }
-
-    /// <summary>
-    /// Structured signature for a field whose native type is a function pointer.
-    /// The signature is detached from the binding tree and is available to target
-    /// generators that project C-style vtables into callable functions.
-    /// </summary>
-    public FunctionBinding? FunctionPointerSignature { get; set; }
 }

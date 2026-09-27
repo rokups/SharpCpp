@@ -50,4 +50,20 @@ public sealed class MarshallerConfigTests
         Assert.IsType<Std.UnorderedMap<uint, Std.Vector<uint>>>(tags);
         Assert.Equal(new uint[] { 7, 8 }, tags[3u]);
     }
+
+    [Fact]
+    public void Marshaller_patterns_repeating_a_template_parameter_match_equal_arguments()
+    {
+        Assert.Equal(7008L, E2EBindings.PackTwin(7008L));
+        // A specialization the pattern does not match stays an instantiation of the record.
+        Assert.Equal(typeof(Twin<int, short>), Assert.Single(typeof(E2EBindings).GetMethod(nameof(E2EBindings.PackMixed))!.GetParameters()).ParameterType);
+    }
+
+    [Fact]
+    public void Strings_without_contiguous_storage_are_copied_byte_by_byte()
+    {
+        var rope = E2EBindings.GetRope();
+        Assert.Equal("knot", rope.ToString());
+        Assert.True(rope.AsUtf8Span().SequenceEqual("knot"u8));
+    }
 }

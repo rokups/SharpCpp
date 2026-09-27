@@ -45,6 +45,18 @@ public sealed class PointerArrayTests
     }
 
     [Fact]
+    public void Capacity_count_record_output_buffers_are_not_bound()
+    {
+        // A record wrapper holds one element while the callee writes up to `capacity`.
+        Assert.Null(typeof(E2EBindings).GetMethod("EnumeratePointerRecords"));
+        Assert.Contains(
+            Diagnostics.GeneratedArtifacts.ReadText("generator.log").Split('\n'),
+            static line => line.StartsWith("IGNORED\tFunction\t", StringComparison.Ordinal) &&
+                line.Contains("\tenumerate_pointer_records\t", StringComparison.Ordinal) &&
+                line.Contains("record output buffer of the capacity/count idiom", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Handle_and_raw_pointer_arrays_round_trip_through_native_pointer_buffers()
     {
         using var first = new PointerArrayPayload(11);

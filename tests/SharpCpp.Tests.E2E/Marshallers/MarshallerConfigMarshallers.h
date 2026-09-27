@@ -37,6 +37,43 @@ template <>
 struct ReturnMarshaller<marshaller_config::tag> : Marshaller<marshaller_config::tag> {};
 
 template <class T>
+struct [[sharpcpp::managed_type(public_type = "long", marshaller_type = "long", suppress_emission = true)]]
+Marshaller<marshaller_config::twin<T, T>>
+{
+    using cpp_type = marshaller_config::twin<T, T>;
+    using abi_type = long long;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) noexcept { return static_cast<long long>(value.first) * 1000 + value.second; }
+    constexpr cpp_type ConvertToCpp(abi_type value) noexcept { return {static_cast<T>(value / 1000), static_cast<T>(value % 1000)}; }
+};
+
+template <>
+struct [[sharpcpp::managed_type(
+    managed_base_type = "global::SharpCpp.Support.StringBase",
+    public_type = "MarshallerConfig.Rope",
+    managed_namespace = "MarshallerConfig"
+)]] Marshaller<marshaller_config::rope*>
+{
+    using cpp_type = marshaller_config::rope*;
+    using abi_type = marshaller_config::rope*;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) noexcept { return value; }
+    constexpr cpp_type ConvertToCpp(abi_type value) noexcept { return value; }
+
+    [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
+    static unsigned long long GetCountCore(const marshaller_config::rope& self) { return self.size(); }
+
+    [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
+    static unsigned char GetAtCore(const marshaller_config::rope& self, unsigned long long index) { return self.at(index); }
+
+    [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
+    static void AddCore(marshaller_config::rope& self, unsigned char value) { self.push_back(static_cast<char>(value)); }
+
+    [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
+    static void ClearCore(marshaller_config::rope& self) { self.clear(); }
+};
+
+template <class T>
 struct tally_helpers
 {
     [[sharpcpp::expose_member]]
