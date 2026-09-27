@@ -4,6 +4,7 @@ using SharpCpp.Model.Ast;
 using SharpCpp.Parsing;
 using SharpCpp.Pipeline;
 using SharpCpp.Rendering;
+using SharpCpp.Toolchain;
 using Microsoft.Extensions.Logging;
 using SharpCpp.Model.Logging;
 
@@ -57,13 +58,15 @@ internal static class Program
             $"-I{Path.Combine(projectRoot, "include")}",
             $"-I{fixtureRoot}"
         };
-        var clangResourceDirectory = Environment.GetEnvironmentVariable("SHARPCPP_CLANG_RESOURCE_DIRECTORY");
-        if (!string.IsNullOrWhiteSpace(clangResourceDirectory) &&
-            Directory.Exists(Path.Combine(clangResourceDirectory, "include")))
-        {
-            clangArguments.Add($"-resource-dir={clangResourceDirectory}");
-        }
-        clangArguments.AddRange(GetSystemCppIncludeArguments());
+        var toolchain = CompilerToolchainDiscovery.Discover(
+            GetOptionValue(args, "--compiler") ?? "c++",
+            clangResourceDirectoryOverride: Environment.GetEnvironmentVariable("SHARPCPP_CLANG_RESOURCE_DIRECTORY"));
+        clangArguments.AddRange(toolchain.GetClangArguments(clangArguments));
+        Logger.LogInformation(
+            "Toolchain: target {TargetTriple}, resource directory {ResourceDirectory}, {IncludeCount} system include directories",
+            toolchain.TargetTriple ?? "(default)",
+            toolchain.ClangResourceDirectory ?? "(none)",
+            toolchain.IncludeDirectories.Count);
         var marshallerConfigurationFiles = new[]
         {
             Path.Combine(projectRoot, "include", "SharpCpp", "Marshaller.hpp")
@@ -668,65 +671,6 @@ internal static class Program
             Commands:
               generate-sample --generated-root <dir> [--project-root <dir>] [--file-stem <stem>] [--log-file <path>]   Emit sample bindings artifacts.
             """);
-    }
-
-    private static IEnumerable<string> GetSystemCppIncludeArguments()
-    {
-        foreach (var includePath in GetSystemCppIncludePaths())
-        {
-            yield return $"-I{includePath}";
-        }
-    }
-
-    private static IEnumerable<string> GetSystemCppIncludePaths()
-    {
-        var cppRoot = "/usr/include/c++";
-        var cppVersionDir = Directory.Exists(cppRoot)
-            ? Directory.EnumerateDirectories(cppRoot)
-                .OrderByDescending(Path.GetFileName, StringComparer.Ordinal)
-                .FirstOrDefault()
-            : null;
-
-        if (!string.IsNullOrWhiteSpace(cppVersionDir))
-        {
-            yield return cppVersionDir;
-
-            foreach (var targetDir in new[]
-                     {
-                         Path.Combine(cppVersionDir, "x86_64-pc-linux-gnu"),
-                         Path.Combine("/usr/include/x86_64-linux-gnu/c++", Path.GetFileName(cppVersionDir))
-                     }.Where(Directory.Exists))
-            {
-                yield return targetDir;
-            }
-
-            var backwardDir = Path.Combine(cppVersionDir, "backward");
-            if (Directory.Exists(backwardDir))
-            {
-                yield return backwardDir;
-            }
-        }
-
-        foreach (var gccRoot in new[] { "/usr/lib/gcc/x86_64-pc-linux-gnu", "/usr/lib/gcc/x86_64-linux-gnu" })
-        {
-            var gccIncludeDir = Directory.Exists(gccRoot)
-                ? Directory.EnumerateDirectories(gccRoot)
-                    .OrderByDescending(Path.GetFileName, StringComparer.Ordinal)
-                    .Select(path => Path.Combine(path, "include"))
-                    .FirstOrDefault(Directory.Exists)
-                : null;
-            if (!string.IsNullOrWhiteSpace(gccIncludeDir))
-            {
-                yield return gccIncludeDir;
-            }
-        }
-
-        if (Directory.Exists("/usr/include/x86_64-linux-gnu"))
-        {
-            yield return "/usr/include/x86_64-linux-gnu";
-        }
-
-        yield return "/usr/include";
     }
 
     private static string? GetOptionValue(IReadOnlyList<string> args, string name)

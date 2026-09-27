@@ -32,6 +32,7 @@ add_custom_command(
           --generated-root "${SHARPCPP_E2E_GENERATED_ROOT}"
           --project-root "${SharpCpp_SOURCE_DIR}"
           --file-stem "${SHARPCPP_E2E_FILE_STEM}"
+          --compiler "${CMAKE_CXX_COMPILER}"
           --log-file "${SHARPCPP_E2E_GENERATOR_LOG_FILE}"
   COMMAND "${CMAKE_COMMAND}" -E touch "${SHARPCPP_E2E_GENERATED_STAMP}"
   DEPENDS "${SHARPCPP_TOOL_DLL}" ${SHARPCPP_E2E_INPUT_HEADERS} ${SHARPCPP_E2E_GENERATOR_INPUTS}

@@ -11,5 +11,6 @@
     <ProjectReference Include="../SharpCpp.Pipeline/SharpCpp.Pipeline.csproj" />
     <ProjectReference Include="../SharpCpp.Rendering/SharpCpp.Rendering.csproj" />
     <ProjectReference Include="../SharpCpp.Support/SharpCpp.Support.csproj" />
+    <ProjectReference Include="../SharpCpp.Toolchain/SharpCpp.Toolchain.csproj" />
   </ItemGroup>
 </Project>
