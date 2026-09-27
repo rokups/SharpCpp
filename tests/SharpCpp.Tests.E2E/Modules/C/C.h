@@ -76,3 +76,87 @@ static inline int coverage_c_read_arguments(const coverage_c_arguments* value)
 {
     return value == 0 || value->ray == 0 ? -1 : value->ray->value;
 }
+
+/* Anonymous records nested in named storage flatten into native access paths. */
+typedef struct c_window_info
+{
+    int version;
+    union
+    {
+        struct
+        {
+            void* display;
+            unsigned long window;
+        } x11;
+    } info;
+} c_window_info;
+
+static c_window_info c_window_info_storage;
+
+static inline c_window_info* c_get_window_info(void)
+{
+    return &c_window_info_storage;
+}
+
+static inline unsigned long c_read_window(const c_window_info* value)
+{
+    return value->info.x11.window + (value->info.x11.display == 0 ? 0u : 1000u);
+}
+
+/* Typedefs of anonymous structs flatten; typedefs of anonymous unions stay values. */
+typedef struct
+{
+    int enabled;
+} c_features;
+
+typedef struct
+{
+    c_features capabilities;
+} c_settings;
+
+typedef union
+{
+    int integer;
+    float scalar;
+} c_value;
+
+typedef struct
+{
+    c_value data;
+} c_value_settings;
+
+static c_settings c_settings_storage;
+static c_value_settings c_value_settings_storage;
+
+static inline c_settings* c_get_settings(void)
+{
+    return &c_settings_storage;
+}
+
+static inline int c_read_settings(const c_settings* value)
+{
+    return value->capabilities.enabled;
+}
+
+static inline c_value_settings* c_get_value_settings(void)
+{
+    c_value_settings_storage.data.integer = 29;
+    return &c_value_settings_storage;
+}
+
+/* Anonymous enums are skipped; named ones are bound. */
+enum
+{
+    c_first_anonymous,
+    c_second_anonymous
+};
+
+enum c_named_value
+{
+    c_third_value = 3
+};
+
+static inline enum c_named_value c_get_named_value(void)
+{
+    return c_third_value;
+}

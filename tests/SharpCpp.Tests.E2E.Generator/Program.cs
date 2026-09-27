@@ -389,20 +389,20 @@ internal static class Program
             .Prepend("-std=c17")
             .Prepend("-xc")
             .ToArray();
-        var cOpaque = ParseModuleHeader(
+        var cModule = ParseModuleHeader(
             "SharpCpp.Tests.E2E.Modules.C",
             "SharpCpp.Tests.E2E.Modules.C.Generated",
-            "COpaqueBindings",
-            "Modules/C/COpaque.h",
+            "CBindings",
+            "Modules/C/C.h",
             "sharpcpp_c_opaque",
             fixtureRoot,
             parser,
             cClangArguments,
             marshallerConfigurationFiles,
             marshallerClangArguments: clangArguments);
-        BindingCompilationBootstrapPipeline.Apply(cOpaque, marshallerConfigurationFiles, clangArguments);
-        RemoveLocalConfiguredWrapperRecords(cOpaque);
-        ApplyModuleProjection(cOpaque);
+        BindingCompilationBootstrapPipeline.Apply(cModule, marshallerConfigurationFiles, clangArguments);
+        RemoveLocalConfiguredWrapperRecords(cModule);
+        ApplyModuleProjection(cModule);
 
         var ownedRootDirectory = Path.Combine(fixtureRoot, "Modules", "OwnedFiles");
         var owned = parser.Parse(new ClangSharpParseRequest(
@@ -440,7 +440,7 @@ internal static class Program
         return BindingOutputRenderer.Render(dependency, "SharpCppMetadataDependency").Files
             .Concat(BindingOutputRenderer.Render(consumer, "SharpCppMetadataConsumer").Files)
             .Concat(BindingOutputRenderer.Render(namespaceMapping, "SharpCppNamespaceMapping").Files)
-            .Concat(BindingOutputRenderer.Render(cOpaque, "SharpCppCOpaque").Files)
+            .Concat(BindingOutputRenderer.Render(cModule, "SharpCppC").Files)
             .Concat(BindingOutputRenderer.Render(owned, "SharpCppOwnedFiles").Files)
             .ToArray();
     }

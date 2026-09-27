@@ -20,6 +20,7 @@ public static class DegradeUnsupportedSurfacePass
                 .GroupBy(static @enum => @enum.SymbolId, StringComparer.Ordinal)
                 .ToDictionary(static group => group.Key, static group => group.Last(), StringComparer.Ordinal);
             var allowedNamespaceRoots = compilation.NamespaceMappings.Keys.ToHashSet(StringComparer.Ordinal);
+            HashSet<string>? referencedRecordIds = null;
 
             foreach (var duplicateGroup in compilation.Functions
                          .Where(static function => function.Parent is not RecordBinding && !function.IsIgnored() && function.Parent?.IsIgnored() != true)
@@ -120,7 +121,8 @@ public static class DegradeUnsupportedSurfacePass
                     continue;
                 }
 
-                if (TryGetUnsupportedRecordReason(record, compilation, recordsById, out var recordReason))
+                referencedRecordIds ??= CollectReferencedRecordIds(compilation);
+                if (TryGetUnsupportedRecordReason(record, compilation, recordsById, referencedRecordIds, out var recordReason))
                 {
                     record.SetIgnoreReason(recordReason);
                     changed = true;
@@ -341,10 +343,37 @@ public static class DegradeUnsupportedSurfacePass
         return false;
     }
 
+    private static HashSet<string> CollectReferencedRecordIds(BindingCompilation compilation)
+    {
+        var referenced = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var function in compilation.Functions.Where(static function => !function.IsIgnored() && function.Parent?.IsIgnored() != true))
+        {
+            AddReferencedRecordIds(function.ReturnType, referenced);
+            foreach (var parameter in function.Parameters)
+                AddReferencedRecordIds(parameter.Type, referenced);
+        }
+
+        foreach (var field in compilation.Records
+                     .Where(static record => !record.IsIgnored())
+                     .SelectMany(static record => record.Members.OfType<FieldBinding>())
+                     .Where(static field => !field.IsIgnored()))
+            AddReferencedRecordIds(field.Type, referenced);
+        return referenced;
+    }
+
+    private static void AddReferencedRecordIds(BindingType type, HashSet<string> referenced)
+    {
+        if (type.RecordId is not null)
+            referenced.Add(type.RecordId);
+        foreach (var argument in type.GenericArguments)
+            AddReferencedRecordIds(argument, referenced);
+    }
+
     private static bool TryGetUnsupportedRecordReason(
         RecordBinding record,
         BindingCompilation compilation,
         IReadOnlyDictionary<string, RecordBinding> recordsById,
+        IReadOnlySet<string> referencedRecordIds,
         out string reason)
     {
         if (record.IsDirector)
@@ -369,9 +398,12 @@ public static class DegradeUnsupportedSurfacePass
         // (metafunctions like IndexInTuple) that shouldn't be wrapped.
         // Their only members would be the synthetic wrapper boilerplate (Handle,
         // constructors, P/Invoke) which is never useful without API methods.
-        // Exception: records with a managed base type or type format are
-        // configured by marshallers (e.g. std::string → StringBase).
+        // Exceptions: records with a managed base type or type format are
+        // configured by marshallers (e.g. std::string → StringBase), and a declared
+        // record a bound signature names (a tag type used as a template argument) is a
+        // type the surface needs.
         if (string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
+            (string.IsNullOrEmpty(record.HeaderIncludePath) || !referencedRecordIds.Contains(record.SymbolId)) &&
             (record.ManagedTypeFormat is null || record.ManagedTypeFormat == record.ManagedName) &&
             !record.GetMetadata<bool>(MetadataKeys.OpaqueNativeHandle) &&
             !record.Members.OfType<FunctionBinding>().Any(static m => !m.IsConstructor && !m.HasMetadata(MetadataKeys.IgnoreReason)) &&

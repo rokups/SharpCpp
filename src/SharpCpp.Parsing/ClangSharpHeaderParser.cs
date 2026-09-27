@@ -551,6 +551,12 @@ public sealed partial class ClangSharpHeaderParser
             return;
         }
 
+        // A lambda in a default argument declares its closure type in the enclosing scope.
+        if (recordDecl is CXXRecordDecl { LambdaCallOperator: not null })
+        {
+            return;
+        }
+
         var nativeName = recordDecl.Spelling;
         if (string.IsNullOrWhiteSpace(nativeName))
         {
@@ -1582,7 +1588,8 @@ public sealed partial class ClangSharpHeaderParser
             fieldType = BindingType.IntPtr;
             ignoreReason = null;
         }
-        if (ShouldExposeCharPointerFieldAsIntPtr(fieldDecl.Type.Handle))
+        if (ShouldExposeCharPointerFieldAsIntPtr(fieldDecl.Type.Handle) ||
+            IsByReferenceProjection(fieldDecl.Type.Handle, managedTypeOverrides))
         {
             fieldType = BindingType.IntPtr;
             ignoreReason = null;
@@ -1904,7 +1911,7 @@ public sealed partial class ClangSharpHeaderParser
             fieldType = BindingType.IntPtr;
             ignoreReason = null;
         }
-        else if (ShouldExposeFlattenedFieldAsIntPtr(leafFieldDecl.Type.Handle, fieldType, recordsByName))
+        else if (ShouldExposeFlattenedFieldAsIntPtr(leafFieldDecl.Type.Handle, fieldType, recordsByName, managedTypeOverrides))
         {
             fieldType = BindingType.IntPtr;
             cppTypeName = BindingType.IntPtr.CppTypeName;
@@ -2151,6 +2158,15 @@ public sealed partial class ClangSharpHeaderParser
             MarshallerConfigExtractor.MatchesManagedTypeOverride(managedTypeOverride, type);
     }
 
+    // Fields and returns cannot pass by reference, so a by-reference projection keeps the
+    // pointer ABI there.
+    private static bool IsByReferenceProjection(CXType type, IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
+    {
+        return TypeIsPointer(type.CanonicalType) &&
+            TryGetManagedTypeOverride(type, managedTypeOverrides, out var pointerOverride) &&
+            pointerOverride!.ByReference;
+    }
+
     private static bool IsMarshallerBackedRecordValue(RecordBinding record)
     {
         return record.GetMetadata<bool>(MetadataKeys.MarshallerConfiguredRecord) ||
@@ -2158,9 +2174,18 @@ public sealed partial class ClangSharpHeaderParser
             record.Members.OfType<FunctionBinding>().Any(static member => member.HasMetadata(MetadataKeys.MarshallerExposedMethod));
     }
 
-    private static bool ShouldExposeFlattenedFieldAsIntPtr(CXType type, BindingType fieldType, IDictionary<string, RecordBinding> recordsByName)
+    private static bool ShouldExposeFlattenedFieldAsIntPtr(
+        CXType type,
+        BindingType fieldType,
+        IDictionary<string, RecordBinding> recordsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
     {
         if (!TypeIsPointer(type.CanonicalType) || fieldType.Kind != BindingTypeKind.Handle || string.IsNullOrWhiteSpace(fieldType.RecordId))
+            return false;
+
+        // A configured pointee (a shared wrapper such as Std.String) is materialized by the
+        // pipeline, so it is not a record yet; it keeps its configured projection.
+        if (TryGetManagedTypeOverride(type.PointeeType, managedTypeOverrides, out _))
             return false;
 
         var record = recordsByName.Values.Distinct().FirstOrDefault(candidate => string.Equals(candidate.SymbolId, fieldType.RecordId, StringComparison.Ordinal));
@@ -3787,6 +3812,14 @@ public sealed partial class ClangSharpHeaderParser
                 enumsByName,
                 managedTypeOverrides,
                 genericParameters);
+        }
+
+        if (isReturn && IsByReferenceProjection(type, managedTypeOverrides))
+        {
+            return BindingType.CreateConfigured(
+                spelledTypeName,
+                BindingType.IntPtr.ManagedTypeName,
+                primitiveKind: BindingPrimitiveKind.IntPtr);
         }
 
         if (isReturn &&
@@ -6448,7 +6481,7 @@ public sealed partial class ClangSharpHeaderParser
     private static void IndexRecordKeys(IDictionary<string, RecordBinding> recordsByName, RecordBinding record)
     {
         TryAddBindingKey(recordsByName, record.NativeName, record);
-        TryAddBindingKey(recordsByName, record.CppQualifiedName, record);
+        SetQualifiedBindingKey(recordsByName, record.CppQualifiedName, record, static existing => existing.CppQualifiedName);
     }
 
     private static RecordBinding? FindExistingRecordForDeclaration(
@@ -6491,7 +6524,23 @@ public sealed partial class ClangSharpHeaderParser
     private static void IndexEnumKeys(IDictionary<string, EnumBinding> enumsByName, EnumBinding @enum)
     {
         TryAddBindingKey(enumsByName, @enum.NativeName, @enum);
-        TryAddBindingKey(enumsByName, @enum.CppQualifiedName, @enum);
+        SetQualifiedBindingKey(enumsByName, @enum.CppQualifiedName, @enum, static existing => existing.CppQualifiedName);
+    }
+
+    // A qualified name identifies one declaration; it replaces a short-name entry of the
+    // same spelling (a global `mode` versus the short key of `ns::mode`).
+    private static void SetQualifiedBindingKey<T>(IDictionary<string, T> dictionary, string? key, T value, Func<T, string> getQualifiedName)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return;
+        }
+
+        if (!dictionary.TryGetValue(key, out var existing) ||
+            !string.Equals(getQualifiedName(existing), key, StringComparison.Ordinal))
+        {
+            dictionary[key] = value;
+        }
     }
 
     private static void TryAddBindingKey<T>(IDictionary<string, T> dictionary, string? key, T value)

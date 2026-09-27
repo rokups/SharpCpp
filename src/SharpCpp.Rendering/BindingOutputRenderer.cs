@@ -71,6 +71,18 @@ public static partial class BindingOutputRenderer
     /// providers), so they live under the module namespace; several modules can then
     /// share one assembly, and wrappers from different namespaces cannot collide.
     /// </summary>
+    private static HashSet<string> GetRenderedRecordClassNames(BindingCompilation compilation)
+    {
+        return compilation.Records
+            .Where(record => !record.GetMetadata<bool>(MetadataKeys.SuppressEmission) &&
+                !record.IsSilentlyExcluded() &&
+                !record.HasMetadata(MetadataKeys.IgnoreReason) &&
+                !record.IsGeneric &&
+                !IsSharedManagedWrapper(record))
+            .Select(record => $"{GetManagedNamespace(compilation, record)}.{record.ManagedName}")
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
     private static string GetMarshallerHelperNamespace(BindingCompilation compilation, RecordBinding record)
     {
         var ns = GetManagedNamespace(compilation, record);
@@ -252,6 +264,7 @@ public static partial class BindingOutputRenderer
             .Distinct()
             .OrderBy(ns => ns, StringComparer.Ordinal);
 
+        var renderedClassNames = GetRenderedRecordClassNames(compilation);
         foreach (var ns in allNamespaces)
         {
             var nsRecords = records.Where(record => GetMarshallerHelperNamespace(compilation, record) == ns).ToArray();
@@ -259,12 +272,21 @@ public static partial class BindingOutputRenderer
             var nsEnums = enums.Where(@enum => GetManagedNamespace(compilation, @enum) == ns).ToArray();
             var nsManagedClasses = managedClasses.Where(managedClass => GetManagedNamespace(compilation, managedClass) == ns).ToArray();
 
+            // Declarations scoped by a record whose managed path is also that record's class
+            // are nested in a part of the class; a namespace of the same name cannot coexist.
+            var enclosingClass = renderedClassNames.Contains(ns) ? ns[(ns.LastIndexOf('.') + 1)..] : null;
             writer.WriteLine();
-            writer.Write(
-                $$"""
-                namespace {{ns}}
-                {
-                """);
+            writer.Write(enclosingClass is null
+                ? $$"""
+                    namespace {{ns}}
+                    {
+                    """
+                : $$"""
+                    namespace {{ns[..ns.LastIndexOf('.')]}}
+                    {
+                    partial class {{enclosingClass}}
+                    {
+                    """);
 
             foreach (var interfaceRecord in nsInterfaces)
             {
@@ -319,6 +341,14 @@ public static partial class BindingOutputRenderer
             {
                 writer.WriteLine();
                 writer.Write(RenderManagedClass(managedClass));
+            }
+
+            if (enclosingClass is not null)
+            {
+                writer.Write(
+                    """
+                    }
+                    """);
             }
 
             writer.Write(
@@ -1227,24 +1257,32 @@ public static partial class BindingOutputRenderer
         }
     }
 
+    // The record token is length-prefixed: joining two identifiers with '_' is ambiguous
+    // (record a_b field c vs flattened record a field b_c).
+    private static string GetNativeFieldEntrypointStem(BindingCompilation compilation, string recordCppTypeName, FieldBinding field)
+    {
+        var recordToken = SanitizeNativeEntrypointName(recordCppTypeName);
+        return $"{compilation.EntryPointPrefix}_{recordToken.Length}_{recordToken}_{field.NativeName}";
+    }
+
     private static string GetNativeFieldGetterEntrypointName(BindingCompilation compilation, string recordCppTypeName, FieldBinding field)
     {
-        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(recordCppTypeName)}_{field.NativeName}_get";
+        return $"{GetNativeFieldEntrypointStem(compilation, recordCppTypeName, field)}_get";
     }
 
     private static string GetNativeFieldItemGetterEntrypointName(BindingCompilation compilation, string recordCppTypeName, FieldBinding field)
     {
-        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(recordCppTypeName)}_{field.NativeName}_item_get";
+        return $"{GetNativeFieldEntrypointStem(compilation, recordCppTypeName, field)}_item_get";
     }
 
     private static string GetNativeFieldSetterEntrypointName(BindingCompilation compilation, string recordCppTypeName, FieldBinding field)
     {
-        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(recordCppTypeName)}_{field.NativeName}_set";
+        return $"{GetNativeFieldEntrypointStem(compilation, recordCppTypeName, field)}_set";
     }
 
     private static string GetNativeFieldItemSetterEntrypointName(BindingCompilation compilation, string recordCppTypeName, FieldBinding field)
     {
-        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(recordCppTypeName)}_{field.NativeName}_item_set";
+        return $"{GetNativeFieldEntrypointStem(compilation, recordCppTypeName, field)}_item_set";
     }
 
     private enum FieldSetterMode
@@ -2640,10 +2678,20 @@ public static partial class BindingOutputRenderer
     private static string GetQualifiedEnumTypeName(BindingCompilation compilation, BindingType type)
     {
         var normalizedName = NormalizeEnumManagedTypeName(type.UnaliasedManagedTypeName);
-        var enumBinding = compilation.Enums.FirstOrDefault(candidate =>
-            string.Equals(candidate.CppQualifiedName, type.CppTypeName, StringComparison.Ordinal) ||
-            string.Equals(candidate.ManagedName, normalizedName, StringComparison.Ordinal) ||
-            string.Equals(candidate.NativeName, type.CppTypeName, StringComparison.Ordinal));
+        var enumBinding = (type.EnumId is null ? null : compilation.FindEnumBySymbolId(type.EnumId)) ??
+            compilation.Enums.FirstOrDefault(candidate =>
+                string.Equals(candidate.CppQualifiedName, type.CppTypeName, StringComparison.Ordinal));
+        if (enumBinding is null)
+        {
+            // Short names are only evidence when they identify a single enum.
+            var matches = compilation.Enums
+                .Where(candidate =>
+                    string.Equals(candidate.ManagedName, normalizedName, StringComparison.Ordinal) ||
+                    string.Equals(candidate.NativeName, type.CppTypeName, StringComparison.Ordinal))
+                .Take(2)
+                .ToArray();
+            enumBinding = matches.Length == 1 ? matches[0] : null;
+        }
         if (enumBinding is null)
         {
             return QualifyManagedTypeText(compilation, normalizedName);
@@ -4884,7 +4932,7 @@ public static partial class BindingOutputRenderer
                         ? BindingParameterAbiKind.Value
                         : BindingParameterAbiKind.Pointer,
                     field.CppTypeName);
-                var setterArgument = field.Type.IsFixedArray
+                var setterArgument = field.Type.IsFixedArray || IsRawPointerHandle(field.Type)
                     ? "value"
                     : CanUseManagedHandleParameterImport(setterParameter, field.Type)
                     ? "value"
@@ -4900,7 +4948,7 @@ public static partial class BindingOutputRenderer
                     }
             """
                     : string.Empty;
-                var setterKeepAlive = field.Type.IsFixedArray || RequiresHandleWrapping(field.Type)
+                var setterKeepAlive = field.Type.IsFixedArray || RequiresHandleWrapping(field.Type) && !IsRawPointerHandle(field.Type)
                     ? "\n            global::System.GC.KeepAlive(value);"
                     : string.Empty;
                 var setterInvocation = field.IsStatic
@@ -5729,14 +5777,17 @@ public static partial class BindingOutputRenderer
             }
         }
 
-        var matches = compilation.TypeAliases
-            .Where(alias => !alias.IsImported && BindingAliasTargetKey.From(alias.TargetType) == targetKey)
-            .Select(static alias => alias.ManagedName)
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
-        if (matches.Length == 1)
+        // Only a type spelled through the alias takes its name; another type with the same
+        // target keeps its own spelling.
+        var spelledAlias = string.IsNullOrWhiteSpace(type.AliasCppQualifiedName)
+            ? null
+            : compilation.TypeAliases.FirstOrDefault(alias =>
+                !alias.IsImported &&
+                string.Equals(alias.CppQualifiedName, type.AliasCppQualifiedName, StringComparison.Ordinal) &&
+                BindingAliasTargetKey.From(alias.TargetType) == targetKey);
+        if (spelledAlias is not null)
         {
-            aliasName = matches[0];
+            aliasName = spelledAlias.ManagedName;
             return true;
         }
 
@@ -6028,7 +6079,16 @@ public static partial class BindingOutputRenderer
     private static bool CanUseManagedHandleParameterImport(ParameterBinding parameter, BindingType type)
     {
         return type.Kind == BindingTypeKind.Handle &&
+            !IsRawPointerHandle(type) &&
             parameter.Direction is not (BindingParameterDirection.Ref or BindingParameterDirection.Out);
+    }
+
+    // A primitive pointer field or return: a handle ABI without a wrapper record.
+    private static bool IsRawPointerHandle(BindingType type)
+    {
+        return type.Kind == BindingTypeKind.Handle &&
+            type.RecordId is null &&
+            string.Equals(type.ManagedTypeName, BindingType.IntPtr.ManagedTypeName, StringComparison.Ordinal);
     }
 
     private static string RenderManagedImportParameter(ParameterBinding parameter, BindingCompilation? compilation = null)
@@ -7494,6 +7554,18 @@ public static partial class BindingOutputRenderer
         writer.Write($"/// <summary>{escaped}</summary>");
     }
 
+    // Imports live in static classes, where these names would hide System.Object members.
+    private static readonly HashSet<string> s_objectMemberNames = new(StringComparer.Ordinal)
+    {
+        "Equals", "Finalize", "GetHashCode", "GetType", "MemberwiseClone", "ReferenceEquals", "ToString"
+    };
+
+    private static string GetImportMethodName(FunctionBinding function, int counter)
+    {
+        var name = s_objectMemberNames.Contains(function.ManagedName) ? $"Native{function.ManagedName}" : function.ManagedName;
+        return counter == 1 ? name : $"{name}{counter}";
+    }
+
     private static void AssignImportMethodNames(BindingCompilation compilation)
     {
         foreach (var group in compilation.Members.OfType<FunctionBinding>()
@@ -7504,7 +7576,7 @@ public static partial class BindingOutputRenderer
             foreach (var function in group.OrderBy(static f => f.SymbolId, StringComparer.Ordinal))
             {
                 counter++;
-                function.ImportMethodName = counter == 1 ? function.ManagedName : $"{function.ManagedName}{counter}";
+                function.ImportMethodName = GetImportMethodName(function, counter);
             }
         }
 
@@ -7517,7 +7589,7 @@ public static partial class BindingOutputRenderer
                 foreach (var function in group.OrderBy(static f => f.SymbolId, StringComparer.Ordinal))
                 {
                     counter++;
-                    function.ImportMethodName = counter == 1 ? function.ManagedName : $"{function.ManagedName}{counter}";
+                    function.ImportMethodName = GetImportMethodName(function, counter);
                 }
             }
         }

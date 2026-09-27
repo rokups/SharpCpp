@@ -1557,7 +1557,7 @@ private:
 };
 
 template <>
-struct [[sharpcpp::managed_type(public_type = "string")]] Marshaller<const char**>
+struct [[sharpcpp::managed_type(public_type = "string", by_reference = true)]] Marshaller<const char**>
 {
     using cpp_type = const char**;
     using abi_type = const char**;
@@ -1591,7 +1591,7 @@ struct [[sharpcpp::managed_type(public_type = "global::System.IntPtr")]] Marshal
 };
 
 template <>
-struct [[sharpcpp::managed_type(public_type = "string")]] Marshaller<char**>
+struct [[sharpcpp::managed_type(public_type = "string", by_reference = true)]] Marshaller<char**>
 {
     using cpp_type = char**;
     using abi_type = char**;

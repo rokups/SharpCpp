@@ -2,7 +2,7 @@ using SharpCpp.Support;
 
 using Xunit;
 
-namespace SharpCpp.Tests.Model;
+namespace SharpCpp.Tests.E2E.Runtime;
 
 public sealed class SharedProviderRegistryTests
 {

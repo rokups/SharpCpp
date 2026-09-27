@@ -36,6 +36,10 @@ internal static class MarshallerConfigExtractor
         @"undefaultable\s*=\s*(?<value>true|false)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    private static readonly Regex ByReferenceExpression = new(
+        @"by_reference\s*=\s*(?<value>true|false)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private static readonly Regex MarshallerTypeInAttributeExpression = new(
         @"marshaller_type\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -114,6 +118,11 @@ internal static class MarshallerConfigExtractor
     {
         public CppTypePattern? NativeTypePattern { get; init; }
         public bool Undefaultable { get; init; }
+        /// <summary>
+        /// The public type is the pointee's projection passed by reference (`out string`
+        /// over `const char**`); positions that cannot pass by reference keep the pointer ABI.
+        /// </summary>
+        public bool ByReference { get; init; }
         public string? MarshallerTypeName { get; init; }
         public string? ManagedMarshaller { get; init; }
         public string? ManagedNamespace { get; init; }
@@ -405,6 +414,8 @@ internal static class MarshallerConfigExtractor
                     : null,
             Undefaultable = undefaultableMatch.Success &&
                 string.Equals(undefaultableMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase),
+            ByReference = ByReferenceExpression.Match(body) is { Success: true } byReferenceMatch &&
+                string.Equals(byReferenceMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase),
             MarshallerTypeName = marshallerTypeMatch.Success ? marshallerTypeMatch.Groups["value"].Value : null,
             ManagedMarshaller = managedMarshallerMatch.Success ? managedMarshallerMatch.Groups["value"].Value : null,
             ManagedNamespace = managedNamespaceMatch.Success ? managedNamespaceMatch.Groups["value"].Value : null,
