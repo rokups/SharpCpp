@@ -103,7 +103,7 @@ public sealed class ClangSharpHeaderParserFieldTests
     }
 
     [Fact]
-    public void Parse_keeps_unsupported_nested_pointer_fields_ignored()
+    public void Parse_projects_string_table_fields_as_pointers_and_keeps_callback_arrays_ignored()
     {
         var compilation = ParseTempHeader(
             "Sample.hpp",
@@ -122,7 +122,8 @@ public sealed class ClangSharpHeaderParserFieldTests
         var names = Assert.Single(record.Members.OfType<FieldBinding>(), static field => field.NativeName == "names");
         var callbacks = Assert.Single(record.Members.OfType<FieldBinding>(), static field => field.NativeName == "callbacks");
 
-        Assert.True(names.IsIgnored());
+        Assert.False(names.IsIgnored(), names.GetIgnoreReason());
+        Assert.Equal(BindingPrimitiveKind.IntPtr, names.Type.PrimitiveKind);
         Assert.True(callbacks.IsIgnored());
     }
 

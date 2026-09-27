@@ -22,10 +22,9 @@ History lives in git. This file lists only what is open.
 - [ ] RedBolt module generators (core, Glow, Network, PhysicsBox2D, PhysicsJolt,
       RmlUI) still carry private copies of the toolchain discovery; switch them once the
       engine's pinned SharpCpp includes `SharpCpp.Toolchain`.
-- [ ] Unit tests: `ManagedCallbackRenderingTests.Callback_entry_point_is_emitted_on_top_level_binding_class`
-      and `ClangSharpHeaderParserFieldTests.Parse_keeps_unsupported_nested_pointer_fields_ignored`
-      already failed before this work; `Parse_forced_director_records_preserves_abstract_constructors`
-      pins the parser-level rule that moved to `DegradeUnsupportedSurfacePass`.
+- [x] Unit tests brought up to date with the fully-qualified managed-callback entry
+      point, `char**` fields projected as `IntPtr`, and abstract constructors degraded in
+      `DegradeUnsupportedSurfacePass`; the Model suite passes.
 - [ ] Coverage gate: 93.56% against the 95% minimum; close the gap with E2E fixtures.
 
 ## Later stages

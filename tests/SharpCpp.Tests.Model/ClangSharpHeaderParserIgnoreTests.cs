@@ -1,5 +1,6 @@
 using SharpCpp.Model.Ast;
 using SharpCpp.Parsing;
+using SharpCpp.Pipeline;
 using System.Runtime.CompilerServices;
 
 using Xunit;
@@ -100,6 +101,8 @@ public sealed class ClangSharpHeaderParserIgnoreTests
             MarshallerConfigurationFiles: Array.Empty<string>(),
             EntryPointPrefix: "Test_",
             DirectorRecordCppTypeNames: new HashSet<string>(StringComparer.Ordinal) { "Test::ForcedAbstract" }));
+        DegradeUnsupportedSurfacePass.Apply(defaultCompilation);
+        DegradeUnsupportedSurfacePass.Apply(forcedCompilation);
         var forcedRecord = Assert.Single(forcedCompilation.Records, static record => record.CppQualifiedName == "Test::ForcedAbstract");
         var forcedConstructor = Assert.Single(forcedRecord.Members.OfType<FunctionBinding>(), static function => function.IsConstructor);
 

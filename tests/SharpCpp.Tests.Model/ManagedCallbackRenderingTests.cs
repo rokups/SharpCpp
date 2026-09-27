@@ -24,7 +24,7 @@ public sealed class ManagedCallbackRenderingTests
         var generated = BindingOutputRenderer.Render(compilation, "Test.Bindings");
         var aliases = Assert.Single(generated.Files, file => file.RelativePath.EndsWith("Aliases.g.cs", StringComparison.Ordinal));
 
-        Assert.Contains("&Bindings.__InvokeManagedCallback_", aliases.Content, StringComparison.Ordinal);
+        Assert.Contains("&global::Test.Bindings.__InvokeManagedCallback_", aliases.Content, StringComparison.Ordinal);
         Assert.Contains("private static void __InvokeManagedCallback_", aliases.Content, StringComparison.Ordinal);
         Assert.DoesNotContain(
             "&__CallbackMarshaller",
