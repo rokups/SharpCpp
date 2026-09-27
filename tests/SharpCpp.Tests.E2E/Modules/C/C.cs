@@ -136,4 +136,12 @@ public sealed class CTests
             static line => line.Contains("\tc_file_is_null\t", StringComparison.Ordinal) &&
                 line.Contains("defined outside headers owned by this compilation", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void Records_with_counted_opaque_handle_arrays_bind()
+    {
+        using var list = CBindings.CGetHandleList();
+        list.HandleCount = 2;
+        Assert.Equal(2u, list.HandleCount);
+    }
 }

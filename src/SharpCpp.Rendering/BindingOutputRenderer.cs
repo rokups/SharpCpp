@@ -3616,7 +3616,7 @@ public static partial class BindingOutputRenderer
 
         var writer = new CodeWriter();
         var firstUndefaultable = GetFirstUndefaultableParamIndex(function);
-        if (firstUndefaultable >= 0)
+        if (ShouldEmitUndefaultablePrefixOverload(compilation, function))
         {
             var prefixParameters = function.Parameters.Take(firstUndefaultable).ToArray();
             writer.Write(RenderManagedPointerArrayFunctionCore(
@@ -4153,6 +4153,7 @@ public static partial class BindingOutputRenderer
         // =========================================================
         // Overload A: params before first undefaultable index
         // =========================================================
+        if (ShouldEmitUndefaultablePrefixOverload(compilation, function))
         {
             var beforeParams = function.Parameters.Take(firstU).ToArray();
             var aParamList = string.Join(", ", beforeParams.Select(p => RenderManagedPublicParameter(p, compilation)));
@@ -5432,7 +5433,7 @@ public static partial class BindingOutputRenderer
             if (HasNativeDefaultDispatchParams(function) || HasUndefaultableParams(function))
             {
                 writer.WriteLine();
-                writer.Write(RenderNativeUnexpressibleDefaultFreeFunction(function));
+                writer.Write(RenderNativeUnexpressibleDefaultFreeFunction(compilation, function));
             }
         }
 
@@ -5473,7 +5474,7 @@ public static partial class BindingOutputRenderer
             if (HasNativeDefaultDispatchParams(method) || HasUndefaultableParams(method))
             {
                 writer.WriteLine();
-                writer.Write(RenderNativeUnexpressibleDefaultInstanceMethod(method));
+                writer.Write(RenderNativeUnexpressibleDefaultInstanceMethod(compilation, method));
             }
         }
 
@@ -5525,7 +5526,7 @@ public static partial class BindingOutputRenderer
             if (HasNativeDefaultDispatchParams(method) || HasUndefaultableParams(method))
             {
                 writer.WriteLine();
-                writer.Write(RenderNativeUnexpressibleDefaultStaticMethod(method));
+                writer.Write(RenderNativeUnexpressibleDefaultStaticMethod(compilation, method));
             }
         }
 
@@ -5550,7 +5551,7 @@ public static partial class BindingOutputRenderer
             if (HasNativeDefaultDispatchParams(constructor) || HasUndefaultableParams(constructor))
             {
                 writer.WriteLine();
-                writer.Write(RenderNativeUnexpressibleDefaultConstructor(constructor, owningRecord is not null && owningRecord.RequiresDirector(compilation)));
+                writer.Write(RenderNativeUnexpressibleDefaultConstructor(compilation, constructor, owningRecord is not null && owningRecord.RequiresDirector(compilation)));
             }
         }
 
@@ -6242,7 +6243,7 @@ public static partial class BindingOutputRenderer
     {
         foreach (var keepCount in GetUnexpressibleDefaultConvenienceOverloadParameterIndices(function))
         {
-            if (isConstructor && ShouldSkipConflictingConstructorConvenienceOverload(compilation, function, keepCount))
+            if (CollidesWithSiblingManagedOverload(compilation, function, keepCount))
             {
                 continue;
             }
@@ -6302,36 +6303,72 @@ public static partial class BindingOutputRenderer
         }
     }
 
-    private static bool ShouldSkipConflictingConstructorConvenienceOverload(BindingCompilation compilation, FunctionBinding function, int keepCount)
+    /// <summary>
+    /// A prefix overload produced by default splitting (an unexpressible-default convenience
+    /// overload or the prefix before the first undefaultable parameter) is dropped when another
+    /// member of the same managed overload set exposes the same managed signature: a member
+    /// whose full parameter list is the prefix keeps it, and prefixes shared by several members
+    /// are ambiguous natively, so only their longer overloads remain.
+    /// </summary>
+    private static bool CollidesWithSiblingManagedOverload(BindingCompilation compilation, FunctionBinding function, int keepCount)
     {
-        if (function.Parent is not RecordBinding record)
-            return false;
-
-        foreach (var other in record.Members.OfType<FunctionBinding>().Where(static member => member.IsConstructor && !member.HasMetadata(MetadataKeys.IgnoreReason)))
+        foreach (var other in GetManagedOverloadSiblings(compilation, function))
         {
-            if (ReferenceEquals(other, function))
-                continue;
-
-            if (!ConstructorExposesManagedSignatureWithArity(other, keepCount))
-                continue;
-
-            if (!ManagedParameterPrefixSignaturesMatch(compilation, function, other, keepCount))
-                continue;
-
-            if (other.Parameters.Count == keepCount ||
-                string.CompareOrdinal(function.SymbolId, other.SymbolId) > 0)
+            if (ExposesManagedSignatureWithArity(other, keepCount) &&
+                ManagedParameterPrefixSignaturesMatch(compilation, function, other, keepCount))
+            {
                 return true;
+            }
         }
 
         return false;
     }
 
-    private static bool ConstructorExposesManagedSignatureWithArity(FunctionBinding constructor, int parameterCount)
+    private static bool ShouldEmitUndefaultablePrefixOverload(BindingCompilation compilation, FunctionBinding function)
     {
-        if (constructor.Parameters.Count == parameterCount)
+        var firstUndefaultable = GetFirstUndefaultableParamIndex(function);
+        return firstUndefaultable >= 0 && !CollidesWithSiblingManagedOverload(compilation, function, firstUndefaultable);
+    }
+
+    private static IEnumerable<FunctionBinding> GetManagedOverloadSiblings(BindingCompilation compilation, FunctionBinding function)
+    {
+        IEnumerable<FunctionBinding> candidates;
+        if (function.Parent is RecordBinding record)
+        {
+            candidates = function.IsConstructor
+                ? record.Members.OfType<FunctionBinding>().Where(static member => member.IsConstructor)
+                : record.Members.OfType<FunctionBinding>().Where(member =>
+                    !member.IsConstructor &&
+                    string.Equals(member.ManagedName, function.ManagedName, StringComparison.Ordinal));
+        }
+        else
+        {
+            var managedNamespace = GetManagedNamespace(compilation, function);
+            var managedClassName = GetManagedClassName(compilation, function);
+            candidates = compilation.Members.OfType<FunctionBinding>().Where(member =>
+                member.Parent is not RecordBinding &&
+                !member.IsConstructor &&
+                string.Equals(member.ManagedName, function.ManagedName, StringComparison.Ordinal) &&
+                string.Equals(GetManagedNamespace(compilation, member), managedNamespace, StringComparison.Ordinal) &&
+                string.Equals(GetManagedClassName(compilation, member), managedClassName, StringComparison.Ordinal));
+        }
+
+        return candidates.Where(member =>
+            !ReferenceEquals(member, function) &&
+            !member.IsGeneric &&
+            !member.HasMetadata(MetadataKeys.IgnoreReason) &&
+            !member.IsSilentlyExcluded());
+    }
+
+    private static bool ExposesManagedSignatureWithArity(FunctionBinding function, int parameterCount)
+    {
+        if (function.Parameters.Count == parameterCount)
             return true;
 
-        return GetUnexpressibleDefaultConvenienceOverloadParameterIndices(constructor).Contains(parameterCount);
+        if (HasUndefaultableParams(function))
+            return GetFirstUndefaultableParamIndex(function) == parameterCount;
+
+        return GetUnexpressibleDefaultConvenienceOverloadParameterIndices(function).Contains(parameterCount);
     }
 
     private static bool ManagedParameterPrefixSignaturesMatch(BindingCompilation compilation, FunctionBinding left, FunctionBinding right, int parameterCount)
@@ -7738,6 +7775,21 @@ public static partial class BindingOutputRenderer
         return indices.OrderBy(static i => i).ToArray();
     }
 
+    /// <summary>Variant thunks that are called: the undefaultable prefix variant goes with its dropped overload.</summary>
+    private static IReadOnlyList<int> GetEmittedVariantParameterIndices(BindingCompilation compilation, FunctionBinding function)
+    {
+        var indices = GetVariantParameterIndices(function);
+        var firstUndefaultable = GetFirstUndefaultableParamIndex(function);
+        if (firstUndefaultable < 0 ||
+            ShouldEmitUndefaultablePrefixOverload(compilation, function) ||
+            GetNativeDefaultDispatchParameterIndices(function).Contains(firstUndefaultable))
+        {
+            return indices;
+        }
+
+        return indices.Where(index => index != firstUndefaultable).ToArray();
+    }
+
     private static IReadOnlyList<ParameterBinding> GetUnexpressibleVariantParams(FunctionBinding function, int keepCount)
     {
         return function.Parameters.Take(keepCount).ToArray();
@@ -7757,7 +7809,7 @@ public static partial class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         var importMethodName = GetManagedImportMethodName(function);
-        foreach (var keepCount in GetVariantParameterIndices(function))
+        foreach (var keepCount in GetEmittedVariantParameterIndices(compilation, function))
         {
             var variantParams = GetUnexpressibleVariantParams(function, keepCount);
             var parameterList = string.Join(", ", variantParams.Select(parameter => RenderManagedImportParameter(parameter, compilation)));
@@ -7783,7 +7835,7 @@ public static partial class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         var importMethodName = GetManagedImportMethodName(function);
-        foreach (var keepCount in GetVariantParameterIndices(function))
+        foreach (var keepCount in GetEmittedVariantParameterIndices(compilation, function))
         {
             var variantParams = GetUnexpressibleVariantParams(function, keepCount);
             var parameterList = string.Join(", ", variantParams.Select(parameter => RenderManagedImportParameter(parameter, compilation)));
@@ -7817,7 +7869,7 @@ public static partial class BindingOutputRenderer
             ? GetNativeCallbaseEntrypointName(compilation, owningRecord, function)
             : function.EntryPointName;
 
-        foreach (var keepCount in GetVariantParameterIndices(function))
+        foreach (var keepCount in GetEmittedVariantParameterIndices(compilation, function))
         {
             var variantParams = GetUnexpressibleVariantParams(function, keepCount);
             var parameterList = string.Join(", ", new[] { $"{recordManagedName} self" }.Concat(variantParams.Select(parameter => RenderManagedImportParameter(parameter, compilation))));
@@ -7844,7 +7896,7 @@ public static partial class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         var importMethodName = GetManagedImportMethodName(function);
-        foreach (var keepCount in GetVariantParameterIndices(function))
+        foreach (var keepCount in GetEmittedVariantParameterIndices(compilation, function))
         {
             var variantParams = GetUnexpressibleVariantParams(function, keepCount);
             var parameterList = string.Join(", ", variantParams.Select(parameter => RenderManagedImportParameter(parameter, compilation)));
@@ -7958,10 +8010,10 @@ public static partial class BindingOutputRenderer
         return $"using namespace {cppNamespace};";
     }
 
-    private static string RenderNativeUnexpressibleDefaultFreeFunction(FunctionBinding function)
+    private static string RenderNativeUnexpressibleDefaultFreeFunction(BindingCompilation compilation, FunctionBinding function)
     {
         var writer = new CodeWriter();
-        foreach (var keepCount in GetVariantParameterIndices(function))
+        foreach (var keepCount in GetEmittedVariantParameterIndices(compilation, function))
         {
             var variantParams = GetUnexpressibleVariantParams(function, keepCount);
             var invocation = $"return {function.CppQualifiedName}({ForwardVariantArgs(variantParams)});";
@@ -7970,10 +8022,10 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string RenderNativeUnexpressibleDefaultStaticMethod(FunctionBinding method)
+    private static string RenderNativeUnexpressibleDefaultStaticMethod(BindingCompilation compilation, FunctionBinding method)
     {
         var writer = new CodeWriter();
-        foreach (var keepCount in GetVariantParameterIndices(method))
+        foreach (var keepCount in GetEmittedVariantParameterIndices(compilation, method))
         {
             var variantParams = GetUnexpressibleVariantParams(method, keepCount);
             var invocation = $"return {method.OwningRecordCppTypeName}::{method.NativeName}({ForwardVariantArgs(variantParams)});";
@@ -7982,7 +8034,7 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string RenderNativeUnexpressibleDefaultInstanceMethod(FunctionBinding method)
+    private static string RenderNativeUnexpressibleDefaultInstanceMethod(BindingCompilation compilation, FunctionBinding method)
     {
         if (method.AccessModifier == BindingAccessModifier.Protected)
         {
@@ -7990,7 +8042,7 @@ public static partial class BindingOutputRenderer
         }
 
         var writer = new CodeWriter();
-        foreach (var keepCount in GetVariantParameterIndices(method))
+        foreach (var keepCount in GetEmittedVariantParameterIndices(compilation, method))
         {
             var variantParams = GetUnexpressibleVariantParams(method, keepCount);
             var forwardedArgs = ForwardVariantArgs(variantParams);
@@ -8016,7 +8068,7 @@ public static partial class BindingOutputRenderer
         var directorName = GetNativeDirectorClassName(record);
         var baseEntrypointName = GetNativeCallbaseEntrypointName(compilation, record, method);
 
-        foreach (var keepCount in GetVariantParameterIndices(method))
+        foreach (var keepCount in GetEmittedVariantParameterIndices(compilation, method))
         {
             var variantParams = GetUnexpressibleVariantParams(method, keepCount);
             var forwardedArgs = ForwardVariantArgs(variantParams);
@@ -8026,7 +8078,7 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string RenderNativeUnexpressibleDefaultConstructor(FunctionBinding constructor, bool requiresDirector)
+    private static string RenderNativeUnexpressibleDefaultConstructor(BindingCompilation compilation, FunctionBinding constructor, bool requiresDirector)
     {
         var writer = new CodeWriter();
         var constructedTypeName = requiresDirector
@@ -8034,7 +8086,7 @@ public static partial class BindingOutputRenderer
             : constructor.OwningRecordCppTypeName;
         var namespacePreamble = BuildConstructorDefaultNamespacePreamble(constructor);
 
-        foreach (var keepCount in GetVariantParameterIndices(constructor))
+        foreach (var keepCount in GetEmittedVariantParameterIndices(compilation, constructor))
         {
             var variantParams = GetUnexpressibleVariantParams(constructor, keepCount);
             var invocation = string.IsNullOrWhiteSpace(namespacePreamble)
@@ -8245,6 +8297,7 @@ public static partial class BindingOutputRenderer
         // =========================================================
         // Overload A: params before first undefaultable index
         // =========================================================
+        if (ShouldEmitUndefaultablePrefixOverload(compilation, function))
         {
             var beforeParams = function.Parameters.Take(firstU).ToArray();
 

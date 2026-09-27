@@ -1146,7 +1146,8 @@ public sealed partial class ClangSharpHeaderParser
                         break;
                     }
 
-                case EnumDecl enumDecl:
+                // Declarations nested in a class template depend on its arguments.
+                case EnumDecl enumDecl when !record.IsGeneric:
                     if (!string.IsNullOrEmpty(enumDecl.Name) &&
                         !GetCppQualifiedName(enumDecl).Contains("(unnamed enum", StringComparison.Ordinal))
                         RegisterEnum(enumDecl, compilation, enumsByName, headerIncludePath);
@@ -1155,6 +1156,7 @@ public sealed partial class ClangSharpHeaderParser
                 // Public records declared in the record's scope; the injected class name
                 // is implicit, and anonymous records are flattened into their field.
                 case CXXRecordDecl nestedRecordDecl when
+                    !record.IsGeneric &&
                     nestedRecordDecl is not ClassTemplateSpecializationDecl &&
                     !nestedRecordDecl.IsInjectedClassName &&
                     !IsAnonymousRecordDecl(nestedRecordDecl) &&

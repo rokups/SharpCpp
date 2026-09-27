@@ -311,3 +311,17 @@ static inline int c_first_arg_length(char** argv)
         ++length;
     return length;
 }
+
+/* A counted array of opaque handles (OpenXR style): no NativeArray of the incomplete record. */
+typedef struct c_handle_list
+{
+    c_native_handle* handles;
+    unsigned int handleCount;
+} c_handle_list;
+
+static c_handle_list c_handle_list_storage;
+
+static inline c_handle_list* c_get_handle_list(void)
+{
+    return &c_handle_list_storage;
+}

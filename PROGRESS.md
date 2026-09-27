@@ -34,3 +34,19 @@ Typed model (`CppType`, typed facets, diagnostic codes, `clang::annotate` attrib
 marshaller catalog and crossing resolver, emitters, type library breadth, declarative
 consumer configuration. Template specializations are already identified by their
 complete canonical arguments; the rest of type identity is still string-based.
+
+Known gaps (unbound or degraded today, with a diagnostic where the generator sees them):
+
+- An abstract record without a director has no managed wrapper factory.
+- Secondary-base parameters and returns cannot take or produce a derived wrapper (C#
+  single inheritance).
+- Open containers of a template parameter (`std::vector<T>` in a generic member) are not
+  bound.
+- Fields of type `T` in class templates are not bound.
+- Capacity/count functions whose output buffer is a record pointer are not bound; binding
+  them needs a `NativeArray<T>` buffer parameter.
+- A constrained marshaller pattern checks repeated type parameters only; repeated
+  non-type parameters are not compared.
+- A field of type `T**` (for example a counted array of opaque handles, `XrSpaceUserFB*`)
+  is exposed as a single `T` wrapper; only record fields with a matching count get
+  per-item accessors, and C modules do not.

@@ -835,8 +835,15 @@ public static partial class BindingOutputRenderer
         {
             foreach (var field in owner.Members.OfType<FieldBinding>().Where(static field => !field.IsIgnored()))
             {
-                if (!TryGetPointerCountNativeArrayShape(compilation, field, out var shape))
+                // Only a counted array of record values can be allocated as NativeArray<T>;
+                // `T**` holds pointers and an opaque handle record has no complete type.
+                if (field.PointerDepth != 1 ||
+                    !TryGetPointerCountNativeArrayShape(compilation, field, out var shape) ||
+                    compilation.FindRecordBySymbolId(shape.ElementType.RecordId!)?.GetMetadata<bool>(MetadataKeys.OpaqueNativeHandle) == true)
+                {
                     continue;
+                }
+
                 result.TryAdd(shape.ElementType.RecordId!, shape.ElementType);
             }
         }
