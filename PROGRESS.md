@@ -14,8 +14,8 @@ History lives in git. This file lists only what is open.
 - [x] E2E fixtures grouped by C++ feature; separately generated modules live under `Modules/`.
 - [x] Test-only wiring moved from `src/SharpCpp.Tool` into the
       `tests/SharpCpp.Tests.E2E.Generator` driver; it no longer counts toward coverage.
-- [ ] Delete `SharpCpp.Tests.Model` / `SharpCpp.Tests.Metadata` after moving their
-      scenarios to E2E.
+- [x] `SharpCpp.Tests.Model` / `SharpCpp.Tests.Metadata` deleted; their scenarios are
+      E2E fixtures.
 - [x] `AssignImportMethodNames` in one place; annotation caches reset per parse (the
       statics themselves go with the Stage 1 `ParseSession`).
 - [x] `SharpCpp.Toolchain`: compiler-driven toolchain discovery used by the E2E driver

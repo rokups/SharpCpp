@@ -11,8 +11,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/SharpCpp.Tests.E2E/SharpCpp.Tests.E2E.csproj" />
-    <Project Path="tests/SharpCpp.Tests.Metadata/SharpCpp.Tests.Metadata.csproj" />
-    <Project Path="tests/SharpCpp.Tests.Model/SharpCpp.Tests.Model.csproj" />
   </Folder>
   <Folder Name="/native/">
     <Project Path="native/SharpCpp.Native/SharpCpp.Native.csproj" />

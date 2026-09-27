@@ -48,9 +48,8 @@ by C++ feature (`Aliases/`, `Callback/`, `Records/`, `StandardLibrary/`, ...); e
 `Modules/` is generated as a separate binding module by the generator driver:
 `CrossModule/` and `Metadata/` import another module's metadata, `NamespaceMapping/`
 uses namespace mappings, `C/` parses a C header and `OwnedFiles/` uses owned file roots.
-Unit test
-projects (`SharpCpp.Tests.Model`, `SharpCpp.Tests.Metadata`) are scheduled for
-removal once their scenarios are covered by E2E fixtures.
+The exported `*.Bindings.json` documents are asserted through
+`Diagnostics/GeneratedArtifacts.cs`. There are no unit test projects; E2E is the only suite.
 
 ## Consumers
 
