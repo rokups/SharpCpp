@@ -6769,9 +6769,12 @@ public sealed partial class ClangSharpHeaderParser
         var defaultValue = GetManagedDefaultValueExpression(parameterDecl, parameterType);
         parameter.ManagedDefaultValueExpression = defaultValue;
 
+        // The mapped type keeps the source spelling, which may be unqualified inside the
+        // declaring namespace; the configuration is keyed by the qualified type.
         var isUndefaultableDefault = parameterDecl.HasDefaultArg &&
             managedTypeOverrides is not null &&
-            managedTypeOverrides.TryGetValue(parameterType.CppTypeName, out var overrideInfo) &&
+            (managedTypeOverrides.TryGetValue(parameterType.CppTypeName, out var overrideInfo) ||
+             managedTypeOverrides.TryGetValue(NormalizeTypeName(parameterDecl.Type.CanonicalType.AsString), out overrideInfo)) &&
             overrideInfo.Undefaultable;
 
         if (defaultValue is null && parameterDecl.HasDefaultArg && !isUndefaultableDefault)
