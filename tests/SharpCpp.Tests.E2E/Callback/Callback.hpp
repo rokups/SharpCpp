@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <functional>
 #include <string>
 
@@ -102,4 +103,11 @@ inline int invoke_external_delegate_callback(
     int value)
 {
     return callback(value);
+}
+
+// Shared wrapper with a non-type template argument crossing into a managed callback.
+inline int invoke_array_callback(std::function<int(std::array<int, 2>&)> callback)
+{
+    std::array<int, 2> values{ 3, 4 };
+    return callback(values);
 }

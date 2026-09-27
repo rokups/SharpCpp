@@ -6962,9 +6962,18 @@ public static partial class BindingOutputRenderer
         if (record is not null)
         {
             var moduleArgument = GetSharedManagedProviderModuleArgument(compilation, record);
-            var nativeTemplateArgument = HasNativeNonTypeTemplateArguments(type)
+            // Shared wrappers resolve their native shape through the provider registry.
+            var nativeTemplateArgument = HasNativeNonTypeTemplateArguments(type) && !IsSharedManagedWrapper(record)
                 ? $", nativeTemplateKey: \"{EscapeCSharpString(GetNativeTemplateArgumentKey(type.NativeTemplateArguments))}\""
                 : string.Empty;
+            // Fixed arrays cross as NativeArrayAbi; a bare pointer (callback argument) is
+            // paired with the compile-time length.
+            if (IsGenericArrayRecord(record) && !IsGenericDynamicArrayRecord(record) &&
+                type.NativeTemplateArguments.FirstOrDefault(static argument => argument.Kind == BindingTemplateArgumentKind.Integral) is { } lengthArgument)
+            {
+                handleExpression = $"new global::SharpCpp.Support.NativeArrayAbi({handleExpression}, {lengthArgument.IntegralValue.ToString(System.Globalization.CultureInfo.InvariantCulture)})";
+            }
+
             return $"{GetManagedWrapperTypeName(type, compilation)}.CreateManagedWrapper({handleExpression}, ownsHandle: {ownsHandle.ToString().ToLowerInvariant()}{moduleArgument}{nativeTemplateArgument})";
         }
 

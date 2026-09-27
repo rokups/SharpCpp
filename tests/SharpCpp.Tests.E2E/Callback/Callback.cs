@@ -11,6 +11,14 @@ public delegate int ExternalValueCallback(int value);
 public sealed class CallbackTests
 {
     [Fact]
+    public void Callback_receives_shared_wrapper_with_non_type_template_argument()
+    {
+        var sum = E2EBindings.InvokeArrayCallback(values => values[0] + values[1]);
+
+        Assert.Equal(7, sum);
+    }
+
+    [Fact]
     public void Action_callback_is_invoked_by_native_code()
     {
         var observed = 0;
