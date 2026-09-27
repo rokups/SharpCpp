@@ -48,6 +48,27 @@ enum class [[sharpcpp::ignore]] skipped_enum
 
 SHARPCPP_IGNORED_PAIR(macro_generated)
 
+// A comment-only annotation directly above a declaration is honoured by the prescan.
+// [[sharpcpp::ignore("prescan only")]]
+inline int prescan_ignored_function(int value)
+{
+    return value;
+}
+
+struct deleted_box
+{
+    deleted_box() {}
+    deleted_box(int) = delete;
+
+    deleted_box& operator=(const deleted_box&) = delete;
+    int deleted_method() = delete;
+
+    int value() const
+    {
+        return 3;
+    }
+};
+
 inline int ignore_surface_round_trip(int value)
 {
     return value + 1;

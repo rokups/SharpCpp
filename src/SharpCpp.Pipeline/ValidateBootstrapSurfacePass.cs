@@ -161,7 +161,8 @@ public static class ValidateBootstrapSurfacePass
             argument.RecordId is not null &&
             recordsById.TryGetValue(argument.RecordId, out var argRecord))
         {
-            if (argRecord.IsIgnored() && IsFatalIgnoredGenericArgumentRecord(argRecord))
+            // An ignored record has no managed class to name as a type argument.
+            if (argRecord.IsIgnored())
             {
                 return false;
             }
@@ -260,26 +261,6 @@ public static class ValidateBootstrapSurfacePass
         }
 
         return typeArguments;
-    }
-
-    private static bool IsFatalIgnoredGenericArgumentRecord(RecordBinding record)
-    {
-        if (record.GetMetadata<bool>(MetadataKeys.ForwardDeclaration) &&
-            !record.GetMetadata<bool>(MetadataKeys.OpaqueNativeHandle))
-        {
-            return true;
-        }
-
-        if (record.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) &&
-            !record.GetMetadata<bool>(MetadataKeys.SuppressEmission))
-        {
-            return true;
-        }
-
-        var ignoreReason = record.GetIgnoreReason() ?? string.Empty;
-        return ignoreReason.Contains("outside the configured namespace mappings", StringComparison.Ordinal) ||
-            ignoreReason.Contains("internal detail namespace", StringComparison.Ordinal) ||
-            ignoreReason.Contains("wrapper materialization requires a complete definition", StringComparison.Ordinal);
     }
 
     private static IReadOnlyList<int> GetManagedVisibleGenericParameterIndices(RecordBinding record)

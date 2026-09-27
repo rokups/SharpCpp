@@ -26,6 +26,14 @@ internal static class Program
         return GenerateBindings(args);
     }
 
+    // Consumers such as the rbfx generator make records director-capable by name.
+    private static readonly IReadOnlySet<string> ForcedDirectorRecords = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "forced_directors::forced_abstract",
+        "forced_directors::forced_implicit_abstract",
+        "forced_directors::forced_derived_abstract"
+    };
+
     private static int GenerateBindings(string[] args)
     {
         var generatedRoot = GetPathOption(args, "--generated-root");
@@ -101,7 +109,8 @@ internal static class Program
                     HeaderIncludePath: relativeHeaderPath,
                     ClangArguments: clangArguments,
                     MarshallerConfigurationFiles: marshallerConfigurationFiles,
-                    EntryPointPrefix: "sharpcpp_e2e"));
+                    EntryPointPrefix: "sharpcpp_e2e",
+                    DirectorRecordCppTypeNames: ForcedDirectorRecords));
 
             compilation.HeaderFiles.Add(relativeHeaderPath);
             foreach (var member in parsedHeaderCompilation.Members.ToArray())

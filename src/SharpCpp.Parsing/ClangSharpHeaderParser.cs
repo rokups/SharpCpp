@@ -1147,6 +1147,17 @@ public sealed partial class ClangSharpHeaderParser
                         !GetCppQualifiedName(enumDecl).Contains("(unnamed enum", StringComparison.Ordinal))
                         RegisterEnum(enumDecl, compilation, enumsByName, headerIncludePath);
                     break;
+
+                // Public records declared in the record's scope; the injected class name
+                // is implicit, and anonymous records are flattened into their field.
+                case CXXRecordDecl nestedRecordDecl when
+                    nestedRecordDecl is not ClassTemplateSpecializationDecl &&
+                    !nestedRecordDecl.IsInjectedClassName &&
+                    !IsAnonymousRecordDecl(nestedRecordDecl) &&
+                    !IsAnonymousFieldName(nestedRecordDecl.Name) &&
+                    child.Handle.CXXAccessSpecifier == CX_CXXAccessSpecifier.CX_CXXPublic:
+                    RegisterRecord(nestedRecordDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, headerIncludePath, directorRecordCppTypeNames: null);
+                    break;
             }
         }
 
@@ -3449,12 +3460,17 @@ public sealed partial class ClangSharpHeaderParser
         if (TypeIsPointer(normalizedType))
         {
             var normalizedTypeName = NormalizeTypeName(type.Spelling.ToString());
-            if (TryGetManagedTypeOverride(normalizedTypeName, normalizedTypeName, normalizedTypeName, managedTypeOverrides, isReturn: false, out _))
+            if (TryGetManagedTypeOverride(normalizedTypeName, normalizedTypeName, normalizedTypeName, managedTypeOverrides, isReturn: false, out var pointerOverride))
             {
+                // out/ref modifiers already pass a by-reference projection by address; an
+                // input one passes it with `in`.
+                var direction = explicitDirection ?? BindingParameterDirection.In;
                 return (
                     MapType(type, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
-                    explicitDirection ?? BindingParameterDirection.In,
-                    BindingParameterAbiKind.Value);
+                    direction,
+                    pointerOverride!.ByReference && direction == BindingParameterDirection.In
+                        ? BindingParameterAbiKind.Pointer
+                        : BindingParameterAbiKind.Value);
             }
 
             var sourcePointeeType = type.PointeeType;
@@ -3814,7 +3830,11 @@ public sealed partial class ClangSharpHeaderParser
                 genericParameters);
         }
 
-        if (isReturn && IsByReferenceProjection(type, managedTypeOverrides))
+        // A returned `T**` has no slot to project into (unlike an out parameter) and is not
+        // a `T`; without its own marshaller it stays a raw pointer.
+        if (isReturn &&
+            (IsByReferenceProjection(type, managedTypeOverrides) ||
+             GetPointerDepth(type) >= 2 && !TryGetManagedTypeOverride(type, managedTypeOverrides, out _)))
         {
             return BindingType.CreateConfigured(
                 spelledTypeName,
@@ -3957,7 +3977,8 @@ public sealed partial class ClangSharpHeaderParser
                     enumsByName,
                     managedTypeOverrides,
                     genericParameters,
-                    out var specializedRecordHandleType))
+                    out var specializedRecordHandleType,
+                    FormatCanonicalCxTypeName(pointeeType)))
             {
                 return TryApplyManagedAliasSurface(type, specializedRecordHandleType, preserveAliasSurface, enumsByName);
             }
@@ -4034,7 +4055,8 @@ public sealed partial class ClangSharpHeaderParser
                     enumsByName,
                     managedTypeOverrides,
                     genericParameters,
-                    out var specializedRecordHandleType))
+                    out var specializedRecordHandleType,
+                    FormatCanonicalCxTypeName(normalizedType)))
             {
                 specializedRecordHandleType = specializedRecordHandleType
                     .WithCppIsRecordValue(true)
@@ -4613,7 +4635,8 @@ public sealed partial class ClangSharpHeaderParser
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
-        IReadOnlyDictionary<string, BindingType> genericParameters)
+        IReadOnlyDictionary<string, BindingType> genericParameters,
+        string? completeCppTypeName = null)
     {
         var rawGenericArguments = ParseConcreteTemplateArgumentsOrOpaque(cppTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
         if (IsFixedArrayRecordOrConfigured(record, cppTypeName, managedTypeOverrides))
@@ -4625,6 +4648,18 @@ public sealed partial class ClangSharpHeaderParser
         if (visibleIndices.Count == 0)
         {
             visibleIndices = GetVisibleConfiguredTemplateParameterIndices(record, cppTypeName, managedTypeOverrides, rawGenericArguments.Count);
+        }
+
+        // A spelling that omits defaulted arguments the managed type exposes takes the
+        // defaulted tail from the complete specialization.
+        var exposedArgumentCount = visibleIndices.Count == 0 ? record.GenericParameters.Count : visibleIndices.Max() + 1;
+        if (completeCppTypeName is not null && exposedArgumentCount > rawGenericArguments.Count)
+        {
+            var completeArguments = ParseConcreteTemplateArgumentsOrOpaque(completeCppTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+            if (completeArguments.Count > rawGenericArguments.Count)
+            {
+                rawGenericArguments = rawGenericArguments.Concat(completeArguments.Skip(rawGenericArguments.Count)).ToArray();
+            }
         }
 
         return ProjectVisibleTemplateArguments(
@@ -5843,6 +5878,17 @@ public sealed partial class ClangSharpHeaderParser
         if (parameter.AbiKind != BindingParameterAbiKind.Pointer)
             return;
 
+        // A counted by-reference projection (`const char** flags, size_t count`) is an array
+        // of pointers whose elements cross as raw pointers.
+        if (IsConstPointerToPointer(parameter) &&
+            string.Equals(NormalizeTypeName(parameter.Type.CppTypeName), NormalizeTypeName(parameter.CppTypeName), StringComparison.Ordinal))
+        {
+            var elementCppTypeName = NormalizeTypeName(parameter.CppTypeName);
+            parameter.Type = BindingType.CreateHandle(elementCppTypeName[..elementCppTypeName.LastIndexOf('*')].TrimEnd(), BindingType.IntPtr.ManagedTypeName);
+            parameter.SetMetadata(MetadataKeys.InputPointerArray, true);
+            return;
+        }
+
         if (parameter.Direction == BindingParameterDirection.In &&
             IsRawPointerArrayElementType(parameter.Type))
         {
@@ -5860,6 +5906,7 @@ public sealed partial class ClangSharpHeaderParser
             parameter.Direction = BindingParameterDirection.In;
             parameter.SetMetadata(MetadataKeys.InputPointerArray, true);
         }
+
     }
 
     private static bool IsRawPointerHandle(BindingType type)
@@ -7375,7 +7422,8 @@ public sealed partial class ClangSharpHeaderParser
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         IReadOnlyDictionary<string, BindingType> genericParameters,
-        out BindingType type)
+        out BindingType type,
+        string? completeTypeName = null)
     {
         var genericStart = referredTypeName.IndexOf('<');
         var genericEnd = referredTypeName.LastIndexOf('>');
@@ -7398,7 +7446,7 @@ public sealed partial class ClangSharpHeaderParser
             return true;
         }
 
-        var genericArguments = ParseVisibleRecordTemplateArguments(record, referredTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+        var genericArguments = ParseVisibleRecordTemplateArguments(record, referredTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters, completeTypeName);
         type = BindingType.CreateHandle(handleCppTypeName, record.ManagedName, record.SymbolId, record.HandleMarshallerTypeName, genericArguments);
         type = ApplyFixedArrayMetadata(
             type,

@@ -726,15 +726,6 @@ public static class DegradeUnsupportedSurfacePass
         {
             if (TryGetUnsupportedTypeReason(argument, argument.CppTypeName, recordsById, enumsById, disallowNonPointerHandles: false, out var nestedReason))
             {
-                if (argument.Kind == BindingTypeKind.Handle &&
-                    argument.RecordId is not null &&
-                    recordsById.TryGetValue(argument.RecordId, out var nestedRecord) &&
-                    nestedRecord.IsIgnored() &&
-                    !IsFatalIgnoredGenericArgumentRecord(nestedRecord))
-                {
-                    continue;
-                }
-
                 reason = $"generic argument '{argument.ManagedTypeName}' is unsupported: {nestedReason}";
                 return true;
             }
@@ -920,26 +911,6 @@ public static class DegradeUnsupportedSurfacePass
             record.GetMetadata<bool>(MetadataKeys.MarshallerConfiguredRecord) ||
             !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ||
             record.Members.OfType<FunctionBinding>().Any(static member => member.HasMetadata(MetadataKeys.MarshallerExposedMethod));
-    }
-
-    private static bool IsFatalIgnoredGenericArgumentRecord(RecordBinding record)
-    {
-        if (record.GetMetadata<bool>(MetadataKeys.ForwardDeclaration) &&
-            !record.GetMetadata<bool>(MetadataKeys.OpaqueNativeHandle))
-        {
-            return true;
-        }
-
-        if (record.GetMetadata<bool>(MetadataKeys.PlaceholderRecord) &&
-            !record.GetMetadata<bool>(MetadataKeys.SuppressEmission))
-        {
-            return true;
-        }
-
-        var ignoreReason = record.GetIgnoreReason() ?? string.Empty;
-        return ignoreReason.Contains("outside the configured namespace mappings", StringComparison.Ordinal) ||
-            ignoreReason.Contains("internal detail namespace", StringComparison.Ordinal) ||
-            ignoreReason.Contains("wrapper materialization requires a complete definition", StringComparison.Ordinal);
     }
 
     private static bool TryGetNamespaceExclusionReason(

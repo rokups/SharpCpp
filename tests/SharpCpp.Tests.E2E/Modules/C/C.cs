@@ -52,4 +52,41 @@ public sealed class CTests
         Assert.Equal([typeof(CNamedValue)], typeof(CBindings).Assembly.GetTypes()
             .Where(static type => type.IsEnum && type.Namespace == typeof(CBindings).Namespace));
     }
+
+    [Fact]
+    public unsafe void C_pointer_returns_and_parameters_keep_their_shapes()
+    {
+        Assert.Equal("message"u8, CBindings.CGetMessage());
+        Assert.Equal(6u, ((uint*)CBindings.CGetWords())[1]);
+        Assert.Equal(5, CBindings.CCompile("hello"));
+    }
+
+    [Fact]
+    public unsafe void Adjacent_counts_make_pointer_parameters_arrays()
+    {
+        Assert.Equal(18u, CBindings.COptimize([5u, 6u, 7u], 3));
+
+        var values = new uint[3];
+        CBindings.CReadValues(values, 3);
+        Assert.Equal(new uint[] { 0, 2, 4 }, values);
+
+        var first = System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8("a");
+        var second = System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8("b");
+        try
+        {
+            Assert.Equal('a' + 'b', CBindings.CRegisterFlags([first, second], 2));
+        }
+        finally
+        {
+            System.Runtime.InteropServices.Marshal.FreeCoTaskMem(first);
+            System.Runtime.InteropServices.Marshal.FreeCoTaskMem(second);
+        }
+    }
+
+    [Fact]
+    public void Pointer_typedef_to_an_opaque_struct_is_a_handle_type()
+    {
+        using var handle = CBindings.CCreateNativeHandle();
+        Assert.Equal(8, CBindings.CUseNativeHandle(handle));
+    }
 }

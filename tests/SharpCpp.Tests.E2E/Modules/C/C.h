@@ -160,3 +160,64 @@ static inline enum c_named_value c_get_named_value(void)
 {
     return c_third_value;
 }
+
+/* Pointer returns and parameters in C. */
+static const unsigned int c_words_storage[3] = {5, 6, 7};
+
+static inline const char* c_get_message(void)
+{
+    return "message";
+}
+
+static inline const unsigned int* c_get_words(void)
+{
+    return c_words_storage;
+}
+
+static inline int c_compile(const char** source)
+{
+    int length = 0;
+    while ((*source)[length] != '\0')
+        ++length;
+    return length;
+}
+
+/* Adjacent pointer/count parameters are input arrays; a writable pointer is writable. */
+typedef unsigned long c_size_t;
+
+static inline unsigned int c_optimize(const unsigned int* words, c_size_t word_count)
+{
+    unsigned int result = 0;
+    for (c_size_t i = 0; i < word_count; ++i)
+        result += words[i];
+    return result;
+}
+
+static inline int c_register_flags(const char** flags, c_size_t flag_count)
+{
+    int result = 0;
+    for (c_size_t i = 0; i < flag_count; ++i)
+        result += flags[i][0];
+    return result;
+}
+
+static inline void c_read_values(unsigned int* values, c_size_t value_count)
+{
+    for (c_size_t i = 0; i < value_count; ++i)
+        values[i] = (unsigned int)(i * 2);
+}
+
+/* A pointer typedef to an opaque struct is a handle type (Vulkan style). */
+typedef struct c_native_handle_T* c_native_handle;
+
+static int c_native_handle_storage;
+
+static inline c_native_handle c_create_native_handle(void)
+{
+    return (c_native_handle)&c_native_handle_storage;
+}
+
+static inline int c_use_native_handle(c_native_handle handle)
+{
+    return handle == c_create_native_handle() ? 8 : -1;
+}
