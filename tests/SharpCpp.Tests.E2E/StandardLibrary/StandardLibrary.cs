@@ -23,6 +23,16 @@ public sealed class StandardLibraryTests
     }
 
     [Fact]
+    public void Field_of_non_assignable_record_is_read_only()
+    {
+        using var setting = new E2eStdNamedSetting { Priority = 2 };
+
+        Assert.Equal(7, setting.Name.GetHash());
+        Assert.Equal(2, setting.Priority);
+        Assert.Null(typeof(E2eStdNamedSetting).GetProperty(nameof(E2eStdNamedSetting.Name))!.SetMethod);
+    }
+
+    [Fact]
     public void Container_of_move_only_record_degrades_only_its_declaration()
     {
         Assert.Null(typeof(E2EBindings).GetMethod("E2eCountStdMoveOnly"));

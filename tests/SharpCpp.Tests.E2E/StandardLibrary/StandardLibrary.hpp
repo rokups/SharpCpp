@@ -45,6 +45,31 @@ inline std::array<const e2e_std_probe*, 2> e2e_make_std_probes(e2e_std_probe* fi
     return { first, second };
 }
 
+// Assignment is implicitly deleted by the const member, so fields of this type are
+// read-only; the owner stays default-constructible.
+class e2e_std_hashed_name
+{
+public:
+    e2e_std_hashed_name() = default;
+    explicit e2e_std_hashed_name(int length)
+        : length_(length)
+    {
+    }
+
+    int get_length() const { return length_; }
+    int get_hash() const { return hash_; }
+
+private:
+    int length_{};
+    const int hash_{7};
+};
+
+struct e2e_std_named_setting
+{
+    e2e_std_hashed_name name;
+    int priority{};
+};
+
 inline std::vector<int> e2e_make_std_numbers()
 {
     return { 2, 4, 6 };

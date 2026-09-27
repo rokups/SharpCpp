@@ -222,6 +222,14 @@ public static class DegradeUnsupportedSurfacePass
         BindingCompilation compilation,
         out string reason)
     {
+        if (function.IsConstructor &&
+            function.Parent is RecordBinding { IsAbstract: true } abstractRecord &&
+            !abstractRecord.RequiresDirector(compilation))
+        {
+            reason = $"constructors on abstract record '{abstractRecord.CppQualifiedName}' need a director with at least one bindable virtual slot";
+            return true;
+        }
+
         var functionAllowsOpenGenericTypes = function.IsGeneric || (function.Parent as RecordBinding)?.IsGeneric == true;
 
         if (!functionAllowsOpenGenericTypes && ContainsOpenGenericParameter(function.ReturnType))

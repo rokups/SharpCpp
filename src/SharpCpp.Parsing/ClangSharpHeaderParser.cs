@@ -683,7 +683,8 @@ public sealed partial class ClangSharpHeaderParser
             (recordDecl.Handle.HasUserDeclaredConstructor && !hasUsableDefaultConstructor) ||
             recordDecl.Decls.OfType<ConstructorUsingShadowDecl>().Any() ||
             boundConstructors.Length > 0 ||
-            record.Members.OfType<FieldBinding>().Any(static field => field.IsReadOnly || field.IsReference) ||
+            record.Members.OfType<FieldBinding>().Any(static field => field.IsReference) ||
+            recordDecl.Fields.Any(static field => field.Type.Handle.IsConstQualified) ||
             (!record.IsDirector &&
                 (record.IsAbstract || !record.Members.Any(static member => member is FieldBinding or FunctionBinding))))
         {
@@ -1039,11 +1040,7 @@ public sealed partial class ClangSharpHeaderParser
                         ExtractAndApplyDocumentation(ctorDecl, ctor);
                         ApplyCallableDefinitionMetadata(ctorDecl, ctor);
 
-                        if (record.IsAbstract && !record.IsDirector)
-                        {
-                            ctor.SetIgnoreReason($"constructors on abstract record '{record.CppQualifiedName}' are not materializable in this bootstrap surface");
-                        }
-                        else if (record.GetMetadata<bool>(MetadataKeys.NonPublicDestructor))
+                        if (record.GetMetadata<bool>(MetadataKeys.NonPublicDestructor))
                         {
                             ctor.SetIgnoreReason($"constructors on record '{record.CppQualifiedName}' with a non-public destructor are not materializable in this bootstrap surface");
                         }
@@ -1613,7 +1610,7 @@ public sealed partial class ClangSharpHeaderParser
             fieldType,
             ResolveQualifiedTypeName(fieldDecl.Type, recordsByName, genericParameters, fieldType),
             record.CppQualifiedName,
-            isReadOnly: fieldDecl.Type.Handle.IsConstQualified,
+            isReadOnly: fieldDecl.Type.Handle.IsConstQualified || IsNonAssignableType(fieldDecl.Type),
             isReference: TypeIsAnyReference(fieldDecl.Type.Handle),
             isPointer: TypeIsPointer(fieldDecl.Type.Handle.CanonicalType))
         {
@@ -1933,7 +1930,7 @@ public sealed partial class ClangSharpHeaderParser
             fieldType,
             cppTypeName,
             ownerRecord.CppQualifiedName,
-            isReadOnly: leafFieldDecl.Type.Handle.IsConstQualified,
+            isReadOnly: leafFieldDecl.Type.Handle.IsConstQualified || IsNonAssignableType(leafFieldDecl.Type),
             isReference: TypeIsAnyReference(leafFieldDecl.Type.Handle),
             isPointer: TypeIsPointer(leafFieldDecl.Type.Handle))
         {
@@ -2644,6 +2641,68 @@ public sealed partial class ClangSharpHeaderParser
                     : BindingParameterAbiKind.Value;
             return (CreateIgnoredFallbackType(type), direction, abiKind, exception.Message);
         }
+    }
+
+    /// <summary>
+    /// True for record types (or arrays of them) whose copy assignment is deleted or
+    /// inaccessible, explicitly or implicitly through const/reference members and bases.
+    /// Field setters assign, so such fields are read-only.
+    /// </summary>
+    private static bool IsNonAssignableType(ClangSharp.Type type)
+    {
+        var canonical = type.CanonicalType;
+        while (canonical is ArrayType arrayType)
+        {
+            canonical = arrayType.ElementType.CanonicalType;
+        }
+
+        return canonical is RecordType &&
+            canonical.AsCXXRecordDecl is { } record &&
+            IsNonAssignableRecord(record, new HashSet<CXXRecordDecl>());
+    }
+
+    private static bool IsNonAssignableRecord(CXXRecordDecl record, HashSet<CXXRecordDecl> visited)
+    {
+        var definition = record.Definition as CXXRecordDecl ?? record;
+        if (!visited.Add(definition))
+        {
+            return false;
+        }
+
+        foreach (var method in definition.Methods)
+        {
+            if (method.IsCopyAssignmentOperator)
+            {
+                return method.IsDeleted || method.Access == CX_CXXAccessSpecifier.CX_CXXPrivate;
+            }
+        }
+
+        // A user-declared move operation implicitly deletes the copy assignment.
+        if (definition.HasUserDeclaredMoveConstructor || definition.HasUserDeclaredMoveAssignment)
+        {
+            return true;
+        }
+
+        foreach (var baseSpecifier in definition.Bases)
+        {
+            if (baseSpecifier.Type.CanonicalType.AsCXXRecordDecl is { } baseRecord &&
+                IsNonAssignableRecord(baseRecord, visited))
+            {
+                return true;
+            }
+        }
+
+        foreach (var field in definition.Fields)
+        {
+            if (field.Type.CanonicalType.IsLocalConstQualified ||
+                field.Type.CanonicalType is ReferenceType ||
+                IsNonAssignableType(field.Type))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool IsNonCopyableRecord(CXXRecordDecl record, HashSet<CXXRecordDecl> visited)
