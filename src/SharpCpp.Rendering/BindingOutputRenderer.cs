@@ -119,10 +119,16 @@ public static partial class BindingOutputRenderer
     private static string GetSharedManagedProviderModuleArgument(BindingCompilation compilation, RecordBinding record)
         => IsSharedManagedWrapper(record) ? $", moduleId: {GetSharedModuleIdLiteral(compilation)}" : string.Empty;
 
+    /// <param name="includeCallbackReleaseRegistration">
+    /// No effect. The managed callback release export carries the module's entry point
+    /// prefix and is always emitted, because every module's managed side registers
+    /// through its own export. Kept so existing callers compile unchanged.
+    /// </param>
     public static GeneratedBindingSet Render(
         BindingCompilation compilation,
         string fileStem,
-        Func<string?, string>? deriveGroupStem = null)
+        Func<string?, string>? deriveGroupStem = null,
+        bool includeCallbackReleaseRegistration = true)
     {
         ArgumentNullException.ThrowIfNull(compilation);
         ArgumentException.ThrowIfNullOrWhiteSpace(fileStem);
