@@ -57,4 +57,12 @@ public sealed class CrossModuleTests
         Assert.Equal(9, widget.AppValue());
         Assert.Equal("widget", widget.Describe().ToString());
     }
+
+    [Fact]
+    public void Aliases_of_unprojectable_generic_arguments_are_pruned()
+    {
+        var aliases = Diagnostics.GeneratedArtifacts.ReadText("SharpCppCrossModuleLibrary.Bindings.Aliases.g.cs");
+        Assert.Contains("global using ScoreMap = ", aliases);
+        Assert.DoesNotContain("EnabledPasses", aliases);
+    }
 }

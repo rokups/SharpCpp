@@ -2785,6 +2785,18 @@ public sealed partial class ClangSharpHeaderParser
         return false;
     }
 
+    // A reference to a record projected as a managed value crosses as a pointer to the
+    // value, as for parameters (see MapParameter); ref-struct projections cross by value.
+    private static BindingType MarkProjectedValueReference(ClangSharp.Type sourceType, BindingType mappedType)
+    {
+        return sourceType is LValueReferenceType referenceType &&
+            referenceType.PointeeType.CanonicalType is RecordType &&
+            mappedType.Kind == BindingTypeKind.Primitive &&
+            !mappedType.Marshaller.IsRefStruct
+                ? mappedType.WithCppIsReference(true)
+                : mappedType;
+    }
+
     private static BindingType ApplyAstTemplateArguments(
         ClangSharp.Type sourceType,
         BindingType mappedType,
@@ -2832,13 +2844,15 @@ public sealed partial class ClangSharpHeaderParser
                 managedTypeOverrides,
                 genericParameters);
             var callbackParameterTypes = callbackType.ParamTypes
-                .Select((parameterType, index) => ApplyAstTemplateArguments(
+                .Select((parameterType, index) => MarkProjectedValueReference(
                     parameterType,
-                    mappedType.CallbackParameterTypes[index],
-                    recordsByName,
-                    enumsByName,
-                    managedTypeOverrides,
-                    genericParameters))
+                    ApplyAstTemplateArguments(
+                        parameterType,
+                        mappedType.CallbackParameterTypes[index],
+                        recordsByName,
+                        enumsByName,
+                        managedTypeOverrides,
+                        genericParameters)))
                 .ToArray();
             mappedType = mappedType.WithCallbackSignature(callbackReturnType, callbackParameterTypes);
         }

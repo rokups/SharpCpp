@@ -1935,9 +1935,12 @@ public static partial class BindingOutputRenderer
             ? "void"
             : GetManagedImportTypeName(callbackReturnType, compilation);
         var parameters = callbackType.CallbackParameterTypes
-            .Select((type, index) => (type, index, abiType: GetManagedImportTypeName(type, compilation)))
+            .Select((type, index) => (type, index, abiType: GetManagedCallbackParameterAbiTypeName(compilation, type)))
             .ToArray();
-        var invokeArguments = string.Join(", ", parameters.Select(item => BuildManagedCallbackInvocationArgument(compilation, item.type, $"arg{item.index}")));
+        var invokeArguments = string.Join(", ", parameters.Select(item => BuildManagedCallbackInvocationArgument(
+            compilation,
+            item.type,
+            IsManagedCallbackValueReference(item.type) ? $"*arg{item.index}" : $"arg{item.index}")));
         var invokeParameterList = string.Join(", ", new[] { "nint state" }.Concat(parameters.Select(static item => $"{item.abiType} arg{item.index}")));
         var invokeFunctionPointerTypes = string.Join(
             ", ",
@@ -1984,7 +1987,7 @@ public static partial class BindingOutputRenderer
             }
 
             [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-            private static {{callbackReturnAbiType}} {{invokeMethodName}}({{invokeParameterList}})
+            private static unsafe {{callbackReturnAbiType}} {{invokeMethodName}}({{invokeParameterList}})
             {
                 var callback = ({{callbackManagedType}})global::System.Runtime.InteropServices.GCHandle.FromIntPtr(state).Target!;
                 try
@@ -2003,6 +2006,16 @@ public static partial class BindingOutputRenderer
     private static string GetManagedCallbackReleaseRegistrationEntryPointName(BindingCompilation compilation)
     {
         return $"{compilation.EntryPointPrefix}_set_managed_callback_release";
+    }
+
+    // A projected value passed by reference arrives as a pointer to its ABI value.
+    private static bool IsManagedCallbackValueReference(BindingType type) =>
+        type.Marshaller.CppIsReference && type.Kind == BindingTypeKind.Primitive && !type.Marshaller.IsRefStruct;
+
+    private static string GetManagedCallbackParameterAbiTypeName(BindingCompilation compilation, BindingType type)
+    {
+        var abiType = GetManagedImportTypeName(type, compilation);
+        return IsManagedCallbackValueReference(type) ? $"{abiType}*" : abiType;
     }
 
     private static string BuildManagedCallbackInvocationArgument(BindingCompilation compilation, BindingType type, string valueExpression)
@@ -2109,7 +2122,8 @@ public static partial class BindingOutputRenderer
     private static string GetCallbackSignatureKey(BindingType type)
     {
         var returnType = type.CallbackReturnType?.UnaliasedManagedTypeName ?? "void";
-        return string.Join("|", returnType, string.Join(";", type.CallbackParameterTypes.Select(static parameter => parameter.UnaliasedManagedTypeName)));
+        return string.Join("|", returnType, string.Join(";", type.CallbackParameterTypes.Select(static parameter =>
+            IsManagedCallbackValueReference(parameter) ? $"{parameter.UnaliasedManagedTypeName}&" : parameter.UnaliasedManagedTypeName)));
     }
 
     private static string GetManagedCallbackMarshallerDeclarationName(BindingCompilation compilation, BindingType type)
@@ -2117,7 +2131,10 @@ public static partial class BindingOutputRenderer
         var returnToken = type.CallbackReturnType is null ? "void" : GetManagedPublicReturnTypeName(type.CallbackReturnType, compilation);
         var parameterToken = type.CallbackParameterTypes.Count == 0
             ? "none"
-            : string.Join("_", type.CallbackParameterTypes.Select(parameter => GetManagedPublicReturnTypeName(parameter, compilation)));
+            : string.Join("_", type.CallbackParameterTypes.Select(parameter =>
+                IsManagedCallbackValueReference(parameter)
+                    ? $"in_{GetManagedPublicReturnTypeName(parameter, compilation)}"
+                    : GetManagedPublicReturnTypeName(parameter, compilation)));
         return $"__CallbackMarshaller_{SanitizeManagedToken(returnToken)}_{SanitizeManagedToken(parameterToken)}";
     }
 

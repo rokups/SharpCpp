@@ -89,4 +89,38 @@ public sealed class CTests
         using var handle = CBindings.CCreateNativeHandle();
         Assert.Equal(8, CBindings.CUseNativeHandle(handle));
     }
+
+    [Fact]
+    public void Sdl_style_void_pointers_and_padded_event_unions_cross()
+    {
+        var context = CBindings.CGlGetCurrentContext();
+        Assert.NotEqual(0, context);
+        var before = CBindings.CGetFreedCount();
+        CBindings.CSdlFree(context);
+        CBindings.CSdlFree(0);
+        Assert.Equal(before + 1, CBindings.CGetFreedCount());
+
+        using var sdlEvent = new CSdlEvent();
+        Assert.Equal(1, CBindings.CPollEvent(sdlEvent));
+        Assert.Equal(0x200u, sdlEvent.Type);
+    }
+
+    [Fact]
+    public void C_primitive_spellings_keep_their_managed_types()
+    {
+        Assert.False(CBindings.CAccept(true));
+        Assert.True(CBindings.CAccept(false));
+        Assert.Equal(-5, CBindings.CSigned(-5));
+        Assert.Equal(250, CBindings.CUnsigned(250));
+        Assert.Equal((byte)8, CBindings.CByteEcho(7));
+
+        using var options = CBindings.CGetOptions();
+        Assert.Equal(3, options.Version);
+        Assert.True(options.Enabled);
+        Assert.Empty(typeof(COptions).GetConstructors());
+
+        var aliases = Diagnostics.GeneratedArtifacts.ReadText("SharpCppC.Bindings.Aliases.g.cs");
+        Assert.Contains("global using CByte = byte;", aliases);
+        Assert.DoesNotContain("CVoid", aliases);
+    }
 }

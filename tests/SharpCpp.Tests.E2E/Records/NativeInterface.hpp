@@ -90,3 +90,25 @@ inline native_interface_target* get_native_interface_target_b()
     static native_interface_target_impl target{15};
     return &target;
 }
+
+// A native interface declared through a macro is still a definition.
+#define NATIVE_INTERFACE_BEGIN(NAME) struct [[sharpcpp::native_interface]] NAME {
+#define NATIVE_INTERFACE_END };
+
+NATIVE_INTERFACE_BEGIN(native_interface_macro_counter)
+    virtual int get_value() = 0;
+NATIVE_INTERFACE_END
+
+struct [[sharpcpp::ignore]] native_interface_macro_counter_impl final : native_interface_macro_counter
+{
+    int get_value() override
+    {
+        return 64;
+    }
+};
+
+inline native_interface_macro_counter* get_native_interface_macro_counter()
+{
+    static native_interface_macro_counter_impl counter;
+    return &counter;
+}

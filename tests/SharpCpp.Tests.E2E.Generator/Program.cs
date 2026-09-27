@@ -653,17 +653,24 @@ internal static class Program
         compilation.SetMetadata(MetadataKeys.ManagedBindingProjection, projection);
     }
 
+    // Secondary modules share the main module's assembly, which already emits the
+    // module-local configured wrappers; fields typed by one of them are not bound here.
     private static void RemoveLocalConfiguredWrapperRecords(BindingCompilation compilation)
     {
-        foreach (var record in compilation.Records
-                     .Where(record => !record.HasMetadata(MetadataKeys.ManagedWrapperAssembly))
-                     .Where(record =>
-                         record.GetMetadata<bool>(MetadataKeys.MarshallerConfiguredRecord) ||
-                         !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) && record.Bases.Count == 0 ||
-                         !string.IsNullOrWhiteSpace(record.GetMetadata<string>(MetadataKeys.ManagedWrapperProviderKind)) ||
-                         record.Members.OfType<FunctionBinding>().Any(member => member.HasMetadata(MetadataKeys.MarshallerExposedMethod)))
-                     .ToArray())
+        var removed = compilation.Records
+            .Where(record => !record.HasMetadata(MetadataKeys.ManagedWrapperAssembly))
+            .Where(record =>
+                record.GetMetadata<bool>(MetadataKeys.MarshallerConfiguredRecord) ||
+                !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) && record.Bases.Count == 0 ||
+                !string.IsNullOrWhiteSpace(record.GetMetadata<string>(MetadataKeys.ManagedWrapperProviderKind)) ||
+                record.Members.OfType<FunctionBinding>().Any(member => member.HasMetadata(MetadataKeys.MarshallerExposedMethod)))
+            .ToArray();
+        foreach (var record in removed)
             compilation.Members.Remove(record);
+        var removedIds = removed.Select(static record => record.SymbolId).ToHashSet(StringComparer.Ordinal);
+        foreach (var field in compilation.Descendants<FieldBinding>()
+                     .Where(field => field.Type.RecordId is { } recordId && removedIds.Contains(recordId)))
+            field.SetIgnoreReason("the field's wrapper type is emitted by the main E2E module");
         compilation.InvalidateCaches();
     }
 

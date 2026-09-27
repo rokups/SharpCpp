@@ -6,6 +6,7 @@
 #include <functional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace cross_library
@@ -29,6 +30,9 @@ struct library_settings
 
 // Spelled with the defaulted template arguments omitted.
 using score_map = std::unordered_map<int, float>;
+
+// A vector of an element type with no marshaller cannot be projected; the alias is pruned.
+using enabled_passes = std::vector<std::pair<std::string, bool>>;
 
 inline float library_score(const score_map& scores, int key)
 {

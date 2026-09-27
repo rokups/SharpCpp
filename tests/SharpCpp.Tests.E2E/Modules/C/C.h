@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 typedef struct coverage_c_handle coverage_c_handle;
@@ -220,4 +221,75 @@ static inline c_native_handle c_create_native_handle(void)
 static inline int c_use_native_handle(c_native_handle handle)
 {
     return handle == c_create_native_handle() ? 8 : -1;
+}
+
+/* SDL-style surface: void* frees and returns, a padded event union by pointer. The
+   padding array is not bound here: this module shares the main module's NativeArray. */
+typedef union c_sdl_event
+{
+    unsigned int type;
+    unsigned char padding[56];
+} c_sdl_event;
+
+static int c_freed_count;
+
+static inline void c_sdl_free(void* memory)
+{
+    if (memory != 0)
+        ++c_freed_count;
+}
+
+static inline int c_get_freed_count(void)
+{
+    return c_freed_count;
+}
+
+static inline void* c_gl_get_current_context(void)
+{
+    return &c_freed_count;
+}
+
+static inline int c_poll_event(c_sdl_event* event)
+{
+    event->type = 0x200;
+    event->padding[55] = 7;
+    return 1;
+}
+
+/* C primitive spellings: bool (_Bool in C), explicitly signed/unsigned char and a byte
+   typedef. */
+typedef unsigned char c_byte;
+typedef void c_void;
+
+typedef struct c_options
+{
+    const int version;
+    bool enabled;
+} c_options;
+
+static c_options c_options_storage = {3, 1};
+
+static inline const c_options* c_get_options(void)
+{
+    return &c_options_storage;
+}
+
+static inline bool c_accept(bool value)
+{
+    return !value;
+}
+
+static inline int c_signed(signed char value)
+{
+    return value;
+}
+
+static inline int c_unsigned(unsigned char value)
+{
+    return value;
+}
+
+static inline c_byte c_byte_echo(c_byte value)
+{
+    return (c_byte)(value + 1);
 }

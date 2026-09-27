@@ -58,4 +58,13 @@ public sealed class NativeInterfaceTests
 
         Assert.Equal(25, counter.SumTargets(targets, (uint)targets.Length));
     }
+
+    [Fact]
+    public void Macro_generated_interface_is_a_definition()
+    {
+        var counter = E2EBindings.GetNativeInterfaceMacroCounter();
+
+        Assert.False(counter.IsNull);
+        Assert.Equal(64, counter.GetValue());
+    }
 }
