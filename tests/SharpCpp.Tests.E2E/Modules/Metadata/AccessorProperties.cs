@@ -27,6 +27,8 @@ public sealed class AccessorPropertyTests
         Assert.Equal(4, accessors.Size());
         Assert.Equal(3, accessors.GetLimit());
         Assert.Equal(2, accessors.Limit);
+        using var layout = accessors.GetLayout();
+        Assert.Equal(8, layout.Stride);
     }
 
     [Fact]

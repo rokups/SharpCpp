@@ -65,4 +65,26 @@ public sealed class CrossModuleTests
         Assert.Contains("global using ScoreMap = ", aliases);
         Assert.DoesNotContain("EnabledPasses", aliases);
     }
+
+    [Fact]
+    public void Defaulted_nested_template_arguments_do_not_split_a_provider_shape()
+    {
+        using var values = new global::Std.UnorderedMap<int, double>();
+        values[1] = 2.5;
+        values[2] = 4;
+        Assert.Equal(6.5, Library.LibraryBindings.LibrarySum(values));
+        Assert.Equal(6.5, Library.LibraryBindings.LibrarySumWritten(values));
+    }
+
+    [Fact]
+    public void Function_template_instantiations_keep_aliased_callback_parameters()
+    {
+        using var events = new LibraryEvents();
+        var seen = 0;
+        Assert.Equal(2, events.Subscribe(scores => { seen = scores.Count; scores[3] = 1; }));
+        Assert.Equal(1, seen);
+        Assert.Contains(
+            "global::System.Action<ScoreMap>",
+            Diagnostics.GeneratedArtifacts.ReadText("SharpCppCrossModuleLibrary.Bindings.g.cs"));
+    }
 }

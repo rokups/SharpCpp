@@ -1110,15 +1110,21 @@ public static class MarshallerMetadataPhase2
             }
         }
 
-        // Stamp aliases on generic instantiation type arguments.
-        foreach (var record in compilation.Records)
+        // Stamp aliases on generic instantiation type arguments, including explicit function
+        // template instantiations (a callback type argument names aliased parameters).
+        var functionInstantiations = compilation.Descendants<FunctionBinding>()
+            .SelectMany(static function => function.SupportedGenericInstantiations.Concat(
+                function.TryGetMetadata(MetadataKeys.ExplicitGenericInstantiations, out GenericInstantiationMetadata? explicitInstantiations)
+                    ? explicitInstantiations!.Instantiations
+                    : []));
+        foreach (var instantiation in compilation.Records
+                     .SelectMany(static record => record.SupportedGenericInstantiations)
+                     .Concat(functionInstantiations)
+                     .Distinct())
         {
-            foreach (var instantiation in record.SupportedGenericInstantiations)
+            for (var i = 0; i < instantiation.TypeArguments.Count; i++)
             {
-                for (var i = 0; i < instantiation.TypeArguments.Count; i++)
-                {
-                    instantiation.UpdateTypeArgument(i, StampAlias(instantiation.TypeArguments[i], aliasByTarget, aliasByCppType));
-                }
+                instantiation.UpdateTypeArgument(i, StampAlias(instantiation.TypeArguments[i], aliasByTarget, aliasByCppType));
             }
         }
     }

@@ -372,3 +372,37 @@ inline void consume_detail_box(const filtered_box<detail::hidden_record*>& value
     (void)value;
 }
 }
+
+namespace coverage_allowed
+{
+/// Same-named nested classes of two records, projected into one flat namespace (rbfx's
+/// particle graph nodes each declare an `Instance`).
+struct first_node
+{
+    int id() const { return 10; }
+
+    struct instance
+    {
+        int read() const { return 1; }
+    };
+};
+
+struct second_node
+{
+    int id() const { return 20; }
+
+    struct instance
+    {
+        int read() const { return 2; }
+    };
+};
+
+/// An enclosing record without API of its own scopes its nested record as a namespace.
+struct third_node
+{
+    struct instance
+    {
+        int read() const { return 3; }
+    };
+};
+}

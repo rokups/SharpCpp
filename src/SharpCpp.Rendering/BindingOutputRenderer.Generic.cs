@@ -125,7 +125,7 @@ public static partial class BindingOutputRenderer
         var baseTypeName = GetGenericManagedBaseTypeName(compilation, record);
         var hasManagedBase = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName);
         // A shared wrapper base lives in its wrapper assembly, where its helpers are internal.
-        var hidesPrimaryBaseHelpers = record.GetPrimaryBaseRecord(compilation) is { } primaryBase && !IsSharedManagedWrapper(primaryBase);
+        var hidesPrimaryBaseHelpers = IsRenderedPrimaryBase(record.GetPrimaryBaseRecord(compilation));
         var staticHelperModifier = hidesPrimaryBaseHelpers ? "new " : string.Empty;
         var genericConstraints = GetGenericRecordConstraints(record);
         var isEffectivelyAbstract = IsManagedWrapperAbstract(

@@ -27,6 +27,13 @@ public static partial class BindingOutputRenderer
 
     private static string GetManagedNamespace(BindingCompilation compilation, RecordBinding record)
     {
+        // A nested record is declared inside its enclosing record's class, whatever namespace
+        // a consumer projection assigns to declarations of its scope.
+        if (TryGetEnclosingRecord(compilation, record, out var enclosing))
+        {
+            return $"{GetManagedNamespace(compilation, enclosing)}.{GetManagedTypeHead(enclosing.ManagedName)}";
+        }
+
         var projection = GetManagedProjection(compilation);
         if (projection is not null && projection.TryGetManagedNamespace(record, out var projected) &&
             !string.IsNullOrWhiteSpace(projected))
@@ -40,6 +47,28 @@ public static partial class BindingOutputRenderer
         }
 
         return compilation.ManagedNamespace;
+    }
+
+    private static bool TryGetEnclosingRecord(BindingCompilation compilation, RecordBinding record, out RecordBinding enclosing)
+    {
+        enclosing = null!;
+        var separator = record.CppQualifiedName.LastIndexOf("::", StringComparison.Ordinal);
+        if (separator <= 0 || record.CppQualifiedName.Contains('<', StringComparison.Ordinal))
+            return false;
+
+        var scope = record.CppQualifiedName[..separator];
+        var candidate = compilation.FindRecordBySymbolId($"record:{scope}");
+        // An enclosing record without a wrapper (no API of its own) still scopes the nested
+        // record, as a namespace of the same name.
+        if (candidate is null || candidate.IsGeneric ||
+            candidate.GetMetadata<bool>(MetadataKeys.SuppressEmission) ||
+            IsSharedManagedWrapper(candidate))
+        {
+            return false;
+        }
+
+        enclosing = candidate;
+        return true;
     }
 
     private static string GetManagedNamespace(BindingCompilation compilation, EnumBinding enumBinding)
@@ -240,7 +269,7 @@ public static partial class BindingOutputRenderer
             .OrderBy(static record => record.ManagedName, StringComparer.Ordinal)
             .ToArray();
         var polymorphicConcreteRecords = records
-            .Where(record => record.IsPolymorphic && CanCreateManagedWrapperFactory(compilation, record) && !record.HasMetadata(MetadataKeys.IgnoreReason))
+            .Where(record => record.IsPolymorphic && !record.IsGeneric && CanCreateManagedWrapperFactory(compilation, record) && !record.HasMetadata(MetadataKeys.IgnoreReason))
             .ToArray();
         var genericImportDeclarations = new List<string>();
         var sharedImportDeclarations = new List<string>();
@@ -2363,7 +2392,7 @@ public static partial class BindingOutputRenderer
 
         var polymorphicConcreteRecords = needsRegistry
             ? compilation.Records
-                .Where(record => record.IsPolymorphic && CanCreateManagedWrapperFactory(compilation, record) && !record.HasMetadata(MetadataKeys.IgnoreReason))
+                .Where(record => record.IsPolymorphic && !record.IsGeneric && CanCreateManagedWrapperFactory(compilation, record) && !record.HasMetadata(MetadataKeys.IgnoreReason))
                 .ToArray()
             : Array.Empty<RecordBinding>();
         if (aliases.Length == 0 && needsRegistry && polymorphicConcreteRecords.Length == 0 && callbackParameters.Length == 0 &&
@@ -2931,8 +2960,7 @@ public static partial class BindingOutputRenderer
         var hidesArrayElement = InheritsArrayElementAccess(compilation, record) ||
             IsNativeInterfaceWrapper(record) && !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName);
         var staticHelperModifier = hidesStaticHelpers ? "new " : string.Empty;
-        var managedTypeIdHelperModifier = record.GetPrimaryBaseRecord(compilation) is { } primaryBase &&
-            !primaryBase.IsGeneric &&
+        var managedTypeIdHelperModifier = FindNearestNonGenericManagedAncestor(compilation, record) is { } primaryBase &&
             primaryBase.IsPolymorphic &&
             !IsNativeInterfaceWrapper(primaryBase)
                 ? "new "
@@ -2970,7 +2998,7 @@ public static partial class BindingOutputRenderer
             protected override global::SharpCpp.Support.INativeInstanceCache? InstanceCache => s_instanceCache;
 
             protected internal {{record.ManagedName}}(nint handle, bool ownsHandle = false)
-                : base(handle, ownsHandle)
+                : base(handle, ownsHandle{{GetPrimaryBaseNativeTemplateKeyArgument(compilation, record)}})
             {
             }
 
@@ -3358,7 +3386,7 @@ public static partial class BindingOutputRenderer
         }
 
         var hidesPInvoke = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
-            record.GetPrimaryBaseRecord(compilation) is { IsGeneric: false } ||
+            FindNearestNonGenericManagedAncestor(compilation, record) is not null ||
             IsNativeInterfaceWrapper(record) && !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName);
         writer.Write(
             hidesPInvoke
@@ -3776,9 +3804,9 @@ public static partial class BindingOutputRenderer
         }
 
         var visited = new HashSet<string>(StringComparer.Ordinal) { record.SymbolId };
-        for (var current = record.GetPrimaryBaseRecord(compilation); current is not null; current = current.GetPrimaryBaseRecord(compilation))
+        for (var current = record.GetPrimaryBaseRecord(compilation); IsManagedChainBase(current); current = current!.GetPrimaryBaseRecord(compilation))
         {
-            if (!visited.Add(current.SymbolId))
+            if (!visited.Add(current!.SymbolId))
             {
                 break;
             }
@@ -6809,6 +6837,51 @@ public static partial class BindingOutputRenderer
 
     private sealed record AccessorProperty(string PropertyName, FunctionBinding? Getter, FunctionBinding? Setter);
 
+    // Generic wrappers do not declare the per-type static helpers; the nearest non-generic
+    // ancestor in the managed chain does.
+    private static RecordBinding? FindNearestNonGenericManagedAncestor(BindingCompilation compilation, RecordBinding record)
+    {
+        var visited = new HashSet<string>(StringComparer.Ordinal) { record.SymbolId };
+        for (var current = record.GetPrimaryBaseRecord(compilation); IsManagedChainBase(current); current = current!.GetPrimaryBaseRecord(compilation))
+        {
+            if (!visited.Add(current!.SymbolId))
+                break;
+            if (!current.IsGeneric)
+                return current;
+        }
+
+        return null;
+    }
+
+    // A generic base with non-type template arguments dispatches on its native shape, which
+    // the derived record's base specialization names.
+    private static string GetPrimaryBaseNativeTemplateKeyArgument(BindingCompilation compilation, RecordBinding record)
+    {
+        var primaryBase = record.Bases.FirstOrDefault(static candidate => !candidate.IsVirtual);
+        if (primaryBase is null ||
+            compilation.FindRecordBySymbolId(primaryBase.RecordId) is not { IsGeneric: true } baseRecord ||
+            !HasNativeNonTypeTemplateArguments(baseRecord) ||
+            primaryBase.Type.NativeTemplateArguments.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return $", \"{EscapeCSharpString(GetNativeTemplateArgumentKey(primaryBase.Type.NativeTemplateArguments))}\"";
+    }
+
+    // A base in the managed chain: a dropped (ignored or excluded) base ends the chain.
+    private static bool IsManagedChainBase(RecordBinding? primaryBase) =>
+        primaryBase is not null &&
+        !primaryBase.HasMetadata(MetadataKeys.IgnoreReason) &&
+        !primaryBase.IsSilentlyExcluded();
+
+    // A base whose wrapper this compilation renders (shared wrappers live in their own assembly).
+    internal static bool IsRenderedPrimaryBase(RecordBinding? primaryBase) =>
+        primaryBase is not null &&
+        !primaryBase.HasMetadata(MetadataKeys.IgnoreReason) &&
+        !primaryBase.IsSilentlyExcluded() &&
+        !IsSharedManagedWrapper(primaryBase);
+
     private static string GetManagedInstanceMethodModifier(BindingCompilation compilation, RecordBinding record, FunctionBinding function)
     {
         var hasManagedBase = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName);
@@ -6817,6 +6890,13 @@ public static partial class BindingOutputRenderer
             !function.IsOverride;
         var hidingModifier = hidingObjectToString ? "new " : string.Empty;
         var primaryBaseVirtualMatch = hasManagedBase ? FindPrimaryBaseVirtualMatch(compilation, record, function) : null;
+        // A configured managed base (not bound here) is assumed to declare the C++ overridden
+        // virtuals; a bound base only overrides what it actually declares, since its own
+        // bases may have been dropped.
+        var overridesUnboundManagedBase = function.IsOverride &&
+            hasManagedBase &&
+            record.ManagedBaseTypeName!.Contains('.', StringComparison.Ordinal) &&
+            !IsRenderedPrimaryBase(record.GetPrimaryBaseRecord(compilation));
 
         if (IsNativeInterfaceWrapper(record) && IsManagedAbstractMethod(function))
         {
@@ -6835,8 +6915,7 @@ public static partial class BindingOutputRenderer
             {
                 modifier = ShouldUseNewModifier(compilation, record, function)
                     ? "new virtual "
-                    : (function.IsOverride && !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
-                        record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal) ? "override " : "virtual ");
+                    : (overridesUnboundManagedBase ? "override " : "virtual ");
             }
             else
             {
@@ -6851,8 +6930,7 @@ public static partial class BindingOutputRenderer
             return hidingModifier + modifier;
         }
 
-        if (function.IsOverride && !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) &&
-            record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal))
+        if (overridesUnboundManagedBase)
         {
             return "override ";
         }
@@ -6943,9 +7021,9 @@ public static partial class BindingOutputRenderer
     private static FunctionBinding? FindPrimaryBaseVirtualMatch(BindingCompilation compilation, RecordBinding record, FunctionBinding function)
     {
         var visited = new HashSet<string>(StringComparer.Ordinal) { record.SymbolId };
-        for (var current = record.GetPrimaryBaseRecord(compilation); current is not null; current = current.GetPrimaryBaseRecord(compilation))
+        for (var current = record.GetPrimaryBaseRecord(compilation); IsManagedChainBase(current); current = current!.GetPrimaryBaseRecord(compilation))
         {
-            if (!visited.Add(current.SymbolId))
+            if (!visited.Add(current!.SymbolId))
             {
                 break;
             }
@@ -7420,9 +7498,9 @@ public static partial class BindingOutputRenderer
 
         var chain = new List<RecordBinding>();
         var visited = new HashSet<string>(StringComparer.Ordinal) { record.SymbolId };
-        for (var current = record.GetPrimaryBaseRecord(compilation); current is not null; current = current.GetPrimaryBaseRecord(compilation))
+        for (var current = record.GetPrimaryBaseRecord(compilation); IsManagedChainBase(current); current = current!.GetPrimaryBaseRecord(compilation))
         {
-            if (!visited.Add(current.SymbolId))
+            if (!visited.Add(current!.SymbolId))
             {
                 break;
             }
@@ -7478,9 +7556,9 @@ public static partial class BindingOutputRenderer
     private static bool InheritsCloneInterface(BindingCompilation compilation, RecordBinding record)
     {
         var visited = new HashSet<string>(StringComparer.Ordinal) { record.SymbolId };
-        for (var current = record.GetPrimaryBaseRecord(compilation); current is not null; current = current.GetPrimaryBaseRecord(compilation))
+        for (var current = record.GetPrimaryBaseRecord(compilation); IsManagedChainBase(current); current = current!.GetPrimaryBaseRecord(compilation))
         {
-            if (!visited.Add(current.SymbolId))
+            if (!visited.Add(current!.SymbolId))
             {
                 break;
             }

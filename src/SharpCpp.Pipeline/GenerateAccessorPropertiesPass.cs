@@ -87,6 +87,16 @@ public static class GenerateAccessorPropertiesPass
             throw new ArgumentException("At least one accessor property pattern is required.", nameof(patterns));
         }
 
+        // Types declared in a record's scope become nested C# types; a member cannot share a name with one.
+        var nestedTypeNames = compilation.Records.Select(static nested => (nested.CppQualifiedName, nested.ManagedName))
+            .Concat(compilation.Enums.Select(static nested => (nested.CppQualifiedName, nested.ManagedName)))
+            .Where(static nested => nested.CppQualifiedName.LastIndexOf("::", StringComparison.Ordinal) > 0)
+            .GroupBy(static nested => nested.CppQualifiedName[..nested.CppQualifiedName.LastIndexOf("::", StringComparison.Ordinal)], StringComparer.Ordinal)
+            .ToDictionary(
+                static group => group.Key,
+                static group => (IReadOnlySet<string>)group.Select(static nested => nested.ManagedName).ToHashSet(StringComparer.Ordinal),
+                StringComparer.Ordinal);
+
         var promotedCount = 0;
         foreach (var record in compilation.Records)
         {
@@ -95,7 +105,12 @@ public static class GenerateAccessorPropertiesPass
                 continue;
             }
 
-            promotedCount += PromoteRecordAccessors(record, resolvedPatterns, getterFilter, setterFilter);
+            promotedCount += PromoteRecordAccessors(
+                record,
+                nestedTypeNames.GetValueOrDefault(record.CppQualifiedName) ?? new HashSet<string>(),
+                resolvedPatterns,
+                getterFilter,
+                setterFilter);
         }
 
         return promotedCount;
@@ -103,6 +118,7 @@ public static class GenerateAccessorPropertiesPass
 
     private static int PromoteRecordAccessors(
         RecordBinding record,
+        IReadOnlySet<string> nestedTypeNames,
         IReadOnlyList<AccessorPropertyPattern> patterns,
         Predicate<FunctionBinding>? getterFilter,
         Predicate<FunctionBinding>? setterFilter)
@@ -150,7 +166,7 @@ public static class GenerateAccessorPropertiesPass
                     continue;
                 }
 
-                if (!CanPromote(propertyName, getter, setter) || HasManagedNameCollision(record, propertyName, getter, setter))
+                if (!CanPromote(propertyName, getter, setter) || HasManagedNameCollision(record, nestedTypeNames, propertyName, getter, setter))
                 {
                     continue;
                 }
@@ -303,10 +319,16 @@ public static class GenerateAccessorPropertiesPass
 
     private static bool HasManagedNameCollision(
         RecordBinding record,
+        IReadOnlySet<string> nestedTypeNames,
         string propertyName,
         FunctionBinding getter,
         FunctionBinding? setter)
     {
+        if (nestedTypeNames.Contains(propertyName))
+        {
+            return true;
+        }
+
         foreach (var member in record.Members)
         {
             if (ReferenceEquals(member, getter) || ReferenceEquals(member, setter))

@@ -57,4 +57,48 @@ struct library_widget
 private:
     progress_callback progress_;
 };
+/// A hasher with a defaulted parameter (eastl::hash<T, Enable = void>): a map spelled with
+/// it written out and one taking it as a default are one specialization.
+template <class T, class Enable = void>
+struct library_hash : std::hash<T>
+{
+};
+
+template <class K, class V, class H = library_hash<K>>
+using library_map = std::unordered_map<K, V, H>;
+
+inline double library_sum(const library_map<int, double>& values)
+{
+    double result = 0;
+    for (const auto& [key, value] : values)
+        result += value;
+    return result;
+}
+
+inline double library_sum_written(const std::unordered_map<int, double, library_hash<int>>& values)
+{
+    return library_sum(values);
+}
+
+/// A member template instantiated with a callback named by a nested alias (rbfx's
+/// EventHandler::HandlerFunction) keeps the alias of the callback's parameter.
+struct library_handler
+{
+    using function = std::function<void(score_map&)>;
+
+    int id() const { return 1; }
+};
+
+struct library_events
+{
+    template <class T>
+    [[sharpcpp::instantiate("cross_library::library_handler::function")]]
+    int subscribe(T handler)
+    {
+        score_map scores{{1, 2.5f}};
+        handler(scores);
+        return static_cast<int>(scores.size());
+    }
+};
+
 } // namespace cross_library

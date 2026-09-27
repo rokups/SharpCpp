@@ -335,6 +335,14 @@ inline dependency_holder* create_dependency_holder(dependency_value* item)
 /// Accessor pairs become properties; mismatched or shadowed pairs stay methods.
 struct dependency_accessors
 {
+    struct layout
+    {
+        int stride{8};
+    };
+
+    /// Named like the nested type, so it stays a method.
+    layout get_layout() const { return layout{}; }
+
     int get_count() const { return count_; }
     void set_count(int value) { count_ = value; }
 

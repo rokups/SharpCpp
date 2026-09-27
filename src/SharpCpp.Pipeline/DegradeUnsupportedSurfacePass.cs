@@ -479,7 +479,9 @@ public static class DegradeUnsupportedSurfacePass
                 }
             }
 
-            if (string.Equals(record.ManagedBaseTypeName, baseBinding.ManagedName, StringComparison.Ordinal))
+            // A dependent base leaves no managed base name; the hoisted bases then provide it.
+            if (string.IsNullOrWhiteSpace(record.ManagedBaseTypeName) ||
+                string.Equals(record.ManagedBaseTypeName, baseBinding.ManagedName, StringComparison.Ordinal))
             {
                 record.ManagedBaseTypeName = null;
                 // Re-pick managed base from remaining non-virtual, non-ignored bases

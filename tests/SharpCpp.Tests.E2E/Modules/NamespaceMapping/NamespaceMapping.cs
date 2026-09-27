@@ -31,4 +31,18 @@ public sealed class DegradationTests
         Assert.Equal(29, box.Echo(29));
         Assert.Equal(31, DegradationBindings.FilteredIdentity(31));
     }
+
+    [Fact]
+    public void Nested_records_stay_inside_their_enclosing_class_under_a_flat_projection()
+    {
+        using var first = new FirstNode.Instance();
+        using var second = new SecondNode.Instance();
+        Assert.Equal(1, first.Read());
+        Assert.Equal(2, second.Read());
+        Assert.Equal(typeof(FirstNode), typeof(FirstNode.Instance).DeclaringType);
+
+        using var third = new SharpCpp.Tests.E2E.Modules.NamespaceMapping.Generated.ThirdNode.Instance();
+        Assert.Equal(3, third.Read());
+        Assert.EndsWith(".ThirdNode", typeof(SharpCpp.Tests.E2E.Modules.NamespaceMapping.Generated.ThirdNode.Instance).Namespace, StringComparison.Ordinal);
+    }
 }

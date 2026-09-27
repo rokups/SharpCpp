@@ -2370,6 +2370,9 @@ public sealed partial class ClangSharpHeaderParser
     // ClangSharp reads a bool argument through a signed one-bit value (true is -1).
     private static bool IsBooleanType(CXType type) => type.CanonicalType.kind == CXTypeKind.CXType_Bool;
 
+    private static bool IsDependentCxType(CXType type) =>
+        type.CanonicalType.Spelling.ToString().Contains("type-parameter-", StringComparison.Ordinal);
+
     private static bool TypeIsFunctionProto(CXType type) => type.TypeClass is CX_TypeClass.CX_TypeClass_FunctionProto or CX_TypeClass.CX_TypeClass_FunctionNoProto;
     private static bool TypeIsRecord(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_Record;
     private static bool TypeIsEnum(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_Enum;
@@ -2699,8 +2702,11 @@ public sealed partial class ClangSharpHeaderParser
                         enumsByName,
                         managedTypeOverrides,
                         genericParameters);
-                    mappedArgument = mappedArgument.WithCppTypeName(
-                        FormatCppTypeFromAst(argumentType, recordsByName, genericParameters));
+                    // A native argument names one C++ type however it was spelled (alias,
+                    // defaulted nested arguments), so one specialization has one shape key.
+                    mappedArgument = mappedArgument.WithCppTypeName(IsDependentCxType(argumentType.Handle)
+                        ? FormatCppTypeFromAst(argumentType, recordsByName, genericParameters)
+                        : FormatCanonicalCxTypeName(argumentType.CanonicalType.Handle));
                     nativeArguments.Add(BindingTemplateArgument.FromType(mappedArgument));
                     break;
 
