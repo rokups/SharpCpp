@@ -4,7 +4,7 @@
     <CollectFromChildProcesses>true</CollectFromChildProcesses>
     <ModulePaths>
       <Include>
-        <ModulePath>.*[/\\]SharpCpp\.(Model|Metadata|Parsing|Pipeline|Rendering|Tool|Support|Std)\.dll$</ModulePath>
+        <ModulePath>.*[/\\]SharpCpp\.(Model|Metadata|Parsing|Pipeline|Rendering|Support|Std)\.dll$</ModulePath>
       </Include>
     </ModulePaths>
     <Sources>

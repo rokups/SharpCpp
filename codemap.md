@@ -25,7 +25,8 @@ configured by `Marshaller<T>` specializations in C++ headers.
 | `src/SharpCpp.Metadata` | Metadata document, export and import for cross-module composition |
 | `src/SharpCpp.Support` | Managed runtime: `NativeObject`, instance caches, provider registry, collection bases |
 | `src/SharpCpp.Std` | Shared `Std.*` wrapper types (`Std.String`, `Std.Vector<T>`, ...) and their provider contracts |
-| `src/SharpCpp.Tool` | E2E generator driver |
+| `src/SharpCpp.Toolchain` | Compiler-driven Clang toolchain discovery |
+| `tests/SharpCpp.Tests.E2E.Generator` | E2E generator driver: parses the fixtures and applies test-only consumer wiring |
 | `include/SharpCpp` | Native contract: `Marshaller.hpp`, `Export.hpp`, `detail/MarshallerSupport.hpp` (`MarshallerInvoker`) |
 
 ## Data flow

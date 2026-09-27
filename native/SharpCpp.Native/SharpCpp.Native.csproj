@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/SharpCpp.Tool/SharpCpp.Tool.csproj"
+    <ProjectReference Include="../../tests/SharpCpp.Tests.E2E.Generator/SharpCpp.Tests.E2E.Generator.csproj"
                       Condition="'$(SharpCppBuildE2E)' == 'true'"
                       ReferenceOutputAssembly="false"
                       Private="false"

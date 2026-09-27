@@ -2,21 +2,11 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "SharpCpp Tool (Debug)",
+      "name": "SharpCpp E2E Generator (Debug)",
       "type": "coreclr",
       "request": "launch",
-      "program": "${workspaceFolder}/build/bin/Debug/SharpCpp.Tool.dll",
-      "args": ["sample-metadata"],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "preLaunchTask": "Build: SharpCpp (Debug)"
-    },
-    {
-      "name": "SharpCpp Tool Sample Metadata to File (Debug)",
-      "type": "coreclr",
-      "request": "launch",
-      "program": "${workspaceFolder}/build/bin/Debug/SharpCpp.Tool.dll",
-      "args": ["sample-metadata", "${workspaceFolder}/build/generated/sample/SharpCpp.Sample.Bindings.json"],
+      "program": "${workspaceFolder}/build/bin/Debug/SharpCpp.Tests/SharpCpp.Tests.E2E.Generator/SharpCpp.Tests.E2E.Generator.dll",
+      "args": ["--generated-root", "${workspaceFolder}/build/native/dev/generated/sharpcpp-e2e", "--project-root", "${workspaceFolder}"],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "preLaunchTask": "Build: SharpCpp (Debug)"

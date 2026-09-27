@@ -49,10 +49,11 @@ actual blockers without turning optional tools or reviews into approval gates.
 - `src/SharpCpp.Parsing/` - parser + marshaller instantiation
 - `src/SharpCpp.Pipeline/` - passes and scheduling
 - `src/SharpCpp.Rendering/` - renderers
-- `src/SharpCpp.Tool/` - CLI/composition entrypoint
+- `src/SharpCpp.Toolchain/` - compiler-driven toolchain discovery
 - `src/SharpCpp.Support/` - managed runtime support
 - `include/SharpCpp/` - native support headers
 - `tests/SharpCpp.Tests.E2E/` - E2E fixtures (the behavioural specification)
+- `tests/SharpCpp.Tests.E2E.Generator/` - generator driver for the E2E fixtures
 
 ## Naming rules
 

@@ -2,7 +2,8 @@ set(SHARPCPP_E2E_GENERATED_ROOT "${SHARPCPP_GENERATED_ROOT}/sharpcpp-e2e")
 set(SHARPCPP_E2E_GENERATED_STAMP "${SHARPCPP_E2E_GENERATED_ROOT}/generate.stamp")
 set(SHARPCPP_E2E_FILE_STEM "SharpCppTestsE2E")
 set(SHARPCPP_E2E_GENERATOR_LOG_FILE "${SHARPCPP_E2E_GENERATED_ROOT}/generator.log")
-set(SHARPCPP_TOOL_DLL "${SHARPCPP_MANAGED_OUTPUT_ROOT}/$<CONFIG>/SharpCpp.Tool.dll")
+set(SHARPCPP_E2E_GENERATOR_DLL
+  "${SHARPCPP_MANAGED_OUTPUT_ROOT}/$<CONFIG>/SharpCpp.Tests/SharpCpp.Tests.E2E.Generator/SharpCpp.Tests.E2E.Generator.dll")
 
 file(GLOB_RECURSE SHARPCPP_E2E_INPUT_HEADERS CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/*/*.hpp"
@@ -13,29 +14,29 @@ file(GLOB_RECURSE SHARPCPP_E2E_GENERATOR_INPUTS CONFIGURE_DEPENDS
   "${SharpCpp_SOURCE_DIR}/src/SharpCpp.Parsing/*.cs"
   "${SharpCpp_SOURCE_DIR}/src/SharpCpp.Pipeline/*.cs"
   "${SharpCpp_SOURCE_DIR}/src/SharpCpp.Rendering/*.cs"
-  "${SharpCpp_SOURCE_DIR}/src/SharpCpp.Tool/*.cs"
+  "${SharpCpp_SOURCE_DIR}/src/SharpCpp.Toolchain/*.cs"
+  "${SharpCpp_SOURCE_DIR}/tests/SharpCpp.Tests.E2E.Generator/*.cs"
   "${SharpCpp_SOURCE_DIR}/include/SharpCpp/*.hpp"
   "${SharpCpp_SOURCE_DIR}/include/SharpCpp/*.h")
 
 add_custom_command(
   OUTPUT "${SHARPCPP_E2E_GENERATED_STAMP}"
   COMMAND "${CMAKE_COMMAND}"
-          "-DGENERATOR_DLL=${SHARPCPP_TOOL_DLL}"
+          "-DGENERATOR_DLL=${SHARPCPP_E2E_GENERATOR_DLL}"
           "-DGENERATED_STAMP=${SHARPCPP_E2E_GENERATED_STAMP}"
           "-DGENERATED_DIR=${SHARPCPP_E2E_GENERATED_ROOT}"
           -P "${SharpCpp_SOURCE_DIR}/cmake/SharpCppGeneratedStaleness.cmake"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${SHARPCPP_E2E_GENERATED_ROOT}"
   COMMAND "${CMAKE_COMMAND}" -E env
           "SHARPCPP_CLANG_RESOURCE_DIRECTORY=${SHARPCPP_CLANG_RESOURCE_DIRECTORY}"
-          "${DOTNET_EXECUTABLE}" "${SHARPCPP_TOOL_DLL}"
-          generate-sample
+          "${DOTNET_EXECUTABLE}" "${SHARPCPP_E2E_GENERATOR_DLL}"
           --generated-root "${SHARPCPP_E2E_GENERATED_ROOT}"
           --project-root "${SharpCpp_SOURCE_DIR}"
           --file-stem "${SHARPCPP_E2E_FILE_STEM}"
           --compiler "${CMAKE_CXX_COMPILER}"
           --log-file "${SHARPCPP_E2E_GENERATOR_LOG_FILE}"
   COMMAND "${CMAKE_COMMAND}" -E touch "${SHARPCPP_E2E_GENERATED_STAMP}"
-  DEPENDS "${SHARPCPP_TOOL_DLL}" ${SHARPCPP_E2E_INPUT_HEADERS} ${SHARPCPP_E2E_GENERATOR_INPUTS}
+  DEPENDS "${SHARPCPP_E2E_GENERATOR_DLL}" ${SHARPCPP_E2E_INPUT_HEADERS} ${SHARPCPP_E2E_GENERATOR_INPUTS}
   WORKING_DIRECTORY "${SharpCpp_SOURCE_DIR}"
   VERBATIM
   USES_TERMINAL)

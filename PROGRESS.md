@@ -12,7 +12,8 @@ History lives in git. This file lists only what is open.
 - [x] Hygiene: personal tooling removed; `doc/` archived; absolute paths removed from
       the coverage script.
 - [ ] Reorganise E2E fixtures by C++ feature; retire the coverage-campaign directories.
-- [ ] Move test-only wiring out of `src/SharpCpp.Tool/Program.cs` into a test driver.
+- [x] Test-only wiring moved from `src/SharpCpp.Tool` into the
+      `tests/SharpCpp.Tests.E2E.Generator` driver; it no longer counts toward coverage.
 - [ ] Delete `SharpCpp.Tests.Model` / `SharpCpp.Tests.Metadata` after moving their
       scenarios to E2E.
 - [x] `AssignImportMethodNames` in one place; annotation caches reset per parse (the
@@ -25,7 +26,7 @@ History lives in git. This file lists only what is open.
 - [x] Unit tests brought up to date with the fully-qualified managed-callback entry
       point, `char**` fields projected as `IntPtr`, and abstract constructors degraded in
       `DegradeUnsupportedSurfacePass`; the Model suite passes.
-- [ ] Coverage gate: 93.56% against the 95% minimum; close the gap with E2E fixtures.
+- [ ] Coverage gate: 93.49% against the 95% minimum; close the gap with E2E fixtures.
 
 ## Later stages
 

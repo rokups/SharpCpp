@@ -8,7 +8,7 @@ using SharpCpp.Toolchain;
 using Microsoft.Extensions.Logging;
 using SharpCpp.Model.Logging;
 
-namespace SharpCpp.Tool;
+namespace SharpCpp.Tests.E2E.Generator;
 
 internal static class Program
 {
@@ -23,15 +23,10 @@ internal static class Program
         }
 
         SharpCppLog.Configure();
-
-        return args[0] switch
-        {
-            "generate-sample" => GenerateSampleBindings(args.Skip(1).ToArray()),
-            _ => UnknownCommand(args[0])
-        };
+        return GenerateBindings(args);
     }
 
-    private static int GenerateSampleBindings(string[] args)
+    private static int GenerateBindings(string[] args)
     {
         var generatedRoot = GetPathOption(args, "--generated-root");
         if (string.IsNullOrWhiteSpace(generatedRoot))
@@ -656,20 +651,14 @@ internal static class Program
         compilation.InvalidateCaches();
     }
 
-    private static int UnknownCommand(string command)
-    {
-        Logger.LogError("Unknown command '{Command}'.", command);
-        PrintUsage();
-        return 1;
-    }
 
     private static void PrintUsage()
     {
         Console.WriteLine("""
-            SharpCpp bootstrap tool
+            SharpCpp E2E binding generator
 
-            Commands:
-              generate-sample --generated-root <dir> [--project-root <dir>] [--file-stem <stem>] [--log-file <path>]   Emit sample bindings artifacts.
+            Usage:
+              --generated-root <dir> [--project-root <dir>] [--file-stem <stem>] [--compiler <path>] [--log-file <path>]
             """);
     }
 
