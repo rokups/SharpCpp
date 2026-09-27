@@ -112,6 +112,7 @@ public static class BindingMetadataExporter
             record.ManagedBaseTypeName,
             CreateTypeReference(record.HandleType),
             ManagedWrapperAssembly: record.GetMetadata<string>(MetadataKeys.ManagedWrapperAssembly),
+            ManagedTypeFormat: record.ManagedTypeFormat,
             ManagedBaseTypeConstraints: record.ManagedBaseTypeConstraints,
             ManagedInstanceCacheFactoryExpression: record.ManagedInstanceCacheFactoryExpression,
             ManagedInstanceCacheTypeName: record.ManagedInstanceCacheTypeName,

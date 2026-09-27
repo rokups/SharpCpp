@@ -43,7 +43,10 @@ public sealed record BindingMetadataType(
     bool? HasCopyConstructor = null,
     string? ManagedWrapperAssembly = null,
     string? ManagedWrapperProviderNamespace = null,
-    bool? ManagedWrapperCopyable = null);
+    bool? ManagedWrapperCopyable = null,
+    // Managed generic shape ("Ea.Map<{0}, {1}>"): which native template parameters are
+    // managed type arguments. The projection lists every native parameter.
+    string? ManagedTypeFormat = null);
 
 public sealed record BindingMetadataEnumValue(string NativeName, string ManagedName, string ValueExpression);
 

@@ -161,9 +161,9 @@ public sealed class BindingMetadataImportCatalog
         {
             ManagedNamespace = managedNamespace,
             ManagedBaseTypeName = managedBaseTypeName,
-            ManagedTypeFormat = importedType.Projection.GenericArguments is { Count: > 0 }
+            ManagedTypeFormat = importedType.ManagedTypeFormat ?? (importedType.Projection.GenericArguments is { Count: > 0 }
                 ? BuildQualifiedManagedTypeFormat(managedTypeName, importedType.IsFixedArray || importedType.IsDynamicArray ? 1 : importedType.Projection.GenericArguments.Count)
-                : null,
+                : null),
             ManagedBaseTypeConstraints = importedType.ManagedBaseTypeConstraints,
             ManagedInstanceCacheFactoryExpression = importedType.ManagedInstanceCacheFactoryExpression,
             ManagedInstanceCacheTypeName = importedType.ManagedInstanceCacheTypeName,
