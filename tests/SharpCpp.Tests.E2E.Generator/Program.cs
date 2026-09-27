@@ -83,8 +83,8 @@ internal static class Program
 
         var headerFiles = Directory
             .EnumerateFiles(fixtureRoot, "*.hpp", SearchOption.AllDirectories)
-            .Where(path => !Path.GetRelativePath(fixtureRoot, path).StartsWith($"Coverage{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
-            .Where(path => !Path.GetRelativePath(fixtureRoot, path).StartsWith($"CrossModule{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            // Modules/ holds fixtures generated as separate binding modules.
+            .Where(path => !Path.GetRelativePath(fixtureRoot, path).StartsWith($"Modules{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
             .OrderBy(static path => path, StringComparer.Ordinal)
             .ToArray();
 
@@ -110,7 +110,7 @@ internal static class Program
             }
         }
 
-        ApplyConsumerExtensionCoverage(compilation);
+        ApplyConsumerExtensions(compilation);
         BindingCompilationBootstrapPipeline.Apply(compilation, marshallerConfigurationFiles, clangArguments);
 
         var generatedFiles = BindingOutputRenderer.Render(compilation, fileStem, headerPath =>
@@ -137,7 +137,7 @@ internal static class Program
             parser,
             clangArguments,
             marshallerConfigurationFiles));
-        generatedFiles.AddRange(GenerateCoverageBindings(
+        generatedFiles.AddRange(GenerateModuleBindings(
             fixtureRoot,
             generatedRoot,
             parser,
@@ -148,9 +148,9 @@ internal static class Program
         return 0;
     }
 
-    private static void ApplyConsumerExtensionCoverage(BindingCompilation compilation)
+    private static void ApplyConsumerExtensions(BindingCompilation compilation)
     {
-        const string headerPath = "CoverageMatrix/ConsumerProjection.hpp";
+        const string headerPath = "Consumer/ConsumerProjection.hpp";
 
         foreach (var nativeName in new[]
                  {
@@ -267,11 +267,11 @@ internal static class Program
         IReadOnlyList<string> marshallerConfigurationFiles = fixtureMarshallerConfigurationFiles
             .Where(static path => string.Equals(Path.GetFileName(path), "Marshaller.hpp", StringComparison.Ordinal))
             .ToArray();
-        var library = ParseCoverageHeader(
-            "SharpCpp.Tests.E2E.CrossModule.Library",
-            "SharpCpp.Tests.E2E.CrossModule.Library",
+        var library = ParseModuleHeader(
+            "SharpCpp.Tests.E2E.Modules.CrossModule.Library",
+            "SharpCpp.Tests.E2E.Modules.CrossModule.Library",
             "LibraryBindings",
-            "CrossModule/Library.hpp",
+            "Modules/CrossModule/Library.hpp",
             "sharpcpp_cross_library",
             fixtureRoot,
             parser,
@@ -286,11 +286,11 @@ internal static class Program
                 library,
                 new BindingMetadataExportOptions(library.ProjectName, "cross-library", "cross-clang"))));
 
-        var app = ParseCoverageHeader(
-            "SharpCpp.Tests.E2E.CrossModule.App",
-            "SharpCpp.Tests.E2E.CrossModule.App",
+        var app = ParseModuleHeader(
+            "SharpCpp.Tests.E2E.Modules.CrossModule.App",
+            "SharpCpp.Tests.E2E.Modules.CrossModule.App",
             "AppBindings",
-            "CrossModule/App.hpp",
+            "Modules/CrossModule/App.hpp",
             "sharpcpp_cross_app",
             fixtureRoot,
             parser,
@@ -304,19 +304,19 @@ internal static class Program
             .ToArray();
     }
 
-    private static IReadOnlyList<GeneratedBindingFile> GenerateCoverageBindings(
+    private static IReadOnlyList<GeneratedBindingFile> GenerateModuleBindings(
         string fixtureRoot,
         string generatedRoot,
         ClangSharpHeaderParser parser,
         IReadOnlyList<string> clangArguments,
         IReadOnlyList<string> marshallerConfigurationFiles)
     {
-        var dependency = ParseCoverageHeader(
-            "SharpCpp.Tests.E2E.Coverage.Dependency",
-            "SharpCpp.Tests.E2E.Coverage.Dependency",
+        var dependency = ParseModuleHeader(
+            "SharpCpp.Tests.E2E.Modules.Metadata.Dependency",
+            "SharpCpp.Tests.E2E.Modules.Metadata.Dependency",
             "DependencyBindings",
-            "Coverage/Dependency.hpp",
-            "sharpcpp_coverage_dependency",
+            "Modules/Metadata/Dependency.hpp",
+            "sharpcpp_metadata_dependency",
             fixtureRoot,
             parser,
             clangArguments,
@@ -324,27 +324,27 @@ internal static class Program
         BindingCompilationBootstrapPipeline.Apply(dependency, marshallerConfigurationFiles, clangArguments);
         GenerateAccessorPropertiesPass.Apply(dependency);
         RemoveLocalConfiguredWrapperRecords(dependency);
-        ApplyCoverageProjection(dependency);
+        ApplyModuleProjection(dependency);
 
         var dependencyMetadata = BindingMetadataExporter.Export(
             dependency,
-            new BindingMetadataExportOptions(dependency.ProjectName, "coverage-dependency", "coverage-clang"));
-        var dependencyMetadataPath = Path.Combine(generatedRoot, "SharpCppCoverageDependency.Bindings.json");
+            new BindingMetadataExportOptions(dependency.ProjectName, "metadata-dependency", "module-clang"));
+        var dependencyMetadataPath = Path.Combine(generatedRoot, "SharpCppMetadataDependency.Bindings.json");
         File.WriteAllText(dependencyMetadataPath, BindingMetadataSerializer.Serialize(dependencyMetadata));
         var compatibilityDependencyMetadata = CreateCompatibilityDependencyMetadata(dependencyMetadata);
-        var compatibilityDependencyMetadataPath = Path.Combine(generatedRoot, "SharpCppCoverageDependency.CompatibilityBindings.json");
+        var compatibilityDependencyMetadataPath = Path.Combine(generatedRoot, "SharpCppMetadataDependency.CompatibilityBindings.json");
         File.WriteAllText(compatibilityDependencyMetadataPath, BindingMetadataSerializer.Serialize(compatibilityDependencyMetadata));
 
         var dependencyImports = BindingMetadataImportCatalog.Load([
             compatibilityDependencyMetadataPath,
             dependencyMetadataPath
         ]);
-        var consumer = ParseCoverageHeader(
-            "SharpCpp.Tests.E2E.Coverage.Consumer",
-            "SharpCpp.Tests.E2E.Coverage.Consumer",
+        var consumer = ParseModuleHeader(
+            "SharpCpp.Tests.E2E.Modules.Metadata.Consumer",
+            "SharpCpp.Tests.E2E.Modules.Metadata.Consumer",
             "ConsumerBindings",
-            "Coverage/Consumer.hpp",
-            "sharpcpp_coverage_consumer",
+            "Modules/Metadata/Consumer.hpp",
+            "sharpcpp_metadata_consumer",
             fixtureRoot,
             parser,
             clangArguments,
@@ -352,49 +352,49 @@ internal static class Program
             dependencyImports);
         BindingCompilationBootstrapPipeline.Apply(consumer, marshallerConfigurationFiles, clangArguments);
         RemoveLocalConfiguredWrapperRecords(consumer);
-        ApplyCoverageProjection(consumer);
+        ApplyModuleProjection(consumer);
         consumer.TypeAliases.Clear();
         var consumerMetadata = BindingMetadataExporter.Export(
             consumer,
             new BindingMetadataExportOptions(
                 consumer.ProjectName,
-                Phase2ClosureHash: "coverage-consumer",
-                ClangArgsHash: "coverage-clang",
+                Phase2ClosureHash: "metadata-consumer",
+                ClangArgsHash: "module-clang",
                 Imports: dependencyImports.Imports));
         File.WriteAllText(
-            Path.Combine(generatedRoot, "SharpCppCoverageConsumer.Bindings.json"),
+            Path.Combine(generatedRoot, "SharpCppMetadataConsumer.Bindings.json"),
             BindingMetadataSerializer.Serialize(consumerMetadata));
 
-        var degradation = ParseCoverageHeader(
-            "SharpCpp.Tests.E2E.Coverage.Degradation",
-            "SharpCpp.Tests.E2E.Coverage.Degradation.Generated",
+        var namespaceMapping = ParseModuleHeader(
+            "SharpCpp.Tests.E2E.Modules.NamespaceMapping",
+            "SharpCpp.Tests.E2E.Modules.NamespaceMapping.Generated",
             "DegradationBindings",
-            "Coverage/Degradation.hpp",
-            "sharpcpp_coverage_degradation",
+            "Modules/NamespaceMapping/NamespaceMapping.hpp",
+            "sharpcpp_namespace_mapping",
             fixtureRoot,
             parser,
             clangArguments,
             marshallerConfigurationFiles);
-        degradation.NamespaceMappings = new Dictionary<string, string>(StringComparer.Ordinal)
+        namespaceMapping.NamespaceMappings = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["coverage_allowed"] = degradation.ManagedNamespace
+            ["coverage_allowed"] = namespaceMapping.ManagedNamespace
         };
-        ApplyDegradationCoverage(degradation);
-        BindingCompilationBootstrapPipeline.Apply(degradation, marshallerConfigurationFiles, clangArguments);
-        RemoveLocalConfiguredWrapperRecords(degradation);
-        ApplyCoverageProjection(degradation);
+        ApplyNamespaceMappingOverrides(namespaceMapping);
+        BindingCompilationBootstrapPipeline.Apply(namespaceMapping, marshallerConfigurationFiles, clangArguments);
+        RemoveLocalConfiguredWrapperRecords(namespaceMapping);
+        ApplyModuleProjection(namespaceMapping);
 
         var cClangArguments = clangArguments
             .Where(static argument => argument is not "-xc++" and not "-std=c++20")
             .Prepend("-std=c17")
             .Prepend("-xc")
             .ToArray();
-        var cOpaque = ParseCoverageHeader(
-            "SharpCpp.Tests.E2E.Coverage.COpaque",
-            "SharpCpp.Tests.E2E.Coverage.COpaque.Generated",
+        var cOpaque = ParseModuleHeader(
+            "SharpCpp.Tests.E2E.Modules.C",
+            "SharpCpp.Tests.E2E.Modules.C.Generated",
             "COpaqueBindings",
-            "Coverage/COpaque.h",
-            "sharpcpp_coverage_c_opaque",
+            "Modules/C/COpaque.h",
+            "sharpcpp_c_opaque",
             fixtureRoot,
             parser,
             cClangArguments,
@@ -402,23 +402,23 @@ internal static class Program
             marshallerClangArguments: clangArguments);
         BindingCompilationBootstrapPipeline.Apply(cOpaque, marshallerConfigurationFiles, clangArguments);
         RemoveLocalConfiguredWrapperRecords(cOpaque);
-        ApplyCoverageProjection(cOpaque);
+        ApplyModuleProjection(cOpaque);
 
-        var ownedRootDirectory = Path.Combine(fixtureRoot, "Coverage", "Owned");
+        var ownedRootDirectory = Path.Combine(fixtureRoot, "Modules", "OwnedFiles");
         var owned = parser.Parse(new ClangSharpParseRequest(
-            "SharpCpp.Tests.E2E.Coverage.Owned",
-            "SharpCpp.Tests.E2E.Coverage.Owned.Generated",
+            "SharpCpp.Tests.E2E.Modules.OwnedFiles",
+            "SharpCpp.Tests.E2E.Modules.OwnedFiles.Generated",
             "PendingOwnedBindings",
             "SharpCppTestsE2E_Native",
             Path.Combine(ownedRootDirectory, "OwnedUmbrella.hpp"),
-            "Coverage/Owned/OwnedUmbrella.hpp",
+            "Modules/OwnedFiles/OwnedUmbrella.hpp",
             clangArguments,
             Array.Empty<string>(),
-            EntryPointPrefix: "sharpcpp_coverage_owned",
+            EntryPointPrefix: "sharpcpp_owned_files",
             OwnedFileRoots: [ownedRootDirectory, string.Empty],
             OwnedFileRootIncludePrefixes: new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                [ownedRootDirectory] = "/Coverage/Owned/",
+                [ownedRootDirectory] = "/Modules/OwnedFiles/",
                 [string.Empty] = "ignored"
             }));
         BindingCompilationBootstrapPipeline.Apply(
@@ -435,17 +435,17 @@ internal static class Program
                     .Single(function => string.Equals(function.NativeName, "owned_second_round_trip", StringComparison.Ordinal))
                     .ManagedName = "OwnedRootSecond";
             });
-        ApplyCoverageProjection(owned);
+        ApplyModuleProjection(owned);
 
-        return BindingOutputRenderer.Render(dependency, "SharpCppCoverageDependency").Files
-            .Concat(BindingOutputRenderer.Render(consumer, "SharpCppCoverageConsumer").Files)
-            .Concat(BindingOutputRenderer.Render(degradation, "SharpCppCoverageDegradation").Files)
-            .Concat(BindingOutputRenderer.Render(cOpaque, "SharpCppCoverageCOpaque").Files)
-            .Concat(BindingOutputRenderer.Render(owned, "SharpCppCoverageOwned").Files)
+        return BindingOutputRenderer.Render(dependency, "SharpCppMetadataDependency").Files
+            .Concat(BindingOutputRenderer.Render(consumer, "SharpCppMetadataConsumer").Files)
+            .Concat(BindingOutputRenderer.Render(namespaceMapping, "SharpCppNamespaceMapping").Files)
+            .Concat(BindingOutputRenderer.Render(cOpaque, "SharpCppCOpaque").Files)
+            .Concat(BindingOutputRenderer.Render(owned, "SharpCppOwnedFiles").Files)
             .ToArray();
     }
 
-    private static void ApplyDegradationCoverage(BindingCompilation compilation)
+    private static void ApplyNamespaceMappingOverrides(BindingCompilation compilation)
     {
         compilation.Functions.Single(function =>
                 string.Equals(function.NativeName, "callback_marked_ref", StringComparison.Ordinal))
@@ -594,7 +594,7 @@ internal static class Program
         };
     }
 
-    private static BindingCompilation ParseCoverageHeader(
+    private static BindingCompilation ParseModuleHeader(
         string projectName,
         string managedNamespace,
         string managedClassName,
@@ -624,7 +624,7 @@ internal static class Program
         return compilation;
     }
 
-    private static void ApplyCoverageProjection(BindingCompilation compilation)
+    private static void ApplyModuleProjection(BindingCompilation compilation)
     {
         var projection = new ManagedBindingProjection(compilation.ManagedNamespace);
         // Shared wrapper types belong to their wrapper assembly's namespace.

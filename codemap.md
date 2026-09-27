@@ -42,8 +42,13 @@ headers + Marshaller<T> headers
 ## Tests
 
 `tests/SharpCpp.Tests.E2E` is the specification: each fixture header is generated,
-compiled into `SharpCppTestsE2E_Native`, and exercised from xunit. `CrossModule/`
-generates two modules where the second imports the first's metadata. Unit test
+compiled into `SharpCppTestsE2E_Native`, and exercised from xunit. Fixtures are grouped
+by C++ feature (`Aliases/`, `Callback/`, `Records/`, `StandardLibrary/`, ...); each
+`*Marshallers.h` beside a fixture is loaded as marshaller configuration. Everything under
+`Modules/` is generated as a separate binding module by the generator driver:
+`CrossModule/` and `Metadata/` import another module's metadata, `NamespaceMapping/`
+uses namespace mappings, `C/` parses a C header and `OwnedFiles/` uses owned file roots.
+Unit test
 projects (`SharpCpp.Tests.Model`, `SharpCpp.Tests.Metadata`) are scheduled for
 removal once their scenarios are covered by E2E fixtures.
 

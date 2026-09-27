@@ -11,7 +11,7 @@ History lives in git. This file lists only what is open.
       marshaller headers and managed generic shapes carried in metadata.
 - [x] Hygiene: personal tooling removed; `doc/` archived; absolute paths removed from
       the coverage script.
-- [ ] Reorganise E2E fixtures by C++ feature; retire the coverage-campaign directories.
+- [x] E2E fixtures grouped by C++ feature; separately generated modules live under `Modules/`.
 - [x] Test-only wiring moved from `src/SharpCpp.Tool` into the
       `tests/SharpCpp.Tests.E2E.Generator` driver; it no longer counts toward coverage.
 - [ ] Delete `SharpCpp.Tests.Model` / `SharpCpp.Tests.Metadata` after moving their
