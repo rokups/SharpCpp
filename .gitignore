@@ -6,5 +6,3 @@ build/
 *.suo
 compile_commands.json
 TestResults/
-.slim/deepwork/
-/.env

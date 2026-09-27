@@ -8,10 +8,10 @@ AST/model facts, never rendered C++ type-name strings. Dependency-specific
 behavior belongs in marshallers/configuration, not generic core special cases.
 Generated artifacts belong in the configured build tree.
 
-Use `doc/` for the relevant architecture decision, `PROGRESS.md` for active
-work and unfinished decisions, and `codemap.md` when navigating an unfamiliar
-subsystem. Read only the material needed for the current task. Determine the
-current implementation state from source and tests instead of assuming bootstrap.
+The E2E fixtures in `tests/SharpCpp.Tests.E2E` specify what is supported;
+`PROGRESS.md` lists open work and `codemap.md` gives the layout. `doc/archive/`
+is historical and is not an authority for decisions. Determine the current
+implementation state from source and tests.
 
 ## Tools and collaboration
 
@@ -44,8 +44,6 @@ actual blockers without turning optional tools or reviews into approval gates.
 
 ## Project shape
 
-Target layout follows `doc/11-project-shape-blueprint.md`.
-
 - `src/SharpCpp.Model/` - binding model, diagnostics, utilities
 - `src/SharpCpp.Metadata/` - metadata schema/import/export
 - `src/SharpCpp.Parsing/` - parser + marshaller instantiation
@@ -54,15 +52,15 @@ Target layout follows `doc/11-project-shape-blueprint.md`.
 - `src/SharpCpp.Tool/` - CLI/composition entrypoint
 - `src/SharpCpp.Support/` - managed runtime support
 - `include/SharpCpp/` - native support headers
-- `tests/` - unit/golden/E2E coverage by layer
+- `tests/SharpCpp.Tests.E2E/` - E2E fixtures (the behavioural specification)
 
-## 6. Naming Rules
+## Naming rules
 
 - Managed assemblies use `SharpCpp.*` identities.
 - CMake targets use `sharpcpp-*` targets.
 - Generated outputs belong under the build tree, not the source tree.
 
-## 7. Reuse Policy
+## Reuse policy
 
 Good copy candidates:
 
