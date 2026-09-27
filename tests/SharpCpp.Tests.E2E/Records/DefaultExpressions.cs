@@ -26,4 +26,19 @@ public sealed class DefaultExpressionTests
         Assert.Equal(0.5f, parameters[1].DefaultValue);
         Assert.Equal(1.25, parameters[2].DefaultValue);
     }
+
+    [Fact]
+    public void Null_macro_default_is_a_managed_null_pointer()
+    {
+        Assert.Equal(0, E2EBindings.AcceptPointer());
+        Assert.Equal(1, E2EBindings.AcceptPointer(1));
+    }
+
+    [Fact]
+    public void Macro_and_constructor_expression_defaults_are_applied_natively()
+    {
+        Assert.Equal(2, E2EBindings.PlotValue());
+        Assert.Equal(0, E2EBindings.PlotValue(0f));
+        Assert.Equal(321, E2EBindings.MoveBy());
+    }
 }

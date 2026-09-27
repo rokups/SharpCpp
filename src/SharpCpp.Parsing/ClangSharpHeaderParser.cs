@@ -666,7 +666,10 @@ public sealed partial class ClangSharpHeaderParser
             record.Members.OfType<FieldBinding>().Any(static field => field.IsReference) ||
             recordDecl.Fields.Any(static field => field.Type.Handle.IsConstQualified) ||
             (!record.IsDirector &&
-                (record.IsAbstract || !record.Members.Any(static member => member is FieldBinding or FunctionBinding))))
+                (record.IsAbstract ||
+                    // A record with neither members nor bases has nothing to construct for;
+                    // a derived record's surface is its bases'.
+                    record.Bases.Count == 0 && !record.Members.Any(static member => member is FieldBinding or FunctionBinding))))
         {
             return;
         }
@@ -3435,7 +3438,9 @@ public sealed partial class ClangSharpHeaderParser
                         : (mappedType, explicitDirection ?? BindingParameterDirection.Ref, BindingParameterAbiKind.Reference);
                 }
 
-                var isProjectedValue = mappedType.Kind == BindingTypeKind.Primitive;
+                // A ref-struct projection (a span over a string view) has no by-reference
+                // form; the view itself crosses by value.
+                var isProjectedValue = mappedType.Kind == BindingTypeKind.Primitive && !mappedType.Marshaller.IsRefStruct;
                 var abiKind = isProjectedValue
                     ? BindingParameterAbiKind.Reference
                     : BindingParameterAbiKind.Value;
@@ -3465,7 +3470,10 @@ public sealed partial class ClangSharpHeaderParser
         if (TypeIsPointer(normalizedType))
         {
             var normalizedTypeName = NormalizeTypeName(type.Spelling.ToString());
-            if (TryGetManagedTypeOverride(normalizedTypeName, normalizedTypeName, normalizedTypeName, managedTypeOverrides, isReturn: false, out var pointerOverride))
+            // An explicit out/ref writes the pointee, as for every other pointer; a configured
+            // pointer token (a byte buffer as IntPtr) describes the pointer itself.
+            if (TryGetManagedTypeOverride(normalizedTypeName, normalizedTypeName, normalizedTypeName, managedTypeOverrides, isReturn: false, out var pointerOverride) &&
+                (pointerOverride!.ByReference || explicitDirection is not (BindingParameterDirection.Out or BindingParameterDirection.Ref)))
             {
                 // out/ref modifiers already pass a by-reference projection by address; an
                 // input one passes it with `in`.
