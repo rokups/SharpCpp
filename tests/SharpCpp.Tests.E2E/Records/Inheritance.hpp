@@ -173,3 +173,50 @@ inline base_counter* get_shared_derived_as_base()
     static derived_counter shared(30, 4);
     return &shared;
 }
+
+// A variadic class template cannot be a C# generic; records deriving from it keep the
+// template's own concrete base.
+struct variadic_root
+{
+    virtual ~variadic_root() = default;
+    int root_value() const { return 11; }
+};
+
+template <typename Instance, typename... Values>
+struct variadic_node : variadic_root
+{
+    int arity() const { return static_cast<int>(sizeof...(Values)); }
+};
+
+struct variadic_leaf : variadic_node<int, float, double>
+{
+    int leaf_value() const { return 5; }
+};
+
+inline int read_variadic_root(variadic_root* value)
+{
+    return value->root_value();
+}
+
+// A class template deriving from its template parameter cannot be a C# generic;
+// records instantiating it derive from the concrete argument instead.
+struct tracked_base
+{
+    virtual ~tracked_base() = default;
+    int tracked_value() const { return 21; }
+};
+
+struct tracked_tag
+{
+};
+
+template <class TBase, class TTag>
+struct tracked_component : TBase
+{
+    int tag_size() const { return static_cast<int>(sizeof(TTag)); }
+};
+
+struct tracked_leaf : tracked_component<tracked_base, tracked_tag>
+{
+    int leaf_value() const { return 3; }
+};

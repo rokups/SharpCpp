@@ -2073,12 +2073,9 @@ public static partial class BindingOutputRenderer
             return RenderManagedGenericArrayMarshallerHelpers(compilation, record, recordDeclarationName);
         }
 
-        if (HasNativeNonTypeTemplateArguments(record))
-        {
-            return RenderManagedNativeTemplateMarshallerHelper(compilation, record, recordDeclarationName);
-        }
-
-        if (!CanUseUnifiedHandleMarshaller(record))
+        // Records with non-type template arguments (hash_map's bool) still need return
+        // helpers: return sites resolve their marshaller from the use-site type.
+        if (HasNativeNonTypeTemplateArguments(record) || !CanUseUnifiedHandleMarshaller(record))
         {
             return RenderManagedGenericHandleMarshallerHelpers(compilation, record, recordDeclarationName);
         }
@@ -2105,29 +2102,6 @@ public static partial class BindingOutputRenderer
                 public static {{qualifiedRecordTypeName}} ConvertToManaged(nint unmanaged)
                 {
                     return {{qualifiedRecordTypeName}}.CreateManagedWrapper(unmanaged, ownsHandle: TOwnership.OwnsHandle{{moduleArgument}});
-                }
-            }
-            """;
-    }
-
-    private static string RenderManagedNativeTemplateMarshallerHelper(
-        BindingCompilation compilation,
-        RecordBinding record,
-        string recordDeclarationName)
-    {
-        var qualifiedRecordTypeName = GetQualifiedManagedRecordDeclarationTypeName(compilation, record, recordDeclarationName);
-        var qualifiedOpenRecordTypeName = GetQualifiedManagedOpenRecordTypeName(compilation, record);
-        var marshallerDeclarationName = GetHandleInMarshallerDeclarationName(record);
-        var marshallerTypeName = GetQualifiedHandleInMarshallerTypeName(compilation, record);
-        var genericConstraints = GetGenericRecordConstraints(record);
-
-        return $$"""
-            [CustomMarshaller(typeof({{qualifiedOpenRecordTypeName}}), MarshalMode.ManagedToUnmanagedIn, typeof({{marshallerTypeName}}))]
-            internal static class {{marshallerDeclarationName}}{{genericConstraints}}
-            {
-                public static nint ConvertToUnmanaged({{qualifiedRecordTypeName}} managed)
-                {
-                    return global::SharpCpp.Support.NativeObject.GetHandle(managed);
                 }
             }
             """;
@@ -7072,9 +7046,16 @@ public static partial class BindingOutputRenderer
 
     private static string SanitizeNativeEntrypointName(string value)
     {
-        return value.Replace("::", "_", StringComparison.Ordinal)
-                    .Replace("<", "_", StringComparison.Ordinal)
-                    .Replace(">", "_", StringComparison.Ordinal);
+        var sanitized = value.Replace("::", "_", StringComparison.Ordinal).ToCharArray();
+        for (var index = 0; index < sanitized.Length; ++index)
+        {
+            if (!char.IsAsciiLetterOrDigit(sanitized[index]) && sanitized[index] != '_')
+            {
+                sanitized[index] = '_';
+            }
+        }
+
+        return new string(sanitized);
     }
 
     private static string GetNativeDeleteEntryPointName(BindingCompilation compilation, RecordBinding record)

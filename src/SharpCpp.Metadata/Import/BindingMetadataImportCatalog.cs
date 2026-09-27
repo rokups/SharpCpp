@@ -56,7 +56,9 @@ public sealed class BindingMetadataImportCatalog
 
         // Native thunks for imported types (generic instantiations, shared helpers) need the
         // dependency's declarations in the consumer translation unit.
-        foreach (var headerFile in _documents.SelectMany(static document => document.Fingerprint.HeaderFiles))
+        // Their marshaller specializations are needed as well.
+        foreach (var headerFile in _documents.SelectMany(static document =>
+                     document.Fingerprint.HeaderFiles.Concat(document.Fingerprint.NativeSupportHeaders ?? [])))
         {
             if (!compilation.NativeSupportHeaders.Contains(headerFile, StringComparer.Ordinal))
             {
@@ -124,7 +126,12 @@ public sealed class BindingMetadataImportCatalog
 
     private static void SeedRecord(BindingCompilation compilation, IDictionary<string, RecordBinding> recordsByName, BindingMetadataDocument document, BindingMetadataType importedType)
     {
-        var cppQualifiedName = StripGenericArguments(GetQualifiedCppTypeName(importedType.Projection.CppType));
+        // Generic records re-apply their arguments per instantiation; a full
+        // specialization (Marshaller<basic_string<char>>) is only valid spelled with them.
+        var qualifiedCppTypeName = GetQualifiedCppTypeName(importedType.Projection.CppType);
+        var cppQualifiedName = importedType.Projection.GenericArguments is { Count: > 0 } || importedType.IsFixedArray || importedType.IsDynamicArray
+            ? StripGenericArguments(qualifiedCppTypeName)
+            : qualifiedCppTypeName;
         if (recordsByName.ContainsKey(importedType.NativeName) || recordsByName.ContainsKey(cppQualifiedName))
         {
             return;

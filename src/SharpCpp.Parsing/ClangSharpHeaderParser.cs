@@ -774,6 +774,20 @@ public sealed partial class ClangSharpHeaderParser
             record.SetMetadata(MetadataKeys.NativeInterfaceWrapper, true);
         }
         record.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(classTemplate));
+        if (classTemplate.TemplateParameters.Any(static parameter =>
+                parameter is TemplateTypeParmDecl { IsParameterPack: true } ||
+                parameter is NonTypeTemplateParmDecl { IsParameterPack: true }))
+        {
+            // Derived records hoist this template's bases (DegradeUnsupportedSurfacePass).
+            record.SetIgnoreReason($"variadic class template '{cppQualifiedName}' cannot be expressed as a C# generic");
+        }
+        else if (templatedRecord is CXXRecordDecl { Bases: var templateBases } &&
+                 templateBases.Any(static baseSpecifier => baseSpecifier.Type.CanonicalType is TemplateTypeParmType))
+        {
+            // A C# generic cannot derive from its type parameter; derived records hoist the
+            // concrete argument as their base instead.
+            record.SetIgnoreReason($"class template '{cppQualifiedName}' derives from its template parameter, which a C# generic cannot express");
+        }
         if (isForwardDeclaration)
         {
             record.SetMetadata(MetadataKeys.ForwardDeclaration, true);

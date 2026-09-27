@@ -84,7 +84,9 @@ public static class BindingMetadataExporter
             options.Phase2ClosureHash,
             options.ClangArgsHash,
             options.AttributeVocabularyHash,
-            compilation.HeaderFiles.OrderBy(static header => header, StringComparer.Ordinal).ToArray());
+            compilation.HeaderFiles.OrderBy(static header => header, StringComparer.Ordinal).ToArray(),
+            // Order is significant: marshaller specializations may depend on earlier headers.
+            compilation.NativeSupportHeaders.Distinct(StringComparer.Ordinal).ToArray());
 
         return new BindingMetadataDocument(
             BindingMetadataSchema.CurrentVersion,

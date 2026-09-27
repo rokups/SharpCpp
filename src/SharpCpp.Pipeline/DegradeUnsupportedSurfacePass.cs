@@ -397,7 +397,22 @@ public static class DegradeUnsupportedSurfacePass
         foreach (var baseBinding in unavailableBases)
         {
             record.SetWarning($"dropping base '{baseBinding.CppQualifiedName}' from record '{record.CppQualifiedName}' because the base record is not available for a coherent managed hierarchy; the derived record will still be generated without that base");
+            var baseIndex = record.Bases.IndexOf(baseBinding);
             record.Bases.Remove(baseBinding);
+            if (!baseBinding.IsVirtual && recordsById.TryGetValue(baseBinding.RecordId, out var droppedBaseRecord))
+            {
+                // Keep the inherited surface: the dropped base's own concrete bases are
+                // still bases of this record in C++ (e.g. a variadic template's base).
+                foreach (var candidate in droppedBaseRecord.Bases.Where(static candidate => !candidate.IsVirtual))
+                {
+                    var hoisted = SubstituteHoistedBase(candidate, droppedBaseRecord, baseBinding, recordsById);
+                    if (hoisted is not null &&
+                        !record.Bases.Any(existing => string.Equals(existing.RecordId, hoisted.RecordId, StringComparison.Ordinal)))
+                    {
+                        record.Bases.Insert(baseIndex++, hoisted);
+                    }
+                }
+            }
 
             if (string.Equals(record.ManagedBaseTypeName, baseBinding.ManagedName, StringComparison.Ordinal))
             {
@@ -444,6 +459,43 @@ public static class DegradeUnsupportedSurfacePass
         return primaryBase is not null &&
             compilation.FindRecordBySymbolId(primaryBase.RecordId) is { } baseRecord &&
             !baseRecord.IsIgnored();
+    }
+
+    /// <summary>
+    /// A base of a dropped generic base may be one of its template parameters
+    /// (template &lt;class TBase&gt; struct tracked : TBase); resolve it to the concrete
+    /// argument the derived record instantiated. Other open generic bases are unusable.
+    /// </summary>
+    private static RecordBaseBinding? SubstituteHoistedBase(
+        RecordBaseBinding candidate,
+        RecordBinding droppedBaseRecord,
+        RecordBaseBinding droppedBase,
+        IReadOnlyDictionary<string, RecordBinding> recordsById)
+    {
+        if (candidate.Type.IsGenericParameter)
+        {
+            var parameterIndex = droppedBaseRecord.GenericParameters
+                .Select(static (parameter, index) => (parameter.Name, index))
+                .FirstOrDefault(parameter => string.Equals(parameter.Name, candidate.Type.GenericParameterName, StringComparison.Ordinal))
+                .index;
+            if (parameterIndex >= droppedBase.Type.GenericArguments.Count ||
+                droppedBase.Type.GenericArguments[parameterIndex] is not { RecordId: { } argumentRecordId } argument ||
+                !recordsById.TryGetValue(argumentRecordId, out var argumentRecord) ||
+                !droppedBaseRecord.GenericParameters.Any(parameter => string.Equals(parameter.Name, candidate.Type.GenericParameterName, StringComparison.Ordinal)))
+            {
+                return null;
+            }
+
+            return new RecordBaseBinding(
+                argumentRecord.SymbolId,
+                argumentRecord.NativeName,
+                argument.ManagedTypeName,
+                argumentRecord.CppQualifiedName,
+                isVirtual: false,
+                argument);
+        }
+
+        return candidate.Type.ContainsGenericParameters ? null : candidate;
     }
 
     private static bool TryGetUnsupportedFieldReason(

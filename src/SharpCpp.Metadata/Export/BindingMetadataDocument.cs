@@ -19,7 +19,8 @@ public sealed record BindingMetadataFingerprint(
     string Phase2ClosureHash,
     string ClangArgsHash,
     string AttributeVocabularyHash,
-    IReadOnlyList<string> HeaderFiles);
+    IReadOnlyList<string> HeaderFiles,
+    IReadOnlyList<string>? NativeSupportHeaders = null);
 
 public sealed record BindingMetadataType(
     string SymbolId,

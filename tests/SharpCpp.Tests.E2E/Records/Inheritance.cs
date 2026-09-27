@@ -22,6 +22,27 @@ public sealed class InheritanceTests
     }
 
     [Fact]
+    public void Record_deriving_from_variadic_template_keeps_the_template_base()
+    {
+        using var leaf = new VariadicLeaf();
+
+        Assert.Equal(typeof(VariadicRoot), typeof(VariadicLeaf).BaseType);
+        Assert.Equal(5, leaf.LeafValue());
+        Assert.Equal(11, leaf.RootValue());
+        Assert.Equal(11, E2EBindings.ReadVariadicRoot(leaf));
+    }
+
+    [Fact]
+    public void Record_deriving_from_parameter_base_template_derives_from_the_argument()
+    {
+        using var leaf = new TrackedLeaf();
+
+        Assert.Equal(typeof(TrackedBase), typeof(TrackedLeaf).BaseType);
+        Assert.Equal(3, leaf.LeafValue());
+        Assert.Equal(21, leaf.TrackedValue());
+    }
+
+    [Fact]
     public void Derived_wrapper_inherits_from_base_wrapper()
     {
         using var derived = new DerivedCounter(10, 2);
