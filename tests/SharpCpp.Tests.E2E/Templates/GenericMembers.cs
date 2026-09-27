@@ -73,4 +73,14 @@ public sealed class GenericMemberTests
         hits.Hit();
         Assert.Equal(before + 2, E2EBindings.CountPairHits(hits));
     }
+
+    [Fact]
+    public void Concrete_override_of_a_generic_const_reference_virtual_overrides_it()
+    {
+        Assert.Equal(typeof(Adder<int>), typeof(IntAdder).GetMethod(nameof(IntAdder.Add))!.GetBaseDefinition().DeclaringType);
+        using var adder = new IntAdder();
+        E2EBindings.AddThroughBase(adder, 4);
+        adder.Add(5);
+        Assert.Equal(9, adder.Total());
+    }
 }

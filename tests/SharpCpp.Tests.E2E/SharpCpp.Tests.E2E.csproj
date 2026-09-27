@@ -30,4 +30,12 @@
   <ItemGroup>
     <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <!-- Tests of generator artifacts (diagnostics log, exported metadata) read them here. -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>SharpCppGeneratedDir</_Parameter1>
+      <_Parameter2>$(SharpCppE2EGeneratedDir)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
 </Project>

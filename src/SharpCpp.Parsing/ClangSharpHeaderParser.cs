@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 
 using SharpCpp.Metadata.Import;
 using SharpCpp.Model.Ast;
+using SharpCpp.Model.Diagnostics;
 
 using ManagedTypeOverride = SharpCpp.Parsing.MarshallerConfigExtractor.ManagedTypeOverride;
 
@@ -207,7 +208,7 @@ public sealed partial class ClangSharpHeaderParser
                         {
                             CheckAndApplyIgnoreAttribute(funcTemplateDecl, function);
                             TryApplyRename(funcTemplateDecl, function);
-                            ExtractAndApplyDocumentation(funcTemplateDecl, function);
+                            ApplyDeclarationFacts(funcTemplateDecl, function);
                             ApplyCallableDefinitionMetadata(funcTemplateDecl, function);
                             ApplyDeletedCallableIgnore(funcTemplateDecl.TemplatedDecl, function);
                             function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, request.HeaderIncludePath);
@@ -228,7 +229,7 @@ public sealed partial class ClangSharpHeaderParser
                         var function = CreateFunction(functionDecl, request.EntryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
                         CheckAndApplyIgnoreAttribute(functionDecl, function);
                         TryApplyRename(functionDecl, function);
-                        ExtractAndApplyDocumentation(functionDecl, function);
+                        ApplyDeclarationFacts(functionDecl, function);
                         ApplyCallableDefinitionMetadata(functionDecl, function);
                         ApplyDeletedCallableIgnore(functionDecl, function);
                         function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, request.HeaderIncludePath);
@@ -317,7 +318,7 @@ public sealed partial class ClangSharpHeaderParser
                         {
                             CheckAndApplyIgnoreAttribute(funcTemplateDecl, function);
                             TryApplyRename(funcTemplateDecl, function);
-                            ExtractAndApplyDocumentation(funcTemplateDecl, function);
+                            ApplyDeclarationFacts(funcTemplateDecl, function);
                             ApplyCallableDefinitionMetadata(funcTemplateDecl, function);
                             ApplyDeletedCallableIgnore(funcTemplateDecl.TemplatedDecl, function);
                             function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty);
@@ -333,7 +334,7 @@ public sealed partial class ClangSharpHeaderParser
                         var function = CreateFunction(functionDecl, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
                         CheckAndApplyIgnoreAttribute(functionDecl, function);
                         TryApplyRename(functionDecl, function);
-                        ExtractAndApplyDocumentation(functionDecl, function);
+                        ApplyDeclarationFacts(functionDecl, function);
                         ApplyCallableDefinitionMetadata(functionDecl, function);
                         ApplyDeletedCallableIgnore(functionDecl, function);
                         function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty);
@@ -617,7 +618,7 @@ public sealed partial class ClangSharpHeaderParser
         }
         CheckAndApplyIgnoreAttribute(recordDecl, record);
         TryApplyRename(recordDecl, record);
-        ExtractAndApplyDocumentation(recordDecl, record);
+        ApplyDeclarationFacts(recordDecl, record);
         IndexRecordKeys(recordsByName, record);
         record.HeaderIncludePath = headerIncludePath;
         compilation.Members.Add(record);
@@ -781,7 +782,7 @@ public sealed partial class ClangSharpHeaderParser
         ApplyExplicitGenericInstantiations(classTemplate, record, recordsByName, enumsByName, managedTypeOverrides);
         CheckAndApplyIgnoreAttribute(classTemplate, record);
         TryApplyRename(classTemplate, record);
-        ExtractAndApplyDocumentation(classTemplate, record);
+        ApplyDeclarationFacts(classTemplate, record);
         IndexRecordKeys(recordsByName, record);
         record.HeaderIncludePath = headerIncludePath;
         compilation.Members.Add(record);
@@ -1008,7 +1009,7 @@ public sealed partial class ClangSharpHeaderParser
                     {
                         var ctor = CreateConstructor(record, targetConstructor, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
                         CheckAndApplyIgnoreAttribute(inheritedConstructor, ctor);
-                        ExtractAndApplyDocumentation(targetConstructor, ctor);
+                        ApplyDeclarationFacts(targetConstructor, ctor);
                         ApplyCallableDefinitionMetadata(targetConstructor, ctor);
                         ApplyDeletedCallableIgnore(targetConstructor, ctor);
                         record.Members.Add(ctor);
@@ -1031,7 +1032,7 @@ public sealed partial class ClangSharpHeaderParser
                     {
                         var ctor = CreateConstructor(record, ctorDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
                         CheckAndApplyIgnoreAttribute(ctorDecl, ctor);
-                        ExtractAndApplyDocumentation(ctorDecl, ctor);
+                        ApplyDeclarationFacts(ctorDecl, ctor);
                         ApplyCallableDefinitionMetadata(ctorDecl, ctor);
 
                         if (record.GetMetadata<bool>(MetadataKeys.NonPublicDestructor))
@@ -1051,7 +1052,7 @@ public sealed partial class ClangSharpHeaderParser
                         var method = CreateMethod(record, conversionMethod, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
                         CheckAndApplyIgnoreAttribute(conversionMethod, method);
                         TryApplyRename(conversionMethod, method);
-                        ExtractAndApplyDocumentation(conversionMethod, method);
+                        ApplyDeclarationFacts(conversionMethod, method);
                         ApplyCallableDefinitionMetadata(conversionMethod, method);
                         ApplyDeletedCallableIgnore(conversionMethod, method);
                         ApplyVirtualSpecifiers(conversionMethod, method);
@@ -1070,7 +1071,7 @@ public sealed partial class ClangSharpHeaderParser
                         var method = CreateMethod(record, methodDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
                         CheckAndApplyIgnoreAttribute(methodDecl, method);
                         TryApplyRename(methodDecl, method);
-                        ExtractAndApplyDocumentation(methodDecl, method);
+                        ApplyDeclarationFacts(methodDecl, method);
                         ApplyCallableDefinitionMetadata(methodDecl, method);
                         ApplyDeletedCallableIgnore(methodDecl, method);
                         ApplyVirtualSpecifiers(methodDecl, method);
@@ -1097,7 +1098,7 @@ public sealed partial class ClangSharpHeaderParser
                         var method = CreateStaticMethod(record, staticMethod, recordsByName, enumsByName, managedTypeOverrides, genericParameters, entryPointPrefix);
                         CheckAndApplyIgnoreAttribute(staticMethod, method);
                         TryApplyRename(staticMethod, method);
-                        ExtractAndApplyDocumentation(staticMethod, method);
+                        ApplyDeclarationFacts(staticMethod, method);
                         ApplyCallableDefinitionMetadata(staticMethod, method);
                         ApplyDeletedCallableIgnore(staticMethod, method);
                         record.Members.Add(method);
@@ -1111,7 +1112,7 @@ public sealed partial class ClangSharpHeaderParser
                         {
                             CheckAndApplyIgnoreAttribute(funcTemplate, templateMethod);
                             TryApplyRename(funcTemplate, templateMethod);
-                            ExtractAndApplyDocumentation(funcTemplate, templateMethod);
+                            ApplyDeclarationFacts(funcTemplate, templateMethod);
                             ApplyCallableDefinitionMetadata(funcTemplate, templateMethod);
                             ApplyDeletedCallableIgnore(funcTemplate.TemplatedDecl, templateMethod);
                             record.Members.Add(templateMethod);
@@ -1124,7 +1125,7 @@ public sealed partial class ClangSharpHeaderParser
                         var field = CreateField(record, variableDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters, isStatic: true);
                         CheckAndApplyIgnoreAttribute(variableDecl, field);
                         TryApplyRename(variableDecl, field);
-                        ExtractAndApplyDocumentation(variableDecl, field);
+                        ApplyDeclarationFacts(variableDecl, field);
                         record.Members.Add(field);
                         break;
                     }
@@ -1137,7 +1138,7 @@ public sealed partial class ClangSharpHeaderParser
                         var field = CreateField(record, fieldDecl, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
                         CheckAndApplyIgnoreAttribute(fieldDecl, field);
                         TryApplyRename(fieldDecl, field);
-                        ExtractAndApplyDocumentation(fieldDecl, field);
+                        ApplyDeclarationFacts(fieldDecl, field);
                         record.Members.Add(field);
                         break;
                     }
@@ -1947,7 +1948,7 @@ public sealed partial class ClangSharpHeaderParser
         field.ReturnsOwnedHandle = ShouldReturnOwnedHandle(leafFieldDecl.Type, field.Type, managedTypeOverrides, preferReturnOverride: false);
         field.SetMetadata(MetadataKeys.NativeFieldAccessExpression, accessPath);
         field.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(leafFieldDecl));
-        ExtractAndApplyDocumentation(leafFieldDecl, field);
+        ApplyDeclarationFacts(leafFieldDecl, field);
 
         if (ignoreReason is not null)
             field.SetIgnoreReason(ignoreReason);
@@ -6456,8 +6457,16 @@ public sealed partial class ClangSharpHeaderParser
         return genericStart >= 0 ? localName[..genericStart] : localName;
     }
 
-    private static void ExtractAndApplyDocumentation(Decl decl, BindingNode node)
+    /// <summary>Documentation comment and source location of the declaration.</summary>
+    private static void ApplyDeclarationFacts(Decl decl, BindingNode node)
     {
+        decl.Location.GetFileLocation(out var file, out var line, out var column, out _);
+        var filePath = file.Name.CString;
+        if (!string.IsNullOrEmpty(filePath))
+        {
+            node.Source = new BindingSourceReference(Path.GetFullPath(filePath), (int)line, (int)column);
+        }
+
         var briefComment = decl.Handle.BriefCommentText;
         try
         {
@@ -6499,7 +6508,7 @@ public sealed partial class ClangSharpHeaderParser
 
         CheckAndApplyIgnoreAttribute(enumDecl, @enum);
         TryApplyRename(enumDecl, @enum);
-        ExtractAndApplyDocumentation(enumDecl, @enum);
+        ApplyDeclarationFacts(enumDecl, @enum);
 
         foreach (var child in enumDecl.Decls)
         {
@@ -7012,7 +7021,7 @@ public sealed partial class ClangSharpHeaderParser
                         {
                             CheckAndApplyIgnoreAttribute(funcTemplateDecl, function);
                             TryApplyRename(funcTemplateDecl, function);
-                            ExtractAndApplyDocumentation(funcTemplateDecl, function);
+                            ApplyDeclarationFacts(funcTemplateDecl, function);
                             ApplyCallableDefinitionMetadata(funcTemplateDecl, function);
                             ApplyDeletedCallableIgnore(funcTemplateDecl.TemplatedDecl, function);
                             function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty);
@@ -7033,7 +7042,7 @@ public sealed partial class ClangSharpHeaderParser
                         var function = CreateFunction(functionDecl, entryPointPrefix, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
                         CheckAndApplyIgnoreAttribute(functionDecl, function);
                         TryApplyRename(functionDecl, function);
-                        ExtractAndApplyDocumentation(functionDecl, function);
+                        ApplyDeclarationFacts(functionDecl, function);
                         ApplyCallableDefinitionMetadata(functionDecl, function);
                         ApplyDeletedCallableIgnore(functionDecl, function);
                         function.HeaderIncludePath = ResolveDeclIncludePath(child, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath ?? string.Empty);
@@ -7593,7 +7602,7 @@ public sealed partial class ClangSharpHeaderParser
             HeaderIncludePath = headerIncludePath
         };
         record.SetMetadata(MetadataKeys.DeclarationDisplayText, sourceText);
-        ExtractAndApplyDocumentation(aliasDecl, record);
+        ApplyDeclarationFacts(aliasDecl, record);
         IndexRecordKeys(recordsByName, record);
         compilation.Members.Add(record);
 

@@ -331,4 +331,48 @@ inline dependency_holder* create_dependency_holder(dependency_value* item)
     return new dependency_holder(item);
 }
 
+
+/// Accessor pairs become properties; mismatched or shadowed pairs stay methods.
+struct dependency_accessors
+{
+    int get_count() const { return count_; }
+    void set_count(int value) { count_ = value; }
+
+    bool is_hovered() const { return hovered_; }
+    void hover() { hovered_ = true; }
+
+    int get_ratio() const { return ratio_; }
+    void set_ratio(float value) { ratio_ = static_cast<int>(value); }
+
+    int get_size() const { return 3; }
+    int Size() const { return 4; }
+
+    int get_limit() const { return Limit + 1; }
+    int Limit{2};
+
+private:
+    int count_{};
+    int ratio_{};
+    bool hovered_{};
+};
+
+struct dependency_level_source
+{
+    virtual ~dependency_level_source() = default;
+    virtual int get_level() const { return level_; }
+    virtual void set_level(int value) { level_ = value; }
+
+protected:
+    int level_{};
+};
+
+/// Methods projected from a secondary base are not promoted to properties.
+struct dependency_leveled : dependency_value, dependency_level_source
+{
+    dependency_leveled()
+        : dependency_value(0, dependency_state::idle)
+    {
+    }
+};
 }
+

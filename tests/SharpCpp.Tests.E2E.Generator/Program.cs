@@ -331,7 +331,13 @@ internal static class Program
             clangArguments,
             marshallerConfigurationFiles);
         BindingCompilationBootstrapPipeline.Apply(dependency, marshallerConfigurationFiles, clangArguments);
-        GenerateAccessorPropertiesPass.Apply(dependency);
+        // Consumers pick their accessor naming; this one also promotes `is_x()` getters.
+        GenerateAccessorPropertiesPass.Apply(
+            dependency,
+            [
+                new AccessorPropertyPattern("Get", "Set"),
+                new AccessorPropertyPattern("Is", "Set", propertyNamePrefix: "Is", allowGetterOnly: true)
+            ]);
         RemoveLocalConfiguredWrapperRecords(dependency);
         ApplyModuleProjection(dependency);
 
@@ -439,6 +445,7 @@ internal static class Program
                 .ManagedName = "OwnedRootFirst",
             configureAfterValidation: static compilation =>
             {
+                compilation.SetWarning("owned files post-validation diagnostic");
                 compilation.ManagedClassName = "OwnedBindings";
                 compilation.Functions
                     .Single(function => string.Equals(function.NativeName, "owned_second_round_trip", StringComparison.Ordinal))

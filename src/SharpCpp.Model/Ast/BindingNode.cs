@@ -12,7 +12,7 @@ public abstract class BindingNode
 
     public BindingNode? Parent { get; private set; }
 
-    public BindingSourceReference? Source { get; init; }
+    public BindingSourceReference? Source { get; set; }
 
     public string? HeaderIncludePath { get; set; }
 

@@ -82,21 +82,39 @@ public abstract class NativeObjectRegistry
             return null!;
         }
 
-        var metadata = T.RegistrationIsPolymorphic
-            ? T.RegistrationGetMetadata(handle).Normalize(handle)
-            : new NativeObjectMetadata(handle, T.RegistrationDynamicTypeId);
         var instanceCache = T.RegistrationInstanceCache;
         var factory = T.RegistrationCreateFactory;
-        if (T.RegistrationIsPolymorphic && s_types.TryGetValue(metadata.DynamicTypeId, out var registeredType))
+        if (T.RegistrationIsPolymorphic)
         {
-            instanceCache = registeredType.InstanceCache;
-            factory = registeredType.CreateFactory;
+            // The most derived wrapper stands for the object only when it is a T. A secondary
+            // base whose most derived wrapper is not a T (C# single inheritance) keeps its own
+            // wrapper over the subobject pointer it was given.
+            var metadata = T.RegistrationGetMetadata(handle).Normalize(handle);
+            if (s_types.TryGetValue(metadata.DynamicTypeId, out var registeredType) &&
+                registeredType.ExpectedType.IsAssignableTo(typeof(T)))
+            {
+                instanceCache = registeredType.InstanceCache;
+                factory = registeredType.CreateFactory;
+                handle = metadata.Handle;
+            }
         }
 
-        handle = metadata.Handle;
-
-        if (instanceCache.TryGetExisting(handle, ownsHandle, out var existing) && existing is not null)
+        if (instanceCache.TryGetExisting(handle, ownsHandle: false, out var existing) && existing is not null)
         {
+            if (ownsHandle)
+            {
+                if (existing.OwnsNativeHandle)
+                {
+                    // The wrapper already holds a reference (a shared or intrusive object);
+                    // release the one this call was handed instead of leaking it.
+                    factory?.Invoke(handle, true).Dispose();
+                }
+                else
+                {
+                    existing.TryPromoteToOwningHandle();
+                }
+            }
+
             return existing;
         }
 

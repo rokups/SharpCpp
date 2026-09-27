@@ -250,3 +250,38 @@ inline int count_pair_hits(const pair_hits* value)
     return value->collected();
 }
 }
+
+namespace generic_members
+{
+template <typename T>
+class adder
+{
+public:
+    virtual ~adder() = default;
+    virtual void add(const T& value) = 0;
+};
+
+/// The concrete override of a generic `const T&` virtual overrides it in managed code too.
+class int_adder : public adder<int>
+{
+public:
+    void add(const int& value) override
+    {
+        total_ += value;
+    }
+
+    int total() const
+    {
+        return total_;
+    }
+
+private:
+    int total_{};
+};
+
+inline int add_through_base(adder<int>* target, int value)
+{
+    target->add(value);
+    return value;
+}
+}
