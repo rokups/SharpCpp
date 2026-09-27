@@ -755,11 +755,12 @@ public sealed partial class ClangSharpHeaderParser
             record.SetIgnoreReason($"variadic class template '{cppQualifiedName}' cannot be expressed as a C# generic");
         }
         else if (templatedRecord is CXXRecordDecl { Bases: var templateBases } &&
-                 templateBases.Any(static baseSpecifier => baseSpecifier.Type.CanonicalType is TemplateTypeParmType))
+                 templateBases.Select(static baseSpecifier => baseSpecifier.Type.CanonicalType as TemplateTypeParmType)
+                     .FirstOrDefault(static parameterType => parameterType is not null) is { } parameterBase &&
+                 parameterBase.Index < classTemplate.TemplateParameters.Count &&
+                 classTemplate.TemplateParameters[(int)parameterBase.Index] is TemplateTypeParmDecl parameterBaseDecl)
         {
-            // A C# generic cannot derive from its type parameter; derived records hoist the
-            // concrete argument as their base instead.
-            record.SetIgnoreReason($"class template '{cppQualifiedName}' derives from its template parameter, which a C# generic cannot express");
+            record.TemplateParameterBaseName = parameterBaseDecl.Name ?? parameterBaseDecl.Spelling;
         }
         if (isForwardDeclaration)
         {

@@ -388,6 +388,7 @@ public static class DegradeUnsupportedSurfacePass
         {
             if (!recordsById.TryGetValue(baseBinding.RecordId, out var baseRecord) ||
                 baseRecord.IsIgnored() ||
+                baseRecord.DerivesFromTemplateParameter ||
                 (baseRecord.GetMetadata<bool>(MetadataKeys.SuppressEmission) && !IsMarshallerBackedWrapperSurface(baseRecord)))
             {
                 unavailableBases.Add(baseBinding);
@@ -401,6 +402,19 @@ public static class DegradeUnsupportedSurfacePass
             record.Bases.Remove(baseBinding);
             if (!baseBinding.IsVirtual && recordsById.TryGetValue(baseBinding.RecordId, out var droppedBaseRecord))
             {
+                // Recorded at parse time: the template's own parameter base may already have
+                // been dropped from its base list by this pass.
+                if (droppedBaseRecord.TemplateParameterBaseName is { } parameterBaseName &&
+                    SubstituteHoistedBase(
+                        new RecordBaseBinding(droppedBaseRecord.SymbolId, parameterBaseName, parameterBaseName, parameterBaseName, isVirtual: false, BindingType.CreateGenericParameter(parameterBaseName)),
+                        droppedBaseRecord,
+                        baseBinding,
+                        recordsById) is { } parameterBase &&
+                    !record.Bases.Any(existing => string.Equals(existing.RecordId, parameterBase.RecordId, StringComparison.Ordinal)))
+                {
+                    record.Bases.Insert(baseIndex++, parameterBase);
+                }
+
                 // Keep the inherited surface: the dropped base's own concrete bases are
                 // still bases of this record in C++ (e.g. a variadic template's base).
                 foreach (var candidate in droppedBaseRecord.Bases.Where(static candidate => !candidate.IsVirtual))

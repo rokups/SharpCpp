@@ -44,6 +44,16 @@ public sealed class RecordBinding : BindingNamedContainerNode
     /// </summary>
     public bool IsNonCopyable { get; set; }
 
+    /// <summary>
+    /// Class template deriving from one of its own type parameters
+    /// (template &lt;class TBase&gt; struct tracked : TBase). A C# generic cannot express that
+    /// base, so records deriving from an instantiation use the concrete argument instead;
+    /// the template itself stays bindable as a type.
+    /// </summary>
+    public string? TemplateParameterBaseName { get; set; }
+
+    public bool DerivesFromTemplateParameter => TemplateParameterBaseName is not null;
+
     public bool IsAbstract { get; set; }
 
     public bool HasPureVirtualMembers => Members.OfType<FunctionBinding>().Any(static f => f.IsPureVirtual);
