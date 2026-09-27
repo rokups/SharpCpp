@@ -2521,10 +2521,24 @@ public static partial class BindingOutputRenderer
             static instantiation => string.Join("|", instantiation.TypeArguments.Select(static argument => argument.CppTypeName)),
             StringComparer.Ordinal).ToArray();
 
+        // A concrete overload is a convenience over the generic method; it is skipped where an
+        // ordinary member or another instantiation already takes the same parameters.
+        var takenSignatures = record.Members.OfType<FunctionBinding>()
+            .Where(member => !member.IsGeneric &&
+                !member.IsIgnored() &&
+                string.Equals(member.ManagedName, function.ManagedName, StringComparison.Ordinal))
+            .Select(member => GetConcreteOverloadSignatureKey(compilation, member.Parameters.Select(static parameter => parameter.Type)))
+            .ToHashSet(StringComparer.Ordinal);
+
         foreach (var methodInstantiation in instantiations)
         {
             var concreteParameters = function.Parameters.Select(parameter =>
                 SubstituteGenericType(record, parameter.Type, recordInstantiation, methodParams, methodInstantiation)).ToArray();
+            if (!takenSignatures.Add(GetConcreteOverloadSignatureKey(compilation, concreteParameters)))
+            {
+                continue;
+            }
+
             var concreteReturnType = SubstituteGenericType(record, function.ReturnType, recordInstantiation, methodParams, methodInstantiation);
             var parameterList = string.Join(", ", function.Parameters.Select((parameter, index) =>
                 RenderConcreteManagedPublicParameter(compilation, parameter, concreteParameters[index])));
@@ -2574,6 +2588,11 @@ public static partial class BindingOutputRenderer
         }
 
         return writer.ToString();
+    }
+
+    private static string GetConcreteOverloadSignatureKey(BindingCompilation compilation, IEnumerable<BindingType> parameterTypes)
+    {
+        return string.Join(",", parameterTypes.Select(type => GetManagedPublicReturnTypeName(type, compilation)));
     }
 
     private static string RenderConcreteManagedPublicParameter(BindingCompilation compilation, ParameterBinding parameter, BindingType concreteType)

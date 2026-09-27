@@ -1796,10 +1796,18 @@ using ConfiguredReferenceReturnMarshallerBase = std::conditional_t<
     Marshaller<T>,
     Marshaller<remove_cvref_t<T>>>;
 
+// A returned reference to a value the default marshaller passes by value (scalars, enums)
+// crosses as a copy, like a configured value does; records keep the borrowed pointer.
+template <class T>
+using DefaultReferenceReturnMarshallerBase = std::conditional_t<
+    std::is_lvalue_reference_v<T> && DefaultPassesByValue<remove_cvref_t<T>>,
+    DefaultReturnMarshallerBase<remove_cvref_t<T>>,
+    DefaultReturnMarshallerBase<T>>;
+
 template <class T>
 using ConfiguredReturnMarshallerBase = std::conditional_t<
     IsDefaultMarshaller<remove_cvref_t<T>>::value,
-    DefaultReturnMarshallerBase<T>,
+    DefaultReferenceReturnMarshallerBase<T>,
     std::conditional_t<
         std::is_lvalue_reference_v<T>,
         ConfiguredReferenceReturnMarshallerBase<T>,

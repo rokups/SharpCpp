@@ -3332,7 +3332,10 @@ public sealed partial class ClangSharpHeaderParser
     private static string BuildEntrypointName(string entryPointPrefix, string baseName)
     {
         var counter = ++s_entrypointCounter;
-        return $"{entryPointPrefix}_{baseName}_{counter}";
+        // Operator spellings (operator=, operator[]) are not identifier characters; the
+        // counter keeps sanitized names unique.
+        var identifier = new string(baseName.Select(static character => char.IsAsciiLetterOrDigit(character) ? character : '_').ToArray());
+        return $"{entryPointPrefix}_{identifier}_{counter}";
     }
 
     private static string BuildMemberSymbolId(
@@ -3422,12 +3425,13 @@ public sealed partial class ClangSharpHeaderParser
             if (TypeIsRecord(normalizedPointeeType))
             {
                 var mappedType = MapType(normalizedPointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+                // A non-const reference lets the callee replace the function object, which a
+                // managed delegate cannot observe; it is a ref parameter, not an input.
                 if (mappedType.IsCallback)
                 {
-                    return (
-                        mappedType,
-                        explicitDirection ?? BindingParameterDirection.In,
-                        BindingParameterAbiKind.Value);
+                    return sourcePointeeType.IsConstQualified
+                        ? (mappedType, explicitDirection ?? BindingParameterDirection.In, BindingParameterAbiKind.Value)
+                        : (mappedType, explicitDirection ?? BindingParameterDirection.Ref, BindingParameterAbiKind.Reference);
                 }
 
                 var isProjectedValue = mappedType.Kind == BindingTypeKind.Primitive;
@@ -6432,6 +6436,7 @@ public sealed partial class ClangSharpHeaderParser
                 break;
             case FunctionBinding function:
                 function.ManagedName = GetManagedTypeHead(renameValue);
+                function.SetMetadata(MetadataKeys.ExplicitManagedRename, true);
                 break;
             case FieldBinding field:
                 field.ManagedName = renameValue;
@@ -8387,11 +8392,22 @@ public sealed partial class ClangSharpHeaderParser
 
             for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
             {
-                var instantiations = ParseInstantiationMatches(
-                    SharpCppAttributeScanner.Scan(lines[lineIndex]).Where(match => string.Equals(match.Name, "instantiate", StringComparison.Ordinal)),
-                    new Dictionary<string, RecordBinding>(StringComparer.Ordinal),
-                    new Dictionary<string, EnumBinding>(StringComparer.Ordinal),
-                    managedTypeOverrides);
+                List<RecordGenericInstantiationBinding> instantiations;
+                try
+                {
+                    instantiations = ParseInstantiationMatches(
+                        SharpCppAttributeScanner.Scan(lines[lineIndex]).Where(match => string.Equals(match.Name, "instantiate", StringComparison.Ordinal)),
+                        new Dictionary<string, RecordBinding>(StringComparer.Ordinal),
+                        new Dictionary<string, EnumBinding>(StringComparer.Ordinal),
+                        managedTypeOverrides);
+                }
+                catch (NotSupportedException)
+                {
+                    // The prescan runs before any declaration is known; arguments naming
+                    // enums or records resolve when the annotated declaration is parsed.
+                    continue;
+                }
+
                 if (instantiations.Count == 0)
                 {
                     continue;

@@ -50,6 +50,13 @@ public static class SilentlyExcludeExternalDeclarationsPass
 
     private static bool ShouldSilentlyExcludeFunction(FunctionBinding function, out string reason)
     {
+        // An explicit rename asks for the callable under a managed name.
+        if (function.GetMetadata<bool>(MetadataKeys.ExplicitManagedRename))
+        {
+            reason = string.Empty;
+            return false;
+        }
+
         if (string.Equals(function.NativeName, "begin", StringComparison.Ordinal) ||
             string.Equals(function.NativeName, "end", StringComparison.Ordinal) ||
             string.Equals(function.NativeName, "size", StringComparison.Ordinal))
