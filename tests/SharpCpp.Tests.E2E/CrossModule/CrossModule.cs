@@ -35,6 +35,16 @@ public sealed class CrossModuleTests
     }
 
     [Fact]
+    public void Same_native_type_spelled_differently_resolves_one_provider_shape()
+    {
+        using var scores = new global::Std.UnorderedMap<int, float>();
+        scores.Add(1, 2.5f);
+
+        Assert.Equal(2.5f, global::SharpCpp.Tests.E2E.CrossModule.Library.LibraryBindings.LibraryScore(scores, 1));
+        Assert.Equal(1, AppBindings.AppScoreCount(scores));
+    }
+
+    [Fact]
     public void Imported_callback_alias_is_bound_through_its_target_type()
     {
         using var widget = new AppWidget();

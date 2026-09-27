@@ -27,6 +27,15 @@ struct library_settings
     }
 };
 
+// Spelled with the defaulted template arguments omitted.
+using score_map = std::unordered_map<int, float>;
+
+inline float library_score(const score_map& scores, int key)
+{
+    auto found = scores.find(key);
+    return found == scores.end() ? -1.0f : found->second;
+}
+
 struct library_widget
 {
     virtual ~library_widget() = default;

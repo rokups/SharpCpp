@@ -2776,7 +2776,7 @@ public sealed partial class ClangSharpHeaderParser
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
         IReadOnlyDictionary<string, BindingType> genericParameters)
     {
-        if (!TryGetAstTemplateArguments(sourceType, out var astArguments))
+        if (!TryGetAstTemplateArguments(sourceType, out var astArguments, out var writtenArgumentCount))
         {
             return ApplyCxAstTemplateArguments(
                 sourceType.Handle,
@@ -2833,7 +2833,9 @@ public sealed partial class ClangSharpHeaderParser
             switch (argument.Kind)
             {
                 case CXTemplateArgumentKind.CXTemplateArgumentKind_Type:
-                    var argumentType = argument.AsType;
+                    // Defaulted arguments keep the default expression's sugar, which is only
+                    // valid in the template's scope; spell them canonically.
+                    var argumentType = argumentIndex < writtenArgumentCount ? argument.AsType : argument.AsType.CanonicalType;
                     var mappedArgument = argumentType.CanonicalType is FunctionType
                         ? BindingType.CreateConfigured(
                             FormatCppTypeFromAst(argumentType, recordsByName, genericParameters),
@@ -2931,21 +2933,31 @@ public sealed partial class ClangSharpHeaderParser
         if (sourceType.NumTemplateArguments <= 0)
             return mappedType;
 
-        var nativeArguments = new List<BindingTemplateArgument>(sourceType.NumTemplateArguments);
-        for (var index = 0; index < sourceType.NumTemplateArguments; ++index)
+        // Written arguments keep their sugar; defaulted trailing arguments come from the
+        // canonical specialization (see CompleteWithDefaultedTemplateArguments).
+        var writtenCount = sourceType.NumTemplateArguments;
+        var canonicalType = sourceType.CanonicalType;
+        var argumentCount = Math.Max(writtenCount, canonicalType.NumTemplateArguments);
+        var nativeArguments = new List<BindingTemplateArgument>(argumentCount);
+        for (var index = 0; index < argumentCount; ++index)
         {
-            var argument = sourceType.GetTemplateArgument(checked((uint)index));
+            var argument = (index < writtenCount ? sourceType : canonicalType).GetTemplateArgument(checked((uint)index));
             try
             {
                 if (argument.AsType.kind != CXTypeKind.CXType_Invalid)
                 {
-                    var cppTypeName = ResolveQualifiedTypeName(argument.AsType, recordsByName, genericParameters);
+                    // Defaulted arguments keep the sugar of the default expression, which is
+                    // only valid in the template's scope; spell them canonically.
+                    var argumentType = index < writtenCount ? argument.AsType : argument.AsType.CanonicalType;
+                    var cppTypeName = index < writtenCount
+                        ? ResolveQualifiedTypeName(argumentType, recordsByName, genericParameters)
+                        : FormatCanonicalCxTypeName(argumentType);
                     var mappedArgument = TypeIsFunctionProto(argument.AsType.CanonicalType)
                         ? BindingType.CreateConfigured(cppTypeName, cppTypeName)
                         : index < mappedType.GenericArguments.Count
                             ? mappedType.GenericArguments[index]
                             : MapType(
-                                argument.AsType,
+                                argumentType,
                                 recordsByName,
                                 enumsByName,
                                 managedTypeOverrides,
@@ -3018,47 +3030,77 @@ public sealed partial class ClangSharpHeaderParser
         }
     }
 
+    /// <summary>
+    /// Written arguments keep their sugar (aliases drive the managed surface); defaulted
+    /// trailing arguments come from the canonical specialization. Every spelling of one
+    /// C++ type then yields the same native shape (provider shape keys, entry points).
+    /// </summary>
+    private static IReadOnlyList<TemplateArgument> CompleteWithDefaultedTemplateArguments(TemplateSpecializationType templateType)
+    {
+        var written = templateType.Args;
+        // Dependent specializations have no canonical ClassTemplateSpecializationDecl.
+        if (written.Any(static argument => argument.Kind == CXTemplateArgumentKind.CXTemplateArgumentKind_Pack || argument.IsPackExpansion) ||
+            templateType.CanonicalType is not RecordType { Decl: ClassTemplateSpecializationDecl specialization })
+        {
+            return written;
+        }
+
+        var canonical = specialization.TemplateArgs;
+        if (canonical.Count <= written.Count ||
+            canonical.Any(static argument => argument.Kind == CXTemplateArgumentKind.CXTemplateArgumentKind_Pack))
+        {
+            return written;
+        }
+
+        return written.Concat(canonical.Skip(written.Count)).ToArray();
+    }
+
     private static bool TryGetAstTemplateArguments(
         ClangSharp.Type type,
-        out IReadOnlyList<TemplateArgument> arguments)
+        out IReadOnlyList<TemplateArgument> arguments,
+        out int writtenCount)
     {
         switch (type)
         {
             case ReferenceType referenceType:
-                return TryGetAstTemplateArguments(referenceType.PointeeType, out arguments);
+                return TryGetAstTemplateArguments(referenceType.PointeeType, out arguments, out writtenCount);
             case PointerType pointerType:
-                return TryGetAstTemplateArguments(pointerType.PointeeType, out arguments);
+                return TryGetAstTemplateArguments(pointerType.PointeeType, out arguments, out writtenCount);
             case TypedefType typedefType:
-                return TryGetAstTemplateArguments(typedefType.Desugar, out arguments);
+                return TryGetAstTemplateArguments(typedefType.Desugar, out arguments, out writtenCount);
             case ElaboratedType elaboratedType:
-                return TryGetAstTemplateArguments(elaboratedType.NamedType, out arguments);
+                return TryGetAstTemplateArguments(elaboratedType.NamedType, out arguments, out writtenCount);
             case SubstTemplateTypeParmType substitutionType:
-                return TryGetAstTemplateArguments(substitutionType.ReplacementType, out arguments);
+                return TryGetAstTemplateArguments(substitutionType.ReplacementType, out arguments, out writtenCount);
             case TemplateSpecializationType { IsTypeAlias: true } templateType:
-                return TryGetAstTemplateArguments(templateType.AliasedType, out arguments);
+                return TryGetAstTemplateArguments(templateType.AliasedType, out arguments, out writtenCount);
             case TemplateSpecializationType templateType:
-                arguments = templateType.Args;
+                arguments = CompleteWithDefaultedTemplateArguments(templateType);
+                writtenCount = templateType.Args.Count;
                 return arguments.Count > 0;
             case RecordType { Decl: ClassTemplateSpecializationDecl specialization }:
                 arguments = specialization.TemplateArgs;
+                writtenCount = arguments.Count;
                 return arguments.Count > 0;
             default:
                 if (type.IsSugared && type.Desugar.Handle != type.Handle &&
-                    TryGetAstTemplateArguments(type.Desugar, out arguments))
+                    TryGetAstTemplateArguments(type.Desugar, out arguments, out writtenCount))
                 {
                     return true;
                 }
                 if (type.AsCXXRecordDecl is ClassTemplateSpecializationDecl fallbackSpecialization)
                 {
                     arguments = fallbackSpecialization.TemplateArgs;
+                    writtenCount = arguments.Count;
                     return arguments.Count > 0;
                 }
                 if (type.CanonicalType.Handle != type.Handle &&
-                    TryGetAstTemplateArguments(type.CanonicalType, out arguments))
+                    TryGetAstTemplateArguments(type.CanonicalType, out arguments, out writtenCount))
                 {
                     return true;
                 }
                 arguments = Array.Empty<TemplateArgument>();
+                writtenCount = 0;
                 return false;
         }
     }
@@ -5238,7 +5280,9 @@ public sealed partial class ClangSharpHeaderParser
             return false;
         }
 
-        if (!TryFormatTemplateArgumentsFromAst(specialization.TemplateArgs, recordsByName, genericParameters, out var arguments))
+        // A specialization declaration's arguments carry the sugar of wherever it was
+        // declared (eastl's explicit hash<string>), which is not valid at a thunk's scope.
+        if (!TryFormatTemplateArgumentsFromAst(specialization.TemplateArgs, recordsByName, genericParameters, out var arguments, canonicalTypes: true))
         {
             result = string.Empty;
             return false;
@@ -5251,7 +5295,8 @@ public sealed partial class ClangSharpHeaderParser
         IReadOnlyList<TemplateArgument> arguments,
         IDictionary<string, RecordBinding> recordsByName,
         IReadOnlyDictionary<string, BindingType>? genericParameters,
-        out IReadOnlyList<string> formattedArguments)
+        out IReadOnlyList<string> formattedArguments,
+        bool canonicalTypes = false)
     {
         var result = new List<string>(arguments.Count);
         foreach (var argument in arguments)
@@ -5259,7 +5304,7 @@ public sealed partial class ClangSharpHeaderParser
             switch (argument.Kind)
             {
                 case CXTemplateArgumentKind.CXTemplateArgumentKind_Type:
-                    result.Add(FormatCppTypeFromAst(argument.AsType, recordsByName, genericParameters));
+                    result.Add(FormatCppTypeFromAst(canonicalTypes ? argument.AsType.CanonicalType : argument.AsType, recordsByName, genericParameters));
                     break;
                 case CXTemplateArgumentKind.CXTemplateArgumentKind_Integral:
                     result.Add(argument.AsIntegral.ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -5493,6 +5538,45 @@ public sealed partial class ClangSharpHeaderParser
         {
             record.IsPolymorphic = true;
         }
+    }
+
+    /// <summary>
+    /// Fully qualified canonical spelling. Clang prints explicit specializations with
+    /// the arguments as written in their declaration (eastl's hash&lt;string&gt;), which
+    /// only resolve inside that namespace; rebuild template specializations from their
+    /// canonical arguments instead.
+    /// </summary>
+    private static string FormatCanonicalCxTypeName(CXType type)
+    {
+        var canonical = type.CanonicalType;
+        var declaration = canonical.Declaration;
+        if (canonical.kind != CXTypeKind.CXType_Record ||
+            canonical.NumTemplateArguments <= 0 ||
+            declaration.IsNull)
+        {
+            return NormalizeTypeName(canonical.Spelling.ToString());
+        }
+
+        var arguments = new List<string>(canonical.NumTemplateArguments);
+        for (var index = 0; index < canonical.NumTemplateArguments; ++index)
+        {
+            using var argument = canonical.GetTemplateArgument(checked((uint)index));
+            if (argument.AsType.kind != CXTypeKind.CXType_Invalid)
+            {
+                arguments.Add(FormatCanonicalCxTypeName(argument.AsType));
+            }
+            else if (argument.IntegralType.kind != CXTypeKind.CXType_Invalid)
+            {
+                arguments.Add(argument.AsIntegral.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+            else
+            {
+                return NormalizeTypeName(canonical.Spelling.ToString());
+            }
+        }
+
+        var constPrefix = canonical.IsConstQualified ? "const " : string.Empty;
+        return $"{constPrefix}{GetCppQualifiedName(declaration)}<{string.Join(", ", arguments)}>";
     }
 
     private static string GetCppQualifiedName(CXCursor cursor)

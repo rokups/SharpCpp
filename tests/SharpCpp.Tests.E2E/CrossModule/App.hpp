@@ -25,6 +25,12 @@ inline int app_lookup(const std::unordered_map<int, int>& counters, int key)
     return found == counters.end() ? -1 : found->second;
 }
 
+// The same C++ type as cross_library::score_map, spelled with an explicit hasher.
+inline int app_score_count(const std::unordered_map<int, float, std::hash<int>>& scores)
+{
+    return static_cast<int>(scores.size());
+}
+
 inline void app_report(cross_library::library_widget* widget, cross_library::progress_callback callback, int value)
 {
     widget->set_progress(std::move(callback));

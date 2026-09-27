@@ -105,6 +105,7 @@ public static class BindingCompilationGenericInstantiationPass
         {
             CollectRecordInstantiations(compilation, alias.TargetType);
         }
+        DropIncompleteNativeShapes(compilation);
     }
 
     private static void ResetFunctionInstantiations(BindingCompilation compilation)
@@ -206,6 +207,32 @@ public static class BindingCompilationGenericInstantiationPass
             type.GenericArguments,
             type.NativeTemplateArguments,
             isInferred: true));
+    }
+
+    /// <summary>
+    /// One C++ specialization is identified by its complete argument list. A use spelled
+    /// with defaulted arguments omitted (reached without AST completion) is dropped when
+    /// the complete shape of the same specialization is also known, so provider shapes
+    /// and entry points agree across spellings and modules.
+    /// </summary>
+    private static void DropIncompleteNativeShapes(BindingCompilation compilation)
+    {
+        foreach (var record in compilation.Records.Where(static record => record.NativeTemplateParameterCount > 0))
+        {
+            var instantiations = record.SupportedGenericInstantiations;
+            for (var index = instantiations.Count - 1; index >= 0; --index)
+            {
+                var candidate = instantiations[index];
+                if (candidate.IsInferred &&
+                    candidate.NativeTemplateArguments.Count < record.NativeTemplateParameterCount &&
+                    instantiations.Any(complete =>
+                        complete.NativeTemplateArguments.Count == record.NativeTemplateParameterCount &&
+                        InstantiationsEqual(complete.TypeArguments, candidate.TypeArguments)))
+                {
+                    instantiations.RemoveAt(index);
+                }
+            }
+        }
     }
 
     private static bool InstantiationsEqual(IReadOnlyList<BindingType> left, IReadOnlyList<BindingType> right)
