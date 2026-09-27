@@ -124,6 +124,10 @@ public sealed partial class ClangSharpHeaderParser
             request.MarshallerConfigurationFiles,
             request.MarshallerClangArguments ?? request.ClangArguments);
 
+        // Annotation scans are per parse: headers may change between parses in one process.
+        s_ignoreAnnotations.Clear();
+        s_renameAnnotations.Clear();
+        s_instantiateAnnotations.Clear();
         PreScanIgnoreAnnotations(annotationFiles);
         PreScanRenameAnnotations(annotationFiles);
         PreScanInstantiateAnnotations(annotationFiles, managedTypeOverrides);
@@ -253,38 +257,7 @@ public sealed partial class ClangSharpHeaderParser
             managedTypeOverrides,
             request.EntryPointPrefix);
 
-        AssignImportMethodNames(compilation);
-
         return compilation;
-    }
-
-    private static void AssignImportMethodNames(BindingCompilation compilation)
-    {
-        foreach (var group in compilation.Members.OfType<FunctionBinding>()
-            .Where(static function => function.Parent is not RecordBinding)
-            .GroupBy(static function => function.ManagedName, StringComparer.Ordinal))
-        {
-            var counter = 0;
-            foreach (var function in group.OrderBy(static f => f.SymbolId, StringComparer.Ordinal))
-            {
-                counter++;
-                function.ImportMethodName = counter == 1 ? function.ManagedName : $"{function.ManagedName}{counter}";
-            }
-        }
-
-        foreach (var record in compilation.Records)
-        {
-            foreach (var group in record.Members.OfType<FunctionBinding>()
-                .GroupBy(static function => function.ManagedName, StringComparer.Ordinal))
-            {
-                var counter = 0;
-                foreach (var function in group.OrderBy(static f => f.SymbolId, StringComparer.Ordinal))
-                {
-                    counter++;
-                    function.ImportMethodName = counter == 1 ? function.ManagedName : $"{function.ManagedName}{counter}";
-                }
-            }
-        }
     }
 
     private static void VisitLinkageSpec(
