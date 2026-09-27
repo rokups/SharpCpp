@@ -619,7 +619,8 @@ public sealed partial class ClangSharpHeaderParser
             IsDirector = HasSharpCppAttribute(declarationText, "director") || IsForcedDirectorRecord(cppQualifiedName, directorRecordCppTypeNames),
             HasCopyConstructor = recordDecl.Handle.HasUserDeclaredCopyConstructor ||
                 ContainsCopyConstructorDeclaration(sourceText, nativeName) ||
-                ContainsCopyConstructorDeclaration(GetDeclFileText(recordDecl), nativeName)
+                ContainsCopyConstructorDeclaration(GetDeclFileText(recordDecl), nativeName),
+            IsNonCopyable = cxxRecord is not null && IsNonCopyableRecord(cxxRecord, new HashSet<CXXRecordDecl>())
         };
         if (HasSharpCppAttribute(declarationText, "native_interface"))
         {
@@ -2643,6 +2644,55 @@ public sealed partial class ClangSharpHeaderParser
                     : BindingParameterAbiKind.Value;
             return (CreateIgnoredFallbackType(type), direction, abiKind, exception.Message);
         }
+    }
+
+    private static bool IsNonCopyableRecord(CXXRecordDecl record, HashSet<CXXRecordDecl> visited)
+    {
+        var definition = record.Definition as CXXRecordDecl ?? record;
+        if (!visited.Add(definition))
+        {
+            return false;
+        }
+
+        foreach (var constructor in definition.Ctors)
+        {
+            if (constructor.IsCopyConstructor)
+            {
+                return constructor.IsDeleted || constructor.Access == CX_CXXAccessSpecifier.CX_CXXPrivate;
+            }
+        }
+
+        // A user-declared move operation implicitly deletes the copy constructor.
+        if (definition.HasUserDeclaredMoveConstructor || definition.HasUserDeclaredMoveAssignment)
+        {
+            return true;
+        }
+
+        foreach (var baseSpecifier in definition.Bases)
+        {
+            if (baseSpecifier.Type.CanonicalType.AsCXXRecordDecl is { } baseRecord &&
+                IsNonCopyableRecord(baseRecord, visited))
+            {
+                return true;
+            }
+        }
+
+        foreach (var field in definition.Fields)
+        {
+            var fieldType = field.Type.CanonicalType;
+            while (fieldType is ArrayType arrayType)
+            {
+                fieldType = arrayType.ElementType.CanonicalType;
+            }
+
+            if (fieldType is RecordType && fieldType.AsCXXRecordDecl is { } fieldRecord &&
+                IsNonCopyableRecord(fieldRecord, visited))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static BindingType ApplyAstTemplateArguments(

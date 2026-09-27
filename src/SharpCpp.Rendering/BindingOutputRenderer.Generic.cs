@@ -3533,7 +3533,7 @@ public static partial class BindingOutputRenderer
                     }
 
                     ReturnMarshaller<{{getMarshallerCppType}}> marshaller;
-                    return marshaller.ConvertToAbi((*static_cast<{{concreteArrayType}}*>(self.handle))[index]);
+                    return marshaller.ConvertToAbi(detail::AsMarshalledElement<{{getMarshallerCppType}}>((*static_cast<{{concreteArrayType}}*>(self.handle))[index]));
                 }
 
                 SHARPCPP_EXPORT ret_t<void> {{GetFixedArraySetEntryPointName(compilation, record, instantiation)}}(NativeArrayAbi self, arg_t<std::size_t> index, arg_t<{{elementCppType}}> value)
@@ -3589,7 +3589,7 @@ public static partial class BindingOutputRenderer
                     }
 
                     ReturnMarshaller<{{getMarshallerCppType}}> marshaller;
-                    return marshaller.ConvertToAbi((*self)[index]);
+                    return marshaller.ConvertToAbi(detail::AsMarshalledElement<{{getMarshallerCppType}}>((*self)[index]));
                 }
 
                 SHARPCPP_EXPORT ret_t<void> {{GetDynamicArraySetEntryPointName(compilation, record, instantiation)}}(arg_t<{{concreteArrayType}}*> self, arg_t<std::size_t> index, arg_t<{{elementCppType}}> value)

@@ -3,6 +3,7 @@
 #include <array>
 #include <list>
 #include <map>
+#include <memory>
 #include <numeric>
 #include <string>
 #include <unordered_map>
@@ -18,6 +19,30 @@ inline int e2e_checksum_std_text(const std::string& value)
     return std::accumulate(value.begin(), value.end(), 0, [](int result, unsigned char byte) {
         return result + byte;
     });
+}
+
+// Copy constructor is implicitly deleted by the unique_ptr member; containers of it
+// cannot be bound by value and must degrade without breaking the module.
+struct e2e_std_move_only
+{
+    std::unique_ptr<int> data;
+    int size{};
+};
+
+inline int e2e_count_std_move_only(const std::vector<e2e_std_move_only>& values)
+{
+    return static_cast<int>(values.size());
+}
+
+struct e2e_std_probe
+{
+    int id{};
+};
+
+// Elements are pointers to const; the element marshaller binds the non-const pointer.
+inline std::array<const e2e_std_probe*, 2> e2e_make_std_probes(e2e_std_probe* first, e2e_std_probe* second)
+{
+    return { first, second };
 }
 
 inline std::vector<int> e2e_make_std_numbers()

@@ -38,6 +38,12 @@ public sealed class RecordBinding : BindingNamedContainerNode
 
     public bool HasCopyConstructor { get; set; }
 
+    /// <summary>
+    /// True when the C++ copy constructor is deleted or inaccessible, explicitly or
+    /// implicitly (for example through a move-only member or base).
+    /// </summary>
+    public bool IsNonCopyable { get; set; }
+
     public bool IsAbstract { get; set; }
 
     public bool HasPureVirtualMembers => Members.OfType<FunctionBinding>().Any(static f => f.IsPureVirtual);

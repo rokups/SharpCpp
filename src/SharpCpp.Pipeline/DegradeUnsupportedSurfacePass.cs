@@ -478,6 +478,49 @@ public static class DegradeUnsupportedSurfacePass
         return false;
     }
 
+    /// <summary>
+    /// Container marshallers expose members that take or return their element by value.
+    /// Binding a non-copyable record as that element cannot compile natively.
+    /// </summary>
+    private static bool TryGetCopiedNonCopyableArgument(
+        BindingType type,
+        IReadOnlyDictionary<string, RecordBinding> recordsById,
+        out string argumentName)
+    {
+        argumentName = string.Empty;
+        if (type.RecordId is null ||
+            !recordsById.TryGetValue(type.RecordId, out var container) ||
+            container.GenericParameters.Count < type.GenericArguments.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < type.GenericArguments.Count; ++index)
+        {
+            var argument = type.GenericArguments[index];
+            if (argument.RecordId is null ||
+                !argument.Marshaller.CppIsRecordValue ||
+                !recordsById.TryGetValue(argument.RecordId, out var argumentRecord) ||
+                !argumentRecord.IsNonCopyable)
+            {
+                continue;
+            }
+
+            var parameterName = container.GenericParameters[index].Name;
+            bool IsByValue(BindingType candidate) =>
+                candidate.IsGenericParameter && string.Equals(candidate.GenericParameterName, parameterName, StringComparison.Ordinal);
+
+            if (container.Members.OfType<FunctionBinding>().Any(function =>
+                    IsByValue(function.ReturnType) || function.Parameters.Any(parameter => IsByValue(parameter.Type))))
+            {
+                argumentName = argumentRecord.CppQualifiedName;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static bool TryGetUnsupportedTypeReason(
         BindingType type,
         string rawCppTypeName,
@@ -565,6 +608,12 @@ public static class DegradeUnsupportedSurfacePass
                 reason = $"configured marshaller-backed type '{rawCppTypeName}' is not yet supported";
                 return true;
             }
+        }
+
+        if (TryGetCopiedNonCopyableArgument(type, recordsById, out var nonCopyableArgument))
+        {
+            reason = $"generic argument '{nonCopyableArgument}' is not copyable, but '{rawCppTypeName}' copies its elements";
+            return true;
         }
 
         foreach (var argument in GetGenericArgumentsForValidation(type))

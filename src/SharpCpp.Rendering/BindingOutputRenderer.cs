@@ -789,7 +789,7 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string RenderNativeConnectDirector(RecordBinding record, IReadOnlyList<VirtualMethodSlotBinding> slots)
+    private static string RenderNativeConnectDirector(BindingCompilation compilation, RecordBinding record, IReadOnlyList<VirtualMethodSlotBinding> slots)
     {
         var writer = new CodeWriter();
         var directorName = GetNativeDirectorClassName(record);
@@ -797,7 +797,7 @@ public static partial class BindingOutputRenderer
         var arguments = string.Join(", ", slots.Select((_, index) => $"slot{index}"));
 
         writer.Write($$"""
-            SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_connect_director({{parameterList}})
+            SHARPCPP_EXPORT ret_t<void> {{compilation.EntryPointPrefix}}_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_connect_director({{parameterList}})
             {
             auto* director = dynamic_cast<{{directorName}}*>(self);
             if (director != nullptr)
@@ -837,10 +837,10 @@ public static partial class BindingOutputRenderer
             """;
     }
 
-    private static string RenderNativeArrayElement(RecordBinding record)
+    private static string RenderNativeArrayElement(BindingCompilation compilation, RecordBinding record)
     {
         return $$"""
-            SHARPCPP_EXPORT ret_t<{{record.CppQualifiedName}}*> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_array_element(arg_t<{{record.CppQualifiedName}}*> self, arg_t<std::size_t> index)
+            SHARPCPP_EXPORT ret_t<{{record.CppQualifiedName}}*> {{compilation.EntryPointPrefix}}_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_array_element(arg_t<{{record.CppQualifiedName}}*> self, arg_t<std::size_t> index)
             {
             return self != nullptr ? self + index : nullptr;
             }
@@ -1205,24 +1205,24 @@ public static partial class BindingOutputRenderer
         }
     }
 
-    private static string GetNativeFieldGetterEntrypointName(string recordCppTypeName, FieldBinding field)
+    private static string GetNativeFieldGetterEntrypointName(BindingCompilation compilation, string recordCppTypeName, FieldBinding field)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(recordCppTypeName)}_{field.NativeName}_get";
+        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(recordCppTypeName)}_{field.NativeName}_get";
     }
 
-    private static string GetNativeFieldItemGetterEntrypointName(string recordCppTypeName, FieldBinding field)
+    private static string GetNativeFieldItemGetterEntrypointName(BindingCompilation compilation, string recordCppTypeName, FieldBinding field)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(recordCppTypeName)}_{field.NativeName}_item_get";
+        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(recordCppTypeName)}_{field.NativeName}_item_get";
     }
 
-    private static string GetNativeFieldSetterEntrypointName(string recordCppTypeName, FieldBinding field)
+    private static string GetNativeFieldSetterEntrypointName(BindingCompilation compilation, string recordCppTypeName, FieldBinding field)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(recordCppTypeName)}_{field.NativeName}_set";
+        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(recordCppTypeName)}_{field.NativeName}_set";
     }
 
-    private static string GetNativeFieldItemSetterEntrypointName(string recordCppTypeName, FieldBinding field)
+    private static string GetNativeFieldItemSetterEntrypointName(BindingCompilation compilation, string recordCppTypeName, FieldBinding field)
     {
-        return $"sharpcpp_e2e_{SanitizeNativeEntrypointName(recordCppTypeName)}_{field.NativeName}_item_set";
+        return $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(recordCppTypeName)}_{field.NativeName}_item_set";
     }
 
     private enum FieldSetterMode
@@ -1557,9 +1557,9 @@ public static partial class BindingOutputRenderer
         return $"__callbase_{SanitizeManagedToken(method.ImportMethodName)}";
     }
 
-    private static string GetNativeCallbaseEntrypointName(RecordBinding record, FunctionBinding method)
+    private static string GetNativeCallbaseEntrypointName(BindingCompilation compilation, RecordBinding record, FunctionBinding method)
     {
-        return $"sharpcpp_e2e_{record.NativeName}_callbase_{method.ImportMethodName}";
+        return $"{compilation.EntryPointPrefix}_{record.NativeName}_callbase_{method.ImportMethodName}";
     }
 
     private static string GetManagedCallbaseImportMethodName(FunctionBinding function)
@@ -3793,7 +3793,7 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedArrayElementImportDeclaration(BindingCompilation compilation, RecordBinding record)
     {
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_array_element", StringMarshalling = StringMarshalling.Utf8)]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{compilation.EntryPointPrefix}}_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_array_element", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             internal static partial nint GetArrayElement({{record.ManagedName}} self, nuint index);
             """;
@@ -3807,7 +3807,7 @@ public static partial class BindingOutputRenderer
         var sourceRecord = compilation.Records.Single(candidate =>
             string.Equals(candidate.CppQualifiedName, query.SourceRecordCppQualifiedName, StringComparison.Ordinal));
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_query_interface", StringMarshalling = StringMarshalling.Utf8)]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{compilation.EntryPointPrefix}}_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_query_interface", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             internal static partial nint QueryInterface({{sourceRecord.ManagedName}} source);
             """;
@@ -3816,7 +3816,7 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedNativeInterfaceReleaseImportDeclaration(BindingCompilation compilation, RecordBinding record)
     {
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_release_interface", StringMarshalling = StringMarshalling.Utf8)]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{compilation.EntryPointPrefix}}_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_release_interface", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             internal static partial void ReleaseOwnedHandle(nint self);
             """;
@@ -4242,7 +4242,7 @@ public static partial class BindingOutputRenderer
             new[] { "nint self" }.Concat(slots.Select((_, index) => $"nint slot{index}")));
 
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_connect_director", StringMarshalling = StringMarshalling.Utf8)]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{compilation.EntryPointPrefix}}_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_connect_director", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             internal static partial void ConnectDirector({{parameterList}});
             """;
@@ -4663,7 +4663,7 @@ public static partial class BindingOutputRenderer
             : $"{returnAttribute}\ninternal static partial {returnTypeName} {importMethodName}({parameterList});";
         var owningRecord = function.FindOwningRecord();
         var entryPointName = owningRecord is not null
-            ? GetNativeCallbaseEntrypointName(owningRecord, function)
+            ? GetNativeCallbaseEntrypointName(compilation, owningRecord, function)
             : function.EntryPointName;
         var unsafeModifier = function.Parameters.Any(IsInputHandlePointerArrayParameter) ? "unsafe " : string.Empty;
         importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
@@ -5005,7 +5005,7 @@ public static partial class BindingOutputRenderer
             : $"{returnAttribute}\ninternal static partial {returnTypeName} Get_{field.ManagedName}({parameters});";
 
         writer.Write($$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetNativeFieldGetterEntrypointName(entryPointRecordCppTypeName, field)}}", StringMarshalling = StringMarshalling.Utf8)]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetNativeFieldGetterEntrypointName(compilation, entryPointRecordCppTypeName, field)}}", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             {{importMethodLine}}
             """);
@@ -5030,7 +5030,7 @@ public static partial class BindingOutputRenderer
         var parameters = field.IsStatic ? parameter : $"{recordManagedName} self, {parameter}";
 
         writer.Write($$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetNativeFieldSetterEntrypointName(entryPointRecordCppTypeName, field)}}", StringMarshalling = StringMarshalling.Utf8)]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetNativeFieldSetterEntrypointName(compilation, entryPointRecordCppTypeName, field)}}", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             internal static partial void Set_{{field.ManagedName}}({{parameters}});
             """);
@@ -5049,7 +5049,7 @@ public static partial class BindingOutputRenderer
             : $"{returnAttribute}\ninternal static partial {returnTypeName} Get_{field.ManagedName}_Item({recordManagedName} self, nuint index);";
 
         writer.Write($$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetNativeFieldItemGetterEntrypointName(entryPointRecordCppTypeName, field)}}", StringMarshalling = StringMarshalling.Utf8)]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetNativeFieldItemGetterEntrypointName(compilation, entryPointRecordCppTypeName, field)}}", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             {{importMethodLine}}
             """);
@@ -5071,7 +5071,7 @@ public static partial class BindingOutputRenderer
             : $"{returnAttribute}\ninternal static partial {returnTypeName} Get_{field.ManagedName}_Item({recordManagedName} self, nuint index);";
 
         writer.Write($$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetNativeFieldItemGetterEntrypointName(entryPointRecordCppTypeName, field)}}", StringMarshalling = StringMarshalling.Utf8)]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetNativeFieldItemGetterEntrypointName(compilation, entryPointRecordCppTypeName, field)}}", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             {{importMethodLine}}
             """);
@@ -5097,7 +5097,7 @@ public static partial class BindingOutputRenderer
             compilation);
 
         writer.Write($$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetNativeFieldItemSetterEntrypointName(entryPointRecordCppTypeName, field)}}", StringMarshalling = StringMarshalling.Utf8)]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetNativeFieldItemSetterEntrypointName(compilation, entryPointRecordCppTypeName, field)}}", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             internal static partial void Set_{{field.ManagedName}}_Item({{recordManagedName}} self, nuint index, {{parameter}});
             """);
@@ -5194,7 +5194,7 @@ public static partial class BindingOutputRenderer
                 if (method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
                 {
                     writer.Write($$"""
-                        SHARPCPP_EXPORT ret_t<void> {{GetNativeCallbaseEntrypointName(record, method)}}({{parameterList}})
+                        SHARPCPP_EXPORT ret_t<void> {{GetNativeCallbaseEntrypointName(compilation, record, method)}}({{parameterList}})
                         {
                         using FT = void({{record.CppQualifiedName}}*{{(parameterCppList.Length > 0 ? $", {parameterCppList}" : string.Empty)}});
                         MarshallerInvoker::invoke_as<{{marshallerTemplateArguments}}>(&{{directorName}}::{{helperName}}, self{{(callbaseArguments.Length > 0 ? $", {callbaseArguments}" : string.Empty)}});
@@ -5204,7 +5204,7 @@ public static partial class BindingOutputRenderer
                 else
                 {
                     writer.Write($$"""
-                        SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(method)}} {{GetNativeCallbaseEntrypointName(record, method)}}({{parameterList}})
+                        SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(method)}} {{GetNativeCallbaseEntrypointName(compilation, record, method)}}({{parameterList}})
                         {
                         using FT = {{method.CppReturnTypeName}}({{record.CppQualifiedName}}*{{(parameterCppList.Length > 0 ? $", {parameterCppList}" : string.Empty)}});
                         {{(RequiresOwnedRecordValueReturn(method)
@@ -5217,7 +5217,7 @@ public static partial class BindingOutputRenderer
                 if (HasNativeDefaultDispatchParams(method) || HasUndefaultableParams(method))
                 {
                     writer.WriteLine();
-                    writer.Write(RenderNativeUnexpressibleDefaultCallbase(record, slot));
+                    writer.Write(RenderNativeUnexpressibleDefaultCallbase(compilation, record, slot));
                 }
             }
         }
@@ -5496,7 +5496,7 @@ public static partial class BindingOutputRenderer
         }
 
         foreach (var (accessorRecord, field) in records
-                     .Where(static record => !record.HasMetadata(MetadataKeys.IgnoreReason))
+                     .Where(static record => !record.IsGeneric && !record.HasMetadata(MetadataKeys.IgnoreReason))
                      .SelectMany(record => GetNativeFieldEntries(compilation, record))
                      .Where(static entry => !entry.Field.HasMetadata(MetadataKeys.IgnoreReason))
                      .OrderBy(static entry => entry.Field.ManagedName, StringComparer.Ordinal))
@@ -5506,7 +5506,7 @@ public static partial class BindingOutputRenderer
                 var itemCppTypeName = GetNativePointerCountFieldItemCppTypeName(field);
                 writer.WriteLine();
                 writer.Write($$"""
-                    SHARPCPP_EXPORT ret_t<{{itemCppTypeName}}> {{GetNativeFieldItemGetterEntrypointName(accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self, std::size_t index)
+                    SHARPCPP_EXPORT ret_t<{{itemCppTypeName}}> {{GetNativeFieldItemGetterEntrypointName(compilation, accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self, std::size_t index)
                     {
                     {{RenderNativePointerCountFieldItemGetInvocation(field, pointerCountShape.CountField, "self")}}
                     }
@@ -5517,7 +5517,7 @@ public static partial class BindingOutputRenderer
             {
                 writer.WriteLine();
                 writer.Write($$"""
-                    SHARPCPP_EXPORT {{GetNativeFixedArrayItemGetterReturnType(compilation, field)}} {{GetNativeFieldItemGetterEntrypointName(accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self, std::size_t index)
+                    SHARPCPP_EXPORT {{GetNativeFixedArrayItemGetterReturnType(compilation, field)}} {{GetNativeFieldItemGetterEntrypointName(compilation, accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self, std::size_t index)
                     {
                     {{(field.AccessModifier == BindingAccessModifier.Protected
                         ? RenderNativeProtectedFieldItemGetInvocation(accessorRecord, field)
@@ -5529,7 +5529,7 @@ public static partial class BindingOutputRenderer
                 {
                     writer.WriteLine();
                     writer.Write($$"""
-                        SHARPCPP_EXPORT ret_t<void> {{GetNativeFieldItemSetterEntrypointName(accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self, std::size_t index, {{GetNativeFixedArrayItemSetterParameterType(compilation, field)}} value)
+                        SHARPCPP_EXPORT ret_t<void> {{GetNativeFieldItemSetterEntrypointName(compilation, accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self, std::size_t index, {{GetNativeFixedArrayItemSetterParameterType(compilation, field)}} value)
                         {
                         {{(field.AccessModifier == BindingAccessModifier.Protected
                             ? RenderNativeProtectedFieldItemSetInvocation(accessorRecord, field)
@@ -5549,7 +5549,7 @@ public static partial class BindingOutputRenderer
                     : $"arg_t<{accessorRecord.CppQualifiedName}*> self";
                 writer.WriteLine();
                 writer.Write($$"""
-                    SHARPCPP_EXPORT {{getterReturnType}} {{GetNativeFieldGetterEntrypointName(accessorRecord.CppQualifiedName, field)}}({{getterParameters}})
+                    SHARPCPP_EXPORT {{getterReturnType}} {{GetNativeFieldGetterEntrypointName(compilation, accessorRecord.CppQualifiedName, field)}}({{getterParameters}})
                     {
                     {{(field.AccessModifier == BindingAccessModifier.Protected
                         ? RenderNativeProtectedFieldGetInvocation(accessorRecord, field)
@@ -5565,7 +5565,7 @@ public static partial class BindingOutputRenderer
                         : $"arg_t<{accessorRecord.CppQualifiedName}*> self, {setterParameterType} value";
                     writer.WriteLine();
                     writer.Write($$"""
-                        SHARPCPP_EXPORT ret_t<void> {{GetNativeFieldSetterEntrypointName(accessorRecord.CppQualifiedName, field)}}({{setterParameters}})
+                        SHARPCPP_EXPORT ret_t<void> {{GetNativeFieldSetterEntrypointName(compilation, accessorRecord.CppQualifiedName, field)}}({{setterParameters}})
                         {
                         {{(field.AccessModifier == BindingAccessModifier.Protected
                             ? RenderNativeProtectedFieldSetInvocation(accessorRecord, field)
@@ -5592,20 +5592,20 @@ public static partial class BindingOutputRenderer
             if (RequiresArrayElementAccess(compilation, record))
             {
                 writer.WriteLine();
-                writer.Write(RenderNativeArrayElement(record));
+                writer.Write(RenderNativeArrayElement(compilation, record));
             }
 
 
             if (TryGetNativeInterfaceQuery(record, out var nativeInterfaceQuery))
             {
                 writer.WriteLine();
-                writer.Write(RenderNativeInterfaceQuery(record, nativeInterfaceQuery));
+                writer.Write(RenderNativeInterfaceQuery(compilation, record, nativeInterfaceQuery));
             }
 
             if (record.TryGetMetadata(MetadataKeys.NativeInterfaceReleaseMethod, out string? nativeInterfaceReleaseMethod))
             {
                 writer.WriteLine();
-                writer.Write(RenderNativeInterfaceRelease(record, nativeInterfaceReleaseMethod!));
+                writer.Write(RenderNativeInterfaceRelease(compilation, record, nativeInterfaceReleaseMethod!));
             }
 
             if (CanEmitClone(record, record.IsEffectivelyAbstract || record.HasUnimplementedAbstractBaseMethods(compilation), CanEmitDeleteThunk(record)))
@@ -5617,7 +5617,7 @@ public static partial class BindingOutputRenderer
             if (record.RequiresDirector(compilation))
             {
                 writer.WriteLine();
-                writer.Write(RenderNativeConnectDirector(record, record.GetEffectiveVirtualMethodSlots(compilation)));
+                writer.Write(RenderNativeConnectDirector(compilation, record, record.GetEffectiveVirtualMethodSlots(compilation)));
             }
 
             if (!record.IsPolymorphic || IsNativeInterfaceWrapper(record))
@@ -5627,7 +5627,7 @@ public static partial class BindingOutputRenderer
 
             writer.WriteLine();
             writer.Write($$"""
-                SHARPCPP_EXPORT ret_t<std::size_t> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_type_id()
+                SHARPCPP_EXPORT ret_t<std::size_t> {{compilation.EntryPointPrefix}}_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_type_id()
                 {
                 return typeid({{record.CppQualifiedName}}).hash_code();
                 }
@@ -5635,7 +5635,7 @@ public static partial class BindingOutputRenderer
 
             writer.WriteLine();
             writer.Write($$"""
-                SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_metadata(arg_t<{{record.CppQualifiedName}}*> self, void** handle, std::size_t* dynamicTypeId)
+                SHARPCPP_EXPORT ret_t<void> {{compilation.EntryPointPrefix}}_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_metadata(arg_t<{{record.CppQualifiedName}}*> self, void** handle, std::size_t* dynamicTypeId)
                 {
                 if (handle == nullptr || dynamicTypeId == nullptr)
                 {
@@ -7021,7 +7021,7 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedStaticTypeIdImportDeclaration(BindingCompilation compilation, RecordBinding record)
     {
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_type_id", StringMarshalling = StringMarshalling.Utf8)]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{compilation.EntryPointPrefix}}_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_type_id", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             internal static partial nuint GetStaticTypeId();
             """;
@@ -7030,7 +7030,7 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedNativeObjectMetadataImportDeclaration(BindingCompilation compilation, RecordBinding record)
     {
         return $$"""
-            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_metadata", StringMarshalling = StringMarshalling.Utf8)]
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{compilation.EntryPointPrefix}}_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_metadata", StringMarshalling = StringMarshalling.Utf8)]
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             internal static partial void GetNativeObjectMetadata(nint self, out nint handle, out nuint dynamicTypeId);
             """;
@@ -7284,10 +7284,10 @@ public static partial class BindingOutputRenderer
         return record.TryGetMetadata(MetadataKeys.NativeInterfaceQuery, out query!);
     }
 
-    private static string RenderNativeInterfaceQuery(RecordBinding record, NativeInterfaceQueryAnnotation query)
+    private static string RenderNativeInterfaceQuery(BindingCompilation compilation, RecordBinding record, NativeInterfaceQueryAnnotation query)
     {
         return $$"""
-            SHARPCPP_EXPORT ret_t<{{record.CppQualifiedName}}*> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_query_interface(arg_t<{{query.SourceRecordCppQualifiedName}}*> self)
+            SHARPCPP_EXPORT ret_t<{{record.CppQualifiedName}}*> {{compilation.EntryPointPrefix}}_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_query_interface(arg_t<{{query.SourceRecordCppQualifiedName}}*> self)
             {
             if (self == nullptr)
             {
@@ -7301,10 +7301,10 @@ public static partial class BindingOutputRenderer
             """;
     }
 
-    private static string RenderNativeInterfaceRelease(RecordBinding record, string releaseMethod)
+    private static string RenderNativeInterfaceRelease(BindingCompilation compilation, RecordBinding record, string releaseMethod)
     {
         return $$"""
-            SHARPCPP_EXPORT ret_t<void> sharpcpp_e2e_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_release_interface(arg_t<{{record.CppQualifiedName}}*> self)
+            SHARPCPP_EXPORT ret_t<void> {{compilation.EntryPointPrefix}}_{{SanitizeNativeEntrypointName(record.CppQualifiedName)}}_release_interface(arg_t<{{record.CppQualifiedName}}*> self)
             {
             if (self != nullptr)
             {
@@ -7754,7 +7754,7 @@ public static partial class BindingOutputRenderer
             : GetManagedImportMethodName(function);
         var owningRecord = function.FindOwningRecord();
         var entryPointName = useCallbase && owningRecord is not null
-            ? GetNativeCallbaseEntrypointName(owningRecord, function)
+            ? GetNativeCallbaseEntrypointName(compilation, owningRecord, function)
             : function.EntryPointName;
 
         foreach (var keepCount in GetVariantParameterIndices(function))
@@ -7949,12 +7949,12 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string RenderNativeUnexpressibleDefaultCallbase(RecordBinding record, VirtualMethodSlotBinding slot)
+    private static string RenderNativeUnexpressibleDefaultCallbase(BindingCompilation compilation, RecordBinding record, VirtualMethodSlotBinding slot)
     {
         var method = slot.Method;
         var writer = new CodeWriter();
         var directorName = GetNativeDirectorClassName(record);
-        var baseEntrypointName = GetNativeCallbaseEntrypointName(record, method);
+        var baseEntrypointName = GetNativeCallbaseEntrypointName(compilation, record, method);
 
         foreach (var keepCount in GetVariantParameterIndices(method))
         {

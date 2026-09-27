@@ -11,6 +11,28 @@ namespace SharpCpp.Tests.E2E.StandardLibrary;
 public sealed class StandardLibraryTests
 {
     [Fact]
+    public void Array_of_pointers_to_const_records_returns_borrowed_elements()
+    {
+        using var first = new E2eStdProbe { Id = 3 };
+        using var second = new E2eStdProbe { Id = 5 };
+        using var probes = E2EBindings.E2eMakeStdProbes(first, second);
+
+        Assert.Equal(2, probes.Count);
+        Assert.Same(first, probes[0]);
+        Assert.Equal(5, probes[1].Id);
+    }
+
+    [Fact]
+    public void Container_of_move_only_record_degrades_only_its_declaration()
+    {
+        Assert.Null(typeof(E2EBindings).GetMethod("E2eCountStdMoveOnly"));
+
+        using var value = new E2eStdMoveOnly();
+        value.Size = 4;
+        Assert.Equal(4, value.Size);
+    }
+
+    [Fact]
     public void Managed_vector_operations_mutate_native_standard_library_storage()
     {
         using var numbers = E2EBindings.E2eMakeStdNumbers();

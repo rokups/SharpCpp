@@ -15,6 +15,21 @@ namespace SharpCpp
 {
 namespace detail
 {
+// Container element types keep pointee const (std::array<const T*, N>) while the
+// element marshaller binds T*; drop that const so the element can be marshalled.
+template <typename TMarshalled, typename TElement>
+constexpr decltype(auto) AsMarshalledElement(TElement&& element) noexcept
+{
+    if constexpr (std::is_pointer_v<TMarshalled> && std::is_pointer_v<std::remove_cvref_t<TElement>>)
+    {
+        return const_cast<TMarshalled>(element);
+    }
+    else
+    {
+        return std::forward<TElement>(element);
+    }
+}
+
 template <typename T, typename = void>
 struct has_clear : std::false_type {};
 
