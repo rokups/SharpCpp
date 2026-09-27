@@ -15,9 +15,17 @@ History lives in git. This file lists only what is open.
 - [ ] Move test-only wiring out of `src/SharpCpp.Tool/Program.cs` into a test driver.
 - [ ] Delete `SharpCpp.Tests.Model` / `SharpCpp.Tests.Metadata` after moving their
       scenarios to E2E.
-- [ ] `AssignImportMethodNames` in one place; clear or remove parser statics.
-- [ ] `SharpCpp.Toolchain`: one toolchain discovery for the tool, E2E and consumers;
-      Windows and macOS include layouts.
+- [x] `AssignImportMethodNames` in one place; annotation caches reset per parse (the
+      statics themselves go with the Stage 1 `ParseSession`).
+- [x] `SharpCpp.Toolchain`: compiler-driven toolchain discovery used by the E2E driver
+      and both SharpCpp.Rbfx generators.
+- [ ] RedBolt module generators (core, Glow, Network, PhysicsBox2D, PhysicsJolt,
+      RmlUI) still carry private copies of the toolchain discovery; switch them once the
+      engine's pinned SharpCpp includes `SharpCpp.Toolchain`.
+- [ ] Unit tests: `ManagedCallbackRenderingTests.Callback_entry_point_is_emitted_on_top_level_binding_class`
+      and `ClangSharpHeaderParserFieldTests.Parse_keeps_unsupported_nested_pointer_fields_ignored`
+      already failed before this work; `Parse_forced_director_records_preserves_abstract_constructors`
+      pins the parser-level rule that moved to `DegradeUnsupportedSurfacePass`.
 - [ ] Coverage gate: 93.56% against the 95% minimum; close the gap with E2E fixtures.
 
 ## Later stages
