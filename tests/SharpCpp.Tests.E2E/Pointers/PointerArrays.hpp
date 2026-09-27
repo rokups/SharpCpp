@@ -75,7 +75,8 @@ inline void enumerate_pointer_modes(
         modes[i] = available[i];
 }
 
-/// An OpenXR-style output struct filled through the two-call idiom.
+/// An OpenXR-style output struct filled through the two-call idiom: the caller passes the
+/// first element of a NativeArray as the buffer.
 struct pointer_array_record
 {
     int id;

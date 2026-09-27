@@ -136,4 +136,14 @@ public sealed class UndefaultableTests
         Assert.Equal(16, stringer.ToString(9, out var stringerObserved));
         Assert.Equal(17, stringerObserved);
     }
+
+    [Fact]
+    public void Const_reference_views_split_native_defaults_and_typedef_enum_bases_keep_their_width()
+    {
+        Assert.Equal(11, E2EBindings.ViewReferenceDefault());
+        Assert.Equal(13, E2EBindings.ViewReferenceDefault("abc"u8));
+
+        Assert.Equal(typeof(ulong), System.Enum.GetUnderlyingType(typeof(Undefaultable_wide.Splits.Status)));
+        Assert.Equal(0xffff000000000000ul, (ulong)Undefaultable_wide.Splits.Status.HighMask);
+    }
 }

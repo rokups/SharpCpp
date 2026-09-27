@@ -848,6 +848,47 @@ public static partial class BindingOutputRenderer
             }
         }
 
+        // A capacity/count output buffer of records is filled into a NativeArray<T> whose
+        // first element is passed as the buffer, so T needs dynamic NativeArray support.
+        foreach (var function in compilation.Functions.Where(static function => !function.IsIgnored()))
+        {
+            for (var index = 0; index < function.Parameters.Count - 2; ++index)
+            {
+                var capacity = function.Parameters[index];
+                var count = function.Parameters[index + 1];
+                var values = function.Parameters[index + 2];
+                if (capacity.Direction != BindingParameterDirection.In ||
+                    capacity.AbiKind != BindingParameterAbiKind.Value ||
+                    capacity.Type.Kind != BindingTypeKind.Primitive ||
+                    !capacity.NativeName.Contains("Capacity", StringComparison.OrdinalIgnoreCase) ||
+                    !capacity.NativeName.EndsWith("Input", StringComparison.OrdinalIgnoreCase) ||
+                    count.Direction != BindingParameterDirection.Out ||
+                    count.AbiKind != BindingParameterAbiKind.Pointer ||
+                    count.Type.Kind != BindingTypeKind.Primitive ||
+                    !count.NativeName.Contains("Count", StringComparison.OrdinalIgnoreCase) ||
+                    !count.NativeName.EndsWith("Output", StringComparison.OrdinalIgnoreCase) ||
+                    (values.AbiKind != BindingParameterAbiKind.Pointer &&
+                        !values.CppTypeName.TrimEnd().EndsWith('*')) ||
+                    values.Type.Kind != BindingTypeKind.Handle ||
+                    values.Type.RecordId is null ||
+                    compilation.FindRecordBySymbolId(values.Type.RecordId) is not { } elementRecord ||
+                    elementRecord.IsIgnored() ||
+                    elementRecord.HasMetadata(MetadataKeys.ForwardDeclaration) ||
+                    elementRecord.GetMetadata<bool>(MetadataKeys.OpaqueNativeHandle) ||
+                    elementRecord.IsGeneric || elementRecord.IsAbstract || elementRecord.IsPolymorphic)
+                {
+                    continue;
+                }
+
+                result.TryAdd(elementRecord.SymbolId, BindingType.CreateHandle(
+                    elementRecord.CppQualifiedName,
+                    values.Type.ManagedTypeName,
+                    elementRecord.SymbolId,
+                    elementRecord.HandleMarshallerTypeName,
+                    cppIsRecordValue: true));
+            }
+        }
+
         return result.Values.OrderBy(static type => type.CppTypeName, StringComparer.Ordinal).ToArray();
     }
 
@@ -1453,6 +1494,10 @@ public static partial class BindingOutputRenderer
     private static string RenderNativeDynamicNativeArray(BindingCompilation compilation, BindingType elementType)
     {
         var elementCppType = GetNativeFixedArrayElementCppType(compilation, elementType);
+        // A record element is returned by reference: the managed wrapper borrows the slot.
+        var getCppType = elementType.Marshaller.CppIsRecordValue
+            ? $"{elementCppType}&"
+            : elementCppType;
         var token = GetDynamicNativeArrayToken(elementType);
         return $$"""
             SHARPCPP_EXPORT NativeArrayAbi {{GetDynamicNativeArrayEntryPoint(compilation, token, "create")}}(arg_t<std::size_t> length)
@@ -1466,11 +1511,11 @@ public static partial class BindingOutputRenderer
                 delete[] static_cast<{{elementCppType}}*>(self.handle);
             }
 
-            SHARPCPP_EXPORT ret_t<{{elementCppType}}> {{GetDynamicNativeArrayEntryPoint(compilation, token, "get")}}(NativeArrayAbi self, arg_t<std::size_t> index)
+            SHARPCPP_EXPORT ret_t<{{getCppType}}> {{GetDynamicNativeArrayEntryPoint(compilation, token, "get")}}(NativeArrayAbi self, arg_t<std::size_t> index)
             {
                 if (self.handle == nullptr || index >= self.length)
                     throw std::runtime_error("SharpCpp native array access out of range.");
-                ReturnMarshaller<{{elementCppType}}> marshaller;
+                ReturnMarshaller<{{getCppType}}> marshaller;
                 return marshaller.ConvertToAbi(static_cast<{{elementCppType}}*>(self.handle)[index]);
             }
 

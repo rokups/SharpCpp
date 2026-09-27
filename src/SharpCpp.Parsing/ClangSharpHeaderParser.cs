@@ -5690,12 +5690,6 @@ public sealed partial class ClangSharpHeaderParser
                 values.SetMetadata(MetadataKeys.InputPointerArray, true);
                 values.SetMetadata(MetadataKeys.WritablePointerArray, true);
             }
-            else if (values.Type.Kind == BindingTypeKind.Handle && values.Type.RecordId is not null)
-            {
-                // The callee writes up to `capacity` records; a record wrapper holds one.
-                function.SetIgnoreReason(
-                    $"parameter '{values.ManagedName}' is a record output buffer of the capacity/count idiom, which is not bound");
-            }
         }
 
         for (var index = 0; index < function.Parameters.Count - 1; ++index)
@@ -6357,9 +6351,10 @@ public sealed partial class ClangSharpHeaderParser
             $"enum:{cppQualifiedName}",
             nativeName,
             GetManagedEnumName(enumDecl, nativeName),
-            NormalizeTypeName(enumDecl.IntegerType.AsString),
+            NormalizeTypeName(enumDecl.IntegerType.CanonicalType.AsString),
             cppQualifiedName,
-            underlyingPrimitiveKind: GetPrimitiveKindFromTypeSpelling(enumDecl.IntegerType.AsString))
+            // The underlying type may be spelled through a typedef (`enum E : uint64`).
+            underlyingPrimitiveKind: GetPrimitiveKindFromTypeSpelling(enumDecl.IntegerType.CanonicalType.AsString))
         {
             IsFlags = HasSharpCppAttribute(GetSourceText(enumDecl.TranslationUnit.Handle, enumDecl.Extent), "flags")
         };
@@ -6597,11 +6592,18 @@ public sealed partial class ClangSharpHeaderParser
 
         // The mapped type keeps the source spelling, which may be unqualified inside the
         // declaring namespace; the configuration is keyed by the qualified type.
+        // A `const T&` parameter takes T's configuration; the override is keyed by the
+        // qualified value type.
+        var valueType = parameterDecl.Type is ReferenceType referenceType ? referenceType.PointeeType : parameterDecl.Type;
         var isUndefaultableDefault = parameterDecl.HasDefaultArg &&
             managedTypeOverrides is not null &&
-            (managedTypeOverrides.TryGetValue(parameterType.CppTypeName, out var overrideInfo) ||
-             managedTypeOverrides.TryGetValue(NormalizeTypeName(parameterDecl.Type.CanonicalType.AsString), out overrideInfo)) &&
-            overrideInfo.Undefaultable;
+            new[]
+            {
+                parameterType.CppTypeName,
+                NormalizeTypeName(parameterDecl.Type.CanonicalType.AsString),
+                StripConstQualifier(NormalizeTypeName(valueType.AsString)),
+                StripConstQualifier(FormatCanonicalCxTypeName(valueType.CanonicalType.Handle))
+            }.Any(key => managedTypeOverrides.TryGetValue(key, out var overrideInfo) && overrideInfo.Undefaultable);
 
         if (defaultValue is null && parameterDecl.HasDefaultArg && !isUndefaultableDefault)
         {
@@ -6616,6 +6618,9 @@ public sealed partial class ClangSharpHeaderParser
             parameter.SetMetadata(MetadataKeys.UndefaultableParam, true);
         }
     }
+
+    private static string StripConstQualifier(string typeName) =>
+        typeName.StartsWith("const ", StringComparison.Ordinal) ? typeName["const ".Length..] : typeName;
 
     private static string? GetManagedDefaultValueExpression(ParmVarDecl parameterDecl, BindingType parameterType)
     {

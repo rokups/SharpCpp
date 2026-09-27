@@ -7996,18 +7996,24 @@ public static partial class BindingOutputRenderer
         return string.Join(", ", arguments);
     }
 
-    private static string BuildConstructorDefaultNamespacePreamble(FunctionBinding constructor)
+    // Default arguments are spelled in the record's namespace; a nested record's enclosing
+    // classes are not namespaces.
+    private static string BuildConstructorDefaultNamespacePreamble(BindingCompilation compilation, FunctionBinding constructor)
     {
-        var cppTypeName = constructor.OwningRecordCppTypeName;
-        if (string.IsNullOrWhiteSpace(cppTypeName))
+        var cppScope = constructor.OwningRecordCppTypeName;
+        if (string.IsNullOrWhiteSpace(cppScope))
             return string.Empty;
 
-        var lastSeparatorIndex = cppTypeName.LastIndexOf("::", StringComparison.Ordinal);
-        if (lastSeparatorIndex <= 0)
-            return string.Empty;
+        do
+        {
+            var lastSeparatorIndex = cppScope.LastIndexOf("::", StringComparison.Ordinal);
+            if (lastSeparatorIndex <= 0)
+                return string.Empty;
+            cppScope = cppScope[..lastSeparatorIndex];
+        }
+        while (compilation.Records.Any(record => string.Equals(record.CppQualifiedName, cppScope, StringComparison.Ordinal)));
 
-        var cppNamespace = cppTypeName[..lastSeparatorIndex];
-        return $"using namespace {cppNamespace};";
+        return $"using namespace {cppScope};";
     }
 
     private static string RenderNativeUnexpressibleDefaultFreeFunction(BindingCompilation compilation, FunctionBinding function)
@@ -8084,7 +8090,7 @@ public static partial class BindingOutputRenderer
         var constructedTypeName = requiresDirector
             ? GetNativeDirectorClassName((RecordBinding)constructor.Parent!)
             : constructor.OwningRecordCppTypeName;
-        var namespacePreamble = BuildConstructorDefaultNamespacePreamble(constructor);
+        var namespacePreamble = BuildConstructorDefaultNamespacePreamble(compilation, constructor);
 
         foreach (var keepCount in GetEmittedVariantParameterIndices(compilation, constructor))
         {

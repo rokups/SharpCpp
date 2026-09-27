@@ -45,15 +45,19 @@ public sealed class PointerArrayTests
     }
 
     [Fact]
-    public void Capacity_count_record_output_buffers_are_not_bound()
+    public void Capacity_count_record_buffers_fill_a_native_array_through_its_first_element()
     {
-        // A record wrapper holds one element while the callee writes up to `capacity`.
-        Assert.Null(typeof(E2EBindings).GetMethod("EnumeratePointerRecords"));
-        Assert.Contains(
-            Diagnostics.GeneratedArtifacts.ReadText("generator.log").Split('\n'),
-            static line => line.StartsWith("IGNORED\tFunction\t", StringComparison.Ordinal) &&
-                line.Contains("\tenumerate_pointer_records\t", StringComparison.Ordinal) &&
-                line.Contains("record output buffer of the capacity/count idiom", StringComparison.Ordinal));
+        E2EBindings.EnumeratePointerRecords(0, out var count, null!);
+        Assert.Equal(2u, count);
+
+        using var records = new global::SharpCpp.NativeArray<PointerArrayRecord>((int)count);
+        using var first = records[0];
+        E2EBindings.EnumeratePointerRecords(count, out count, first);
+
+        using var second = records[1];
+        Assert.Equal(4, first.Id);
+        Assert.Equal(5, second.Id);
+        Assert.Equal(1.0f, second.Weight);
     }
 
     [Fact]

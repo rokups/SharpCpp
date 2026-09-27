@@ -2,6 +2,7 @@
 
 #include <array>
 #include <string>
+#include <string_view>
 
 #define E2E_UNDEFAULTABLE_OFFSET 40
 
@@ -268,3 +269,24 @@ struct undefaultable_stringer
 private:
     int value_{};
 };
+
+/// A const reference to an undefaultable view takes the view's configuration.
+inline int view_reference_default(const std::string_view& value = ",")
+{
+    return static_cast<int>(value.size()) + 10;
+}
+
+namespace undefaultable_wide
+{
+using u64 = unsigned long long;
+
+/// A nested enum whose underlying type is spelled through a typedef.
+struct splits
+{
+    enum status : u64
+    {
+        high_mask = 0xffff000000000000ull,
+        low_mask = 0xffffffffull
+    };
+};
+}

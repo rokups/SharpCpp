@@ -4,10 +4,29 @@ namespace SharpCpp.Pipeline;
 
 public static class DegradeUnsupportedSurfacePass
 {
+    /// <summary>
+    /// Non-template members of a generic record dispatch per instantiation without
+    /// native-default overloads, so a default C# cannot express (often dependent on a
+    /// template argument) makes its parameter required.
+    /// </summary>
+    private static void RequireNativeDefaultsOfGenericRecordMembers(BindingCompilation compilation)
+    {
+        foreach (var parameter in compilation.Records
+                     .Where(static record => record.IsGeneric)
+                     .SelectMany(static record => record.Members.OfType<FunctionBinding>())
+                     .Where(static function => !function.IsGeneric)
+                     .SelectMany(static function => function.Parameters))
+        {
+            parameter.RemoveMetadata(MetadataKeys.UnexpressibleDefault);
+            parameter.RemoveMetadata(MetadataKeys.UndefaultableParam);
+        }
+    }
+
     public static void Apply(BindingCompilation compilation)
     {
         ArgumentNullException.ThrowIfNull(compilation);
         ResolveManagedFieldNameCollisions(compilation);
+        RequireNativeDefaultsOfGenericRecordMembers(compilation);
 
         var changed = true;
         while (changed)

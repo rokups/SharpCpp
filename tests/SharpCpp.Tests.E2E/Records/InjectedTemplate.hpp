@@ -26,6 +26,12 @@ public:
         return allocator_.capacity;
     }
 
+    /// A default that depends on a template argument cannot be expressed in C#.
+    int scaled(int factor = sizeof(Value) * 2) const
+    {
+        return allocator_.capacity * factor;
+    }
+
     class entry
     {
     public:
@@ -46,4 +52,29 @@ inline slot_map<int, float>* make_slot_map(slot_allocator& allocator)
 {
     return new slot_map<int, float>(allocator);
 }
+
+struct point
+{
+    point(float x, float y)
+        : x(x), y(y)
+    {
+    }
+
+    float x;
+    float y;
+};
+
+/// A nested record whose constructor default names a namespace-level type unqualified.
+struct settings
+{
+    struct vertex
+    {
+        explicit vertex(const point& position, point velocity = point(0, 0), float mass = 1.0f)
+            : sum(position.x + position.y + velocity.x + velocity.y + mass)
+        {
+        }
+
+        float sum;
+    };
+};
 }
