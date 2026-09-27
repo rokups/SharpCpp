@@ -7,4 +7,10 @@ public sealed record BindingTypeAlias(
     BindingType TargetType)
 {
     public string? ManagedNamespace { get; set; }
+
+    /// <summary>
+    /// Declared by an imported module. Its C# alias is a global using of that module's
+    /// assembly, so this module neither emits it nor names types through it.
+    /// </summary>
+    public bool IsImported { get; init; }
 }

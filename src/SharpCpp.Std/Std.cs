@@ -8,7 +8,8 @@ namespace Std;
 /// <summary>Shared managed wrapper for <c>std::string</c>.</summary>
 public sealed class String : global::SharpCpp.Support.StringBase, ICloneable
 {
-    private static readonly ConditionalWeakTable<object, global::SharpCpp.Support.DefaultNativeInstanceCache> s_instanceCaches = new();
+    // Keyed by native shape: modules sharing a shape share wrapper identity for a handle.
+    private static readonly global::System.Collections.Concurrent.ConcurrentDictionary<string, global::SharpCpp.Support.DefaultNativeInstanceCache> s_instanceCaches = new(StringComparer.Ordinal);
     private readonly IStringProvider _provider;
     private readonly global::SharpCpp.Support.DefaultNativeInstanceCache _instanceCache;
 
@@ -46,7 +47,7 @@ public sealed class String : global::SharpCpp.Support.StringBase, ICloneable
     }
 
     private static global::SharpCpp.Support.DefaultNativeInstanceCache GetInstanceCache(IStringProvider provider)
-        => s_instanceCaches.GetValue(provider, static _ => new global::SharpCpp.Support.DefaultNativeInstanceCache());
+        => s_instanceCaches.GetOrAdd(provider.ShapeKey, static _ => new global::SharpCpp.Support.DefaultNativeInstanceCache());
 
     protected override global::SharpCpp.Support.INativeInstanceCache? InstanceCache => _instanceCache;
 
@@ -112,7 +113,8 @@ public sealed class String : global::SharpCpp.Support.StringBase, ICloneable
 /// <summary>Shared managed wrapper for <c>std::vector&lt;T&gt;</c>.</summary>
 public sealed class Vector<T> : global::SharpCpp.Support.VectorBase<T>, ICloneable
 {
-    private static readonly ConditionalWeakTable<object, global::SharpCpp.Support.DefaultNativeInstanceCache> s_instanceCaches = new();
+    // Keyed by native shape: modules sharing a shape share wrapper identity for a handle.
+    private static readonly global::System.Collections.Concurrent.ConcurrentDictionary<string, global::SharpCpp.Support.DefaultNativeInstanceCache> s_instanceCaches = new(StringComparer.Ordinal);
     private readonly IVectorProvider<T> _provider;
     private readonly global::SharpCpp.Support.DefaultNativeInstanceCache _instanceCache;
 
@@ -157,7 +159,7 @@ public sealed class Vector<T> : global::SharpCpp.Support.VectorBase<T>, ICloneab
     }
 
     private static global::SharpCpp.Support.DefaultNativeInstanceCache GetInstanceCache(IVectorProvider<T> provider)
-        => s_instanceCaches.GetValue(provider, static _ => new global::SharpCpp.Support.DefaultNativeInstanceCache());
+        => s_instanceCaches.GetOrAdd(provider.ShapeKey, static _ => new global::SharpCpp.Support.DefaultNativeInstanceCache());
 
     protected override global::SharpCpp.Support.INativeInstanceCache? InstanceCache => _instanceCache;
 
@@ -218,7 +220,8 @@ public sealed class Vector<T> : global::SharpCpp.Support.VectorBase<T>, ICloneab
 /// <summary>Shared managed wrapper for <c>std::list&lt;T&gt;</c>.</summary>
 public sealed class List<T> : global::SharpCpp.Support.ListBase<T>, ICloneable
 {
-    private static readonly ConditionalWeakTable<object, global::SharpCpp.Support.DefaultNativeInstanceCache> s_instanceCaches = new();
+    // Keyed by native shape: modules sharing a shape share wrapper identity for a handle.
+    private static readonly global::System.Collections.Concurrent.ConcurrentDictionary<string, global::SharpCpp.Support.DefaultNativeInstanceCache> s_instanceCaches = new(StringComparer.Ordinal);
     private readonly IListProvider<T> _provider;
     private readonly global::SharpCpp.Support.DefaultNativeInstanceCache _instanceCache;
 
@@ -263,7 +266,7 @@ public sealed class List<T> : global::SharpCpp.Support.ListBase<T>, ICloneable
     }
 
     private static global::SharpCpp.Support.DefaultNativeInstanceCache GetInstanceCache(IListProvider<T> provider)
-        => s_instanceCaches.GetValue(provider, static _ => new global::SharpCpp.Support.DefaultNativeInstanceCache());
+        => s_instanceCaches.GetOrAdd(provider.ShapeKey, static _ => new global::SharpCpp.Support.DefaultNativeInstanceCache());
 
     protected override global::SharpCpp.Support.INativeInstanceCache? InstanceCache => _instanceCache;
 
@@ -324,7 +327,8 @@ public sealed class List<T> : global::SharpCpp.Support.ListBase<T>, ICloneable
 /// <summary>Shared managed wrapper for <c>std::array&lt;T, N&gt;</c>.</summary>
 public sealed class Array<T> : global::SharpCpp.Support.ArrayBase<T>, ICloneable
 {
-    private static readonly ConditionalWeakTable<object, global::SharpCpp.Support.DefaultNativeInstanceCache> s_instanceCaches = new();
+    // Keyed by native shape: modules sharing a shape share wrapper identity for a handle.
+    private static readonly global::System.Collections.Concurrent.ConcurrentDictionary<string, global::SharpCpp.Support.DefaultNativeInstanceCache> s_instanceCaches = new(StringComparer.Ordinal);
     private readonly IFixedArrayProvider<T> _provider;
     private readonly global::SharpCpp.Support.DefaultNativeInstanceCache _instanceCache;
 
@@ -376,7 +380,7 @@ public sealed class Array<T> : global::SharpCpp.Support.ArrayBase<T>, ICloneable
     }
 
     private static global::SharpCpp.Support.DefaultNativeInstanceCache GetInstanceCache(IFixedArrayProvider<T> provider)
-        => s_instanceCaches.GetValue(provider, static _ => new global::SharpCpp.Support.DefaultNativeInstanceCache());
+        => s_instanceCaches.GetOrAdd(provider.ShapeKey, static _ => new global::SharpCpp.Support.DefaultNativeInstanceCache());
 
     protected override global::SharpCpp.Support.INativeInstanceCache? InstanceCache => _instanceCache;
 
@@ -447,7 +451,8 @@ public sealed class Array<T> : global::SharpCpp.Support.ArrayBase<T>, ICloneable
 public sealed class Map<TKey, TValue> : global::SharpCpp.Support.MapBase<TKey, TValue>, ICloneable
     where TKey : notnull
 {
-    private static readonly ConditionalWeakTable<object, global::SharpCpp.Support.DefaultNativeInstanceCache> s_instanceCaches = new();
+    // Keyed by native shape: modules sharing a shape share wrapper identity for a handle.
+    private static readonly global::System.Collections.Concurrent.ConcurrentDictionary<string, global::SharpCpp.Support.DefaultNativeInstanceCache> s_instanceCaches = new(StringComparer.Ordinal);
     private readonly IMapProvider<TKey, TValue> _provider;
     private readonly global::SharpCpp.Support.DefaultNativeInstanceCache _instanceCache;
 
@@ -483,7 +488,7 @@ public sealed class Map<TKey, TValue> : global::SharpCpp.Support.MapBase<TKey, T
     }
 
     private static global::SharpCpp.Support.DefaultNativeInstanceCache GetInstanceCache(IMapProvider<TKey, TValue> provider)
-        => s_instanceCaches.GetValue(provider, static _ => new global::SharpCpp.Support.DefaultNativeInstanceCache());
+        => s_instanceCaches.GetOrAdd(provider.ShapeKey, static _ => new global::SharpCpp.Support.DefaultNativeInstanceCache());
 
     protected override global::SharpCpp.Support.INativeInstanceCache? InstanceCache => _instanceCache;
 
@@ -549,7 +554,8 @@ public sealed class Map<TKey, TValue> : global::SharpCpp.Support.MapBase<TKey, T
 public sealed class UnorderedMap<TKey, TValue> : global::SharpCpp.Support.UnorderedMapBase<TKey, TValue>, ICloneable
     where TKey : notnull
 {
-    private static readonly ConditionalWeakTable<object, global::SharpCpp.Support.DefaultNativeInstanceCache> s_instanceCaches = new();
+    // Keyed by native shape: modules sharing a shape share wrapper identity for a handle.
+    private static readonly global::System.Collections.Concurrent.ConcurrentDictionary<string, global::SharpCpp.Support.DefaultNativeInstanceCache> s_instanceCaches = new(StringComparer.Ordinal);
     private readonly IUnorderedMapProvider<TKey, TValue> _provider;
     private readonly global::SharpCpp.Support.DefaultNativeInstanceCache _instanceCache;
 
@@ -585,7 +591,7 @@ public sealed class UnorderedMap<TKey, TValue> : global::SharpCpp.Support.Unorde
     }
 
     private static global::SharpCpp.Support.DefaultNativeInstanceCache GetInstanceCache(IUnorderedMapProvider<TKey, TValue> provider)
-        => s_instanceCaches.GetValue(provider, static _ => new global::SharpCpp.Support.DefaultNativeInstanceCache());
+        => s_instanceCaches.GetOrAdd(provider.ShapeKey, static _ => new global::SharpCpp.Support.DefaultNativeInstanceCache());
 
     protected override global::SharpCpp.Support.INativeInstanceCache? InstanceCache => _instanceCache;
 

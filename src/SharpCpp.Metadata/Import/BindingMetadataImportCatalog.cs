@@ -457,7 +457,8 @@ public sealed class BindingMetadataImportCatalog
         var targetType = CreateAliasTargetType(recordsByName, enumsByName, document, alias.TargetType);
         var bindingAlias = new BindingTypeAlias(alias.CppQualifiedName, alias.NativeName, alias.ManagedName, targetType)
         {
-            ManagedNamespace = alias.ManagedNamespace ?? document.Source.ManagedNamespace
+            ManagedNamespace = alias.ManagedNamespace ?? document.Source.ManagedNamespace,
+            IsImported = true
         };
         compilation.TypeAliases.Add(bindingAlias);
     }

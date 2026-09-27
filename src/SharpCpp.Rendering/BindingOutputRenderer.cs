@@ -66,6 +66,23 @@ public static partial class BindingOutputRenderer
     private static bool IsSharedManagedWrapper(RecordBinding record)
         => !string.IsNullOrWhiteSpace(record.GetMetadata<string>(MetadataKeys.ManagedWrapperAssembly));
 
+    /// <summary>
+    /// Marshaller helpers for a shared wrapper are per module (they bind the module's
+    /// providers), so they live under the module namespace; several modules can then
+    /// share one assembly, and wrappers from different namespaces cannot collide.
+    /// </summary>
+    private static string GetMarshallerHelperNamespace(BindingCompilation compilation, RecordBinding record)
+    {
+        var ns = GetManagedNamespace(compilation, record);
+        if (!IsSharedManagedWrapper(record))
+        {
+            return ns;
+        }
+
+        var wrapperNamespace = ns.StartsWith("global::", StringComparison.Ordinal) ? ns["global::".Length..] : ns;
+        return $"{compilation.ManagedNamespace}.__SharedMarshallers.{wrapperNamespace}";
+    }
+
     private static string GetSharedModuleIdLiteral(BindingCompilation compilation)
         => $"\"{EscapeCSharpString(compilation.ProjectName)}\"";
 
@@ -105,8 +122,7 @@ public static partial class BindingOutputRenderer
     public static GeneratedBindingSet Render(
         BindingCompilation compilation,
         string fileStem,
-        Func<string?, string>? deriveGroupStem = null,
-        bool includeCallbackReleaseRegistration = true)
+        Func<string?, string>? deriveGroupStem = null)
     {
         ArgumentNullException.ThrowIfNull(compilation);
         ArgumentException.ThrowIfNullOrWhiteSpace(fileStem);
@@ -119,7 +135,7 @@ public static partial class BindingOutputRenderer
             {
                 new GeneratedBindingFile($"{fileStem}.Bindings.g.cs", RenderManagedBindings(compilation)),
                 new GeneratedBindingFile($"{fileStem}.Bindings.Aliases.g.cs", RenderAliasBindings(compilation, includeSharedCallbackHelpers: true)),
-                new GeneratedBindingFile($"{fileStem}.Bindings.g.cpp", RenderNativeBindings(compilation, includeCallbackReleaseRegistration: includeCallbackReleaseRegistration))
+                new GeneratedBindingFile($"{fileStem}.Bindings.g.cpp", RenderNativeBindings(compilation))
             };
             return new GeneratedBindingSet(files);
         }
@@ -138,7 +154,7 @@ public static partial class BindingOutputRenderer
         if (groups.Count == 0)
         {
             allFiles.Add(new GeneratedBindingFile($"{fileStem}.Bindings.g.cs", RenderManagedBindings(compilation)));
-            allFiles.Add(new GeneratedBindingFile($"{fileStem}.Bindings.g.cpp", RenderNativeBindings(compilation, includeCallbackReleaseRegistration: includeCallbackReleaseRegistration)));
+            allFiles.Add(new GeneratedBindingFile($"{fileStem}.Bindings.g.cpp", RenderNativeBindings(compilation)));
         }
         else
         {
@@ -156,7 +172,7 @@ public static partial class BindingOutputRenderer
                     RenderNativeBindings(
                         compilation,
                         node => memberSet.Contains(node) || (node is RecordBinding r && memberSet.Contains(r)),
-                        includeCallbackReleaseRegistration: includeCallbackReleaseRegistration && groupIndex == 0)));
+                        includeCallbackReleaseRegistration: groupIndex == 0)));
             }
         }
 
@@ -221,7 +237,7 @@ public static partial class BindingOutputRenderer
             using System.Runtime.InteropServices.Marshalling;
             """);
 
-        var recordGroups = records.GroupBy(record => GetManagedNamespace(compilation, record)).ToArray();
+        var recordGroups = records.GroupBy(record => GetMarshallerHelperNamespace(compilation, record)).ToArray();
         var enumGroups = enums.GroupBy(@enum => GetManagedNamespace(compilation, @enum)).ToArray();
         var managedClassGroups = managedClasses.GroupBy(managedClass => GetManagedNamespace(compilation, managedClass)).ToArray();
         var allNamespaces = recordGroups.Select(group => group.Key)
@@ -232,7 +248,7 @@ public static partial class BindingOutputRenderer
 
         foreach (var ns in allNamespaces)
         {
-            var nsRecords = records.Where(record => GetManagedNamespace(compilation, record) == ns).ToArray();
+            var nsRecords = records.Where(record => GetMarshallerHelperNamespace(compilation, record) == ns).ToArray();
             var nsInterfaces = interfaceRecords.Where(record => GetManagedNamespace(compilation, record) == ns).ToArray();
             var nsEnums = enums.Where(@enum => GetManagedNamespace(compilation, @enum) == ns).ToArray();
             var nsManagedClasses = managedClasses.Where(managedClass => GetManagedNamespace(compilation, managedClass) == ns).ToArray();
@@ -1796,7 +1812,7 @@ public static partial class BindingOutputRenderer
 
                 internal static partial class __PInvoke
                 {
-                    [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetManagedCallbackReleaseRegistrationEntryPointName()}}", StringMarshalling = StringMarshalling.Utf8)]
+                    [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetManagedCallbackReleaseRegistrationEntryPointName(compilation)}}", StringMarshalling = StringMarshalling.Utf8)]
                     [MethodImpl(MethodImplOptions.AggressiveInlining)]
                     internal static partial void __SetManagedCallbackRelease(nint release);
                 }
@@ -1940,9 +1956,9 @@ public static partial class BindingOutputRenderer
             """;
     }
 
-    private static string GetManagedCallbackReleaseRegistrationEntryPointName()
+    private static string GetManagedCallbackReleaseRegistrationEntryPointName(BindingCompilation compilation)
     {
-        return "sharpcpp_set_managed_callback_release";
+        return $"{compilation.EntryPointPrefix}_set_managed_callback_release";
     }
 
     private static string BuildManagedCallbackInvocationArgument(BindingCompilation compilation, BindingType type, string valueExpression)
@@ -2250,7 +2266,7 @@ public static partial class BindingOutputRenderer
         bool includeSharedCallbackHelpers = false)
     {
         var aliases = compilation?.TypeAliases
-            .Where(alias => IsRenderableAliasTarget(compilation, alias.TargetType))
+            .Where(alias => !alias.IsImported && IsRenderableAliasTarget(compilation, alias.TargetType))
             .ToArray() ?? Array.Empty<BindingTypeAlias>();
         var needsRegistry = compilation is not null && includeRegistry;
         var sharedProviderShapes = compilation is null
@@ -5132,7 +5148,7 @@ public static partial class BindingOutputRenderer
                 #if defined(__EMSCRIPTEN__)
                 __attribute__((weak))
                 #endif
-                SHARPCPP_EXPORT_NAMED({{GetManagedCallbackReleaseRegistrationEntryPointName()}}) void {{GetManagedCallbackReleaseRegistrationEntryPointName()}}(void (*release)(void*))
+                SHARPCPP_EXPORT_NAMED({{GetManagedCallbackReleaseRegistrationEntryPointName(compilation)}}) void {{GetManagedCallbackReleaseRegistrationEntryPointName(compilation)}}(void (*release)(void*))
                 {
                     SharpCpp::detail::SetManagedCallbackRelease(release);
                 }
@@ -5697,6 +5713,7 @@ public static partial class BindingOutputRenderer
         if (!string.IsNullOrWhiteSpace(type.ManagedTypeFormatOverride))
         {
             var explicitAlias = compilation.TypeAliases.FirstOrDefault(alias =>
+                !alias.IsImported &&
                 string.Equals(alias.ManagedName, type.ManagedTypeFormatOverride, StringComparison.Ordinal) &&
                 BindingAliasTargetKey.From(alias.TargetType) == targetKey);
             if (explicitAlias is not null)
@@ -5707,7 +5724,7 @@ public static partial class BindingOutputRenderer
         }
 
         var matches = compilation.TypeAliases
-            .Where(alias => BindingAliasTargetKey.From(alias.TargetType) == targetKey)
+            .Where(alias => !alias.IsImported && BindingAliasTargetKey.From(alias.TargetType) == targetKey)
             .Select(static alias => alias.ManagedName)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
@@ -5933,13 +5950,13 @@ public static partial class BindingOutputRenderer
 
     private static string GetQualifiedUnifiedHandleMarshallerTypeName(BindingCompilation compilation, RecordBinding record, string ownershipTypeName)
     {
-        var ns = GetManagedNamespace(compilation, record);
+        var ns = GetMarshallerHelperNamespace(compilation, record);
         return $"global::{ns}.__{record.ManagedName}Marshaller<{ownershipTypeName}>";
     }
 
     private static string GetQualifiedHandleReturnMarshallerTypeName(BindingCompilation compilation, RecordBinding record, bool ownsHandle)
     {
-        var ns = GetManagedNamespace(compilation, record);
+        var ns = GetMarshallerHelperNamespace(compilation, record);
         var arity = GetManagedVisibleGenericParameters(record).Count;
         var openGenericSuffix = arity == 0 ? string.Empty : $"<{new string(',', arity - 1)}>";
         return $"global::{ns}.__{record.ManagedName}{(ownsHandle ? "Owned" : string.Empty)}ReturnMarshaller{openGenericSuffix}";
@@ -5947,7 +5964,7 @@ public static partial class BindingOutputRenderer
 
     private static string GetQualifiedHandleInMarshallerTypeName(BindingCompilation compilation, RecordBinding record)
     {
-        var ns = GetManagedNamespace(compilation, record);
+        var ns = GetMarshallerHelperNamespace(compilation, record);
         var arity = GetManagedVisibleGenericParameters(record).Count;
         var openGenericSuffix = arity == 0 ? string.Empty : $"<{new string(',', arity - 1)}>";
         return $"global::{ns}.__{record.ManagedName}InMarshaller{openGenericSuffix}";

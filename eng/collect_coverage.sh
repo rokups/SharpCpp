@@ -6,13 +6,14 @@ script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 sharpcpp_root="$(cd -- "$script_directory/.." && pwd)"
 results_directory="${SHARPCPP_COVERAGE_RESULTS_DIR:-$sharpcpp_root/TestResults/coverage}"
 minimum_coverage="${SHARPCPP_COVERAGE_MINIMUM:-95}"
-cmake_root="${SHARPCPP_CMAKE_ROOT:-/home/rk/.local/share/uv/tools/cmake/bin}"
-ninja_root="${SHARPCPP_NINJA_ROOT:-/home/rk/.local/share/uv/tools/ninja/bin}"
+# Optional tool directories for hosts where cmake/ninja are not on PATH.
+cmake_root="${SHARPCPP_CMAKE_ROOT:-}"
+ninja_root="${SHARPCPP_NINJA_ROOT:-}"
 
-if [[ -d "$cmake_root" ]]; then
+if [[ -n "$cmake_root" && -d "$cmake_root" ]]; then
     PATH="$cmake_root:$PATH"
 fi
-if [[ -d "$ninja_root" ]]; then
+if [[ -n "$ninja_root" && -d "$ninja_root" ]]; then
     PATH="$ninja_root:$PATH"
 fi
 export PATH
@@ -62,6 +63,11 @@ coverage_header="$(rg -o '<coverage[^>]*' "$coverage_file" | head -1)"
 line_rate="$(printf '%s\n' "$coverage_header" | sed -n 's/.*line-rate="\([^"]*\)".*/\1/p')"
 lines_covered="$(printf '%s\n' "$coverage_header" | sed -n 's/.*lines-covered="\([^"]*\)".*/\1/p')"
 lines_valid="$(printf '%s\n' "$coverage_header" | sed -n 's/.*lines-valid="\([^"]*\)".*/\1/p')"
+
+if [[ -z "$lines_valid" || "$lines_valid" == "0" ]]; then
+    printf 'Coverage gate failed: no coverage data was collected (is the dotnet-coverage profiler loading?)\n' >&2
+    exit 1
+fi
 
 awk -v line_rate="$line_rate" \
     -v lines_covered="$lines_covered" \
