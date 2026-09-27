@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <functional>
 #include <string_view>
 
@@ -320,4 +321,15 @@ struct iterable
 
     int values[2]{1, 2};
 };
+}
+
+namespace degradation_rules
+{
+using std::nullptr_t;
+
+/// A builtin type without a managed mapping, spelled through a using-declaration.
+inline int take_null(nullptr_t)
+{
+    return 0;
+}
 }

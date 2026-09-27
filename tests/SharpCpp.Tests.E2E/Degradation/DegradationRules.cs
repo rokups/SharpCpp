@@ -130,4 +130,15 @@ public sealed class DegradationRuleTests
         Assert.Null(typeof(Iterable).GetMethod("Begin"));
         Assert.Null(typeof(Iterable).GetMethod("End"));
     }
+
+    [Fact]
+    public void Unsupported_builtin_types_spelled_through_using_declarations_are_reported()
+    {
+        Assert.Null(typeof(E2EBindings).GetMethod("TakeNull"));
+        Assert.Contains(
+            Diagnostics.GeneratedArtifacts.ReadText("generator.log").Split('\n'),
+            static line => line.StartsWith("IGNORED\tFunction\t", StringComparison.Ordinal) &&
+                line.Contains("\tdegradation_rules::take_null\t", StringComparison.Ordinal) &&
+                line.Contains("std::nullptr_t", StringComparison.Ordinal));
+    }
 }

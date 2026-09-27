@@ -21,6 +21,9 @@ struct [[sharpcpp::managed_type(
 };
 
 template <>
+struct ReturnMarshaller<callback_shapes::point2> : Marshaller<callback_shapes::point2> {};
+
+template <>
 struct Marshaller<const callback_shapes::point2&>
 {
     using cpp_type = const callback_shapes::point2&;

@@ -37,4 +37,11 @@ public sealed class CallbackShapeTests
         Assert.Equal(34, E2EBindings.UsePointCallback(static point => point.X * 10 + point.Y));
         Assert.Equal(56, E2EBindings.UsePointValueCallback(static point => point.X * 10 + point.Y));
     }
+
+    [Fact]
+    public void Configured_value_parameters_and_returns_cross_outside_callbacks()
+    {
+        Assert.Equal(7, E2EBindings.PointSum(new CallbackPoint2(3, 4)));
+        Assert.Equal(new CallbackPoint2(5, 6), E2EBindings.MakePoint(5, 6));
+    }
 }

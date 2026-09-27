@@ -40,4 +40,15 @@ inline int use_point_callback(std::function<int(const point2&)> callback)
 {
     return callback(point2{3, 4});
 }
+
+/// Configured value parameters and returns spelled unqualified inside their namespace.
+inline int point_sum(const point2& value)
+{
+    return value.x + value.y;
+}
+
+inline point2 make_point(int x, int y)
+{
+    return point2{x, y};
+}
 }

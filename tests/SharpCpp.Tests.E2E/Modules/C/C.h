@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdint.h>
 
 typedef struct coverage_c_handle coverage_c_handle;
@@ -292,4 +293,21 @@ static inline int c_unsigned(unsigned char value)
 static inline c_byte c_byte_echo(c_byte value)
 {
     return (c_byte)(value + 1);
+}
+
+/* A pointer typedef to a record declared by a system header, and a char** without a
+   count (a pointer to one string). */
+typedef FILE* c_file_handle;
+
+static inline int c_file_is_null(c_file_handle file)
+{
+    return file == 0;
+}
+
+static inline int c_first_arg_length(char** argv)
+{
+    int length = 0;
+    while (argv[0][length] != '\0')
+        ++length;
+    return length;
 }

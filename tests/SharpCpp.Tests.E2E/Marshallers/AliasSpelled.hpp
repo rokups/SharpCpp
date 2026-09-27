@@ -77,4 +77,17 @@ inline float consume_value3(value3_arg value)
 {
     return value.x + value.y * 10 + value.z * 100;
 }
+
+/// A marshaller spelled with an alias of an otherwise unconfigured record.
+struct weight_value
+{
+    float kilograms;
+};
+
+using weight = weight_value;
+
+inline float weigh(weight value)
+{
+    return value.kilograms * 2;
+}
 }

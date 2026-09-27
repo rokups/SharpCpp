@@ -10,7 +10,7 @@ public static partial class BindingOutputRenderer
         var writer = new CodeWriter();
         WriteDocumentationComment(writer, function);
         var methodTypeParams = string.Join(", ", function.GenericParameters.Select(static param => param.Name));
-        var returnTypeName = GetGenericManagedReturnType(function.ReturnType);
+        var returnTypeName = GetGenericManagedReturnType(function.ReturnType, compilation);
         var parameterList = string.Join(", ", function.Parameters.Select(p => RenderManagedPublicParameter(p, compilation)));
         var instantiations = function.SupportedGenericInstantiations.OrderBy(
             static instantiation => string.Join("|", instantiation.TypeArguments.Select(static argument => argument.CppTypeName)),
@@ -2691,7 +2691,7 @@ public static partial class BindingOutputRenderer
         return $"{GetManagedImportMethodName(function)}{GetGenericInstantiationSuffix(recordInstantiation)}{GetGenericInstantiationSuffix(methodInstantiation)}";
     }
 
-    private static string GetGenericManagedReturnType(BindingType type, BindingCompilation? compilation = null)
+    private static string GetGenericManagedReturnType(BindingType type, BindingCompilation compilation)
     {
         if (type.IsGenericParameter)
         {

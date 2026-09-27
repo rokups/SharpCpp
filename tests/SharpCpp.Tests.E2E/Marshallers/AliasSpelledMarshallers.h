@@ -36,4 +36,15 @@ struct [[sharpcpp::managed_type(
 
 template <>
 struct ReturnMarshaller<alias_spelled::value3> : Marshaller<alias_spelled::value3> {};
+
+template <>
+struct [[sharpcpp::managed_type(public_type = "float", marshaller_type = "float", suppress_emission = true)]]
+Marshaller<alias_spelled::weight>
+{
+    using cpp_type = alias_spelled::weight;
+    using abi_type = float;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) noexcept { return value.kilograms; }
+    constexpr cpp_type ConvertToCpp(abi_type value) noexcept { return {value}; }
+};
 }

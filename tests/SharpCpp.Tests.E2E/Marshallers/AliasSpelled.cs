@@ -53,4 +53,10 @@ public sealed class AliasSpelledMarshallerTests
         box.Value = new AliasValue3(4, 5, 6);
         Assert.Equal(new AliasValue3(4, 5, 6), box.Value);
     }
+
+    [Fact]
+    public void Marshallers_spelled_with_a_record_alias_configure_the_record()
+    {
+        Assert.Equal(5f, E2EBindings.Weigh(2.5f));
+    }
 }

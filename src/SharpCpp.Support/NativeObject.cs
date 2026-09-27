@@ -186,14 +186,14 @@ public abstract class NativeObject : SafeHandle
     /// </summary>
     public bool TryPromoteToOwningHandle()
     {
-        if (OwnsNativeHandle)
-        {
-            return true;
-        }
-
         if (IsClosed || IsInvalid)
         {
             return false;
+        }
+
+        if (OwnsNativeHandle)
+        {
+            return true;
         }
 
         lock (_ownershipSync)

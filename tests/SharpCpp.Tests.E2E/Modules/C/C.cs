@@ -123,4 +123,17 @@ public sealed class CTests
         Assert.Contains("global using CByte = byte;", aliases);
         Assert.DoesNotContain("CVoid", aliases);
     }
+
+    [Fact]
+    public void Uncounted_char_pointer_pointers_pass_one_string_and_external_records_stay_unbound()
+    {
+        Assert.Equal(5, CBindings.CFirstArgLength("argv0"));
+
+        // FILE is declared by a system header, so its pointer typedef is not bound here.
+        Assert.Null(typeof(CBindings).GetMethod("CFileIsNull"));
+        Assert.Contains(
+            Diagnostics.GeneratedArtifacts.ReadText("generator.log").Split('\n'),
+            static line => line.Contains("\tc_file_is_null\t", StringComparison.Ordinal) &&
+                line.Contains("defined outside headers owned by this compilation", StringComparison.Ordinal));
+    }
 }

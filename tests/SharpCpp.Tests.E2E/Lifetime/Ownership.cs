@@ -220,4 +220,13 @@ public sealed class RuntimeBreadthTests
             E2EBindings.RuntimeBreadthSumString(
                 global::Std.String.CreateManagedWrapper(nativeString.Handle, ownsHandle: false)));
     }
+
+    [Fact]
+    public void Promoting_an_owning_or_disposed_wrapper_does_not_change_ownership()
+    {
+        var owned = new Container_aliases.ActionBuilder();
+        Assert.True(owned.TryPromoteToOwningHandle());
+        owned.Dispose();
+        Assert.False(owned.TryPromoteToOwningHandle());
+    }
 }

@@ -30,6 +30,44 @@ public sealed class SharedProviderRegistryTests
             SharedProviderRegistry<IIncompatibleProvider>.Resolve<IIncompatibleProvider>());
     }
 
+    [Fact]
+    public void Register_rejects_a_second_provider_for_the_same_module_and_shape()
+    {
+        var provider = new DuplicateProvider("module", "shape");
+        SharedProviderRegistry<IDuplicateProvider>.Register<IDuplicateProvider>(provider);
+        SharedProviderRegistry<IDuplicateProvider>.Register<IDuplicateProvider>(provider);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            SharedProviderRegistry<IDuplicateProvider>.Register<IDuplicateProvider>(new DuplicateProvider("module", "shape")));
+    }
+
+    [Fact]
+    public void Resolve_rejects_missing_and_ambiguous_module_providers()
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            SharedProviderRegistry<IAmbiguousProvider>.Resolve<IAmbiguousProvider>("module"));
+
+        SharedProviderRegistry<IAmbiguousProvider>.Register<IAmbiguousProvider>(new AmbiguousProvider("module", "first-shape"));
+        SharedProviderRegistry<IAmbiguousProvider>.Register<IAmbiguousProvider>(new AmbiguousProvider("module", "second-shape"));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            SharedProviderRegistry<IAmbiguousProvider>.Resolve<IAmbiguousProvider>("module"));
+        Assert.Equal("second-shape", SharedProviderRegistry<IAmbiguousProvider>.Resolve<IAmbiguousProvider>("module", "second-shape").ShapeKey);
+
+        using (SharedProviderRegistry<IAmbiguousProvider>.PushModule("other"))
+        {
+            Assert.Equal("other", SharedProviderRegistry<IAmbiguousProvider>.CurrentModuleId);
+        }
+    }
+
+    private interface IDuplicateProvider : ISharedProvider;
+
+    private sealed record DuplicateProvider(string ModuleId, string ShapeKey) : IDuplicateProvider;
+
+    private interface IAmbiguousProvider : ISharedProvider;
+
+    private sealed record AmbiguousProvider(string ModuleId, string ShapeKey) : IAmbiguousProvider;
+
     private interface ICompatibleProvider : ISharedProvider;
 
     private sealed record CompatibleProvider(string ModuleId, string ShapeKey) : ICompatibleProvider;
