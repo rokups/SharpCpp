@@ -129,7 +129,7 @@ public sealed class RecordBinding : BindingNamedContainerNode
         return argument.Kind switch
         {
             BindingTemplateArgumentKind.Type => argument.Type!.CppTypeName,
-            BindingTemplateArgumentKind.Integral => argument.IntegralValue.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            BindingTemplateArgumentKind.Integral => BindingTemplateArgument.FormatIntegral(argument.IntegralValue, argument.IsBoolean),
             _ => throw new ArgumentOutOfRangeException(nameof(argument))
         };
     }

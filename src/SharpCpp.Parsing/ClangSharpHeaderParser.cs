@@ -2440,6 +2440,9 @@ public sealed partial class ClangSharpHeaderParser
         return TypeIsPointer(elementType) && elementType.PointeeType.IsConstQualified;
     }
 
+    // ClangSharp reads a bool argument through a signed one-bit value (true is -1).
+    private static bool IsBooleanType(CXType type) => type.CanonicalType.kind == CXTypeKind.CXType_Bool;
+
     private static bool TypeIsFunctionProto(CXType type) => type.TypeClass is CX_TypeClass.CX_TypeClass_FunctionProto or CX_TypeClass.CX_TypeClass_FunctionNoProto;
     private static bool TypeIsRecord(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_Record;
     private static bool TypeIsEnum(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_Enum;
@@ -2876,12 +2879,12 @@ public sealed partial class ClangSharpHeaderParser
                     break;
 
                 case CXTemplateArgumentKind.CXTemplateArgumentKind_Integral:
-                    nativeArguments.Add(BindingTemplateArgument.FromIntegral(argument.AsIntegral));
+                    nativeArguments.Add(BindingTemplateArgument.FromIntegral(argument.AsIntegral, IsBooleanType(argument.IntegralType.Handle)));
                     break;
 
                 case CXTemplateArgumentKind.CXTemplateArgumentKind_Expression when
-                    TryGetIntegralTemplateArgument(argument.AsExpr, out var integralValue):
-                    nativeArguments.Add(BindingTemplateArgument.FromIntegral(integralValue));
+                    TryGetIntegralTemplateArgument(argument.AsExpr, out var integralValue, out var isBoolean):
+                    nativeArguments.Add(BindingTemplateArgument.FromIntegral(integralValue, isBoolean));
                     break;
 
                 default:
@@ -2983,7 +2986,7 @@ public sealed partial class ClangSharpHeaderParser
 
                 if (argument.IntegralType.kind != CXTypeKind.CXType_Invalid)
                 {
-                    nativeArguments.Add(BindingTemplateArgument.FromIntegral(argument.AsIntegral));
+                    nativeArguments.Add(BindingTemplateArgument.FromIntegral(argument.AsIntegral, IsBooleanType(argument.IntegralType)));
                     continue;
                 }
 
@@ -3027,17 +3030,25 @@ public sealed partial class ClangSharpHeaderParser
             managedTypeOverride!.PublicTypeName.Contains('{', StringComparison.Ordinal);
     }
 
-    private static bool TryGetIntegralTemplateArgument(Expr expression, out long value)
+    private static bool TryGetIntegralTemplateArgument(Expr expression, out long value, out bool isBoolean)
     {
+        isBoolean = false;
         switch (expression)
         {
             case IntegerLiteral literal:
                 value = literal.Value;
                 return true;
+            case CXXBoolLiteralExpr literal:
+                value = literal.Value ? 1 : 0;
+                isBoolean = true;
+                return true;
             case ImplicitCastExpr implicitCast:
-                return TryGetIntegralTemplateArgument(implicitCast.SubExpr, out value);
+                return TryGetIntegralTemplateArgument(implicitCast.SubExpr, out value, out isBoolean);
             case ParenExpr parenthesized:
-                return TryGetIntegralTemplateArgument(parenthesized.SubExpr, out value);
+                return TryGetIntegralTemplateArgument(parenthesized.SubExpr, out value, out isBoolean);
+            // An alias template forwarding a non-type parameter substitutes it in place.
+            case SubstNonTypeTemplateParmExpr substitution:
+                return TryGetIntegralTemplateArgument(substitution.Replacement, out value, out isBoolean);
             default:
                 value = 0;
                 return false;
@@ -5362,11 +5373,11 @@ public sealed partial class ClangSharpHeaderParser
                     result.Add(FormatCppTypeFromAst(canonicalTypes ? argument.AsType.CanonicalType : argument.AsType, recordsByName, genericParameters));
                     break;
                 case CXTemplateArgumentKind.CXTemplateArgumentKind_Integral:
-                    result.Add(argument.AsIntegral.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    result.Add(BindingTemplateArgument.FormatIntegral(argument.AsIntegral, IsBooleanType(argument.IntegralType.Handle)));
                     break;
                 case CXTemplateArgumentKind.CXTemplateArgumentKind_Expression when
-                    TryGetIntegralTemplateArgument(argument.AsExpr, out var integralValue):
-                    result.Add(integralValue.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    TryGetIntegralTemplateArgument(argument.AsExpr, out var integralValue, out var isBoolean):
+                    result.Add(BindingTemplateArgument.FormatIntegral(integralValue, isBoolean));
                     break;
                 default:
                     formattedArguments = Array.Empty<string>();
@@ -5622,7 +5633,7 @@ public sealed partial class ClangSharpHeaderParser
             }
             else if (argument.IntegralType.kind != CXTypeKind.CXType_Invalid)
             {
-                arguments.Add(argument.AsIntegral.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                arguments.Add(BindingTemplateArgument.FormatIntegral(argument.AsIntegral, IsBooleanType(argument.IntegralType)));
             }
             else
             {
@@ -8222,7 +8233,7 @@ public sealed partial class ClangSharpHeaderParser
         var nativeTemplateArguments = instantiation.NativeTemplateArguments
             .Select(argument => argument.Kind == BindingTemplateArgumentKind.Type
                 ? BindingTemplateArgument.FromType(NormalizeTemplateArgumentType(argument.Type!, recordsByName, enumsByName))
-                : BindingTemplateArgument.FromIntegral(argument.IntegralValue))
+                : BindingTemplateArgument.FromIntegral(argument.IntegralValue, argument.IsBoolean))
             .ToArray();
         return new RecordGenericInstantiationBinding(typeArguments, nativeTemplateArguments, instantiation.IsInferred);
     }

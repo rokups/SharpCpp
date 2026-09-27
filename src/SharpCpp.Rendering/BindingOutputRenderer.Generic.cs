@@ -124,7 +124,8 @@ public static partial class BindingOutputRenderer
         var instantiations = GetCanonicalManagedGenericInstantiations(compilation, record);
         var baseTypeName = GetGenericManagedBaseTypeName(compilation, record);
         var hasManagedBase = !string.IsNullOrWhiteSpace(record.ManagedBaseTypeName);
-        var hidesPrimaryBaseHelpers = record.GetPrimaryBaseRecord(compilation) is not null;
+        // A shared wrapper base lives in its wrapper assembly, where its helpers are internal.
+        var hidesPrimaryBaseHelpers = record.GetPrimaryBaseRecord(compilation) is { } primaryBase && !IsSharedManagedWrapper(primaryBase);
         var staticHelperModifier = hidesPrimaryBaseHelpers ? "new " : string.Empty;
         var genericConstraints = GetGenericRecordConstraints(record);
         var isEffectivelyAbstract = IsManagedWrapperAbstract(
@@ -164,7 +165,7 @@ public static partial class BindingOutputRenderer
             {{staticHelperModifier}}internal static {{GetGenericRecordDeclarationName(record)}} CreateManagedWrapper(nint handle, bool ownsHandle)
             {
             {{(hasNativeNonTypeArguments
-                ? RenderDefaultNativeTemplateWrapperDispatch(record, instantiations, isEffectivelyAbstract)
+                ? RenderDefaultNativeTemplateWrapperDispatch(compilation, record, instantiations, isEffectivelyAbstract)
                 : $$"""
             if (handle == 0)
                 {{(isEffectivelyAbstract ? "return null!;" : $"return new {GetGenericRecordDeclarationName(record)}(0, ownsHandle);")}}
@@ -369,6 +370,7 @@ public static partial class BindingOutputRenderer
         type.NativeTemplateArguments.Any(static argument => argument.Kind != BindingTemplateArgumentKind.Type);
 
     private static string RenderDefaultNativeTemplateWrapperDispatch(
+        BindingCompilation compilation,
         RecordBinding record,
         IReadOnlyList<RecordGenericInstantiationBinding> instantiations,
         bool isEffectivelyAbstract)
@@ -382,9 +384,30 @@ public static partial class BindingOutputRenderer
             .Select(static instantiation => GetNativeTemplateArgumentKey(instantiation.NativeTemplateArguments))
             .Distinct(StringComparer.Ordinal)
             .ToArray();
-        return shapes.Length == 1
-            ? $"return CreateManagedWrapper(handle, ownsHandle, \"{EscapeCSharpString(shapes[0])}\");"
-            : $"throw new InvalidOperationException(\"Native template arguments are required to wrap '{record.ManagedName}'.\");";
+        if (shapes.Length == 1)
+        {
+            return $"return CreateManagedWrapper(handle, ownsHandle, \"{EscapeCSharpString(shapes[0])}\");";
+        }
+
+        // The managed type arguments select the native shape unless two shapes share them.
+        var writer = new CodeWriter();
+        foreach (var group in instantiations.GroupBy(instantiation => GetManagedGenericInstantiationKey(compilation, record, instantiation), StringComparer.Ordinal))
+        {
+            var groupShapes = group
+                .Select(static instantiation => GetNativeTemplateArgumentKey(instantiation.NativeTemplateArguments))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (groupShapes.Length != 1)
+            {
+                continue;
+            }
+
+            writer.WriteLine($"if ({BuildGenericInstantiationCondition(compilation, record, group.First(), includeNativeTemplateShape: false)})");
+            writer.WriteLine($"    return CreateManagedWrapper(handle, ownsHandle, \"{EscapeCSharpString(groupShapes[0])}\");");
+        }
+
+        writer.Write($"throw new InvalidOperationException(\"Native template arguments are required to wrap '{record.ManagedName}'.\");");
+        return writer.ToString();
     }
 
     private static string RenderNativeTemplateWrapperFactory(RecordBinding record, bool isEffectivelyAbstract)

@@ -227,7 +227,7 @@ public static class BindingCompilationGenericInstantiationPass
                     candidate.NativeTemplateArguments.Count < record.NativeTemplateParameterCount &&
                     instantiations.Any(complete =>
                         complete.NativeTemplateArguments.Count == record.NativeTemplateParameterCount &&
-                        InstantiationsEqual(complete.TypeArguments, candidate.TypeArguments)))
+                        SpecializationArgumentsEqual(complete.TypeArguments, candidate.TypeArguments)))
                 {
                     instantiations.RemoveAt(index);
                 }
@@ -252,6 +252,19 @@ public static class BindingCompilationGenericInstantiationPass
         }
 
         return true;
+    }
+
+    // An incomplete shape is reached through spellings (aliases, callback signatures) that
+    // carry record arguments as handles or values inconsistently; a record argument is
+    // identified by its record.
+    private static bool SpecializationArgumentsEqual(IReadOnlyList<BindingType> left, IReadOnlyList<BindingType> right)
+    {
+        return left.Count == right.Count &&
+            left.Zip(right).All(static pair =>
+                pair.First.RecordId is not null || pair.Second.RecordId is not null
+                    ? string.Equals(pair.First.RecordId, pair.Second.RecordId, StringComparison.Ordinal)
+                    : pair.First.Kind == pair.Second.Kind &&
+                        string.Equals(pair.First.CppTypeName, pair.Second.CppTypeName, StringComparison.Ordinal));
     }
 
     private static bool NativeTemplateArgumentsEqual(
