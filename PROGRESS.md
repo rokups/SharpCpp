@@ -20,9 +20,9 @@ History lives in git. This file lists only what is open.
       statics themselves go with the Stage 1 `ParseSession`).
 - [x] `SharpCpp.Toolchain`: compiler-driven toolchain discovery used by the E2E driver
       and both SharpCpp.Rbfx generators.
-- [ ] RedBolt module generators (core, Glow, Network, PhysicsBox2D, PhysicsJolt,
-      RmlUI) still carry private copies of the toolchain discovery; switch them once the
-      engine's pinned SharpCpp includes `SharpCpp.Toolchain`.
+- [x] RedBolt module generators (core, Glow, Network, PhysicsBox2D, PhysicsJolt,
+      RmlUI, XR) use `SharpCpp.Toolchain` instead of private copies of the toolchain
+      discovery.
 - [x] Unit tests brought up to date with the fully-qualified managed-callback entry
       point, `char**` fields projected as `IntPtr`, and abstract constructors degraded in
       `DegradeUnsupportedSurfacePass`; the Model suite passes.
