@@ -2641,7 +2641,8 @@ public static partial class BindingOutputRenderer
             useConcreteAbi && parameter.Type.IsGenericParameter &&
                 parameter.AbiKind == BindingParameterAbiKind.Value
                 ? concreteType.Marshaller.CppIsReference &&
-                    concreteType.Marshaller.ManagedMarshaller is null
+                    concreteType.Marshaller.ManagedMarshaller is null &&
+                    !IsRecordValueHandle(concreteType)
                     ? BindingParameterAbiKind.Reference
                     : BindingParameterAbiKind.Value
                 : parameter.AbiKind,
@@ -2653,6 +2654,14 @@ public static partial class BindingOutputRenderer
             CallbackTakesOwnership = parameter.CallbackTakesOwnership
         };
     }
+
+    /// <summary>
+    /// A reference to a record value crosses the ABI as the record's handle, which already is
+    /// the object's address; passing it by reference would hand native code a pointer to the
+    /// handle instead of the object.
+    /// </summary>
+    private static bool IsRecordValueHandle(BindingType type) =>
+        type.Kind == BindingTypeKind.Handle && type.Marshaller.CppIsRecordValue;
 
     private static string BuildCombinedGenericInstantiationCondition(
         BindingCompilation compilation,

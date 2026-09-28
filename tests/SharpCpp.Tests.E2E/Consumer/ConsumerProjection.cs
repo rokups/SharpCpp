@@ -73,6 +73,16 @@ public sealed unsafe class ConsumerProjectionTests
     }
 
     [Fact]
+    public void Consumer_instantiated_forwarding_reference_passes_a_record_value_by_handle()
+    {
+        using var slot = new ConsumerProjectionSlot();
+        using var value = new ConsumerProjectionValue(29);
+
+        Assert.Equal(29, slot.Store(value));
+        Assert.Equal(29, slot.Stored());
+    }
+
+    [Fact]
     public void Generic_methods_fields_and_pointer_defaults_round_trip()
     {
         using var first = new ConsumerProjectionValue(11);

@@ -183,6 +183,51 @@ internal static class Program
                 MetadataKeys.NativeInterfaceQuery,
                 new NativeInterfaceQueryAnnotation("consumer_projection_query_source", "73"));
 
+        // The parser does not bind forwarding references, so a consumer declares the member
+        // template itself and instantiates it with a record passed as `const T&`, keeping the
+        // record-value flag of the handle type (the shape of a variant assignment operator).
+        var projectedValue = compilation.Records.Single(record =>
+            string.Equals(record.CppQualifiedName, "consumer_projection_value", StringComparison.Ordinal));
+        var slot = compilation.Records.Single(record =>
+            string.Equals(record.CppQualifiedName, "consumer_projection_slot", StringComparison.Ordinal));
+        foreach (var parsedStore in slot.Members.OfType<FunctionBinding>().Where(static member => member.NativeName == "store").ToList())
+            slot.Members.Remove(parsedStore);
+        var store = new FunctionBinding(
+            "method:consumer_projection_slot::store:T",
+            "store",
+            "Store",
+            BindingType.Int32,
+            entryPointName: "consumer_projection_slot_store_generic",
+            cppReturnTypeName: "int",
+            cppQualifiedName: "consumer_projection_slot::store")
+        {
+            HeaderIncludePath = slot.HeaderIncludePath,
+            IsStatic = false,
+            IsConstMethod = false,
+            OwningRecordCppTypeName = slot.CppQualifiedName
+        };
+        store.GenericParameters.Add(new BindingGenericParameter("T", 0));
+        store.Parameters.Add(new ParameterBinding(
+            "parameter:consumer_projection_slot::store:T:value",
+            "value",
+            "value",
+            BindingType.CreateGenericParameter("T"),
+            cppTypeName: "T&&"));
+        store.SetMetadata(MetadataKeys.ExplicitGenericInstantiations, new GenericInstantiationMetadata(
+        [
+            new RecordGenericInstantiationBinding(
+            [
+                BindingType.CreateHandle(
+                        "consumer_projection_value",
+                        projectedValue.ManagedName,
+                        projectedValue.SymbolId,
+                        cppIsRecordValue: true)
+                    .WithCppTypeName("const consumer_projection_value&")
+                    .WithCppIsReference(true)
+            ])
+        ]));
+        slot.Members.Add(store);
+
         var staticProjection = new ManagedClassBinding(
             "managed:consumer-projection:static",
             "consumer_projection",

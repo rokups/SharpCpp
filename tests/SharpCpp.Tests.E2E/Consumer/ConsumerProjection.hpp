@@ -257,6 +257,26 @@ private:
     int value_{};
 };
 
+/// A forwarding-reference member template the consumer instantiates with a record
+/// passed as `const consumer_projection_value&`, the way a variant assignment does.
+struct consumer_projection_slot
+{
+    template <typename T>
+    int store(T&& value)
+    {
+        stored_ = value.get_value();
+        return stored_;
+    }
+
+    int stored() const
+    {
+        return stored_;
+    }
+
+private:
+    int stored_{};
+};
+
 template <typename T>
 struct [[sharpcpp::instantiate("int")]] consumer_projection_clone_box
 {
