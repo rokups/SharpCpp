@@ -1882,6 +1882,12 @@ struct Marshaller<const std::array<T, N>*> : FixedArrayConstPointerMarshallerBas
 template <typename T, std::size_t N>
 struct Marshaller<T[N]> : NativeFixedArrayMarshallerBase<T, N> {};
 
+template <typename T, std::size_t N>
+struct Marshaller<T (&)[N]> : FixedArrayReferenceMarshallerBase<T[N], N> {};
+
+template <typename T, std::size_t N>
+struct Marshaller<const T (&)[N]> : FixedArrayConstReferenceMarshallerBase<T[N], N> {};
+
 template <typename T, typename TAllocator>
 struct [[sharpcpp::managed_type(
     public_type = "Std.List<{0}>",

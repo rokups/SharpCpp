@@ -3313,6 +3313,17 @@ public sealed partial class ClangSharpHeaderParser
                     BindingParameterAbiKind.Value);
             }
 
+            // A reference to a C array (`T (&)[N]`) crosses as the native array object itself,
+            // like a reference to a fixed-array record: the managed NativeArray<T> is already
+            // a handle to the storage, so it is neither ref nor out.
+            if (normalizedPointeeType.kind == CXTypeKind.CXType_ConstantArray)
+            {
+                return (
+                    MapType(normalizedPointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
+                    explicitDirection ?? BindingParameterDirection.In,
+                    BindingParameterAbiKind.Value);
+            }
+
             return (
                 MapType(normalizedPointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
                 explicitDirection ?? (sourcePointeeType.IsConstQualified ? BindingParameterDirection.In : BindingParameterDirection.Ref),

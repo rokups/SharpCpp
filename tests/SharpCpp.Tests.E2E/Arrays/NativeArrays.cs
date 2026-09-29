@@ -24,6 +24,27 @@ public sealed class SurfaceTests
     }
 
     [Fact]
+    public void C_array_references_bind_as_native_arrays_and_round_trip_values()
+    {
+        using var input = new global::SharpCpp.NativeArray<int>((IEnumerable<int>)new[] { 2, 3, 4 });
+        Assert.Equal(9, E2EBindings.SumCArrayRef(input));
+
+        using var output = new global::SharpCpp.NativeArray<uint>(3);
+        E2EBindings.FillCArrayRef(output, 10);
+        Assert.Equal(new uint[] { 10, 11, 12 }, output.ToArray());
+
+        using var tooShort = new global::SharpCpp.NativeArray<int>((IEnumerable<int>)new[] { 1, 2 });
+        Assert.Throws<ArgumentException>(() => E2EBindings.SumCArrayRef(tooShort));
+        Assert.Throws<ArgumentNullException>(() => E2EBindings.SumCArrayRef(null!));
+
+        using var first = new SurfacePayload(5);
+        using var second = new SurfacePayload(6);
+        using var handles = new global::SharpCpp.NativeArray<SurfacePayload>(
+            (IEnumerable<SurfacePayload>)new[] { first, second });
+        Assert.Equal(11, E2EBindings.SumCArrayRefHandles(handles));
+    }
+
+    [Fact]
     public void Custom_standard_library_shared_arrays_round_trip_values_and_handles()
     {
         using var returned = E2EBindings.MakeSurfaceSharedArray(3);

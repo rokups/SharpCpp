@@ -92,6 +92,24 @@ inline int sum_surface_fixed_handles(const e2e_std::array<surface_payload*, 2>& 
         (value[1] != nullptr ? value[1]->get_value() : 0);
 }
 
+inline int sum_c_array_ref(const int (&values)[3])
+{
+    return values[0] + values[1] + values[2];
+}
+
+inline void fill_c_array_ref(unsigned (&out)[3], unsigned base)
+{
+    out[0] = base;
+    out[1] = base + 1;
+    out[2] = base + 2;
+}
+
+inline int sum_c_array_ref_handles(surface_payload* const (&values)[2])
+{
+    return (values[0] != nullptr ? values[0]->get_value() : 0) +
+        (values[1] != nullptr ? values[1]->get_value() : 0);
+}
+
 inline e2e_std::shared_array<int> make_surface_shared_array(int seed)
 {
     e2e_std::shared_array<int> result(new int[3]{});
