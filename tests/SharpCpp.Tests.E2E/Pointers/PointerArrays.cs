@@ -61,6 +61,69 @@ public sealed class PointerArrayTests
     }
 
     [Fact]
+    public void Capacity_count_record_buffers_accept_a_native_array_overload()
+    {
+        E2EBindings.EnumeratePointerRecords(0, out var count, null!);
+        Assert.Equal(2u, count);
+
+        using var records = new global::SharpCpp.NativeArray<PointerArrayRecord>((int)count);
+        E2EBindings.EnumeratePointerRecords(count, out count, records);
+
+        using var first = records[0];
+        using var second = records[1];
+        Assert.Equal(2u, count);
+        Assert.Equal(4, first.Id);
+        Assert.Equal(5, second.Id);
+        Assert.Equal(1.0f, second.Weight);
+    }
+
+    [Fact]
+    public void Native_array_record_buffer_overload_validates_null_and_capacity()
+    {
+        var nullBuffer = (global::SharpCpp.NativeArray<PointerArrayRecord>)null!;
+        E2EBindings.EnumeratePointerRecords(0, out var count, nullBuffer);
+        Assert.Equal(2u, count);
+
+        Assert.Throws<ArgumentNullException>(() => E2EBindings.EnumeratePointerRecords(2, out _, nullBuffer));
+
+        using var records = new global::SharpCpp.NativeArray<PointerArrayRecord>(1);
+        Assert.Throws<ArgumentOutOfRangeException>(() => E2EBindings.EnumeratePointerRecords(2, out _, records));
+    }
+
+    [Fact]
+    public void Native_array_record_buffer_overloads_cover_instance_and_static_methods()
+    {
+        using var source = new PointerRecordSource(40);
+        using var records = new global::SharpCpp.NativeArray<PointerArrayRecord>(2);
+
+        source.Enumerate(0, out var count, null!);
+        Assert.Equal(2u, count);
+        source.Enumerate(count, out count, records);
+        using (var first = records[0])
+        using (var second = records[1])
+        {
+            Assert.Equal(40, first.Id);
+            Assert.Equal(41, second.Id);
+            Assert.Equal(1.5f, second.Weight);
+        }
+
+        PointerRecordSource.EnumerateStatic(0, out count, null!);
+        Assert.Equal(2u, count);
+        PointerRecordSource.EnumerateStatic(count, out count, records);
+        using (var first = records[0])
+        using (var second = records[1])
+        {
+            Assert.Equal(100, first.Id);
+            Assert.Equal(101, second.Id);
+            Assert.Equal(2.5f, second.Weight);
+        }
+
+        Assert.Throws<ArgumentNullException>(() => source.Enumerate(2, out _, null!));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            PointerRecordSource.EnumerateStatic(3, out _, records));
+    }
+
+    [Fact]
     public void Handle_and_raw_pointer_arrays_round_trip_through_native_pointer_buffers()
     {
         using var first = new PointerArrayPayload(11);

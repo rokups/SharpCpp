@@ -94,6 +94,40 @@ inline void enumerate_pointer_records(
         records[i] = pointer_array_record{static_cast<int>(i) + 4, 0.5f * static_cast<float>(i + 1)};
 }
 
+/// Method forms of the capacity/count record buffer idiom.
+struct pointer_record_source
+{
+    explicit pointer_record_source(int first_id)
+        : first_id_(first_id)
+    {
+    }
+
+    void enumerate(
+        unsigned int recordCapacityInput,
+        unsigned int* recordCountOutput,
+        pointer_array_record* records)
+    {
+        *recordCountOutput = 2;
+        const unsigned int count = recordCapacityInput < 2 ? recordCapacityInput : 2;
+        for (unsigned int i = 0; i < count; ++i)
+            records[i] = pointer_array_record{first_id_ + static_cast<int>(i), 1.5f};
+    }
+
+    static void enumerate_static(
+        unsigned int recordCapacityInput,
+        unsigned int* recordCountOutput,
+        pointer_array_record* records)
+    {
+        *recordCountOutput = 2;
+        const unsigned int count = recordCapacityInput < 2 ? recordCapacityInput : 2;
+        for (unsigned int i = 0; i < count; ++i)
+            records[i] = pointer_array_record{100 + static_cast<int>(i), 2.5f};
+    }
+
+private:
+    int first_id_{};
+};
+
 inline int sum_pointer_values_with_default(
     const int* values,
     unsigned int count,

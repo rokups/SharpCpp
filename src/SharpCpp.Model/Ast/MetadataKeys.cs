@@ -46,6 +46,8 @@ public static class MetadataKeys
     public const string NativeDefaultArgumentAdapter = "native_default_argument_adapter";
     public const string InputPointerArray = "input_pointer_array";
     public const string WritablePointerArray = "writable_pointer_array";
+    // Value: native name of the capacity parameter that bounds this record output buffer.
+    public const string RecordBufferCapacityParameter = "record_buffer_capacity_parameter";
 }
 
 public sealed record NativeInterfaceQueryAnnotation(string SourceRecordCppQualifiedName, string InterfaceIdExpression);

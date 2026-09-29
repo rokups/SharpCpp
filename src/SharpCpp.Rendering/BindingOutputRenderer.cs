@@ -469,6 +469,19 @@ public static partial class BindingOutputRenderer
                 {
                     writer.Write(RenderManagedWrapperMethod(compilation, function));
                     freeFunctionDeclarations.Add(RenderManagedImportDeclaration(compilation, function));
+                    if (TryGetRecordBufferOverloadParameters(function, out _, out _))
+                    {
+                        writer.WriteLine();
+                        writer.WriteLine();
+                        writer.Write(RenderManagedRecordBufferOverload(
+                            compilation,
+                            function,
+                            "public static",
+                            GetManagedPublicReturnTypeName(function.ReturnType, compilation),
+                            GetManagedImportMethodName(function),
+                            isInstance: false));
+                        freeFunctionDeclarations.Add(RenderManagedRecordBufferImportDeclaration(compilation, function, selfTypeName: null));
+                    }
 
                     if (function.GetMetadata<bool>(MetadataKeys.ExposeNativeFunctionPointer))
                     {
@@ -1806,6 +1819,195 @@ public static partial class BindingOutputRenderer
         writer.Write(
             """
             }
+            """);
+        return writer.ToString();
+    }
+
+    private static bool TryGetRecordBufferOverloadParameters(
+        FunctionBinding function,
+        out ParameterBinding buffer,
+        out ParameterBinding capacity)
+    {
+        buffer = null!;
+        capacity = null!;
+        if (function.IsGeneric ||
+            function.IsConstructor ||
+            function.OperatorToken is not null ||
+            function.ReturnType.Kind is not (BindingTypeKind.Primitive or BindingTypeKind.Enum) ||
+            function.Parameters.Any(IsInputPointerArrayParameter))
+        {
+            return false;
+        }
+
+        foreach (var parameter in function.Parameters)
+        {
+            if (parameter.GetMetadata<string>(MetadataKeys.RecordBufferCapacityParameter) is not { Length: > 0 } capacityName)
+            {
+                continue;
+            }
+
+            var capacityParameter = function.Parameters.FirstOrDefault(candidate =>
+                string.Equals(candidate.NativeName, capacityName, StringComparison.Ordinal));
+            if (capacityParameter is null)
+            {
+                return false;
+            }
+
+            buffer = parameter;
+            capacity = capacityParameter;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static string RenderManagedRecordBufferOverload(
+        BindingCompilation compilation,
+        FunctionBinding function,
+        string declarationPrefix,
+        string returnTypeName,
+        string importMethodName,
+        bool isInstance)
+    {
+        if (!TryGetRecordBufferOverloadParameters(function, out var buffer, out var capacity))
+        {
+            return string.Empty;
+        }
+
+        var elementTypeName = GetManagedWrapperTypeName(buffer.Type, compilation).TrimEnd('?');
+        var bufferName = buffer.ManagedName;
+        var bufferTypeName = $"global::SharpCpp.NativeArray<{elementTypeName}>";
+        var parameterList = string.Join(
+            ", ",
+            function.Parameters.Select(parameter => ReferenceEquals(parameter, buffer)
+                ? $"{bufferTypeName} {bufferName}"
+                : RenderManagedPublicParameterRequired(parameter, compilation)));
+
+        var arguments = new List<string>();
+        var preCallStatements = new List<string>();
+        var postCallStatements = new List<string>();
+        if (isInstance)
+        {
+            arguments.Add("this");
+        }
+
+        foreach (var parameter in function.Parameters)
+        {
+            if (ReferenceEquals(parameter, buffer))
+            {
+                arguments.Add("__bufferHandle");
+                continue;
+            }
+
+            var plan = BuildManagedInvocationPlan(compilation, [parameter]);
+            arguments.AddRange(plan.Arguments);
+            preCallStatements.AddRange(plan.PreCallStatements);
+            postCallStatements.AddRange(plan.PostCallStatements);
+        }
+
+        var invokeArguments = string.Join(", ", arguments);
+        var nativeImportName = GetRecordBufferImportMethodName(importMethodName);
+        var capacityName = capacity.ManagedName;
+        var writer = new CodeWriter();
+        writer.Write($$"""
+            [global::System.Runtime.CompilerServices.OverloadResolutionPriority(1)]
+            {{declarationPrefix}} {{returnTypeName}} {{function.ManagedName}}({{parameterList}})
+            {
+            """);
+
+        foreach (var statement in preCallStatements)
+        {
+            writer.Write(statement);
+        }
+
+        writer.Write($$"""
+            nint __bufferHandle = 0;
+            if ({{bufferName}} is null || {{bufferName}}.IsNull)
+            {
+                if ({{capacityName}} != 0)
+                {
+                    throw new global::System.ArgumentNullException(nameof({{bufferName}}), "A buffer is required when the capacity is not zero.");
+                }
+            }
+            else
+            {
+                if (unchecked((ulong){{capacityName}}) > (ulong){{bufferName}}.Length)
+                {
+                    throw new global::System.ArgumentOutOfRangeException(nameof({{capacityName}}), {{capacityName}}, "The capacity exceeds the length of the buffer.");
+                }
+
+                __bufferHandle = {{bufferName}}.Handle;
+            }
+            """);
+
+        if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+        {
+            writer.Write($$"""
+                __PInvoke.{{nativeImportName}}({{invokeArguments}});
+                """);
+        }
+        else
+        {
+            writer.Write($$"""
+                var __result = __PInvoke.{{nativeImportName}}({{invokeArguments}});
+                """);
+        }
+
+        foreach (var statement in postCallStatements)
+        {
+            writer.Write(statement);
+        }
+
+        writer.Write($"global::System.GC.KeepAlive({bufferName});");
+        if (function.ReturnType.PrimitiveKind != BindingPrimitiveKind.Void)
+        {
+            writer.Write($$"""
+                return {{BuildManagedImportToPublicExpression(compilation, function.ReturnType, "__result")}};
+                """);
+        }
+
+        writer.Write(
+            """
+            }
+            """);
+        return writer.ToString();
+    }
+
+    private static string GetRecordBufferImportMethodName(string importMethodName) => $"{importMethodName}NativeArray";
+
+    private static string RenderManagedRecordBufferImportDeclaration(
+        BindingCompilation compilation,
+        FunctionBinding function,
+        string? selfTypeName)
+    {
+        if (!TryGetRecordBufferOverloadParameters(function, out var buffer, out _))
+        {
+            return string.Empty;
+        }
+
+        var parameters = function.Parameters.Select(parameter => ReferenceEquals(parameter, buffer)
+            ? $"nint {parameter.ManagedName}"
+            : RenderManagedImportParameter(parameter, compilation));
+        if (selfTypeName is not null)
+        {
+            parameters = new[] { $"{selfTypeName} self" }.Concat(parameters);
+        }
+
+        var parameterList = string.Join(", ", parameters);
+        var returnTypeName = GetManagedImportReturnTypeName(compilation, function.ReturnType);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, function.ReturnType, ReturnsOwnedHandle(function));
+        var importMethodName = GetRecordBufferImportMethodName(GetManagedImportMethodName(function));
+        var unsafeModifier = parameterList.Contains('*', StringComparison.Ordinal) ? "unsafe " : string.Empty;
+        var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
+            ? $"internal static {unsafeModifier}partial {returnTypeName} {importMethodName}({parameterList});"
+            : $"{returnAttribute}\ninternal static {unsafeModifier}partial {returnTypeName} {importMethodName}({parameterList});";
+
+        var writer = new CodeWriter();
+        writer.Write(
+            $$"""
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{function.EntryPointName}}", StringMarshalling = StringMarshalling.Utf8)]
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            {{importMethodLine}}
             """);
         return writer.ToString();
     }
@@ -3180,6 +3382,20 @@ public static partial class BindingOutputRenderer
             {
                 var isDirectorVirtual = requiresDirector && method.IsVirtual;
                 writer.Write(RenderManagedInstanceMethod(compilation, record, method, isDirectorVirtual));
+                if (!method.IsVirtual && TryGetRecordBufferOverloadParameters(method, out _, out _))
+                {
+                    writer.WriteLine();
+                    writer.WriteLine();
+                    writer.Write(RenderManagedRecordBufferOverload(
+                        compilation,
+                        method,
+                        $"{GetManagedVisibilityNormalized(compilation, record, method)} {GetManagedInstanceMethodModifier(compilation, record, method)}".TrimEnd(),
+                        GetManagedPublicReturnTypeName(method.ReturnType, compilation),
+                        GetManagedImportMethodName(method),
+                        isInstance: true));
+                    pinvokeDeclarations.Add(RenderManagedRecordBufferImportDeclaration(compilation, method, record.ManagedName));
+                }
+
                 if (isDirectorVirtual && !method.IsPureVirtual)
                 {
                     pinvokeDeclarations.Add(RenderManagedCallbaseImportDeclaration(compilation, method, record.ManagedName));
@@ -3276,6 +3492,19 @@ public static partial class BindingOutputRenderer
             {
                 writer.Write(RenderManagedStaticMethod(compilation, record, method));
                 pinvokeDeclarations.Add(RenderManagedStaticImportDeclaration(compilation, method));
+                if (TryGetRecordBufferOverloadParameters(method, out _, out _))
+                {
+                    writer.WriteLine();
+                    writer.WriteLine();
+                    writer.Write(RenderManagedRecordBufferOverload(
+                        compilation,
+                        method,
+                        $"{GetManagedVisibility(method.AccessModifier)} {(ShouldUseNewModifier(compilation, record, method) ? "new " : string.Empty)}static",
+                        GetManagedPublicReturnTypeName(method.ReturnType, compilation),
+                        GetManagedImportMethodName(method),
+                        isInstance: false));
+                    pinvokeDeclarations.Add(RenderManagedRecordBufferImportDeclaration(compilation, method, selfTypeName: null));
+                }
                 if (HasNativeDefaultDispatchParams(method) || HasUndefaultableParams(method))
                 {
                     pinvokeDeclarations.Add(RenderManagedUnexpressibleDefaultStaticImports(compilation, method));

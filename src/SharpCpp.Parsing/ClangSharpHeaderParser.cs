@@ -5716,6 +5716,12 @@ public sealed partial class ClangSharpHeaderParser
                 values.SetMetadata(MetadataKeys.InputPointerArray, true);
                 values.SetMetadata(MetadataKeys.WritablePointerArray, true);
             }
+            else if (IsRecordOutputBufferParameter(values))
+            {
+                // The single-record signature is kept (polymorphic buffers rely on it); the
+                // renderer adds a NativeArray<T> overload bound by the capacity parameter.
+                values.SetMetadata(MetadataKeys.RecordBufferCapacityParameter, capacity.NativeName);
+            }
         }
 
         for (var index = 0; index < function.Parameters.Count - 1; ++index)
@@ -5798,6 +5804,19 @@ public sealed partial class ClangSharpHeaderParser
         return type.Kind == BindingTypeKind.Handle &&
             string.IsNullOrEmpty(type.RecordId) &&
             string.Equals(type.ManagedTypeName, "global::System.IntPtr", StringComparison.Ordinal);
+    }
+
+    private static bool IsRecordOutputBufferParameter(ParameterBinding parameter)
+    {
+        return parameter.Direction == BindingParameterDirection.In &&
+            parameter.AbiKind == BindingParameterAbiKind.Value &&
+            parameter.Type.Kind == BindingTypeKind.Handle &&
+            !string.IsNullOrEmpty(parameter.Type.RecordId) &&
+            !parameter.Type.IsCallback &&
+            !parameter.Type.IsFixedArray &&
+            parameter.CppTypeName.Count(static c => c == '*') == 1 &&
+            parameter.CppTypeName.TrimEnd().EndsWith('*') &&
+            !parameter.CppTypeName.Contains("const", StringComparison.Ordinal);
     }
 
     private static bool IsRawPointerArrayElementType(BindingType type) =>

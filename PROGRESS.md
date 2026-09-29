@@ -43,9 +43,10 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
 - Open containers of a template parameter (`std::vector<T>` in a generic member) are not
   bound.
 - Fields of type `T` in class templates are not bound.
-- Capacity/count functions take a record output buffer as a single record handle; callers
-  pass the first element of a `NativeArray<T>`. A `NativeArray<T>` buffer parameter would
-  make the capacity checkable.
+- Capacity/count functions with a record output buffer keep the single record handle
+  signature (needed for polymorphic buffers with a larger element stride, such as OpenXR
+  `XrSwapchainImageBaseHeader`) and also get a `NativeArray<T>` overload that checks the
+  capacity against the array length. The overload is not generated for virtual methods.
 - A field of type `T**` (for example a counted array of opaque handles, `XrSpaceUserFB*`)
   is exposed as a single `T` wrapper; only record fields with a matching count get
   per-item accessors, and C modules do not.
