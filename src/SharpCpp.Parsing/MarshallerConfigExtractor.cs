@@ -157,7 +157,11 @@ internal static class MarshallerConfigExtractor
         TemplateParameter,
         Pointer,
         LValueReference,
-        RValueReference
+        RValueReference,
+        /// <summary>A reference to a non-type template parameter, identified by depth and index.</summary>
+        NonTypeTemplateParameter,
+        /// <summary>A constant non-type template argument, compared by value.</summary>
+        IntegralValue
     }
 
     internal sealed record CppTypePattern(
@@ -168,7 +172,8 @@ internal static class MarshallerConfigExtractor
         uint TemplateParameterDepth = 0,
         uint TemplateParameterIndex = 0,
         CppTypePattern? Pointee = null,
-        IReadOnlyList<CppTypePattern>? TemplateArguments = null);
+        IReadOnlyList<CppTypePattern>? TemplateArguments = null,
+        long IntegralValue = 0);
 
     /// <summary>
     /// Lightweight representation of a <c>[[sharpcpp::expose_member(...)]]</c> member function
@@ -575,7 +580,7 @@ internal static class MarshallerConfigExtractor
     }
 
     internal static bool HasRepeatedTemplateParameter(CppTypePattern pattern, ISet<(uint Depth, uint Index)> seen) =>
-        pattern.Kind == CppTypePatternKind.TemplateParameter
+        pattern.Kind is CppTypePatternKind.TemplateParameter or CppTypePatternKind.NonTypeTemplateParameter
             ? !seen.Add((pattern.TemplateParameterDepth, pattern.TemplateParameterIndex))
             : pattern.Pointee is { } pointee && HasRepeatedTemplateParameter(pointee, seen) ||
                 (pattern.TemplateArguments ?? []).Any(argument => HasRepeatedTemplateParameter(argument, seen));
@@ -1072,16 +1077,22 @@ internal static class MarshallerConfigExtractor
                 not CXTypeKind.CXType_RValueReference
         };
         return indirectionMatches &&
-            BindsTemplateParametersConsistently(configuredType, actualType.CanonicalType, new Dictionary<(uint Depth, uint Index), CXType>());
+            BindsTemplateParametersConsistently(
+                configuredType,
+                actualType.CanonicalType,
+                new Dictionary<(uint Depth, uint Index), CXType>(),
+                new Dictionary<(uint Depth, uint Index), long>());
     }
 
     // The override is found by name; a template parameter repeated in the configured
     // pattern (`twin<T, T>`) must still bind the same type everywhere, as C++ partial
-    // specialization matching requires.
+    // specialization matching requires; a repeated non-type parameter (`triple<T, N, N>`)
+    // must bind the same value everywhere.
     private static bool BindsTemplateParametersConsistently(
         CppTypePattern configured,
         CXType actual,
-        IDictionary<(uint Depth, uint Index), CXType> bindings)
+        IDictionary<(uint Depth, uint Index), CXType> bindings,
+        IDictionary<(uint Depth, uint Index), long> valueBindings)
     {
         switch (configured.Kind)
         {
@@ -1094,23 +1105,58 @@ internal static class MarshallerConfigExtractor
 
             case CppTypePatternKind.Pointer or CppTypePatternKind.LValueReference or CppTypePatternKind.RValueReference:
                 return configured.Pointee is null ||
-                    BindsTemplateParametersConsistently(configured.Pointee, actual.PointeeType.CanonicalType, bindings);
+                    BindsTemplateParametersConsistently(configured.Pointee, actual.PointeeType.CanonicalType, bindings, valueBindings);
 
             case CppTypePatternKind.Declared when configured.TemplateArguments is { Count: > 0 } arguments &&
                 actual.NumTemplateArguments == arguments.Count:
                 for (var index = 0; index < arguments.Count; ++index)
                 {
                     using var argument = actual.GetTemplateArgument(checked((uint)index));
-                    if (argument.AsType.kind != CXTypeKind.CXType_Invalid &&
-                        !BindsTemplateParametersConsistently(arguments[index], argument.AsType.CanonicalType, bindings))
+                    if (argument.AsType.kind != CXTypeKind.CXType_Invalid)
+                    {
+                        if (!BindsTemplateParametersConsistently(
+                            arguments[index], argument.AsType.CanonicalType, bindings, valueBindings))
+                        {
+                            return false;
+                        }
+                    }
+                    else if (argument.IntegralType.kind != CXTypeKind.CXType_Invalid &&
+                        !BindsValueConsistently(arguments[index], argument.AsIntegral, valueBindings))
                     {
                         return false;
                     }
                 }
                 return true;
 
+            // A type never stands for a constant.
+            case CppTypePatternKind.NonTypeTemplateParameter or CppTypePatternKind.IntegralValue:
+                return false;
+
             default:
                 return true;
+        }
+    }
+
+    private static bool BindsValueConsistently(
+        CppTypePattern configured,
+        long actual,
+        IDictionary<(uint Depth, uint Index), long> valueBindings)
+    {
+        switch (configured.Kind)
+        {
+            case CppTypePatternKind.NonTypeTemplateParameter:
+                var key = (configured.TemplateParameterDepth, configured.TemplateParameterIndex);
+                if (valueBindings.TryGetValue(key, out var bound))
+                    return bound == actual;
+                valueBindings[key] = actual;
+                return true;
+
+            case CppTypePatternKind.IntegralValue:
+                return configured.IntegralValue == actual;
+
+            // A constant never stands for a type.
+            default:
+                return false;
         }
     }
 
@@ -1138,8 +1184,9 @@ internal static class MarshallerConfigExtractor
         var arguments = new List<CppTypePattern>(templateArguments.Count);
         foreach (var templateArgument in templateArguments)
         {
-            if (templateArgument.Kind != CXTemplateArgumentKind.CXTemplateArgumentKind_Type ||
-                CreateCppTypePattern(templateArgument.AsType, substitutions) is not { } argument)
+            if ((templateArgument.Kind == CXTemplateArgumentKind.CXTemplateArgumentKind_Type
+                    ? CreateCppTypePattern(templateArgument.AsType, substitutions)
+                    : CreateNonTypeArgumentPattern(templateArgument)) is not { } argument)
             {
                 return null;
             }
@@ -1152,13 +1199,44 @@ internal static class MarshallerConfigExtractor
             TemplateArguments: arguments);
     }
 
+    // Only a constant or a plain non-type parameter reference is modelled; packs,
+    // declarations, template-template and nullptr arguments give no pattern.
+    private static CppTypePattern? CreateNonTypeArgumentPattern(TemplateArgument templateArgument) =>
+        templateArgument.Kind switch
+        {
+            CXTemplateArgumentKind.CXTemplateArgumentKind_Integral =>
+                new CppTypePattern(CppTypePatternKind.IntegralValue, IntegralValue: templateArgument.AsIntegral),
+            CXTemplateArgumentKind.CXTemplateArgumentKind_Expression when !templateArgument.IsPackExpansion =>
+                CreateNonTypeExpressionPattern(templateArgument.AsExpr),
+            _ => null
+        };
+
+    private static CppTypePattern? CreateNonTypeExpressionPattern(Expr expression) =>
+        expression.IgnoreImplicit.IgnoreParens switch
+        {
+            DeclRefExpr { Decl: NonTypeTemplateParmDecl parameter } => new CppTypePattern(
+                CppTypePatternKind.NonTypeTemplateParameter,
+                TemplateParameterDepth: parameter.Depth,
+                TemplateParameterIndex: parameter.Index),
+            IntegerLiteral literal => new CppTypePattern(CppTypePatternKind.IntegralValue, IntegralValue: literal.Value),
+            CXXBoolLiteralExpr literal => new CppTypePattern(CppTypePatternKind.IntegralValue, IntegralValue: literal.Value ? 1 : 0),
+            SubstNonTypeTemplateParmExpr substitution => CreateNonTypeExpressionPattern(substitution.Replacement),
+            _ => null
+        };
+
     private static bool MatchesCppTypePattern(
         CppTypePattern configured,
         CppTypePattern actual,
         IDictionary<(uint Depth, uint Index), CppTypePattern> parameterBindings)
     {
-        if (configured.Kind == CppTypePatternKind.TemplateParameter)
+        if (configured.Kind is CppTypePatternKind.TemplateParameter or CppTypePatternKind.NonTypeTemplateParameter)
         {
+            // A type parameter binds a type and a non-type parameter a value; never each other.
+            if ((configured.Kind == CppTypePatternKind.NonTypeTemplateParameter) !=
+                (actual.Kind is CppTypePatternKind.IntegralValue or CppTypePatternKind.NonTypeTemplateParameter))
+            {
+                return false;
+            }
             var key = (configured.TemplateParameterDepth, configured.TemplateParameterIndex);
             if (parameterBindings.TryGetValue(key, out var bound))
             {
@@ -1176,6 +1254,7 @@ internal static class MarshallerConfigExtractor
         return configured.Kind switch
         {
             CppTypePatternKind.Builtin => configured.BuiltinKind == actual.BuiltinKind,
+            CppTypePatternKind.IntegralValue => configured.IntegralValue == actual.IntegralValue,
             CppTypePatternKind.Declared =>
                 string.Equals(configured.DeclarationId, actual.DeclarationId, StringComparison.Ordinal) &&
                 MatchCppTypePatternArguments(configured, actual, parameterBindings),
@@ -1205,6 +1284,10 @@ internal static class MarshallerConfigExtractor
         if (left.Kind != right.Kind ||
             left.IsConst != right.IsConst ||
             left.BuiltinKind != right.BuiltinKind ||
+            left.IntegralValue != right.IntegralValue ||
+            left.Kind == CppTypePatternKind.NonTypeTemplateParameter &&
+                (left.TemplateParameterDepth != right.TemplateParameterDepth ||
+                    left.TemplateParameterIndex != right.TemplateParameterIndex) ||
             !string.Equals(left.DeclarationId, right.DeclarationId, StringComparison.Ordinal))
         {
             return false;

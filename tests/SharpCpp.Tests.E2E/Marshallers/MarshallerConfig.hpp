@@ -47,6 +47,36 @@ inline long long pack_mixed(twin<int, short> value)
     return value.first + value.second;
 }
 
+/// A value with two non-type arguments; its marshaller only matches when they are equal.
+template <class T, int Rows, int Columns>
+struct triple
+{
+    T value;
+};
+
+inline long long pack_square(triple<int, 3, 3> value)
+{
+    return static_cast<long long>(value.value) * 1000 + 3;
+}
+
+/// Different non-type arguments do not match the configured pattern: an ordinary instantiation.
+inline long long pack_wide(triple<int, 3, 4> value)
+{
+    return value.value * 100 + 34;
+}
+
+/// A value with one non-type argument; its marshaller binds any of them.
+template <class T, int Size>
+struct box
+{
+    T value;
+};
+
+inline int unbox(box<int, 5> value)
+{
+    return value.value + 5;
+}
+
 /// A string without contiguous storage: the managed view copies it byte by byte.
 class rope
 {

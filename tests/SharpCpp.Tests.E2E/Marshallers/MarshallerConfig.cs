@@ -60,6 +60,21 @@ public sealed class MarshallerConfigTests
     }
 
     [Fact]
+    public void Marshaller_patterns_repeating_a_non_type_parameter_match_equal_arguments()
+    {
+        Assert.Equal(7003L, E2EBindings.PackSquare(7003L));
+        // Unequal non-type arguments do not match: an ordinary instantiation of the record.
+        Assert.Equal(typeof(Triple<int>), Assert.Single(typeof(E2EBindings).GetMethod(nameof(E2EBindings.PackWide))!.GetParameters()).ParameterType);
+    }
+
+    [Fact]
+    public void Marshaller_patterns_with_a_single_non_type_parameter_bind_any_value()
+    {
+        Assert.Equal(typeof(int), Assert.Single(typeof(E2EBindings).GetMethod(nameof(E2EBindings.Unbox))!.GetParameters()).ParameterType);
+        Assert.Equal(12, E2EBindings.Unbox(12));
+    }
+
+    [Fact]
     public void Strings_without_contiguous_storage_are_copied_byte_by_byte()
     {
         var rope = E2EBindings.GetRope();

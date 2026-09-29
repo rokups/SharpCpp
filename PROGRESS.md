@@ -46,8 +46,6 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
 - Capacity/count functions take a record output buffer as a single record handle; callers
   pass the first element of a `NativeArray<T>`. A `NativeArray<T>` buffer parameter would
   make the capacity checkable.
-- A constrained marshaller pattern checks repeated type parameters only; repeated
-  non-type parameters are not compared.
 - A field of type `T**` (for example a counted array of opaque handles, `XrSpaceUserFB*`)
   is exposed as a single `T` wrapper; only record fields with a matching count get
   per-item accessors, and C modules do not.

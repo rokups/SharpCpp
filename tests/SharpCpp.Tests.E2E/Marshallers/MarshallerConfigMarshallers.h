@@ -47,6 +47,28 @@ Marshaller<marshaller_config::twin<T, T>>
     constexpr cpp_type ConvertToCpp(abi_type value) noexcept { return {static_cast<T>(value / 1000), static_cast<T>(value % 1000)}; }
 };
 
+template <class T, int N>
+struct [[sharpcpp::managed_type(public_type = "long", marshaller_type = "long", suppress_emission = true)]]
+Marshaller<marshaller_config::triple<T, N, N>>
+{
+    using cpp_type = marshaller_config::triple<T, N, N>;
+    using abi_type = long long;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) noexcept { return static_cast<long long>(value.value) * 1000 + N; }
+    constexpr cpp_type ConvertToCpp(abi_type value) noexcept { return {static_cast<T>(value / 1000)}; }
+};
+
+template <class T, int N>
+struct [[sharpcpp::managed_type(public_type = "int", marshaller_type = "int", suppress_emission = true)]]
+Marshaller<marshaller_config::box<T, N>>
+{
+    using cpp_type = marshaller_config::box<T, N>;
+    using abi_type = int;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) noexcept { return static_cast<int>(value.value) + N; }
+    constexpr cpp_type ConvertToCpp(abi_type value) noexcept { return {static_cast<T>(value - N)}; }
+};
+
 template <>
 struct [[sharpcpp::managed_type(
     managed_base_type = "global::SharpCpp.Support.StringBase",
