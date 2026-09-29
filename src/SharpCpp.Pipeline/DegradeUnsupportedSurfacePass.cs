@@ -202,6 +202,16 @@ public static class DegradeUnsupportedSurfacePass
                     changed = true;
                 }
             }
+
+            foreach (var record in compilation.Records)
+            {
+                if (!record.IsNonCopyable && record.Members.OfType<FieldBinding>().Any(field => HoldsNonCopyableValue(field, recordsById)))
+                {
+                    record.IsNonCopyable = true;
+                    record.HasCopyConstructor = false;
+                    changed = true;
+                }
+            }
         }
     }
 
@@ -646,6 +656,28 @@ public static class DegradeUnsupportedSurfacePass
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// The implicit copy constructor of a record is declared even when a member container
+    /// copies non-copyable elements; instantiating it (clone, container copies) cannot compile.
+    /// </summary>
+    private static bool HoldsNonCopyableValue(FieldBinding field, IReadOnlyDictionary<string, RecordBinding> recordsById)
+    {
+        if (field.IsStatic || field.IsPointer || field.IsReference)
+        {
+            return false;
+        }
+
+        if (TryGetCopiedNonCopyableArgument(field.Type, recordsById, out _))
+        {
+            return true;
+        }
+
+        return field.Type.GenericArguments.Count == 0 &&
+            field.Type.RecordId is not null &&
+            recordsById.TryGetValue(field.Type.RecordId, out var fieldRecord) &&
+            fieldRecord.IsNonCopyable;
     }
 
     private static bool TryGetUnsupportedTypeReason(
