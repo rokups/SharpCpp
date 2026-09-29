@@ -1013,15 +1013,16 @@ public static partial class BindingOutputRenderer
         {
             var importToken = GetFixedArrayImportMethodToken(record, instantiation);
             var elementType = instantiation.TypeArguments[0];
-            var getReturnType = IsSharedNativeArrayRecord(record)
+            // Element values cross with the function-import ABI (an enum as its underlying
+            // integer), which the accessor conversions (BuildManagedPublicToImportExpression) target.
+            var usesImportAbi = IsSharedNativeArrayRecord(record) || elementType.Kind != BindingTypeKind.Handle;
+            var getReturnType = usesImportAbi
                 ? GetManagedImportReturnTypeName(compilation, elementType)
-                : elementType.Kind == BindingTypeKind.Handle
-                    ? "nint"
-                    : FormatGlobalTypeName(elementType, compilation);
-            var getReturnAttribute = IsSharedNativeArrayRecord(record)
+                : "nint";
+            var getReturnAttribute = usesImportAbi
                 ? GetManagedImportReturnAttribute(compilation, elementType, ownsHandle: false)
                 : GetManagedReturnAttribute(elementType);
-            var setParameter = IsSharedNativeArrayRecord(record)
+            var setParameter = usesImportAbi
                 ? RenderManagedImportParameter(
                     new ParameterBinding(
                         $"array:set:{importToken}",
@@ -1032,7 +1033,7 @@ public static partial class BindingOutputRenderer
                         BindingParameterAbiKind.Value,
                         elementType.CppTypeName),
                     compilation)
-                : $"{GetManagedParameterAttribute(elementType, compilation)}{(elementType.Kind == BindingTypeKind.Handle ? "nint" : FormatGlobalTypeName(elementType, compilation))} value";
+                : $"{GetManagedParameterAttribute(elementType, compilation)}nint value";
             yield return $$"""
                 [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetFixedArrayCreateEntryPointName(compilation, record, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]

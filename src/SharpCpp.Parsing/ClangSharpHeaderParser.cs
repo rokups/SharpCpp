@@ -2888,9 +2888,10 @@ public sealed partial class ClangSharpHeaderParser
     }
 
     /// <summary>
-    /// Written arguments keep their sugar (aliases drive the managed surface); defaulted
-    /// trailing arguments come from the canonical specialization. Every spelling of one
-    /// C++ type then yields the same native shape (provider shape keys, entry points).
+    /// Written type arguments keep their sugar (aliases drive the managed surface); written
+    /// non-type arguments and defaulted trailing arguments come from the canonical
+    /// specialization. Every spelling of one C++ type then yields the same native shape
+    /// (provider shape keys, entry points).
     /// </summary>
     private static IReadOnlyList<TemplateArgument> CompleteWithDefaultedTemplateArguments(TemplateSpecializationType templateType)
     {
@@ -2903,13 +2904,21 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         var canonical = specialization.TemplateArgs;
-        if (canonical.Count <= written.Count ||
+        if (canonical.Count < written.Count ||
             canonical.Any(static argument => argument.Kind == CXTemplateArgumentKind.CXTemplateArgumentKind_Pack))
         {
             return written;
         }
 
-        return written.Concat(canonical.Skip(written.Count)).ToArray();
+        // A written non-type argument is an arbitrary constant expression (a static constexpr
+        // member, `sizeof(T)`); the specialization holds its value.
+        return written
+            .Select((argument, index) => argument.Kind == CXTemplateArgumentKind.CXTemplateArgumentKind_Expression &&
+                canonical[index].Kind == CXTemplateArgumentKind.CXTemplateArgumentKind_Integral
+                    ? canonical[index]
+                    : argument)
+            .Concat(canonical.Skip(written.Count))
+            .ToArray();
     }
 
     private static bool TryGetAstTemplateArguments(

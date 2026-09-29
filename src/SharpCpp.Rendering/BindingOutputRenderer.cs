@@ -1704,17 +1704,17 @@ public static partial class BindingOutputRenderer
             {
             """);
 
-        foreach (var statement in invocationPlan.PreCallStatements)
-        {
-            writer.Write(statement);
-        }
-
         if (HasNativeDefaultDispatchParams(function))
         {
+            // The cascade writes its own pre-call statements.
             WriteUnexpressibleDefaultCascade(compilation, writer, function, importMethodName, []);
         }
         else
         {
+            foreach (var statement in invocationPlan.PreCallStatements)
+            {
+                writer.Write(statement);
+            }
 
         if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
         {
@@ -6752,13 +6752,22 @@ public static partial class BindingOutputRenderer
             if (parameter.Type.IsFixedArray)
             {
                 var expectedLength = parameter.Type.FixedArrayLength ?? 0;
-                preCallStatements.Add($$"""
-                    global::System.ArgumentNullException.ThrowIfNull({{parameter.ManagedName}});
-                    if ({{parameter.ManagedName}}.Length != {{expectedLength}})
-                    {
-                        throw new global::System.ArgumentException("Expected array length {{expectedLength}}.", nameof({{parameter.ManagedName}}));
-                    }
-                    """);
+                // An omitted native-default argument is null and dispatches to the variant
+                // that lets native code supply the default.
+                preCallStatements.Add(IsNativeDefaultDispatchParameter(parameter)
+                    ? $$"""
+                        if ({{parameter.ManagedName}} is not null && {{parameter.ManagedName}}.Length != {{expectedLength}})
+                        {
+                            throw new global::System.ArgumentException("Expected array length {{expectedLength}}.", nameof({{parameter.ManagedName}}));
+                        }
+                        """
+                    : $$"""
+                        global::System.ArgumentNullException.ThrowIfNull({{parameter.ManagedName}});
+                        if ({{parameter.ManagedName}}.Length != {{expectedLength}})
+                        {
+                            throw new global::System.ArgumentException("Expected array length {{expectedLength}}.", nameof({{parameter.ManagedName}}));
+                        }
+                        """);
                 arguments.Add(RenderManagedInvocationArgument(compilation, parameter));
                 postCallStatements.Add($"global::System.GC.KeepAlive({parameter.ManagedName});");
                 continue;

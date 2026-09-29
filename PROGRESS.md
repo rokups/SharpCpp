@@ -26,7 +26,7 @@ History lives in git. This file lists only what is open.
 - [x] Unit tests brought up to date with the fully-qualified managed-callback entry
       point, `char**` fields projected as `IntPtr`, and abstract constructors degraded in
       `DegradeUnsupportedSurfacePass`; the Model suite passes.
-- [x] Coverage gate: 95.18% line coverage (`eng/collect_coverage.sh`, minimum 95%).
+- [x] Coverage gate: 95.21% line coverage (`eng/collect_coverage.sh`, minimum 95%).
 
 ## Later stages
 
