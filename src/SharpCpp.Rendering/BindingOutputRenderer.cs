@@ -112,6 +112,37 @@ public static partial class BindingOutputRenderer
             .ToHashSet(StringComparer.Ordinal);
     }
 
+    /// <summary>
+    /// A record's managed namespace string is a dotted path that may embed any number of
+    /// enclosing-record class names ahead of the real C# namespace (see
+    /// <see cref="GetManagedNamespace(BindingCompilation, RecordBinding)"/>): each nesting
+    /// level appends its own enclosing class name, so a depth-N nested record's namespace
+    /// carries N-1 embedded class segments. Peel matching segments off the tail one at a
+    /// time - each corresponds to a still-open partial class - until what remains is not a
+    /// rendered class's full name, which is the real namespace to open. This lets emission
+    /// nest a record to any depth as partial classes, the same way depth-1 nesting already
+    /// works.
+    /// </summary>
+    private static (string Namespace, IReadOnlyList<string> EnclosingClasses) DecomposeManagedNamespace(
+        string ns, IReadOnlySet<string> renderedClassNames)
+    {
+        var enclosingClasses = new List<string>();
+        var current = ns;
+        while (renderedClassNames.Contains(current))
+        {
+            var lastDot = current.LastIndexOf('.');
+            if (lastDot < 0)
+            {
+                break;
+            }
+
+            enclosingClasses.Insert(0, current[(lastDot + 1)..]);
+            current = current[..lastDot];
+        }
+
+        return (current, enclosingClasses);
+    }
+
     private static string GetMarshallerHelperNamespace(BindingCompilation compilation, RecordBinding record)
     {
         var ns = GetManagedNamespace(compilation, record);
@@ -301,21 +332,24 @@ public static partial class BindingOutputRenderer
             var nsEnums = enums.Where(@enum => GetManagedNamespace(compilation, @enum) == ns).ToArray();
             var nsManagedClasses = managedClasses.Where(managedClass => GetManagedNamespace(compilation, managedClass) == ns).ToArray();
 
-            // Declarations scoped by a record whose managed path is also that record's class
-            // are nested in a part of the class; a namespace of the same name cannot coexist.
-            var enclosingClass = renderedClassNames.Contains(ns) ? ns[(ns.LastIndexOf('.') + 1)..] : null;
+            // Declarations scoped by one or more enclosing records whose managed path is also
+            // those records' classes are nested in matching partial classes, to any depth; a
+            // namespace segment of the same name as an enclosing class cannot coexist.
+            var (enclosingNamespace, enclosingClasses) = DecomposeManagedNamespace(ns, renderedClassNames);
             writer.WriteLine();
-            writer.Write(enclosingClass is null
-                ? $$"""
-                    namespace {{ns}}
-                    {
-                    """
-                : $$"""
-                    namespace {{ns[..ns.LastIndexOf('.')]}}
-                    {
+            writer.Write(
+                $$"""
+                namespace {{enclosingNamespace}}
+                {
+                """);
+            foreach (var enclosingClass in enclosingClasses)
+            {
+                writer.Write(
+                    $$"""
                     partial class {{enclosingClass}}
                     {
                     """);
+            }
 
             foreach (var interfaceRecord in nsInterfaces)
             {
@@ -372,7 +406,7 @@ public static partial class BindingOutputRenderer
                 writer.Write(RenderManagedClass(managedClass));
             }
 
-            if (enclosingClass is not null)
+            foreach (var _ in enclosingClasses)
             {
                 writer.Write(
                     """
