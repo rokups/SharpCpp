@@ -1445,10 +1445,16 @@ public static partial class BindingOutputRenderer
         {
             var arrayAccessExpression = GetNativeFixedArrayFieldAccessExpression(field, selfExpression);
             var elementCppType = GetNativeFixedArrayElementCppType(compilation, field.Type);
-            var elementValueExpression = field.Type.FixedArrayElementType?.Kind == BindingTypeKind.Enum
-                ? "source[index]"
-                : "marshaller.ConvertToCpp(source[index])";
             var length = field.Type.FixedArrayLength ?? 0;
+            // NativeArrayAbi.handle for a whole native fixed-array field always points at raw
+            // cpp_type[N] storage (see the getter below, and the shared NativeArray<T> array_get/
+            // array_set accessors), never at abi_type[N]: crossing the abi boundary happens
+            // per element, lazily, on the managed NativeArray<T> wrapper's own accessors. So the
+            // incoming buffer is already cpp_type here and a plain element copy is correct for
+            // every element kind that reaches this path (primitives, enums, and configured/
+            // projected value types alike) -- routing it through ParameterMarshaller<T>::ConvertToCpp
+            // (which expects an abi_type argument) was only ever an accident for kinds where
+            // cpp_type and abi_type happen to coincide.
             return $$"""
                 if (value.handle == nullptr || value.length != {{length}})
                 {
@@ -1456,10 +1462,9 @@ public static partial class BindingOutputRenderer
                 }
 
                 auto* source = static_cast<{{elementCppType}}*>(value.handle);
-                ParameterMarshaller<{{elementCppType}}> marshaller;
                 for (std::size_t index = 0; index < {{length}}; ++index)
                 {
-                    {{arrayAccessExpression}}[index] = {{elementValueExpression}};
+                    {{arrayAccessExpression}}[index] = source[index];
                 }
                 """;
         }
@@ -4036,7 +4041,7 @@ public static partial class BindingOutputRenderer
         if (property.Setter is not null)
         {
             var requiresWrapping = RequiresHandleWrapping(property.Setter.Parameters[0].Type);
-            var useManagedHandleImport = CanUseManagedHandleParameterImport(property.Setter.Parameters[0], property.Setter.Parameters[0].Type);
+            var useManagedHandleImport = CanUseManagedHandleParameterImport(compilation, property.Setter.Parameters[0], property.Setter.Parameters[0].Type);
             var setterArgument = useManagedHandleImport
                 ? "value"
                 : requiresWrapping
@@ -5012,7 +5017,7 @@ public static partial class BindingOutputRenderer
                     field.CppTypeName);
                 var setterArgument = field.Type.IsFixedArray || IsRawPointerHandle(field.Type)
                     ? "value"
-                    : CanUseManagedHandleParameterImport(setterParameter, field.Type)
+                    : CanUseManagedHandleParameterImport(compilation, setterParameter, field.Type)
                     ? "value"
                     : RequiresHandleWrapping(field.Type)
                     ? "global::SharpCpp.Support.NativeObject.GetHandle(value)"
@@ -5921,11 +5926,45 @@ public static partial class BindingOutputRenderer
         {
             BindingTypeKind.Primitive when type.PrimitiveKind != BindingPrimitiveKind.Unsupported => GetConcretePrimitiveManagedTypeName(type),
             BindingTypeKind.Primitive => FormatGlobalTypeName(type, compilation),
-            BindingTypeKind.Handle => BindingType.NativeInt.ManagedTypeName,
+            BindingTypeKind.Handle => GetManagedHandleImportTypeName(type, compilation),
             BindingTypeKind.Enum => GetManagedEnumAbiTypeName(compilation, type),
             BindingTypeKind.GenericParameter => type.UnaliasedManagedTypeName,
             _ => throw new NotSupportedException($"Managed import emission does not support '{type.Kind}'.")
         };
+    }
+
+    private static string GetManagedHandleImportTypeName(BindingType type, BindingCompilation compilation)
+    {
+        // Mirrors CanUseManagedHandleReturnMarshaller/CanUseManagedHandleParameterImport: a
+        // record passed by value with no generated wrapper class (suppress_emission) has no
+        // generated marshaller class and never crosses the ABI as a native handle — it
+        // round-trips as its own blittable public type instead (see GetManagedImportReturnAttribute,
+        // which correspondingly omits a MarshalUsing attribute for this case).
+        return IsValueProjectedHandleType(compilation, type)
+            ? FormatGlobalTypeName(type, compilation)
+            : BindingType.NativeInt.ManagedTypeName;
+    }
+
+    // A Handle-kind BindingType with CppIsRecordValue means the record crosses this particular
+    // site by value (e.g. a fixed-array element or field), not as a pointer/reference — that by
+    // itself is normal and most such records still have a generated __{Name}Marshaller<TOwnership>
+    // wrapper class to round-trip through. suppress_emission is *also* overloaded for two other,
+    // still handle-shaped cases: a record whose wrapper class is emitted in a different module
+    // (managed_wrapper_assembly) and re-imported here, and a plain alias of another bound record —
+    // both keep CppIsRecordValue false, since they are still referenced as pointers/handles. Only
+    // the combination of "by value" and "suppress_emission" identifies a pure value projection
+    // (e.g. a suppress_emission Marshaller<T> with a namespaced public_type and no wrapper
+    // infrastructure at all), whose cpp_type/abi_type round-trip directly as a blittable managed
+    // struct instead of through the handle-marshaller machinery.
+    private static bool IsValueProjectedHandleType(BindingCompilation compilation, BindingType type)
+    {
+        if (!type.Marshaller.CppIsRecordValue)
+        {
+            return false;
+        }
+
+        var record = ResolveRecord(compilation, type);
+        return record is not null && record.GetMetadata<bool>(MetadataKeys.SuppressEmission);
     }
 
     private static string GetManagedEnumAbiTypeName(BindingCompilation compilation, BindingType type)
@@ -5971,10 +6010,18 @@ public static partial class BindingOutputRenderer
 
     private static bool CanUseManagedHandleReturnMarshaller(BindingCompilation compilation, BindingType type)
     {
-        return !type.IsFixedArray &&
-            !HasNativeNonTypeTemplateArguments(type) &&
-            type.Kind == BindingTypeKind.Handle &&
-            ResolveRecord(compilation, type) is not null;
+        if (type.IsFixedArray ||
+            HasNativeNonTypeTemplateArguments(type) ||
+            type.Kind != BindingTypeKind.Handle)
+        {
+            return false;
+        }
+
+        // A pure value-projection type (see IsValueProjectedHandleType) never gets the generated
+        // __{Name}Marshaller<TOwnership> support class that this path references — it round-trips
+        // through LibraryImport's own blittable-struct marshalling instead, same as any other
+        // configured value type.
+        return ResolveRecord(compilation, type) is not null && !IsValueProjectedHandleType(compilation, type);
     }
 
     private static string GetManagedHandleReturnMarshallerTypeName(BindingCompilation compilation, BindingType type, bool ownsHandle)
@@ -6114,11 +6161,20 @@ public static partial class BindingOutputRenderer
             : $"[MarshalUsing(typeof({GetQualifiedHandleInMarshallerTypeName(compilation, record)}))] ";
     }
 
-    private static bool CanUseManagedHandleParameterImport(ParameterBinding parameter, BindingType type)
+    private static bool CanUseManagedHandleParameterImport(BindingCompilation compilation, ParameterBinding parameter, BindingType type)
     {
-        return type.Kind == BindingTypeKind.Handle &&
-            !IsRawPointerHandle(type) &&
-            parameter.Direction is not (BindingParameterDirection.Ref or BindingParameterDirection.Out);
+        if (type.Kind != BindingTypeKind.Handle ||
+            IsRawPointerHandle(type) ||
+            parameter.Direction is BindingParameterDirection.Ref or BindingParameterDirection.Out)
+        {
+            return false;
+        }
+
+        // Mirrors CanUseManagedHandleReturnMarshaller: a pure value-projection type (see
+        // IsValueProjectedHandleType) has no generated handle-marshaller support class to import
+        // through. Types with no resolved record at all keep the prior behavior (true) — only
+        // that specific shape excludes this path.
+        return ResolveRecord(compilation, type) is null || !IsValueProjectedHandleType(compilation, type);
     }
 
     // A primitive pointer field or return: a handle ABI without a wrapper record.
@@ -6161,7 +6217,7 @@ public static partial class BindingOutputRenderer
             return $"{attribute}{GetManagedPublicReturnTypeName(type, compilation)} {parameter.ManagedName}";
         }
 
-        if (CanUseManagedHandleParameterImport(parameter, type))
+        if (CanUseManagedHandleParameterImport(compilation, parameter, type))
         {
             var modifier = parameter.Direction switch
             {
@@ -6725,7 +6781,7 @@ public static partial class BindingOutputRenderer
 
         var requiresWrapping = RequiresHandleWrapping(parameter.Type);
 
-        if (requiresWrapping && CanUseManagedHandleParameterImport(parameter, parameter.Type))
+        if (requiresWrapping && CanUseManagedHandleParameterImport(compilation, parameter, parameter.Type))
         {
             return RenderManagedSafeHandleInvocationArgument(parameter);
         }

@@ -259,7 +259,11 @@ public static class MarshallerMetadataPhase2
                 else if (!string.Equals(record.ManagedTypeFormat, publicType, StringComparison.Ordinal) || overrideRename)
                 {
                     record.ManagedTypeFormat = publicType;
-                    record.ManagedName = GetManagedTypeHead(publicType);
+                    // public_type is always C#-syntax (dotted namespaces, optional "global::"
+                    // prefix), never C++ "::" qualified — GetSimpleTypeName splits on the last
+                    // '.', matching how GetSimpleManagedTypeName (ClangSharpHeaderParser) derives
+                    // a record's ManagedName from the same kind of value.
+                    record.ManagedName = GetSimpleTypeName(publicType);
                 }
             }
 
@@ -794,18 +798,6 @@ public static class MarshallerMetadataPhase2
         var withoutPointer = target.TrimEnd('*').Trim();
         var genericStart = withoutPointer.IndexOf('<');
         return genericStart >= 0 ? withoutPointer[..genericStart] : withoutPointer;
-    }
-
-    private static string GetManagedTypeHead(string managedTypeFormat)
-    {
-        // Strip C++ namespace qualifiers (::) — only the local type name
-        // belongs in the managed head.  Namespace placement is handled
-        // separately via ManagedNamespace.
-        var lastColon = managedTypeFormat.LastIndexOf("::", StringComparison.Ordinal);
-        var localName = lastColon >= 0 ? managedTypeFormat[(lastColon + 2)..] : managedTypeFormat;
-
-        var genericStart = localName.IndexOf('<');
-        return genericStart >= 0 ? localName[..genericStart] : localName;
     }
 
     private static IReadOnlyList<string> SplitManagedTypeList(string value)

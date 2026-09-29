@@ -3301,7 +3301,7 @@ public static partial class BindingOutputRenderer
 
         if (concreteType.IsPointerType)
         {
-            return CanUseManagedHandleParameterImport(parameter, concreteType)
+            return CanUseManagedHandleParameterImport(compilation, parameter, concreteType)
                 ? $"({GetManagedWrapperTypeName(concreteType, compilation)})(object){parameter.ManagedName}!"
                 : $"global::SharpCpp.Support.NativeObject.GetHandle({parameter.ManagedName})";
         }
