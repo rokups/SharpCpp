@@ -99,3 +99,27 @@ inline float sum_configured_padded_pairs(const configured_padded_pair* values, i
         total += values[i].first + values[i].second;
     return total;
 }
+
+// Span projections only bind parameters of direct calls. A return value, a field and a virtual
+// method parameter of the same pointer type are degraded with a diagnostic instead of generating
+// code that cannot compile; the surrounding functions and records stay bound.
+inline configured_wide_vector3* get_configured_wide_vector3s() noexcept
+{
+    return nullptr;
+}
+
+struct span_projection_holder
+{
+    int id{};
+    configured_wide_vector3* values{};
+};
+
+class [[sharpcpp::director]] span_projection_callback
+{
+public:
+    virtual ~span_projection_callback() = default;
+
+    virtual void on_values(configured_wide_vector3* values) { (void)values; }
+
+    virtual int id() const { return 7; }
+};

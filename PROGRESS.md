@@ -56,7 +56,9 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
 - Projected-value arrays (`Marshaller<T*>` / `Marshaller<const T*>` specialized with
   `ProjectedValueSpanMarshallerBase` / `ProjectedValueConstSpanMarshallerBase` and bound to
   `Span<T>` / `ReadOnlySpan<T>` through `SpanAbiMarshaller<>`) work for parameters of
-  direct calls only. A return, field or callback parameter of that pointer type picks the
-  same projection and fails to compile (no `ConvertToAbi`, no managed-to-unmanaged-out
-  marshaller); it is not yet degraded. The minimum length comes only from
+  direct calls only. A return, field, virtual method or director callback parameter, or
+  managed callback parameter or return of that pointer type has no marshaller for the
+  position, so the declaration is degraded with the diagnostic "span projection '...' can
+  only be used for a parameter of a direct call, not ..." (the UTF-8 `ReadOnlySpan<byte>`
+  string views are unaffected). The minimum length comes only from
   `MetadataKeys.MinimumSpanLength` set by the consumer; there is no parser heuristic.

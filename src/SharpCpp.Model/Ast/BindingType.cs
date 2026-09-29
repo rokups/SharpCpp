@@ -42,6 +42,14 @@ public sealed record MarshallerDescriptor(
 
     public bool IsRefStruct => IsRefStructTypeName(PublicTypeName);
 
+    // A projected-value array (Span<T>/ReadOnlySpan<T> over SpanAbiMarshaller<>/
+    // ReadOnlySpanAbiMarshaller<>), as opposed to the UTF-8 view ReadOnlySpan<byte> that string
+    // marshallers use. Only the projected-value array is limited to parameters of direct calls.
+    public bool IsSpanProjection =>
+        IsRefStruct &&
+        (ManagedMarshaller?.Contains("SpanAbiMarshaller<", StringComparison.Ordinal) == true ||
+         !string.Equals(PublicTypeName, "global::System.ReadOnlySpan<byte>", StringComparison.Ordinal));
+
     // The ref structs a marshaller can project to: spans (a UTF-8 view as ReadOnlySpan<byte>, a
     // projected-value array as Span<T>/ReadOnlySpan<T>). Only the outer type counts, so a
     // container of spans is not itself a ref struct.

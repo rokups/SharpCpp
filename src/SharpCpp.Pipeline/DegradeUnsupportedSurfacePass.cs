@@ -275,6 +275,12 @@ public static class DegradeUnsupportedSurfacePass
             return true;
         }
 
+        if (function.ReturnType.Marshaller.IsSpanProjection)
+        {
+            reason = $"return type is unsupported in this bootstrap surface: {SpanProjectionReason(function.ReturnType, "a return value")}";
+            return true;
+        }
+
         if (TryGetUnsupportedTypeReason(function.ReturnType, function.CppReturnTypeName, recordsById, enumsById, disallowNonPointerHandles: false, out reason))
         {
             reason = $"return type is unsupported in this bootstrap surface: {reason}";
@@ -293,6 +299,12 @@ public static class DegradeUnsupportedSurfacePass
                 (parameter.Direction is not BindingParameterDirection.In || parameter.AbiKind is not BindingParameterAbiKind.Value))
             {
                 reason = $"parameter '{parameter.ManagedName}' is unsupported in this bootstrap surface: callback parameters must be passed as in-value parameters";
+                return true;
+            }
+
+            if (function.IsVirtual && parameter.Type.Marshaller.IsSpanProjection)
+            {
+                reason = $"parameter '{parameter.ManagedName}' is unsupported in this bootstrap surface: {SpanProjectionReason(parameter.Type, "a virtual method parameter")}";
                 return true;
             }
 
@@ -356,6 +368,9 @@ public static class DegradeUnsupportedSurfacePass
         reason = string.Empty;
         return false;
     }
+
+    private static string SpanProjectionReason(BindingType type, string position) =>
+        $"span projection '{type.ManagedTypeName}' can only be used for a parameter of a direct call, not {position}";
 
     private static bool TryGetUnsupportedDirectorCallbackReason(FunctionBinding function, out string reason)
     {
@@ -605,6 +620,12 @@ public static class DegradeUnsupportedSurfacePass
             return true;
         }
 
+        if (field.Type.Marshaller.IsSpanProjection)
+        {
+            reason = $"field type is unsupported in this bootstrap surface: {SpanProjectionReason(field.Type, "a field")}";
+            return true;
+        }
+
         if (TryGetUnsupportedTypeReason(field.Type, field.CppTypeName, recordsById, enumsById, disallowNonPointerHandles: true, out reason))
         {
             reason = $"field type is unsupported in this bootstrap surface: {reason}";
@@ -702,6 +723,12 @@ public static class DegradeUnsupportedSurfacePass
                 return true;
             }
 
+            if (type.CallbackReturnType.Marshaller.IsSpanProjection)
+            {
+                reason = $"callback return type is unsupported: {SpanProjectionReason(type.CallbackReturnType, "a callback return value")}";
+                return true;
+            }
+
             if (TryGetUnsupportedTypeReason(type.CallbackReturnType, type.CallbackReturnType.CppTypeName, recordsById, enumsById, disallowNonPointerHandles: false, out var callbackReturnReason))
             {
                 reason = $"callback return type is unsupported: {callbackReturnReason}";
@@ -713,6 +740,12 @@ public static class DegradeUnsupportedSurfacePass
                 if (type.ManagedMarshaller is null && !IsGeneratedCallbackValueSupported(parameterType, recordsById))
                 {
                     reason = $"generated callback marshaller cannot convert callback parameter type '{parameterType.ManagedTypeName}'";
+                    return true;
+                }
+
+                if (parameterType.Marshaller.IsSpanProjection)
+                {
+                    reason = $"callback parameter type '{parameterType.ManagedTypeName}' is unsupported: {SpanProjectionReason(parameterType, "a callback parameter")}";
                     return true;
                 }
 

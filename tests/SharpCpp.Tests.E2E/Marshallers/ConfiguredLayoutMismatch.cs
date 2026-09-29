@@ -149,4 +149,32 @@ public sealed class ConfiguredLayoutMismatchTests
         Assert.Equal(21.0f, E2EBindings.SumConfiguredPaddedPairs(values, values.Length));
         Assert.Equal(-1.0f, E2EBindings.SumConfiguredPaddedPairs(ReadOnlySpan<ConfiguredPaddedPair>.Empty, 0));
     }
+
+    [Fact]
+    public void Span_projections_in_returns_fields_and_virtual_parameters_are_degraded()
+    {
+        Assert.Null(typeof(E2EBindings).GetMethod("GetConfiguredWideVector3s"));
+        Assert.NotNull(typeof(E2EBindings).GetMethod("FillConfiguredWideVector3s"));
+
+        Assert.Null(typeof(SpanProjectionHolder).GetProperty("Values"));
+        Assert.NotNull(typeof(SpanProjectionHolder).GetProperty("Id"));
+
+        Assert.Null(typeof(SpanProjectionCallback).GetMethod("OnValues"));
+        using var callback = new SpanProjectionCallback();
+        Assert.Equal(7, callback.Id());
+
+        var log = Diagnostics.GeneratedArtifacts.ReadText("generator.log").Split('\n');
+        Assert.Contains(log, line =>
+            line.StartsWith("IGNORED\tFunction\t", StringComparison.Ordinal) &&
+            line.Contains("\tget_configured_wide_vector3s\t", StringComparison.Ordinal) &&
+            line.Contains("can only be used for a parameter of a direct call, not a return value", StringComparison.Ordinal));
+        Assert.Contains(log, line =>
+            line.StartsWith("IGNORED\tField\t", StringComparison.Ordinal) &&
+            line.Contains("\tspan_projection_holder::values\t", StringComparison.Ordinal) &&
+            line.Contains("can only be used for a parameter of a direct call, not a field", StringComparison.Ordinal));
+        Assert.Contains(log, line =>
+            line.StartsWith("IGNORED\tFunction\t", StringComparison.Ordinal) &&
+            line.Contains("\tspan_projection_callback::on_values\t", StringComparison.Ordinal) &&
+            line.Contains("not a virtual method parameter", StringComparison.Ordinal));
+    }
 }
