@@ -64,4 +64,42 @@ struct [[sharpcpp::managed_type(
 )]] Marshaller<const configured_wide_vector3*>
     : ProjectedValueConstPointerMarshallerBase<configured_wide_vector3> {};
 
+// Mutable array output: binds `configured_wide_vector3*` parameters as Span<ConfiguredWideVector3>.
+// The pointer and element count cross the ABI in-band as one { data, length } struct
+// (global::SharpCpp.Support.SpanAbi); native code sees a pointer into a std::vector of native-
+// layout elements that is written back to the managed span after the call.
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::System.Span<global::SharpCpp.Tests.E2E.Marshallers.ConfiguredWideVector3>",
+    managed_marshaller = "global::SharpCpp.Support.SpanAbiMarshaller<>"
+)]] Marshaller<configured_wide_vector3*>
+    : ProjectedValueSpanMarshallerBase<configured_wide_vector3> {};
+
+struct configured_padded_pair_abi
+{
+    float first;
+    float second;
+};
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::SharpCpp.Tests.E2E.Marshallers.ConfiguredPaddedPair",
+    suppress_emission = true
+)]] Marshaller<configured_padded_pair>
+{
+    using cpp_type = configured_padded_pair;
+    using abi_type = configured_padded_pair_abi;
+
+    abi_type ConvertToAbi(cpp_type value) noexcept { return {value.first, value.second}; }
+    cpp_type ConvertToCpp(abi_type value) noexcept { return {value.first, value.second}; }
+};
+
+// Read-only array input: binds `const configured_padded_pair*` as ReadOnlySpan<ConfiguredPaddedPair>.
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::System.ReadOnlySpan<global::SharpCpp.Tests.E2E.Marshallers.ConfiguredPaddedPair>",
+    managed_marshaller = "global::SharpCpp.Support.ReadOnlySpanAbiMarshaller<>"
+)]] Marshaller<const configured_padded_pair*>
+    : ProjectedValueConstSpanMarshallerBase<configured_padded_pair> {};
+
 }

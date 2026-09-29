@@ -177,6 +177,13 @@ internal static class Program
                 string.Equals(function.CppQualifiedName, "consumer_projection_function_pointer", StringComparison.Ordinal))
             .SetMetadata(MetadataKeys.ExposeNativeFunctionPointer, true);
 
+        // fill_configured_wide_vector3s writes three elements through a bare pointer; the span
+        // wrapper rejects shorter spans before the native call.
+        compilation.Functions.Single(function =>
+                string.Equals(function.CppQualifiedName, "fill_configured_wide_vector3s", StringComparison.Ordinal))
+            .Parameters[0]
+            .SetMetadata(MetadataKeys.MinimumSpanLength, 3);
+
         compilation.Records.Single(record =>
                 string.Equals(record.CppQualifiedName, "consumer_projection_query_target", StringComparison.Ordinal))
             .SetMetadata(

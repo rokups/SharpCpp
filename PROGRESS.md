@@ -53,3 +53,10 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
 - Containers of records that are copy-constructible but not copy-assignable, or whose
   allocator is not default-constructible, are not detected; consumers ignore such records
   (RedBolt ignores Jolt's internal `PhysicsUpdateContext`).
+- Projected-value arrays (`Marshaller<T*>` / `Marshaller<const T*>` specialized with
+  `ProjectedValueSpanMarshallerBase` / `ProjectedValueConstSpanMarshallerBase` and bound to
+  `Span<T>` / `ReadOnlySpan<T>` through `SpanAbiMarshaller<>`) work for parameters of
+  direct calls only. A return, field or callback parameter of that pointer type picks the
+  same projection and fails to compile (no `ConvertToAbi`, no managed-to-unmanaged-out
+  marshaller); it is not yet degraded. The minimum length comes only from
+  `MetadataKeys.MinimumSpanLength` set by the consumer; there is no parser heuristic.

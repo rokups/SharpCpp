@@ -3305,7 +3305,7 @@ public sealed partial class ClangSharpHeaderParser
 
             if (TypeIsPointer(normalizedPointeeType) &&
                 managedTypeOverrides.TryGetValue(sourcePointeeTypeName, out var pointeeOverride) &&
-                IsManagedRefStruct(pointeeOverride.PublicTypeName))
+                MarshallerDescriptor.IsRefStructTypeName(pointeeOverride.PublicTypeName))
             {
                 return (
                     MapType(sourcePointeeType, recordsByName, enumsByName, managedTypeOverrides, genericParameters),
@@ -5639,12 +5639,6 @@ public sealed partial class ClangSharpHeaderParser
             .Replace(" <", "<", StringComparison.Ordinal)
             .Replace("> ", ">", StringComparison.Ordinal);
     }
-
-    /// <summary>
-    /// Checks whether a managed type name corresponds to a C# ref struct.
-    /// </summary>
-    private static bool IsManagedRefStruct(string publicTypeName) =>
-        publicTypeName is "global::System.ReadOnlySpan<byte>";
 
     /// <summary>
     /// Maps a C/C++ integer type spelling to the corresponding BindingPrimitiveKind.

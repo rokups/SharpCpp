@@ -48,6 +48,9 @@ public static class MetadataKeys
     public const string WritablePointerArray = "writable_pointer_array";
     // Value: native name of the capacity parameter that bounds this record output buffer.
     public const string RecordBufferCapacityParameter = "record_buffer_capacity_parameter";
+    // Value: minimum element count (int) a span parameter must have; the managed wrapper throws
+    // ArgumentException before the native call when the span is shorter.
+    public const string MinimumSpanLength = "minimum_span_length";
 }
 
 public sealed record NativeInterfaceQueryAnnotation(string SourceRecordCppQualifiedName, string InterfaceIdExpression);

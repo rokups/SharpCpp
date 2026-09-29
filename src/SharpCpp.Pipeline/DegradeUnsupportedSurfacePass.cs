@@ -1092,10 +1092,9 @@ public static class DegradeUnsupportedSurfacePass
     {
         foreach (var argument in type.GenericArguments)
         {
-            // The only ref struct currently mapped through the marshaller
-            // system is ReadOnlySpan<byte> (from const char*).
-            // Uses the IsRefStruct marshaller flag when available,
-            // with a fallback exact ManagedTypeName match for bootstrap.
+            // Span projections (ReadOnlySpan<byte> for UTF-8 views, Span<T> and
+            // ReadOnlySpan<T> for projected-value arrays) are the ref structs the
+            // marshaller system maps; see MarshallerDescriptor.IsRefStructTypeName.
             if (IsArgumentRefStruct(argument))
             {
                 return true;

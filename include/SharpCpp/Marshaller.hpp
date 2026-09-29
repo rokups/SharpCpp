@@ -1229,6 +1229,95 @@ private:
     TValue storage_{};
 };
 
+// Array counterpart to ProjectedValuePointerMarshallerBase: a mutable `T*` parameter that
+// addresses a caller-owned array of projected values, bound to Span<TManaged> through
+// SharpCpp.Support.SpanAbiMarshaller<T>. The element count crosses the ABI in-band next to
+// the data pointer, so the native callee sees no length; the managed caller is responsible for
+// passing a span at least as long as the callee writes (see MetadataKeys.MinimumSpanLength).
+// Because T's native layout can differ from the ABI element layout (e.g. a 16-byte SIMD vector
+// against a 12-byte managed struct), the elements are copied into native storage for the call
+// and written back after it by Sync(). A null or empty span reaches the callee as nullptr.
+template <class TValue>
+struct ProjectedValueSpanMarshallerBase
+{
+    using cpp_type = TValue*;
+    using value_marshaller_type = Marshaller<TValue>;
+    using value_abi_type = typename value_marshaller_type::abi_type;
+
+    static_assert(
+        std::is_trivially_copyable_v<value_abi_type>,
+        "ProjectedValueSpanMarshallerBase<T> passes Marshaller<T>::abi_type elements through a "
+        "managed Span, so the abi_type must be trivially copyable.");
+
+    struct abi_type
+    {
+        value_abi_type* data{};
+        std::size_t length{};
+    };
+
+    cpp_type ConvertToCpp(abi_type value)
+    {
+        abi_argument_ = value;
+        storage_.clear();
+        if (value.data == nullptr || value.length == 0)
+            return nullptr;
+
+        storage_.reserve(value.length);
+        for (std::size_t index = 0; index < value.length; ++index)
+            storage_.push_back(value_marshaller_.ConvertToCpp(value.data[index]));
+        return storage_.data();
+    }
+
+    void Sync() noexcept
+    {
+        for (std::size_t index = 0; index < storage_.size(); ++index)
+            abi_argument_.data[index] = value_marshaller_.ConvertToAbi(storage_[index]);
+    }
+
+private:
+    value_marshaller_type value_marshaller_;
+    abi_type abi_argument_{};
+    std::vector<TValue> storage_;
+};
+
+// Read-only counterpart to ProjectedValueSpanMarshallerBase: a `const T*` parameter that
+// addresses an array of projected values, bound to ReadOnlySpan<TManaged> through
+// SharpCpp.Support.ReadOnlySpanAbiMarshaller<T>. Nothing is written back.
+template <class TValue>
+struct ProjectedValueConstSpanMarshallerBase
+{
+    using cpp_type = const TValue*;
+    using value_marshaller_type = Marshaller<TValue>;
+    using value_abi_type = typename value_marshaller_type::abi_type;
+
+    static_assert(
+        std::is_trivially_copyable_v<value_abi_type>,
+        "ProjectedValueConstSpanMarshallerBase<T> passes Marshaller<T>::abi_type elements "
+        "through a managed ReadOnlySpan, so the abi_type must be trivially copyable.");
+
+    struct abi_type
+    {
+        const value_abi_type* data{};
+        std::size_t length{};
+    };
+
+    cpp_type ConvertToCpp(abi_type value)
+    {
+        storage_.clear();
+        if (value.data == nullptr || value.length == 0)
+            return nullptr;
+
+        storage_.reserve(value.length);
+        for (std::size_t index = 0; index < value.length; ++index)
+            storage_.push_back(value_marshaller_.ConvertToCpp(value.data[index]));
+        return storage_.data();
+    }
+
+private:
+    value_marshaller_type value_marshaller_;
+    std::vector<TValue> storage_;
+};
+
 template <class TSignature>
 struct [[sharpcpp::managed_type(callback = true)]] Marshaller<std::function<TSignature>>
     : ManagedCallbackMarshallerBase<std::function<TSignature>, TSignature>
@@ -1615,9 +1704,8 @@ struct Marshaller<T*>
         "when the two layouts match (and is wrong for an array of more than one element even "
         "when they do). Marshaller<T> is a custom marshaller whose abi_type does not provably "
         "match T's layout here. Specialize Marshaller<T*> for T using "
-        "ProjectedValuePointerMarshallerBase (single element) or ignore this member in the "
-        "generator (e.g. when it is really an array and the collection overload should be used "
-        "instead).");
+        "ProjectedValuePointerMarshallerBase (single element), ProjectedValueSpanMarshallerBase "
+        "(an array, bound to Span<T>) or ignore this member in the generator.");
 
     constexpr abi_type ConvertToAbi(cpp_type value) noexcept
     {
@@ -1649,9 +1737,9 @@ struct Marshaller<const T*>
         "which is only safe when the two layouts match (and is wrong for an array of more than "
         "one element even when they do). Marshaller<T> is a custom marshaller whose abi_type "
         "does not provably match T's layout here. Specialize Marshaller<const T*> for T using "
-        "ProjectedValueConstPointerMarshallerBase (single element) or ignore this member in the "
-        "generator (e.g. when it is really an array and the collection overload should be used "
-        "instead).");
+        "ProjectedValueConstPointerMarshallerBase (single element), "
+        "ProjectedValueConstSpanMarshallerBase (an array, bound to ReadOnlySpan<T>) or ignore "
+        "this member in the generator.");
 
     constexpr abi_type ConvertToAbi(cpp_type value) noexcept
     {

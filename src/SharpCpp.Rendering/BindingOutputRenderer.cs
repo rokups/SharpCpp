@@ -7092,6 +7092,16 @@ public static partial class BindingOutputRenderer
                 continue;
             }
 
+            if (parameter.GetMetadata<int>(MetadataKeys.MinimumSpanLength) is > 0 and var minimumLength)
+            {
+                preCallStatements.Add($$"""
+                    if ({{parameter.ManagedName}}.Length < {{minimumLength}})
+                    {
+                        throw new global::System.ArgumentException("Expected at least {{minimumLength}} elements.", nameof({{parameter.ManagedName}}));
+                    }
+                    """);
+            }
+
             var requiresWrapping = RequiresHandleWrapping(parameter.Type);
 
             if (requiresWrapping && parameter.Direction is BindingParameterDirection.Ref or BindingParameterDirection.Out)

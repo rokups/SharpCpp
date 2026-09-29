@@ -40,7 +40,18 @@ public sealed record MarshallerDescriptor(
     public bool CppPointerIsRecordValueProjection { get; init; }
     public bool CppIsReference { get; init; }
 
-    public bool IsRefStruct => PublicTypeName is "global::System.ReadOnlySpan<byte>";
+    public bool IsRefStruct => IsRefStructTypeName(PublicTypeName);
+
+    // The ref structs a marshaller can project to: spans (a UTF-8 view as ReadOnlySpan<byte>, a
+    // projected-value array as Span<T>/ReadOnlySpan<T>). Only the outer type counts, so a
+    // container of spans is not itself a ref struct.
+    public static bool IsRefStructTypeName(string publicTypeName) =>
+        IsGenericTypeName(publicTypeName, "global::System.Span<") ||
+        IsGenericTypeName(publicTypeName, "global::System.ReadOnlySpan<");
+
+    private static bool IsGenericTypeName(string typeName, string openPrefix) =>
+        typeName.StartsWith(openPrefix, StringComparison.Ordinal) &&
+        typeName.EndsWith('>');
 }
 
 public sealed class BindingType

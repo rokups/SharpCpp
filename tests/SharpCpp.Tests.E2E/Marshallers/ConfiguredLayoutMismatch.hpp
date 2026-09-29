@@ -61,3 +61,41 @@ inline float sum_configured_wide_vector3_ref(const configured_wide_vector3& valu
 {
     return value.v[0] + value.v[1] + value.v[2];
 }
+
+// Mutable array output parameter. Marshaller<configured_wide_vector3*> binds it as
+// Span<ConfiguredWideVector3> (ProjectedValueSpanMarshallerBase): native writes 16-byte elements
+// into a std::vector the marshaller copies back to the 12-byte managed elements after the call.
+// The generator sets MinimumSpanLength = 3 on `out`, so a shorter span throws before this runs.
+inline void fill_configured_wide_vector3s(configured_wide_vector3* out) noexcept
+{
+    for (int i = 0; i < 3; ++i)
+        out[i] = make_configured_wide_vector3(
+            static_cast<float>(i * 3 + 1),
+            static_cast<float>(i * 3 + 2),
+            static_cast<float>(i * 3 + 3));
+}
+
+// Same span projection without a minimum-length hint: an empty span reaches native as nullptr.
+inline bool configured_wide_vector3s_is_null(configured_wide_vector3* values) noexcept
+{
+    return values == nullptr;
+}
+
+/// A second layout-mismatched value type (16 bytes native, 8 bytes ABI) whose const pointer binds
+/// as ReadOnlySpan<T>. configured_wide_vector3's const pointer already binds as a single `in`
+/// element (by_reference = true above), and a C++ type has exactly one Marshaller<const T*>.
+struct alignas(16) configured_padded_pair
+{
+    float first{};
+    float second{};
+};
+
+inline float sum_configured_padded_pairs(const configured_padded_pair* values, int count) noexcept
+{
+    if (values == nullptr)
+        return -1.0f;
+    float total = 0.0f;
+    for (int i = 0; i < count; ++i)
+        total += values[i].first + values[i].second;
+    return total;
+}

@@ -19,6 +19,14 @@ public struct ConfiguredWideVector3(float x, float y, float z)
     public float Z = z;
 }
 
+/// Managed mirror of configured_padded_pair_abi (8 bytes); the native type is 16 bytes.
+[StructLayout(LayoutKind.Sequential)]
+public struct ConfiguredPaddedPair(float first, float second)
+{
+    public float First = first;
+    public float Second = second;
+}
+
 public sealed class ConfiguredLayoutMismatchTests
 {
     [Fact]
@@ -79,5 +87,66 @@ public sealed class ConfiguredLayoutMismatchTests
         // ProjectedValueConstPointerMarshallerBase::ConvertToAbi's null branch; the native
         // function returns a distinct sentinel (-1) rather than reading through a null pointer.
         Assert.Equal(-1.0f, E2EBindings.SumConfiguredWideVector3Ptr(in Unsafe.NullRef<ConfiguredWideVector3>()));
+    }
+
+    [Fact]
+    public void Mutable_pointer_parameter_binds_as_span_and_writes_elements_back()
+    {
+        // Exercises ProjectedValueSpanMarshallerBase: native writes 16-byte elements into a
+        // std::vector that Sync copies back into the 12-byte managed elements.
+        Span<ConfiguredWideVector3> values = new ConfiguredWideVector3[3];
+        E2EBindings.FillConfiguredWideVector3s(values);
+
+        Assert.Equal(new ConfiguredWideVector3(1, 2, 3), values[0]);
+        Assert.Equal(new ConfiguredWideVector3(4, 5, 6), values[1]);
+        Assert.Equal(new ConfiguredWideVector3(7, 8, 9), values[2]);
+    }
+
+    [Fact]
+    public void Span_longer_than_minimum_length_keeps_unwritten_elements()
+    {
+        var values = new ConfiguredWideVector3[5];
+        values[3] = new ConfiguredWideVector3(10, 11, 12);
+        values[4] = new ConfiguredWideVector3(13, 14, 15);
+
+        E2EBindings.FillConfiguredWideVector3s(values);
+
+        Assert.Equal(new ConfiguredWideVector3(7, 8, 9), values[2]);
+        Assert.Equal(new ConfiguredWideVector3(10, 11, 12), values[3]);
+        Assert.Equal(new ConfiguredWideVector3(13, 14, 15), values[4]);
+    }
+
+    [Fact]
+    public void Span_shorter_than_minimum_length_throws_before_the_native_call()
+    {
+        var values = new[] { new ConfiguredWideVector3(-1, -1, -1), new ConfiguredWideVector3(-2, -2, -2) };
+
+        var exception = Assert.Throws<ArgumentException>(() => E2EBindings.FillConfiguredWideVector3s(values));
+
+        Assert.Equal("out", exception.ParamName);
+        Assert.Equal(new ConfiguredWideVector3(-1, -1, -1), values[0]);
+        Assert.Equal(new ConfiguredWideVector3(-2, -2, -2), values[1]);
+    }
+
+    [Fact]
+    public void Empty_span_reaches_native_as_null_pointer()
+    {
+        Assert.True(E2EBindings.ConfiguredWideVector3sIsNull(Span<ConfiguredWideVector3>.Empty));
+        Assert.False(E2EBindings.ConfiguredWideVector3sIsNull(new ConfiguredWideVector3[1]));
+    }
+
+    [Fact]
+    public void Const_pointer_parameter_binds_as_read_only_span()
+    {
+        // Exercises ProjectedValueConstSpanMarshallerBase with an 8-byte ABI and 16-byte native element.
+        ReadOnlySpan<ConfiguredPaddedPair> values =
+        [
+            new ConfiguredPaddedPair(1, 2),
+            new ConfiguredPaddedPair(3, 4),
+            new ConfiguredPaddedPair(5, 6),
+        ];
+
+        Assert.Equal(21.0f, E2EBindings.SumConfiguredPaddedPairs(values, values.Length));
+        Assert.Equal(-1.0f, E2EBindings.SumConfiguredPaddedPairs(ReadOnlySpan<ConfiguredPaddedPair>.Empty, 0));
     }
 }
