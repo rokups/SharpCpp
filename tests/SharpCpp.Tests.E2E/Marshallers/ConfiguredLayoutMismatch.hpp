@@ -123,3 +123,25 @@ public:
 
     virtual int id() const { return 7; }
 };
+
+/// A namespaced layout-mismatched record whose mutable pointer binds as a span while the header
+/// spells the parameter unqualified inside the namespace (mirrors `Vec3 *` inside namespace JPH).
+namespace layout_ns
+{
+
+struct alignas(16) wide_v
+{
+    float v[4]{};
+};
+
+inline void fill_wide_vs(wide_v* out, int count) noexcept
+{
+    for (int i = 0; i < count; ++i)
+    {
+        out[i].v[0] = static_cast<float>(i * 3 + 1);
+        out[i].v[1] = static_cast<float>(i * 3 + 2);
+        out[i].v[2] = static_cast<float>(i * 3 + 3);
+    }
+}
+
+}

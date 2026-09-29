@@ -3336,11 +3336,9 @@ public sealed partial class ClangSharpHeaderParser
             // An explicit out/ref writes the pointee, as for every other pointer; a configured
             // pointer token (a byte buffer as IntPtr) describes the pointer itself.
             // A record pointee declared in a namespace but spelled unqualified ("Vec3 *") is
-            // keyed by its qualified canonical spelling ("JPH::Vec3*"). Only record pointees
-            // use it: canonicalizing scalar typedefs would widen the match to unrelated overrides.
-            var qualifiedPointerTypeName = TypeIsRecord(normalizedType.PointeeType.CanonicalType)
-                ? NormalizeTypeName(normalizedType.Spelling.ToString())
-                : normalizedTypeName;
+            // also keyed by its qualified canonical spelling ("JPH::Vec3*"), but only for span
+            // projections: other configured pointer overrides keep their existing resolution.
+            var qualifiedPointerTypeName = GetQualifiedRecordPointerSpanKey(type, normalizedTypeName, managedTypeOverrides) ?? normalizedTypeName;
             if (TryGetManagedTypeOverride(normalizedTypeName, normalizedTypeName, qualifiedPointerTypeName, managedTypeOverrides, isReturn: false, out var pointerOverride) &&
                 (pointerOverride!.ByReference || explicitDirection is not (BindingParameterDirection.Out or BindingParameterDirection.Ref)))
             {
@@ -3648,6 +3646,29 @@ public sealed partial class ClangSharpHeaderParser
         }
     }
 
+    /// <summary>
+    /// Returns the qualified canonical spelling of a pointer-to-record type ("JPH::Vec3*") when
+    /// it is keyed by a span projection override, otherwise null.
+    /// </summary>
+    private static string? GetQualifiedRecordPointerSpanKey(
+        CXType type,
+        string spelledTypeName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
+    {
+        var canonicalType = type.CanonicalType;
+        if (!TypeIsPointer(canonicalType) || !TypeIsRecord(canonicalType.PointeeType.CanonicalType))
+        {
+            return null;
+        }
+
+        var qualifiedName = NormalizeTypeName(canonicalType.Spelling.ToString());
+        return TryGetManagedTypeOverride(spelledTypeName, qualifiedName, qualifiedName, managedTypeOverrides, isReturn: false, out var candidate) &&
+               candidate!.ManagedMarshaller is { } marshaller &&
+               marshaller.Contains("SpanAbiMarshaller<", StringComparison.Ordinal)
+            ? qualifiedName
+            : null;
+    }
+
     private static BindingType MapType(
         CXType type,
         IDictionary<string, RecordBinding> recordsByName,
@@ -3702,10 +3723,11 @@ public sealed partial class ClangSharpHeaderParser
         // the AST cursor gives the template name, not the typedef.
         var qualifiedSpelledTypeName = GetQualifiedTypeName(type, spelledTypeName);
         // A pointer to a record spelled unqualified ("Vec3 *") is keyed by its qualified
-        // canonical spelling ("JPH::Vec3*"); other pointee kinds keep their spelled names.
-        if (TypeIsPointer(normalizedType) && TypeIsRecord(normalizedType.PointeeType.CanonicalType))
+        // canonical spelling ("JPH::Vec3*") when that names a span projection; other configured
+        // pointer overrides (e.g. a managed-base-type wrapper) keep their spelled names.
+        if (GetQualifiedRecordPointerSpanKey(type, spelledTypeName, managedTypeOverrides) is { } qualifiedPointerSpanName)
         {
-            qualifiedSpelledTypeName = NormalizeTypeName(normalizedType.Spelling.ToString());
+            qualifiedSpelledTypeName = qualifiedPointerSpanName;
             // The generated C++ wrapper spells the parameter with this name, so it must be
             // valid outside the header's namespace as well.
             surfaceCppTypeName = qualifiedSpelledTypeName;

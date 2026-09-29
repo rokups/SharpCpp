@@ -103,6 +103,16 @@ public sealed class ConfiguredLayoutMismatchTests
     }
 
     [Fact]
+    public void Namespaced_record_pointer_spelled_unqualified_binds_as_span()
+    {
+        Span<ConfiguredWideVector3> values = new ConfiguredWideVector3[2];
+        E2EBindings.FillWideVs(values, values.Length);
+
+        Assert.Equal(new ConfiguredWideVector3(1, 2, 3), values[0]);
+        Assert.Equal(new ConfiguredWideVector3(4, 5, 6), values[1]);
+    }
+
+    [Fact]
     public void Span_longer_than_minimum_length_keeps_unwritten_elements()
     {
         var values = new ConfiguredWideVector3[5];

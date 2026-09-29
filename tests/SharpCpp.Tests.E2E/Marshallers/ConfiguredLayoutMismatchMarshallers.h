@@ -102,4 +102,33 @@ struct [[sharpcpp::managed_type(
 )]] Marshaller<const configured_padded_pair*>
     : ProjectedValueConstSpanMarshallerBase<configured_padded_pair> {};
 
+// Namespaced record pointee: `wide_v *` spelled unqualified inside layout_ns must still match
+// Marshaller<layout_ns::wide_v*>, and the generated C++ wrapper must spell the qualified type.
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::SharpCpp.Tests.E2E.Marshallers.ConfiguredWideVector3",
+    suppress_emission = true
+)]] Marshaller<layout_ns::wide_v>
+{
+    using cpp_type = layout_ns::wide_v;
+    using abi_type = configured_wide_vector3_abi;
+
+    abi_type ConvertToAbi(cpp_type value) noexcept { return {value.v[0], value.v[1], value.v[2]}; }
+    cpp_type ConvertToCpp(abi_type value) noexcept
+    {
+        cpp_type result{};
+        result.v[0] = value.x;
+        result.v[1] = value.y;
+        result.v[2] = value.z;
+        return result;
+    }
+};
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::System.Span<global::SharpCpp.Tests.E2E.Marshallers.ConfiguredWideVector3>",
+    managed_marshaller = "global::SharpCpp.Support.SpanAbiMarshaller<>"
+)]] Marshaller<layout_ns::wide_v*>
+    : ProjectedValueSpanMarshallerBase<layout_ns::wide_v> {};
+
 }
