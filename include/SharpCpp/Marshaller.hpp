@@ -157,6 +157,59 @@ struct DefaultMarshallerBase<T, false>
     }
 };
 
+// Detects the `is_default_marshaller` tag that DefaultMarshallerBase adds to a Marshaller
+// specialization. Unlike IsDefaultMarshaller<T> further below (which looks up Marshaller<T>
+// from a cpp type T), this inspects a marshaller type M directly, which is what the generic
+// pointer/reference fallbacks need: they already have the value marshaller type in hand.
+template <class M, class = void>
+struct is_default_marshaller : std::false_type {};
+
+template <class M>
+struct is_default_marshaller<M, std::void_t<typename M::is_default_marshaller>> : std::true_type {};
+
+template <class M>
+inline constexpr bool is_default_marshaller_v = is_default_marshaller<M>::value;
+
+// sizeof/alignof an incomplete type is ill-formed wherever it appears, not just when the branch
+// using it is "taken" -- so a plain sizeof(T) == sizeof(U) inside a static_assert's || chain
+// still hard-errors for opaque forward-declared handle types (e.g. `struct handle_t;` used only
+// as `handle_t*`). Route the comparison through a class template partial specialization instead:
+// substitution failure there is in the immediate context and is SFINAE-friendly, so an
+// incomplete A or B just makes this evaluate to false rather than failing to compile.
+template <class T, class = void>
+struct is_complete_type : std::false_type {};
+
+template <class T>
+struct is_complete_type<T, std::void_t<decltype(sizeof(T))>> : std::true_type {};
+
+template <class T>
+inline constexpr bool is_complete_type_v = is_complete_type<T>::value;
+
+template <class A, class B, class = void>
+struct is_layout_compatible_pair : std::false_type {};
+
+// A type is always layout-compatible with itself: reinterpret_cast<A*> from A* is a no-op, not an
+// actual reinterpretation, so this holds even when A is incomplete or not trivially copyable (e.g.
+// an "identity" Marshaller<T> whose abi_type is T itself, but T has a user-provided special member
+// function -- common for SIMD-aligned math types with a defaulted-looking but user-written copy
+// constructor).
+template <class A>
+struct is_layout_compatible_pair<A, A, void> : std::true_type {};
+
+template <class A, class B>
+struct is_layout_compatible_pair<
+    A,
+    B,
+    std::enable_if_t<!std::is_same_v<A, B> && is_complete_type_v<A> && is_complete_type_v<B>>>
+    : std::bool_constant<
+          sizeof(A) == sizeof(B) && alignof(A) == alignof(B) &&
+          std::is_trivially_copyable_v<A> && std::is_trivially_copyable_v<B>>
+{
+};
+
+template <class A, class B>
+inline constexpr bool is_layout_compatible_pair_v = is_layout_compatible_pair<A, B>::value;
+
 template <class T, bool PassesByValue = DefaultPassesByValue<T>>
 struct DefaultReturnMarshallerBase;
 
@@ -1092,6 +1145,90 @@ private:
     TValue storage_{};
 };
 
+// Single-element, nullable pointer counterpart to ProjectedValueConstReferenceMarshallerBase,
+// for a `const T*` parameter/field where Marshaller<T> is a projected value type whose abi_type
+// layout does not match T's native layout (so the generic Marshaller<const T*> fallback cannot
+// reinterpret_cast between them). This is not an array marshaller: it copies at most one element.
+template <class TValue>
+struct ProjectedValueConstPointerMarshallerBase
+{
+    using cpp_type = const TValue*;
+    using value_marshaller_type = Marshaller<TValue>;
+    using value_abi_type = typename value_marshaller_type::abi_type;
+    using abi_type = const value_abi_type*;
+
+    abi_type ConvertToAbi(cpp_type value) noexcept
+    {
+        if (value == nullptr)
+            return nullptr;
+
+        abi_storage_ = value_marshaller_.ConvertToAbi(*value);
+        return &abi_storage_;
+    }
+
+    cpp_type ConvertToCpp(abi_type value) noexcept
+    {
+        if (value == nullptr)
+            return nullptr;
+
+        storage_ = value_marshaller_.ConvertToCpp(*value);
+        return &storage_;
+    }
+
+private:
+    value_marshaller_type value_marshaller_;
+    value_abi_type abi_storage_{};
+    TValue storage_{};
+};
+
+// Single-element, nullable pointer counterpart to ProjectedValueReferenceMarshallerBase, for a
+// mutable `T*` parameter/field where Marshaller<T> is a projected value type whose abi_type
+// layout does not match T's native layout. Like the reference base, an in/out pointer needs
+// Sync() to write the (possibly modified) managed value back through the borrowed abi pointer
+// after the call; a null pointer stays null through both conversions and Sync is then a no-op.
+template <class TValue>
+struct ProjectedValuePointerMarshallerBase
+{
+    using cpp_type = TValue*;
+    using value_marshaller_type = Marshaller<TValue>;
+    using value_abi_type = typename value_marshaller_type::abi_type;
+    using abi_type = value_abi_type*;
+
+    abi_type ConvertToAbi(cpp_type value) noexcept
+    {
+        if (value == nullptr)
+            return nullptr;
+
+        abi_storage_ = value_marshaller_.ConvertToAbi(*value);
+        return &abi_storage_;
+    }
+
+    cpp_type ConvertToCpp(abi_type value) noexcept
+    {
+        abi_argument_ = value;
+        if (value == nullptr)
+        {
+            storage_ = TValue{};
+            return nullptr;
+        }
+
+        storage_ = value_marshaller_.ConvertToCpp(*value);
+        return &storage_;
+    }
+
+    void Sync() noexcept
+    {
+        if (abi_argument_ != nullptr)
+            *abi_argument_ = value_marshaller_.ConvertToAbi(storage_);
+    }
+
+private:
+    value_marshaller_type value_marshaller_;
+    value_abi_type abi_storage_{};
+    abi_type abi_argument_{};
+    TValue storage_{};
+};
+
 template <class TSignature>
 struct [[sharpcpp::managed_type(callback = true)]] Marshaller<std::function<TSignature>>
     : ManagedCallbackMarshallerBase<std::function<TSignature>, TSignature>
@@ -1379,6 +1516,15 @@ struct Marshaller<T&>
         value_abi_type*,
         std::conditional_t<std::is_pointer_v<value_abi_type>, value_abi_type, value_abi_type*>>;
 
+    static_assert(
+        detail::is_default_marshaller_v<Marshaller<T>> ||
+        std::is_pointer_v<value_abi_type> ||
+        detail::is_layout_compatible_pair_v<T, value_abi_type>,
+        "Marshaller<T&> reinterpret_casts &value from T* to Marshaller<T>::abi_type*, which is "
+        "only safe when the two layouts match. Marshaller<T> is a custom marshaller whose "
+        "abi_type does not provably match T's layout here. Specialize Marshaller<T&> for T using "
+        "ProjectedValueReferenceMarshallerBase, or ignore this member in the generator.");
+
     constexpr abi_type ConvertToAbi(cpp_type value) noexcept
     {
         return reinterpret_cast<abi_type>(std::addressof(value));
@@ -1402,6 +1548,16 @@ struct Marshaller<const T&>
             std::is_pointer_v<value_abi_type>,
             std::add_pointer_t<std::add_const_t<std::remove_pointer_t<value_abi_type>>>,
             std::add_pointer_t<std::add_const_t<value_abi_type>>>>;
+
+    static_assert(
+        detail::is_default_marshaller_v<Marshaller<T>> ||
+        std::is_pointer_v<value_abi_type> ||
+        detail::is_layout_compatible_pair_v<T, value_abi_type>,
+        "Marshaller<const T&> reinterpret_casts &value from const T* to "
+        "const Marshaller<T>::abi_type*, which is only safe when the two layouts match. "
+        "Marshaller<T> is a custom marshaller whose abi_type does not provably match T's layout "
+        "here. Specialize Marshaller<const T&> for T using "
+        "ProjectedValueConstReferenceMarshallerBase, or ignore this member in the generator.");
 
     constexpr abi_type ConvertToAbi(cpp_type value) noexcept
     {
@@ -1451,6 +1607,18 @@ struct Marshaller<T*>
         value_abi_type*,
         std::conditional_t<std::is_pointer_v<value_abi_type>, value_abi_type, value_abi_type*>>;
 
+    static_assert(
+        detail::is_default_marshaller_v<Marshaller<T>> ||
+        std::is_pointer_v<value_abi_type> ||
+        detail::is_layout_compatible_pair_v<T, value_abi_type>,
+        "Marshaller<T*> reinterpret_casts a T* to Marshaller<T>::abi_type*, which is only safe "
+        "when the two layouts match (and is wrong for an array of more than one element even "
+        "when they do). Marshaller<T> is a custom marshaller whose abi_type does not provably "
+        "match T's layout here. Specialize Marshaller<T*> for T using "
+        "ProjectedValuePointerMarshallerBase (single element) or ignore this member in the "
+        "generator (e.g. when it is really an array and the collection overload should be used "
+        "instead).");
+
     constexpr abi_type ConvertToAbi(cpp_type value) noexcept
     {
         return reinterpret_cast<abi_type>(value);
@@ -1472,6 +1640,18 @@ struct Marshaller<const T*>
         std::is_pointer_v<value_abi_type>,
         std::add_pointer_t<std::add_const_t<std::remove_pointer_t<value_abi_type>>>,
         std::add_pointer_t<std::add_const_t<value_abi_type>>>;
+
+    static_assert(
+        detail::is_default_marshaller_v<Marshaller<T>> ||
+        std::is_pointer_v<value_abi_type> ||
+        detail::is_layout_compatible_pair_v<T, value_abi_type>,
+        "Marshaller<const T*> reinterpret_casts a const T* to const Marshaller<T>::abi_type*, "
+        "which is only safe when the two layouts match (and is wrong for an array of more than "
+        "one element even when they do). Marshaller<T> is a custom marshaller whose abi_type "
+        "does not provably match T's layout here. Specialize Marshaller<const T*> for T using "
+        "ProjectedValueConstPointerMarshallerBase (single element) or ignore this member in the "
+        "generator (e.g. when it is really an array and the collection overload should be used "
+        "instead).");
 
     constexpr abi_type ConvertToAbi(cpp_type value) noexcept
     {
