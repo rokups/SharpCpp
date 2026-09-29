@@ -3335,7 +3335,13 @@ public sealed partial class ClangSharpHeaderParser
             var normalizedTypeName = NormalizeTypeName(type.Spelling.ToString());
             // An explicit out/ref writes the pointee, as for every other pointer; a configured
             // pointer token (a byte buffer as IntPtr) describes the pointer itself.
-            if (TryGetManagedTypeOverride(normalizedTypeName, normalizedTypeName, normalizedTypeName, managedTypeOverrides, isReturn: false, out var pointerOverride) &&
+            // A record pointee declared in a namespace but spelled unqualified ("Vec3 *") is
+            // keyed by its qualified canonical spelling ("JPH::Vec3*"). Only record pointees
+            // use it: canonicalizing scalar typedefs would widen the match to unrelated overrides.
+            var qualifiedPointerTypeName = TypeIsRecord(normalizedType.PointeeType.CanonicalType)
+                ? NormalizeTypeName(normalizedType.Spelling.ToString())
+                : normalizedTypeName;
+            if (TryGetManagedTypeOverride(normalizedTypeName, normalizedTypeName, qualifiedPointerTypeName, managedTypeOverrides, isReturn: false, out var pointerOverride) &&
                 (pointerOverride!.ByReference || explicitDirection is not (BindingParameterDirection.Out or BindingParameterDirection.Ref)))
             {
                 // out/ref modifiers already pass a by-reference projection by address; an
@@ -3695,6 +3701,15 @@ public sealed partial class ClangSharpHeaderParser
         // spelled name already contains :: — because for canonical types
         // the AST cursor gives the template name, not the typedef.
         var qualifiedSpelledTypeName = GetQualifiedTypeName(type, spelledTypeName);
+        // A pointer to a record spelled unqualified ("Vec3 *") is keyed by its qualified
+        // canonical spelling ("JPH::Vec3*"); other pointee kinds keep their spelled names.
+        if (TypeIsPointer(normalizedType) && TypeIsRecord(normalizedType.PointeeType.CanonicalType))
+        {
+            qualifiedSpelledTypeName = NormalizeTypeName(normalizedType.Spelling.ToString());
+            // The generated C++ wrapper spells the parameter with this name, so it must be
+            // valid outside the header's namespace as well.
+            surfaceCppTypeName = qualifiedSpelledTypeName;
+        }
 
         if (normalizedType.kind == CXTypeKind.CXType_ConstantArray)
         {

@@ -115,6 +115,15 @@ public static class MarshallerMetadataPhase2
                 continue;
             }
 
+            // A span projection over `T*` describes a pointer parameter, not the record `T`
+            // itself; applying it here would make the record's managed type a Span.
+            if (cppTypeName.TrimEnd().EndsWith('*') &&
+                config.ManagedMarshaller is { } spanMarshaller &&
+                spanMarshaller.Contains("SpanAbiMarshaller<", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
             var recordName = GetTargetRecordName(cppTypeName);
             if (string.IsNullOrWhiteSpace(recordName))
             {
@@ -1164,6 +1173,12 @@ public static class MarshallerMetadataPhase2
         }
 
         if (isNestedGenericArgument && !string.IsNullOrWhiteSpace(type.MarshallerTypeName))
+        {
+            return type;
+        }
+
+        // A span projection is a ref struct; an alias names a value type, never a span.
+        if (type.Marshaller.IsRefStruct)
         {
             return type;
         }
