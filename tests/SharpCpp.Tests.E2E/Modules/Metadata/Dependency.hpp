@@ -382,5 +382,39 @@ struct dependency_leveled : dependency_value, dependency_level_source
     {
     }
 };
+/// Secondary-view base whose non-virtual accessors become properties: I{Record} still
+/// declares them as methods, so the class satisfies them with explicit forwarders.
+struct dependency_tag_source
+{
+    virtual ~dependency_tag_source() = default;
+    int get_tag() const { return tag_; }
+    void set_tag(int value) { tag_ = value; }
+    bool is_marked() const { return tag_ != 0; }
+
+protected:
+    int tag_{};
+};
+
+/// Secondary-view base that inherits its accessor properties through the primary chain.
+struct dependency_tag_reader : dependency_tag_source
+{
+    int doubled_tag() const { return tag_ * 2; }
+};
+
+struct dependency_tagged : dependency_value, dependency_tag_source
+{
+    dependency_tagged()
+        : dependency_value(0, dependency_state::idle)
+    {
+    }
+};
+
+struct dependency_tag_reading : dependency_value, dependency_tag_reader
+{
+    dependency_tag_reading()
+        : dependency_value(0, dependency_state::idle)
+    {
+    }
+};
 }
 

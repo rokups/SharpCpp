@@ -1097,6 +1097,9 @@ public static partial class BindingOutputRenderer
             : $"ret_t<{cppReturnTypeName}>";
     }
 
+    private static string GetNativeDirectorTypeIdEntryPoint(BindingCompilation compilation, RecordBinding record)
+        => $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}_director_type_id";
+
     private static string GetNativeDirectorClassName(RecordBinding record)
     {
         return $"__{SanitizeNativeEntrypointName(record.CppQualifiedName)}_director";
@@ -2888,6 +2891,11 @@ public static partial class BindingOutputRenderer
     private static string FormatQualifiedRecordTypeName(BindingCompilation compilation, BindingType type, bool publicSurface)
     {
         var record = ResolveRecord(compilation, type);
+        if (publicSurface && type.Marshaller.ManagedIsSecondaryBaseView && record is not null)
+        {
+            return GetManagedInterfaceTypeName(compilation, record, type);
+        }
+
         if (record is null)
         {
             return FormatConfiguredManagedTypeName(type, compilation, publicSurface);
@@ -3197,6 +3205,14 @@ public static partial class BindingOutputRenderer
             pinvokeDeclarations.Add(RenderManagedStaticTypeIdImportDeclaration(compilation, record));
             pinvokeDeclarations.Add(RenderManagedNativeObjectMetadataImportDeclaration(compilation, record));
         }
+        var secondaryBaseViews = GetSecondaryBaseViewClosure(compilation, record);
+        foreach (var view in secondaryBaseViews.Where(view => !ReferenceEquals(view, record)))
+        {
+            pinvokeDeclarations.Add($$"""
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetSecondaryBaseViewEntryPoint(compilation, record, view)}}")]
+                internal static partial nint {{GetSecondaryBaseViewCastName(view)}}(nint self);
+                """);
+        }
         if (requiresDirector)
         {
             pinvokeDeclarations.Add(RenderManagedConnectDirectorImportDeclaration(compilation, record, virtualSlots));
@@ -3233,6 +3249,10 @@ public static partial class BindingOutputRenderer
                 : QualifyRecordTypeName(compilation, record.ManagedBaseTypeName)
         };
         baseTypes.AddRange(interfaceNames);
+        if (IsSecondaryBaseViewRecord(record))
+        {
+            baseTypes.Add(GetManagedInterfaceTypeName(compilation, record, null!));
+        }
         if (canEmitClone)
         {
             baseTypes.Add(ICloneableFullName);
@@ -3264,6 +3284,8 @@ public static partial class BindingOutputRenderer
             return ({{record.ManagedName}})global::SharpCpp.Support.NativeObjectRegistry.Create<{{record.ManagedName}}>(handle, ownsHandle);
             }
             """);
+
+        writer.Write(RenderSecondaryBaseViewMembers(compilation, record, secondaryBaseViews));
 
         if (TryGetNativeInterfaceQuery(record, out nativeInterfaceQuery))
         {
@@ -5084,6 +5106,15 @@ public static partial class BindingOutputRenderer
             {
             """);
 
+        if (IsSecondaryBaseViewRecord(record))
+        {
+            writer.WriteLine();
+            writer.Write($$"""
+                [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
+                nint {{GetSecondaryBaseViewAccessorName(record)}}();
+                """);
+        }
+
         foreach (var method in record.GetRenderableInterfaceMethods(compilation).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
             writer.WriteLine();
@@ -6020,6 +6051,17 @@ public static partial class BindingOutputRenderer
                 writer.Write(RenderNativeConnectDirector(compilation, record, record.GetEffectiveVirtualMethodSlots(compilation)));
             }
 
+            foreach (var view in GetSecondaryBaseViewClosure(compilation, record).Where(view => !ReferenceEquals(view, record)))
+            {
+                writer.WriteLine();
+                writer.Write($$"""
+                    SHARPCPP_EXPORT ret_t<void*> {{GetSecondaryBaseViewEntryPoint(compilation, record, view)}}(arg_t<{{record.CppQualifiedName}}*> self)
+                    {
+                        return static_cast<{{view.CppQualifiedName}}*>(self);
+                    }
+                    """);
+            }
+
             if (!record.IsPolymorphic || IsNativeInterfaceWrapper(record))
             {
                 continue;
@@ -6032,6 +6074,19 @@ public static partial class BindingOutputRenderer
                 return typeid({{record.CppQualifiedName}}).hash_code();
                 }
                 """);
+
+            if (record.RequiresDirector(compilation))
+            {
+                // A director-constructed object's dynamic type is the native director class; its
+                // type id is registered as an alias of the record's wrapper registration.
+                writer.WriteLine();
+                writer.Write($$"""
+                    SHARPCPP_EXPORT ret_t<std::size_t> {{GetNativeDirectorTypeIdEntryPoint(compilation, record)}}()
+                    {
+                    return typeid({{GetNativeDirectorClassName(record)}}).hash_code();
+                    }
+                    """);
+            }
 
             writer.WriteLine();
             writer.Write($$"""
@@ -6296,6 +6351,7 @@ public static partial class BindingOutputRenderer
     private static bool CanUseManagedHandleReturnMarshaller(BindingCompilation compilation, BindingType type)
     {
         if (type.IsFixedArray ||
+            type.Marshaller.ManagedIsSecondaryBaseView ||
             HasNativeNonTypeTemplateArguments(type) ||
             type.Kind != BindingTypeKind.Handle)
         {
@@ -6449,6 +6505,7 @@ public static partial class BindingOutputRenderer
     private static bool CanUseManagedHandleParameterImport(BindingCompilation compilation, ParameterBinding parameter, BindingType type)
     {
         if (type.Kind != BindingTypeKind.Handle ||
+            type.Marshaller.ManagedIsSecondaryBaseView ||
             IsRawPointerHandle(type) ||
             parameter.Direction is BindingParameterDirection.Ref or BindingParameterDirection.Out)
         {
@@ -7072,7 +7129,9 @@ public static partial class BindingOutputRenderer
         }
 
         var valueExpression = requiresWrapping
-            ? $"global::SharpCpp.Support.NativeObject.GetHandle({parameter.ManagedName})"
+            ? parameter.Type.Marshaller.ManagedIsSecondaryBaseView && ResolveRecord(compilation, parameter.Type) is { } viewRecord
+                ? $"({parameter.ManagedName} is null ? (nint)0 : {parameter.ManagedName}.{GetSecondaryBaseViewAccessorName(viewRecord)}())"
+                : $"global::SharpCpp.Support.NativeObject.GetHandle({parameter.ManagedName})"
             : parameter.ManagedName;
 
         if (!requiresWrapping)
@@ -7526,6 +7585,11 @@ public static partial class BindingOutputRenderer
     private static string BuildManagedHandleWrap(BindingCompilation compilation, BindingType type, string handleExpression, bool ownsHandle)
     {
         var record = ResolveRecord(compilation, type);
+        if (record is not null && type.Marshaller.ManagedIsSecondaryBaseView)
+        {
+            return $"{FormatQualifiedRecordTypeName(compilation, type, publicSurface: false)}.__CreateI{record.ManagedName}View({handleExpression}, ownsHandle: {ownsHandle.ToString().ToLowerInvariant()})";
+        }
+
         if (record is not null)
         {
             var moduleArgument = GetSharedManagedProviderModuleArgument(compilation, record);
@@ -7588,17 +7652,19 @@ public static partial class BindingOutputRenderer
 
     private static string RenderNativeObjectRegistryInitializer(BindingCompilation compilation, IReadOnlyList<RecordBinding> records)
     {
+        var orderedRecords = records.OrderBy(static record => record.ManagedName, StringComparer.Ordinal).ToArray();
+        var directorRecords = orderedRecords.Where(record => record.RequiresDirector(compilation)).ToArray();
         var writer = new CodeWriter();
         writer.Write(
             """
-            internal static class __NativeObjectRegistryInitializer
+            internal static partial class __NativeObjectRegistryInitializer
             {
             [global::System.Runtime.CompilerServices.ModuleInitializer]
             internal static void RegisterAll()
             {
             """);
 
-        foreach (var record in records.OrderBy(static record => record.ManagedName, StringComparer.Ordinal))
+        foreach (var record in orderedRecords)
         {
             var qualifiedRecordTypeName = FormatQualifiedRecordTypeName(compilation, record.HandleType, publicSurface: false);
             writer.Write($$"""
@@ -7606,13 +7672,39 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
+        // A director-constructed object reports the native director class as its dynamic type;
+        // aliasing that id to the record's registration keeps the lookup O(1) per query.
+        foreach (var record in directorRecords)
+        {
+            var qualifiedRecordTypeName = FormatQualifiedRecordTypeName(compilation, record.HandleType, publicSurface: false);
+            writer.Write($$"""
+                global::SharpCpp.Support.NativeObjectRegistry.RegisterTypeAlias<{{qualifiedRecordTypeName}}>({{GetManagedDirectorTypeIdImportName(record)}}());
+                """);
+        }
+
         writer.Write(
             """
             }
+            """);
+
+        foreach (var record in directorRecords)
+        {
+            writer.WriteLine();
+            writer.Write($$"""
+                [global::System.Runtime.InteropServices.LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetNativeDirectorTypeIdEntryPoint(compilation, record)}}")]
+                private static partial nuint {{GetManagedDirectorTypeIdImportName(record)}}();
+                """);
+        }
+
+        writer.Write(
+            """
             }
             """);
         return writer.ToString();
     }
+
+    private static string GetManagedDirectorTypeIdImportName(RecordBinding record)
+        => $"__{SanitizeNativeEntrypointName(record.CppQualifiedName)}_DirectorTypeId";
 
 
     private static string GetManagedImportMethodName(FunctionBinding function)
@@ -7957,6 +8049,128 @@ public static partial class BindingOutputRenderer
         return record.IsAbstract ||
             virtualSlots.Any(static slot => IsManagedAbstractMethod(slot.Method)) ||
             HasUnimplementedManagedAbstractBaseMethods(compilation, record);
+    }
+
+    private static bool IsSecondaryBaseViewRecord(RecordBinding record)
+        => record.GetMetadata<bool>(MetadataKeys.SecondaryBaseView);
+
+    private static string GetSecondaryBaseViewAccessorName(RecordBinding view)
+        => $"__SharpCppGet{view.ManagedName}Handle";
+
+    private static string GetSecondaryBaseViewCastName(RecordBinding view)
+        => $"__As_{SanitizeNativeEntrypointName(view.CppQualifiedName)}";
+
+    private static string GetSecondaryBaseViewEntryPoint(BindingCompilation compilation, RecordBinding record, RecordBinding view)
+        => $"{compilation.EntryPointPrefix}_{SanitizeNativeEntrypointName(record.CppQualifiedName)}__as_{SanitizeNativeEntrypointName(view.CppQualifiedName)}";
+
+    /// <summary>
+    /// The secondary-base views a record implements itself: its own (when it is a view base)
+    /// and every view reached through the interfaces it lists. Each needs an explicit accessor
+    /// returning the base subobject pointer.
+    /// </summary>
+    private static IReadOnlyList<RecordBinding> GetSecondaryBaseViewClosure(BindingCompilation compilation, RecordBinding record)
+    {
+        var views = new List<RecordBinding>();
+        var visited = new HashSet<string>(StringComparer.Ordinal) { record.SymbolId };
+        if (IsSecondaryBaseViewRecord(record))
+        {
+            views.Add(record);
+        }
+
+        var pending = new Stack<RecordBinding>(GetManagedInterfaceBaseBindings(compilation, record)
+            .Where(pair => !pair.Record.IsIgnored() && pair.Record.GetRenderableInterfaceMethods(compilation).Count > 0)
+            .Select(static pair => pair.Record));
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            if (!visited.Add(current.SymbolId))
+            {
+                continue;
+            }
+
+            if (IsSecondaryBaseViewRecord(current))
+            {
+                views.Add(current);
+            }
+
+            foreach (var next in current.GetManagedInterfaceBaseRecords(compilation))
+            {
+                pending.Push(next);
+            }
+        }
+
+        return views;
+    }
+
+    private static string RenderSecondaryBaseViewMembers(BindingCompilation compilation, RecordBinding record, IReadOnlyList<RecordBinding> views)
+    {
+        if (views.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var writer = new CodeWriter();
+        foreach (var view in views)
+        {
+            var interfaceName = GetManagedInterfaceTypeName(compilation, view, null!);
+            var handleExpression = ReferenceEquals(view, record)
+                ? "global::SharpCpp.Support.NativeObject.GetHandle(this)"
+                : $"__PInvoke.{GetSecondaryBaseViewCastName(view)}(global::SharpCpp.Support.NativeObject.GetHandle(this))";
+            writer.WriteLine();
+            writer.Write($$"""
+                nint {{interfaceName}}.{{GetSecondaryBaseViewAccessorName(view)}}() => {{handleExpression}};
+                """);
+        }
+
+        if (IsSecondaryBaseViewRecord(record))
+        {
+            var interfaceName = GetManagedInterfaceTypeName(compilation, record, null!);
+            writer.WriteLine();
+            writer.Write($$"""
+                [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
+                public static {{interfaceName}} __CreateI{{record.ManagedName}}View(nint handle, bool ownsHandle)
+                    => handle == 0 ? null! : ({{interfaceName}})global::SharpCpp.Support.NativeObjectRegistry.CreateView<{{record.ManagedName}}>(handle, ownsHandle, typeof({{interfaceName}}));
+                """);
+            WriteSecondaryBaseViewAccessorForwarders(writer, compilation, record, interfaceName);
+        }
+
+        return writer.ToString();
+    }
+
+    // I{Record} declares every renderable method as a plain method, but the class exposes
+    // accessor-promoted getters/setters (its own or inherited through the primary chain) only
+    // as properties. Satisfy the interface with explicit implementations forwarding to them.
+    private static void WriteSecondaryBaseViewAccessorForwarders(CodeWriter writer, BindingCompilation compilation, RecordBinding record, string interfaceName)
+    {
+        var classChain = new HashSet<RecordBinding>(ReferenceEqualityComparer.Instance) { record };
+        for (var primaryBase = record.GetPrimaryBaseRecord(compilation); IsRenderedPrimaryBase(primaryBase); primaryBase = primaryBase!.GetPrimaryBaseRecord(compilation))
+        {
+            classChain.Add(primaryBase!);
+        }
+
+        foreach (var method in record.GetRenderableInterfaceMethods(compilation).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
+        {
+            var accessor = method.GetMetadata<AccessorPropertyAnnotation>(MetadataKeys.AccessorProperty);
+            if (accessor is null || !classChain.Contains(method.FindOwningRecord()!))
+            {
+                continue;
+            }
+
+            writer.WriteLine();
+            if (accessor.Kind == AccessorPropertyKind.Getter)
+            {
+                writer.Write($$"""
+                    {{GetManagedPublicReturnTypeName(method.ReturnType, compilation)}} {{interfaceName}}.{{method.ManagedName}}() => this.{{accessor.PropertyName}};
+                    """);
+            }
+            else
+            {
+                var parameter = method.Parameters[0];
+                writer.Write($$"""
+                    void {{interfaceName}}.{{method.ManagedName}}({{RenderManagedPublicParameterNoDefault(parameter, compilation)}}) => this.{{accessor.PropertyName}} = {{parameter.ManagedName}};
+                    """);
+            }
+        }
     }
 
     private static bool IsNativeInterfaceWrapper(RecordBinding record)

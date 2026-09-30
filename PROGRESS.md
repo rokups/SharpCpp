@@ -43,8 +43,17 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   records, records whose managed base is not rendered here, records that inherit abstract
   members from a director base, and pure virtuals that are operators, accessor properties,
   generic methods, or take pointer-array, undefaultable or native-default-dispatch parameters.
-- Secondary-base parameters and returns cannot take or produce a derived wrapper (C#
-  single inheritance).
+- Secondary-base pointer/reference parameters take the `I{Base}` view and polymorphic
+  secondary-base pointer returns resolve to the most derived wrapper. What remains
+  class-typed: by-value parameters, returns of non-polymorphic secondary bases, virtual
+  methods, constructors, operators and accessor properties. Secondary bases that are generic,
+  shared from another module, native interface wrappers, have no rendered interface members, or
+  are reached by a non-plain record or through an ambiguous path also stay class-typed (logged
+  as a warning on the base record). Objects constructed from managed code resolve through their
+  director class's type id, registered as an alias of the record's wrapper (abstract director
+  records have no registration, so their secondary-base returns still get a base wrapper). A
+  secondary base that has its own secondary base with an interface fails to compile (CS0108:
+  the interface redeclares the inherited base-interface methods; predates the view work).
 - Open containers of a template parameter (`std::vector<T>` in a generic member) are not
   bound; such fields are reported instead of leaking an open type.
 - Fields of class templates are bound per instantiation only as public, non-static value

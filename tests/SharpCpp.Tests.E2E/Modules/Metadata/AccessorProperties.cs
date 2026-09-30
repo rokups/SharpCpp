@@ -39,4 +39,33 @@ public sealed class AccessorPropertyTests
         Assert.Equal(6, leveled.GetLevel());
         Assert.Null(typeof(DependencyLeveled).GetProperty("Level"));
     }
+    [Fact]
+    public void Secondary_view_interfaces_forward_accessor_methods_to_promoted_properties()
+    {
+        using var source = new DependencyTagSource { Tag = 4 };
+        IDependencyTagSource view = source;
+        Assert.Equal(4, view.GetTag());
+        view.SetTag(7);
+        Assert.Equal(7, source.Tag);
+        Assert.True(view.IsMarked());
+        Assert.Null(typeof(DependencyTagSource).GetMethod("GetTag"));
+
+        using var tagged = new DependencyTagged();
+        IDependencyTagSource taggedView = tagged;
+        taggedView.SetTag(3);
+        Assert.Equal(3, taggedView.GetTag());
+
+        using var reader = new DependencyTagReader();
+        IDependencyTagReader readerView = reader;
+        readerView.SetTag(5);
+        Assert.Equal(5, reader.Tag);
+        Assert.Equal(5, readerView.GetTag());
+        Assert.True(readerView.IsMarked());
+        Assert.Equal(10, readerView.DoubledTag());
+
+        using var reading = new DependencyTagReading();
+        IDependencyTagReader readingView = reading;
+        readingView.SetTag(2);
+        Assert.Equal(4, readingView.DoubledTag());
+    }
 }

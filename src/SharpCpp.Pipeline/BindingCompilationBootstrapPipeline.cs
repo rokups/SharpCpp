@@ -63,6 +63,10 @@ public static class BindingCompilationBootstrapPipeline
         // that nothing refers to is dropped along with its providers and exports.
         RunTimed("SilentlyExcludeUnusedSharedWrappers", () => SilentlyExcludeUnusedSharedWrappersPass.Apply(compilation));
 
+        // Needs the final surface: which secondary bases keep a rendered interface decides
+        // whether SecondaryBase* parameters and returns can be typed as that interface.
+        RunTimed("SecondaryBaseView", () => SecondaryBaseViewPass.Apply(compilation));
+
         // Invalidate cached member lookups so rendering picks up any members
         // added by pipeline passes (MI projections, generic instantiations, etc.)
         compilation.InvalidateCaches();

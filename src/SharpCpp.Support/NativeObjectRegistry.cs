@@ -22,6 +22,24 @@ public abstract class NativeObjectRegistry
     /// <exception cref="InvalidOperationException">Thrown when <c>T.RegistrationCreateFactory</c> is <see langword="null"/>.</exception>
     public static void RegisterType<T>()
         where T : NativeObject, INativeObjectRegistration<T>
+        => RegisterTypeCore<T>(T.RegistrationDynamicTypeId);
+
+    /// <summary>
+    /// Registers an additional native dynamic type ID that resolves to <typeparamref name="T"/>'s
+    /// registration (expected type, factory and instance cache). Generated code aliases the native
+    /// director class of <typeparamref name="T"/>, which is the dynamic type of every object
+    /// constructed from managed code, so a base pointer to such an object resolves to its live
+    /// wrapper with a single lookup.
+    /// </summary>
+    /// <typeparam name="T">The wrapper type the alias resolves to.</typeparam>
+    /// <param name="aliasTypeId">The additional C++ runtime type identifier.</param>
+    /// <exception cref="InvalidOperationException">Thrown when <c>T.RegistrationCreateFactory</c> is <see langword="null"/>.</exception>
+    public static void RegisterTypeAlias<T>(nuint aliasTypeId)
+        where T : NativeObject, INativeObjectRegistration<T>
+        => RegisterTypeCore<T>(aliasTypeId);
+
+    private static void RegisterTypeCore<T>(nuint dynamicTypeId)
+        where T : NativeObject, INativeObjectRegistration<T>
     {
         if (!T.RegistrationIsPolymorphic)
         {
@@ -31,7 +49,7 @@ public abstract class NativeObjectRegistry
         var createFactory = T.RegistrationCreateFactory
             ?? throw new InvalidOperationException($"No managed wrapper factory is registered for '{typeof(T).FullName}'.");
 
-        RegisterType(T.RegistrationDynamicTypeId, T.RegistrationExpectedType, createFactory, T.RegistrationInstanceCache);
+        RegisterType(dynamicTypeId, T.RegistrationExpectedType, createFactory, T.RegistrationInstanceCache);
     }
 
     public static void RegisterInstance<T>(T instance)
@@ -77,6 +95,38 @@ public abstract class NativeObjectRegistry
         bool ownsHandle)
         where T : NativeObject, INativeObjectRegistration<T>
     {
+        return CreateCore<T>(handle, ownsHandle, typeof(T));
+    }
+
+    /// <summary>
+    /// Creates or retrieves a wrapper for a native object seen through a secondary base.
+    /// The most derived registered wrapper stands for the object when it implements
+    /// <paramref name="viewType"/> (the secondary base's managed interface); the cache
+    /// identity is then the complete object, so the same C# instance is returned whether
+    /// the object was reached through its primary or a secondary base pointer. Otherwise
+    /// the <typeparamref name="T"/> wrapper is created over the subobject pointer.
+    /// </summary>
+    /// <typeparam name="T">The secondary base wrapper type.</typeparam>
+    /// <param name="handle">The native pointer to the secondary base subobject.</param>
+    /// <param name="ownsHandle">Whether the wrapper should own the native handle.</param>
+    /// <param name="viewType">The managed interface every acceptable wrapper implements.</param>
+    /// <returns>A managed wrapper instance for the native object.</returns>
+    public static NativeObject CreateView<T>(
+        nint handle,
+        bool ownsHandle,
+        Type viewType)
+        where T : NativeObject, INativeObjectRegistration<T>
+    {
+        ArgumentNullException.ThrowIfNull(viewType);
+        return CreateCore<T>(handle, ownsHandle, viewType);
+    }
+
+    private static NativeObject CreateCore<T>(
+        nint handle,
+        bool ownsHandle,
+        Type viewType)
+        where T : NativeObject, INativeObjectRegistration<T>
+    {
         if (handle == IntPtr.Zero)
         {
             return null!;
@@ -86,12 +136,12 @@ public abstract class NativeObjectRegistry
         var factory = T.RegistrationCreateFactory;
         if (T.RegistrationIsPolymorphic)
         {
-            // The most derived wrapper stands for the object only when it is a T. A secondary
-            // base whose most derived wrapper is not a T (C# single inheritance) keeps its own
-            // wrapper over the subobject pointer it was given.
+            // The most derived wrapper stands for the object only when it is a viewType (T, or
+            // the interface of a secondary base T). A secondary base whose most derived wrapper
+            // does not implement the view keeps its own wrapper over the subobject pointer.
             var metadata = T.RegistrationGetMetadata(handle).Normalize(handle);
             if (s_types.TryGetValue(metadata.DynamicTypeId, out var registeredType) &&
-                registeredType.ExpectedType.IsAssignableTo(typeof(T)))
+                registeredType.ExpectedType.IsAssignableTo(viewType))
             {
                 instanceCache = registeredType.InstanceCache;
                 factory = registeredType.CreateFactory;

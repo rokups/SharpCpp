@@ -14,6 +14,10 @@ public static class MetadataKeys
     public const string AccessorProperty = "accessor_property";
     public const string IgnoreReason = "ignore_reason";
     public const string SilentExclusion = "silent_exclusion";
+
+    // Set on a secondary-base record whose managed interface carries a hidden handle accessor,
+    // so SecondaryBase* parameters and returns can be typed as that interface.
+    public const string SecondaryBaseView = "secondary_base_view";
     public const string Warnings = "warnings";
     public const string DocumentationComment = "documentation_comment";
     public const string DeclarationDisplayText = "declaration_display_text";

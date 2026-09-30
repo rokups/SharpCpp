@@ -40,6 +40,10 @@ public sealed record MarshallerDescriptor(
     public bool CppPointerIsRecordValueProjection { get; init; }
     public bool CppIsReference { get; init; }
 
+    // A secondary-base pointer or reference parameter/return typed as the base's managed
+    // interface (I{Base}); set by SecondaryBaseViewPass.
+    public bool ManagedIsSecondaryBaseView { get; init; }
+
     public bool IsRefStruct => IsRefStructTypeName(PublicTypeName);
 
     // A projected-value array (Span<T>/ReadOnlySpan<T> over SpanAbiMarshaller<>/
@@ -584,6 +588,13 @@ public sealed class BindingType
         if (Marshaller.CppIsReference == value)
             return this;
         return CopyWithMarshaller(Marshaller with { CppIsReference = value });
+    }
+
+    public BindingType WithSecondaryBaseView(bool value)
+    {
+        if (Marshaller.ManagedIsSecondaryBaseView == value)
+            return this;
+        return CopyWithMarshaller(Marshaller with { ManagedIsSecondaryBaseView = value });
     }
 
     private BindingType CopyWithMarshaller(MarshallerDescriptor marshaller)
