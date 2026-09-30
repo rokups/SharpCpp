@@ -1,5 +1,8 @@
 #pragma once
 
+#include <functional>
+#include <vector>
+
 #define E2E_UNSUPPORTED_DEFAULT_SINGLE 42.0f
 #define E2E_UNSUPPORTED_DEFAULT_A 10.0f
 #define E2E_UNSUPPORTED_DEFAULT_B 20.0f
@@ -182,3 +185,51 @@ struct unsupported_default_enum_box
 private:
     unsupported_default_mode mode_{};
 };
+
+struct unsupported_default_item
+{
+    int value{};
+};
+
+using unsupported_default_callback = std::function<int(int)>;
+
+/// Pointer-to-record default null followed by a callback default C# cannot express.
+inline int unsupported_default_record_pointer_then_callback(
+    int seed,
+    const unsupported_default_item* item = nullptr,
+    const unsupported_default_callback& callback = {})
+{
+    const auto base = seed + (item == nullptr ? -1 : item->value);
+    return callback ? callback(base) : base;
+}
+
+inline int unsupported_default_vector_pointer_then_callback(
+    int seed,
+    const std::vector<int>* values = nullptr,
+    const unsupported_default_callback& callback = {})
+{
+    const auto base = seed + (values == nullptr ? -1 : static_cast<int>(values->size()));
+    return callback ? callback(base) : base;
+}
+
+/// Two consecutive null-default record pointers followed by an unexpressible callback default.
+inline int unsupported_default_two_record_pointers_then_callback(
+    int seed,
+    const unsupported_default_item* a = nullptr,
+    const unsupported_default_item* b = nullptr,
+    const unsupported_default_callback& callback = {})
+{
+    const auto base = seed + (a == nullptr ? 0 : a->value * 10) + (b == nullptr ? 0 : b->value * 100);
+    return callback ? callback(base) : base;
+}
+
+/// A null-default callback followed by a null-default pointer and an unexpressible default.
+inline int unsupported_default_callback_then_pointer(
+    int seed,
+    std::function<int(int)> first = nullptr,
+    const unsupported_default_item* item = nullptr,
+    int tail = E2E_UNSUPPORTED_DEFAULT_OFFSET)
+{
+    const auto base = seed + (item == nullptr ? 0 : item->value * 10) + tail;
+    return first ? first(base) : base;
+}

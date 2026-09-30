@@ -6977,8 +6977,11 @@ public static partial class BindingOutputRenderer
             _ => string.Empty
         };
 
-        var isNullableManagedReferenceDefault = !forceRequired &&
-            IsNullableManagedReferenceDefaultParameter(parameter);
+        // A pointer whose native default is null stays nullable in required renderings (undefaultable
+        // overloads) so every overload of the function agrees on the parameter's nullability. The
+        // undefaultable parameter itself is excluded: it is rendered by its public marshalled type.
+        var isNullableManagedReferenceDefault = IsNullableManagedReferenceDefaultParameter(parameter) &&
+            (!forceRequired || !parameter.HasMetadata(MetadataKeys.UndefaultableParam));
 
         var typeName = (!forceRequired && parameter.HasMetadata(MetadataKeys.UnexpressibleDefault)) || isNullableManagedReferenceDefault
             ? $"{GetManagedPublicParameterTypeName(parameter, compilation)}?"
@@ -8600,6 +8603,30 @@ public static partial class BindingOutputRenderer
         return indices;
     }
 
+    /// <summary>
+    /// Native-default parameters that select a cascade branch. A pointer, callback or handle whose native
+    /// default is null and that is followed by another such parameter is not one of them: an explicit
+    /// managed null is the native default, so it is forwarded as-is and a later parameter can still be
+    /// supplied (a non-suffix combination would otherwise be unreachable).
+    /// </summary>
+    private static int[] GetCascadeDispatchParameterIndices(FunctionBinding function, int parameterCount)
+    {
+        var indices = GetNativeDefaultDispatchParameterIndices(function)
+            .Where(index => index < parameterCount)
+            .ToArray();
+        return indices
+            .Where((index, position) => position == indices.Length - 1 || !IsNullForwardingDefaultParameter(function.Parameters[index]))
+            .ToArray();
+    }
+
+    private static bool IsNullForwardingDefaultParameter(ParameterBinding parameter)
+    {
+        return !parameter.HasMetadata(MetadataKeys.UnexpressibleDefault) &&
+            !parameter.HasMetadata(MetadataKeys.UndefaultableParam) &&
+            parameter.ManagedDefaultValueExpression == "null" &&
+            IsNullableManagedReferenceDefaultParameter(parameter);
+    }
+
     private static IReadOnlyList<int> GetVariantParameterIndices(FunctionBinding function)
     {
         var indices = new HashSet<int>(GetNativeDefaultDispatchParameterIndices(function));
@@ -9460,9 +9487,7 @@ public static partial class BindingOutputRenderer
     private static void WriteUnexpressibleDefaultCascade(BindingCompilation compilation, CodeWriter writer, FunctionBinding function, string importMethodName, IReadOnlyList<string> leadingArguments, int? maxParameterCount = null)
     {
         var parameterCount = maxParameterCount ?? function.Parameters.Count;
-        var defaultIndices = GetNativeDefaultDispatchParameterIndices(function)
-            .Where(index => index < parameterCount)
-            .ToArray();
+        var defaultIndices = GetCascadeDispatchParameterIndices(function, parameterCount);
         var invocationPlan = BuildManagedInvocationPlan(compilation, GetUnexpressibleVariantParams(function, parameterCount));
         var fullImportName = parameterCount == function.Parameters.Count
             ? importMethodName
@@ -9551,9 +9576,7 @@ public static partial class BindingOutputRenderer
     private static void WriteUnexpressibleDefaultConstructorCascade(BindingCompilation compilation, CodeWriter writer, FunctionBinding function, string importMethodName, int? maxParameterCount = null)
     {
         var parameterCount = maxParameterCount ?? function.Parameters.Count;
-        var defaultIndices = GetNativeDefaultDispatchParameterIndices(function)
-            .Where(index => index < parameterCount)
-            .ToArray();
+        var defaultIndices = GetCascadeDispatchParameterIndices(function, parameterCount);
         var invocationPlan = BuildManagedInvocationPlan(compilation, GetUnexpressibleVariantParams(function, parameterCount));
         var fullImportName = parameterCount == function.Parameters.Count
             ? importMethodName
