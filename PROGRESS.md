@@ -46,8 +46,12 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
 - Secondary-base parameters and returns cannot take or produce a derived wrapper (C#
   single inheritance).
 - Open containers of a template parameter (`std::vector<T>` in a generic member) are not
-  bound.
-- Fields of type `T` in class templates are not bound.
+  bound; such fields are reported instead of leaking an open type.
+- Fields of class templates are bound per instantiation only as public, non-static value
+  members (no references, pointers, arrays or bitfields). If the template has an explicit
+  full specialization, all its fields are left unbound for every instantiation (reported,
+  naming the specializations), and primary-template methods still render against the
+  specialization.
 - Capacity/count functions with a record output buffer keep the single record handle
   signature (needed for polymorphic buffers with a larger element stride, such as OpenXR
   `XrSwapchainImageBaseHeader`) and also get a `NativeArray<T>` overload that checks the

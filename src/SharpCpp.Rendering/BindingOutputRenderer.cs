@@ -1387,9 +1387,15 @@ public static partial class BindingOutputRenderer
     private static NativeFieldInteropPlan CreateNativeFieldInteropPlan(BindingCompilation compilation, FieldBinding field)
     {
         var storageCppType = GetNativeFieldCppType(compilation, field);
-        var borrowsStorage = ShouldBorrowFieldStorage(compilation, field);
+        // A pure value projection (for example a generic field substituted with a
+        // suppress_emission value-marshalled record) round-trips as its blittable public
+        // struct, exactly like the same type on a non-generic field; it never borrows storage.
+        var projectsValue = IsValueProjectedHandleType(compilation, field.Type);
+        var borrowsStorage = !projectsValue && ShouldBorrowFieldStorage(compilation, field);
         var setterMode = borrowsStorage
             ? FieldSetterMode.BorrowedStorage
+            : projectsValue
+                ? FieldSetterMode.ProjectedValuePointer
             : field.Type.Kind == BindingTypeKind.Enum
                 ? FieldSetterMode.ValueAbi
             : field.Type.Kind == BindingTypeKind.Handle
@@ -5645,6 +5651,12 @@ public static partial class BindingOutputRenderer
                 {
                     writer.WriteLine();
                     writer.Write(RenderNativeGenericStaticMethod(record, method, instantiation));
+                }
+
+                foreach (var field in GetBindableGenericFields(record))
+                {
+                    writer.WriteLine();
+                    writer.Write(RenderNativeGenericField(compilation, record, field, instantiation));
                 }
 
                 if (CanEmitClone(record, record.IsEffectivelyAbstract || record.HasUnimplementedAbstractBaseMethods(compilation), canEmitDeleteThunk: true))

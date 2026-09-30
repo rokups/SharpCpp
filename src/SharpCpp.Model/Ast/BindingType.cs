@@ -222,6 +222,18 @@ public sealed class BindingType
 
     public bool ContainsGenericParameters => IsGenericParameter || GenericArguments.Any(static argument => argument.ContainsGenericParameters);
 
+    /// <summary>
+    /// A template parameter nested in another template (for example <c>std::vector&lt;T&gt;</c>
+    /// inside a class template) keeps Clang's canonical <c>type-parameter-D-I</c> spelling
+    /// instead of becoming a generic parameter. Such a type is still open.
+    /// </summary>
+    public bool ContainsDependentTemplateSpelling =>
+        CppTypeName.Contains(DependentTemplateParameterSpelling, StringComparison.Ordinal) ||
+        Marshaller.PublicTypeName.Contains(DependentTemplateParameterSpelling, StringComparison.Ordinal) ||
+        GenericArguments.Any(static argument => argument.ContainsDependentTemplateSpelling);
+
+    private const string DependentTemplateParameterSpelling = "type-parameter-";
+
     public bool IsPointerType => Kind == BindingTypeKind.Handle && string.IsNullOrEmpty(Marshaller.MarshallerTypeName);
 
     public bool HasUnresolvedManagedNamespaceSeparators => ContainsUnresolvedManagedNamespaceSeparators(this);

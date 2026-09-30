@@ -154,7 +154,8 @@ public static class BindingCompilationGenericInstantiationPass
         if (type.Kind != BindingTypeKind.Handle ||
             string.IsNullOrWhiteSpace(type.RecordId) ||
             type.GenericArguments.Count == 0 ||
-            type.ContainsGenericParameters)
+            type.ContainsGenericParameters ||
+            type.ContainsDependentTemplateSpelling)
         {
             return;
         }

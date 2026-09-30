@@ -596,9 +596,23 @@ public static class DegradeUnsupportedSurfacePass
         IReadOnlyDictionary<string, EnumBinding> enumsById,
         out string reason)
     {
-        if ((field.Parent as RecordBinding)?.IsGeneric == true)
+        if (field.Parent is RecordBinding { IsGeneric: true } genericRecord &&
+            !IsGenericRecordFieldShapeSupported(genericRecord, field))
         {
-            reason = "fields on generic records are not yet specialized by the native renderer";
+            reason = "fields on generic records are only bound as public, non-static, non-reference, non-pointer, non-array, non-bitfield value members";
+            return true;
+        }
+
+        if (field.Parent is RecordBinding { IsGeneric: true } && field.Type.ContainsDependentTemplateSpelling)
+        {
+            reason = "field type nests the record's template parameter inside another template that the parser left as an unresolved dependent type; its per-instantiation shape cannot be collected, so the field is not bound";
+            return true;
+        }
+
+        if (field.Parent is RecordBinding { IsGeneric: true } specializedRecord &&
+            specializedRecord.GetMetadata<string>(MetadataKeys.ExplicitFullSpecializations) is { Length: > 0 } specializations)
+        {
+            reason = $"the class template has explicit full specializations ({specializations}) whose members are independent of the primary template; primary-template field accessors would not match those instantiations, so the field is not bound";
             return true;
         }
 
@@ -635,6 +649,21 @@ public static class DegradeUnsupportedSurfacePass
         reason = string.Empty;
         return false;
     }
+
+    /// <summary>
+    /// Generic-record fields are rendered per instantiation through plain member access,
+    /// so only the simple value shape is supported; everything else keeps the record-level degrade.
+    /// </summary>
+    private static bool IsGenericRecordFieldShapeSupported(RecordBinding record, FieldBinding field) =>
+        !field.IsStatic &&
+        !field.IsReference &&
+        !field.IsPointer &&
+        !field.Type.IsFixedArray &&
+        field.AccessModifier == BindingAccessModifier.Public &&
+        !field.HasMetadata(MetadataKeys.BitField) &&
+        !field.HasMetadata(MetadataKeys.NativeFieldAccessExpression) &&
+        !field.HasMetadata(MetadataKeys.FunctionPointerField) &&
+        !record.HasMetadata(MetadataKeys.ManagedWrapperAssembly);
 
     /// <summary>
     /// Container marshallers expose members that take or return their element by value.

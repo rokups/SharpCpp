@@ -204,6 +204,12 @@ public static partial class BindingOutputRenderer
             writer.Write(RenderGenericManagedInstanceMethod(compilation, record, method, instantiations));
         }
 
+        foreach (var field in GetBindableGenericFields(record))
+        {
+            writer.WriteLine();
+            writer.Write(RenderGenericManagedFieldProperty(compilation, record, field, instantiations));
+        }
+
         foreach (var method in genericInstanceMethods)
         {
             writer.WriteLine();
@@ -287,6 +293,17 @@ public static partial class BindingOutputRenderer
             foreach (var instantiation in instantiations)
             {
                 yield return RenderGenericStaticImportDeclaration(compilation, record, method, instantiation);
+            }
+        }
+
+        foreach (var field in GetBindableGenericFields(record))
+        {
+            foreach (var instantiation in instantiations)
+            {
+                foreach (var declaration in RenderGenericFieldImportDeclarations(compilation, record, field, instantiation))
+                {
+                    yield return declaration;
+                }
             }
         }
 
@@ -4213,5 +4230,201 @@ public static partial class BindingOutputRenderer
             };
             {{dispatch}}
             """;
+    }
+
+    /// <summary>
+    /// Fields that survived the degrade pass on a generic record. Fields whose managed name
+    /// clashes with a method or other non-field member are skipped, like on non-generic records.
+    /// </summary>
+    private static FieldBinding[] GetBindableGenericFields(RecordBinding record) =>
+        record.Members.OfType<FieldBinding>()
+            .Where(field => !field.HasMetadata(MetadataKeys.IgnoreReason) &&
+                !record.HasOwnManagedNonFieldMemberNamed(field.ManagedName))
+            .ToArray();
+
+    /// <summary>
+    /// Builds the per-instantiation view of an open generic field so the non-generic field
+    /// interop helpers can render it unchanged.
+    /// </summary>
+    private static FieldBinding CreateConcreteGenericField(
+        RecordBinding record,
+        FieldBinding field,
+        RecordGenericInstantiationBinding instantiation,
+        bool useNativeArguments)
+    {
+        return new FieldBinding(
+            field.SymbolId,
+            field.NativeName,
+            field.ManagedName,
+            SubstituteGenericType(record, field.Type, instantiation, useNativeArguments: useNativeArguments),
+            SubstituteCppGenericParameters(field.CppTypeName, record.GenericParameters, GetNativeTypeArguments(instantiation)),
+            FormatConcreteRecordCppTypeName(record, instantiation),
+            field.IsReadOnly)
+        {
+            AccessModifier = field.AccessModifier,
+            ReturnsOwnedHandle = field.ReturnsOwnedHandle
+        };
+    }
+
+    private static string GetGenericFieldGetterEntryPointName(BindingCompilation compilation, RecordBinding record, FieldBinding field, RecordGenericInstantiationBinding instantiation) =>
+        $"{GetNativeFieldGetterEntrypointName(compilation, record.CppQualifiedName, field)}{GetGenericInstantiationSuffix(instantiation)}";
+
+    private static string GetGenericFieldSetterEntryPointName(BindingCompilation compilation, RecordBinding record, FieldBinding field, RecordGenericInstantiationBinding instantiation) =>
+        $"{GetNativeFieldSetterEntrypointName(compilation, record.CppQualifiedName, field)}{GetGenericInstantiationSuffix(instantiation)}";
+
+    private static string GetGenericFieldGetterImportMethodName(RecordBinding record, FieldBinding field, RecordGenericInstantiationBinding instantiation) =>
+        $"{SanitizeManagedToken(record.ManagedName)}_Get_{field.ManagedName}{GetGenericInstantiationSuffix(instantiation)}";
+
+    private static string GetGenericFieldSetterImportMethodName(RecordBinding record, FieldBinding field, RecordGenericInstantiationBinding instantiation) =>
+        $"{SanitizeManagedToken(record.ManagedName)}_Set_{field.ManagedName}{GetGenericInstantiationSuffix(instantiation)}";
+
+    private static ParameterBinding CreateGenericFieldSetterParameter(FieldBinding concreteField) =>
+        new(
+            $"field:set:{concreteField.NativeName}",
+            "value",
+            "value",
+            concreteField.Type,
+            BindingParameterDirection.In,
+            concreteField.Type.Kind is BindingTypeKind.Handle or BindingTypeKind.Enum
+                ? BindingParameterAbiKind.Value
+                : BindingParameterAbiKind.Pointer,
+            concreteField.CppTypeName);
+
+    private static string RenderNativeGenericField(
+        BindingCompilation compilation,
+        RecordBinding record,
+        FieldBinding field,
+        RecordGenericInstantiationBinding instantiation)
+    {
+        var concreteField = CreateConcreteGenericField(record, field, instantiation, useNativeArguments: true);
+        var concreteRecordType = concreteField.OwningRecordCppTypeName;
+        var plan = CreateNativeFieldInteropPlan(compilation, concreteField);
+        var getter = $$"""
+            SHARPCPP_EXPORT ret_t<{{plan.StorageCppType}}> {{GetGenericFieldGetterEntryPointName(compilation, record, field, instantiation)}}(arg_t<{{concreteRecordType}}*> self)
+            {
+            {{RenderNativeFieldGetInvocation(compilation, concreteField, plan, "self", concreteRecordType)}}
+            }
+            """;
+        if (concreteField.IsReadOnly)
+        {
+            return getter;
+        }
+
+        return $$"""
+            {{getter}}
+
+            SHARPCPP_EXPORT ret_t<void> {{GetGenericFieldSetterEntryPointName(compilation, record, field, instantiation)}}(arg_t<{{concreteRecordType}}*> self, {{plan.SetterParameterCppType}} value)
+            {
+            {{RenderNativeFieldSetInvocation(compilation, concreteField, plan, "self", concreteRecordType)}}
+            }
+            """;
+    }
+
+    private static IEnumerable<string> RenderGenericFieldImportDeclarations(
+        BindingCompilation compilation,
+        RecordBinding record,
+        FieldBinding field,
+        RecordGenericInstantiationBinding instantiation)
+    {
+        var concreteField = CreateConcreteGenericField(record, field, instantiation, useNativeArguments: false);
+        var returnTypeName = GetManagedImportReturnTypeName(compilation, concreteField.Type);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, concreteField.Type, concreteField.ReturnsOwnedHandle);
+        var getterLine = $"internal static partial {returnTypeName} {GetGenericFieldGetterImportMethodName(record, field, instantiation)}(nint self);";
+        yield return $$"""
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetGenericFieldGetterEntryPointName(compilation, record, field, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            {{(string.IsNullOrWhiteSpace(returnAttribute) ? getterLine : $"{returnAttribute}\n{getterLine}")}}
+            """;
+
+        if (concreteField.IsReadOnly)
+        {
+            yield break;
+        }
+
+        var parameter = RenderManagedImportParameter(CreateGenericFieldSetterParameter(concreteField), compilation);
+        yield return $$"""
+            [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetGenericFieldSetterEntryPointName(compilation, record, field, instantiation)}}", StringMarshalling = StringMarshalling.Utf8)]
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal static partial void {{GetGenericFieldSetterImportMethodName(record, field, instantiation)}}(nint self, {{parameter}});
+            """;
+    }
+
+    /// <summary>
+    /// Managed property that dispatches to the native accessor pair of the matching instantiation.
+    /// </summary>
+    private static string RenderGenericManagedFieldProperty(
+        BindingCompilation compilation,
+        RecordBinding record,
+        FieldBinding field,
+        IReadOnlyList<RecordGenericInstantiationBinding> instantiations)
+    {
+        var propertyTypeName = GetManagedFieldPropertyTypeName(compilation, field);
+        var castsThroughObject = field.Type.ContainsGenericParameters;
+        var accessor = GetGenericImportAccessor(compilation);
+        var getter = new CodeWriter();
+        var setter = new CodeWriter();
+        foreach (var instantiation in instantiations)
+        {
+            var concreteField = CreateConcreteGenericField(record, field, instantiation, useNativeArguments: false);
+            var condition = BuildGenericInstantiationCondition(compilation, record, instantiation, includeNativeTemplateShape: true);
+            var invocation = $"{accessor}.{GetGenericFieldGetterImportMethodName(record, field, instantiation)}(global::SharpCpp.Support.NativeObject.GetHandle(this))";
+            var result = concreteField.Type.Kind == BindingTypeKind.Handle
+                ? BuildManagedHandleReturnResultExpression(compilation, concreteField.Type, invocation, concreteField.ReturnsOwnedHandle)
+                : BuildManagedImportToPublicExpression(compilation, concreteField.Type, invocation);
+            getter.WriteLine($"if ({condition})");
+            getter.WriteLine("{");
+            getter.WriteLine(castsThroughObject ? $"return ({propertyTypeName})(object){result}!;" : $"return {result};");
+            getter.WriteLine("}");
+
+            if (field.IsReadOnly)
+            {
+                continue;
+            }
+
+            var concreteValue = castsThroughObject
+                ? $"({GetManagedWrapperTypeName(concreteField.Type, compilation)})(object)value!"
+                : "value";
+            var setterParameter = CreateGenericFieldSetterParameter(concreteField);
+            var argument = CanUseManagedHandleParameterImport(compilation, setterParameter, concreteField.Type)
+                ? concreteValue
+                : RequiresHandleWrapping(concreteField.Type)
+                ? $"global::SharpCpp.Support.NativeObject.GetHandle({concreteValue})"
+                : BuildManagedPublicToImportExpression(compilation, concreteField.Type, concreteValue);
+            setter.WriteLine($"if ({condition})");
+            setter.WriteLine("{");
+            setter.WriteLine($"{accessor}.{GetGenericFieldSetterImportMethodName(record, field, instantiation)}(global::SharpCpp.Support.NativeObject.GetHandle(this), {argument});");
+            if (concreteField.Type.Kind == BindingTypeKind.Handle)
+            {
+                setter.WriteLine("global::System.GC.KeepAlive(value);");
+            }
+
+            setter.WriteLine("return;");
+            setter.WriteLine("}");
+        }
+
+        var unsupported = $"throw new NotSupportedException(\"SharpCpp does not support the requested generic argument combination for '{field.ManagedName}'.\");";
+        var setterBlock = field.IsReadOnly
+            ? string.Empty
+            : $$"""
+
+                set
+                {
+                {{setter.ToString().TrimEnd()}}
+                {{unsupported}}
+                }
+                """;
+        var writer = new CodeWriter();
+        WriteDocumentationComment(writer, field);
+        writer.Write($$"""
+            {{GetManagedVisibility(field.AccessModifier)}} {{propertyTypeName}} {{field.ManagedName}}
+            {
+            get
+            {
+            {{getter.ToString().TrimEnd()}}
+            {{unsupported}}
+            }{{setterBlock}}
+            }
+            """);
+        return writer.ToString();
     }
 }

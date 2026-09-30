@@ -178,7 +178,8 @@ public sealed partial class ClangSharpHeaderParser
                     VisitLinkageSpec(linkageSpecDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix, ownedFileRoots, ownedFileRootIncludePrefixes, request.HeaderIncludePath, request.DirectorRecordCppTypeNames);
                     break;
 
-                case ClassTemplateSpecializationDecl:
+                case ClassTemplateSpecializationDecl specializationDecl:
+                    RecordExplicitFullSpecialization(specializationDecl, recordsByName);
                     break;
                 case RecordDecl recordDecl:
                     RegisterRecord(recordDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, request.EntryPointPrefix,
@@ -290,7 +291,8 @@ public sealed partial class ClangSharpHeaderParser
                     VisitLinkageSpec(nestedLinkageSpecDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath, directorRecordCppTypeNames);
                     break;
 
-                case ClassTemplateSpecializationDecl:
+                case ClassTemplateSpecializationDecl specializationDecl:
+                    RecordExplicitFullSpecialization(specializationDecl, recordsByName);
                     break;
                 case RecordDecl recordDecl:
                     RegisterRecord(recordDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix,
@@ -691,6 +693,36 @@ public sealed partial class ClangSharpHeaderParser
         };
         constructor.SetMetadata(MetadataKeys.DeclarationDisplayText, $"{record.NativeName}();");
         record.Members.Add(constructor);
+    }
+
+    /// <summary>
+    /// Notes a defined explicit full specialization (<c>template&lt;&gt; struct X&lt;A&gt; { ... }</c>) on its
+    /// already-registered primary template record. The specialization's members are independent of the
+    /// primary template, so later passes must not render primary-template members against it.
+    /// </summary>
+    private static void RecordExplicitFullSpecialization(
+        ClassTemplateSpecializationDecl specialization,
+        IDictionary<string, RecordBinding> recordsByName)
+    {
+        if (specialization is ClassTemplatePartialSpecializationDecl ||
+            specialization.SpecializationKind != CX_TemplateSpecializationKind.CX_TSK_ExplicitSpecialization ||
+            !specialization.IsThisDeclarationADefinition ||
+            MarshallerConfigExtractor.GetSpecializedTemplateDecl(specialization) is not { } primaryTemplate)
+        {
+            return;
+        }
+
+        var primaryRecord = FindExistingRecordForDeclaration(recordsByName, primaryTemplate.Spelling, GetCppQualifiedName(primaryTemplate));
+        if (primaryRecord is null || !primaryRecord.IsGeneric)
+        {
+            return;
+        }
+
+        var spelling = specialization.TypeForDecl.CanonicalType.AsString;
+        var existing = primaryRecord.GetMetadata<string>(MetadataKeys.ExplicitFullSpecializations);
+        primaryRecord.SetMetadata(
+            MetadataKeys.ExplicitFullSpecializations,
+            string.IsNullOrEmpty(existing) ? spelling : $"{existing}; {spelling}");
     }
 
     private static void RegisterTemplateRecord(
@@ -6990,7 +7022,8 @@ public sealed partial class ClangSharpHeaderParser
                     VisitNamespace(nsChild, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath, directorRecordCppTypeNames);
                     break;
 
-                case ClassTemplateSpecializationDecl:
+                case ClassTemplateSpecializationDecl specializationDecl:
+                    RecordExplicitFullSpecialization(specializationDecl, recordsByName);
                     break;
                 case RecordDecl recordDecl:
                     RegisterRecord(recordDecl, compilation, recordsByName, enumsByName, managedTypeOverrides, entryPointPrefix,

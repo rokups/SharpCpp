@@ -51,6 +51,10 @@ public static class MetadataKeys
     // Value: minimum element count (int) a span parameter must have; the managed wrapper throws
     // ArgumentException before the native call when the span is shorter.
     public const string MinimumSpanLength = "minimum_span_length";
+    // Value: "; "-joined C++ spellings of the explicit full specializations declared for a class
+    // template record. Their members are independent of the primary template, so primary-template
+    // field accessors cannot be rendered against them.
+    public const string ExplicitFullSpecializations = "explicit_full_specializations";
 }
 
 public sealed record NativeInterfaceQueryAnnotation(string SourceRecordCppQualifiedName, string InterfaceIdExpression);
