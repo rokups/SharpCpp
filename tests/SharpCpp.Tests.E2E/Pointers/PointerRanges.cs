@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Runtime.InteropServices;
 
 using SharpCpp.Tests.E2E.Diagnostics;
 using SharpCpp.Tests.E2E.Generated;
@@ -80,8 +81,9 @@ public sealed class PointerRangeTests
     [InlineData("BadEndedChain", "bad_ended_chain", "parameter 'begin' is ended by 'mid' but its end is itself counted_by or ended_by")]
     [InlineData("BadEndedEndCounted", "bad_ended_end_counted", "parameter 'begin' is ended by 'end' but its end is itself counted_by or ended_by")]
     [InlineData("BadEndedRecord", "bad_ended_record", "parameter 'begin' is ended by 'end' but has no input array projection")]
-    [InlineData("BadEndedPointerPointer", "bad_ended_pointer_pointer", "pointer-to-pointer ranges are not supported yet")]
     [InlineData("BadEndedTemplate", "bad_ended_template", "ended_by on a template function, a class template member or a constructor is not supported")]
+    [InlineData("BadEndedWidgetOut", "bad_ended_widget_out", "the parameter has an explicit single or out pointer-pointer shape")]
+    [InlineData("BadEndedWidgetEndOut", "bad_ended_widget_end_out", "its end has an explicit pointer-pointer shape")]
     [InlineData("BadEndedBeginDefault", "bad_ended_begin_default", "pointer range begin/end cannot have a default value")]
     [InlineData("BadEndedEndDefault", "bad_ended_end_default", "pointer range begin/end cannot have a default value")]
     public void Ended_by_that_cannot_be_honoured_degrades_the_function_with_a_diagnostic(
@@ -127,5 +129,65 @@ public sealed class PointerRangeTests
 
         IRangeRight view = both;
         Assert.Equal(3, view.SumRightRange([1, 2]));
+    }
+
+    [Fact]
+    public void Enum_ranges_bind_as_spans_of_the_enum()
+    {
+        Assert.Equal(7, E2EBindings.SumColorRange([RangeColor.Red, RangeColor.Green, RangeColor.Blue]));
+        Assert.Equal(0, E2EBindings.SumColorRange([]));
+        Assert.Equal(typeof(ReadOnlySpan<RangeColor>), Assert.Single(Method(nameof(E2EBindings.SumColorRange)).GetParameters()).ParameterType);
+
+        var colors = new RangeColor[3];
+        E2EBindings.FillColorRange(colors);
+        Assert.All(colors, static color => Assert.Equal(RangeColor.Blue, color));
+        E2EBindings.FillColorRange([]);
+        Assert.Equal(typeof(Span<RangeColor>), Assert.Single(Method(nameof(E2EBindings.FillColorRange)).GetParameters()).ParameterType);
+    }
+
+    [Fact]
+    public void Record_pointer_ranges_bind_as_spans_of_nullable_records()
+    {
+        using var first = new RangeWidget(5);
+        using var second = new RangeWidget(6);
+
+        Assert.Equal(11, E2EBindings.SumWidgetRange([first, second]));
+        Assert.Equal(105, E2EBindings.SumWidgetRange([first, null]));
+        Assert.Equal(0, E2EBindings.SumWidgetRange([]));
+        Assert.Equal(11, E2EBindings.SumConstWidgetRange([first, second]));
+        Assert.Equal(0, E2EBindings.SumConstWidgetRange([]));
+
+        Assert.Equal(typeof(ReadOnlySpan<RangeWidget?>), Assert.Single(Method(nameof(E2EBindings.SumWidgetRange)).GetParameters()).ParameterType);
+        Assert.Equal(typeof(ReadOnlySpan<RangeWidget?>), Assert.Single(Method(nameof(E2EBindings.SumConstWidgetRange)).GetParameters()).ParameterType);
+    }
+
+    [Fact]
+    public void Char_pointer_pointer_ranges_bind_as_spans_of_utf8_pointers()
+    {
+        var strings = new[] { Marshal.StringToCoTaskMemUTF8("ab"), Marshal.StringToCoTaskMemUTF8("cde") };
+        try
+        {
+            Assert.Equal(5, E2EBindings.MeasureCharRange(strings));
+            Assert.Equal(5, E2EBindings.MeasureConstCharRange(strings));
+            Assert.Equal(2, E2EBindings.MeasureCharRange(strings.AsSpan(0, 1)));
+            Assert.Equal(0, E2EBindings.MeasureCharRange([]));
+            Assert.Equal(0, E2EBindings.MeasureConstCharRange([]));
+        }
+        finally
+        {
+            foreach (var pointer in strings)
+                Marshal.FreeCoTaskMem(pointer);
+        }
+
+        Assert.Equal(typeof(ReadOnlySpan<nint>), Assert.Single(Method(nameof(E2EBindings.MeasureCharRange)).GetParameters()).ParameterType);
+        Assert.Equal(typeof(ReadOnlySpan<nint>), Assert.Single(Method(nameof(E2EBindings.MeasureConstCharRange)).GetParameters()).ParameterType);
+    }
+
+    [Fact]
+    public void Const_void_pointer_ranges_bind_as_spans_of_raw_pointers()
+    {
+        Assert.Equal(2, E2EBindings.CountAddressRange([1, 0, 2]));
+        Assert.Equal(0, E2EBindings.CountAddressRange([]));
+        Assert.Equal(typeof(ReadOnlySpan<IntPtr>), Assert.Single(Method(nameof(E2EBindings.CountAddressRange)).GetParameters()).ParameterType);
     }
 }

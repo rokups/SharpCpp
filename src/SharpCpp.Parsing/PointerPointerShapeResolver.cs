@@ -164,8 +164,19 @@ public static class PointerPointerShapeResolver
                 continue;
             }
 
-            ClangSharpHeaderParser.ApplyAdjacentInputPointerArrayMetadata(begin);
-            if (!begin.HasMetadata(MetadataKeys.InputPointerArray))
+            if (begin.PointerPointer != PointerPointerKind.None)
+            {
+                // A char** / record T** range is an input array, like a counted one; the shape
+                // loop in Apply validates it (and reports a problem) for the tagged begin.
+                begin.SetMetadata(MetadataKeys.PointerPointerShape, PointerPointerShapes.Array);
+                ApplyShape(begin, PointerPointerShapes.Array);
+            }
+            else
+            {
+                ClangSharpHeaderParser.ApplyAdjacentInputPointerArrayMetadata(begin);
+            }
+
+            if (begin.PointerPointer == PointerPointerKind.None && !begin.HasMetadata(MetadataKeys.InputPointerArray))
             {
                 function.SetIgnoreReason($"parameter '{begin.NativeName}' is ended by '{name}' but has no input array projection");
                 continue;
@@ -188,8 +199,6 @@ public static class PointerPointerShapeResolver
             return "that is not another parameter of the function";
         if (!IsPointerLike(begin))
             return "the parameter is not a pointer";
-        if (begin.PointerPointer != PointerPointerKind.None)
-            return "pointer-to-pointer ranges are not supported yet";
         if (!HasSamePointerFacts(begin, named))
             return "its end is not a pointer of the same type";
         if (!ReferenceEquals(next, named))
@@ -199,12 +208,34 @@ public static class PointerPointerShapeResolver
             return "the parameter is also counted_by";
         if (end.HasMetadata(MetadataKeys.CountedBy) || end.HasMetadata(MetadataKeys.EndedBy))
             return "its end is itself counted_by or ended_by";
+        if (HasExplicitShape(begin, allowArray: true))
+            return "the parameter has an explicit single or out pointer-pointer shape";
+        if (HasExplicitShape(end, allowArray: false))
+            return "its end has an explicit pointer-pointer shape";
 
         if (function.IsGeneric || function.IsConstructor || function.Parent is RecordBinding { IsGeneric: true })
             return "ended_by on a template function, a class template member or a constructor is not supported";
-        if (begin.HasMetadata(MetadataKeys.NativeDefaultValueExpression) || end.HasMetadata(MetadataKeys.NativeDefaultValueExpression))
+        if (HasDefaultValue(begin) || HasDefaultValue(end))
             return "pointer range begin/end cannot have a default value";
         return null;
+    }
+
+    private static bool HasDefaultValue(ParameterBinding parameter) =>
+        parameter.HasMetadata(MetadataKeys.NativeDefaultValueExpression) ||
+        parameter.HasMetadata(MetadataKeys.UnexpressibleDefault) ||
+        parameter.HasMetadata(MetadataKeys.UndefaultableParam) ||
+        parameter.ManagedDefaultValueExpression is not null;
+
+    /// <summary>
+    /// True when the parameter carries a pointer-pointer shape that is not the parser's default
+    /// (an explicit [[sharpcpp::in]]/[[sharpcpp::out]] or a consumer-set shape); the array shape
+    /// is acceptable when <paramref name="allowArray"/> (begin already wants an array).
+    /// </summary>
+    private static bool HasExplicitShape(ParameterBinding parameter, bool allowArray)
+    {
+        parameter.TryGetMetadata<string>(MetadataKeys.PointerPointerShape, out var shape);
+        parameter.TryGetMetadata<string>(MetadataKeys.PointerPointerDefaultShape, out var defaultShape);
+        return shape is not null && shape != defaultShape && !(allowArray && shape == PointerPointerShapes.Array);
     }
 
     private static bool HasSamePointerFacts(ParameterBinding begin, ParameterBinding end) =>
@@ -231,6 +262,7 @@ public static class PointerPointerShapeResolver
             end.RemoveMetadata(key);
         }
 
+        end.Type = begin.Type;
         end.Direction = BindingParameterDirection.In;
         end.AbiKind = BindingParameterAbiKind.Pointer;
         end.ManagedDefaultValueExpression = null;

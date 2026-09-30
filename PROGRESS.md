@@ -145,14 +145,16 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   index-aligned; only public signatures skip it). The wrapper passes `begin` = the pinned
   pointer and `end` = `begin + span.Length`; an empty span passes null/null. Validated by
   `PointerPointerShapeResolver.ApplyEndedBy`; every invalid tag ignores the function with a
-  reason (unknown name or self, begin not a pointer, pointer-to-pointer begin, end of a
-  different type, end not directly after begin, begin also `counted_by`, end itself
-  `counted_by`/`ended_by`, no input array projection such as a record `T*`, template function
-  or constructor). Fixtures: `Pointers/PointerRanges.hpp`. Open increments:
-  (2) enum pointee, `T* const*` (no fixture yet) and record/char `T**` ranges
-  (`ReadOnlySpan<T?>`; currently a `T**` begin is degraded with "pointer-to-pointer ranges are
-  not supported yet", the plan reshapes begin to the `array` shape as `counted_by` does; a
-  future `SpanLength` derived kind could hide a `counted_by` count the same way); (3) virtual
+  reason (unknown name or self, begin not a pointer, end of a different type, end not directly
+  after begin, begin also `counted_by`, end itself `counted_by`/`ended_by`, an explicit
+  single/out shape on a `T**` begin or any explicit shape on end, a default on begin or end
+  (native, unexpressible, undefaultable or managed), no input array projection such as a
+  record `T*`, template function, class template member or constructor). Element kinds:
+  primitives and enums (`ReadOnlySpan<T>`/`Span<T>`), `void* const*` (`ReadOnlySpan<IntPtr>`),
+  `char**` and `const char* const*` (`ReadOnlySpan<nint>` of UTF-8 pointers, as counted), and
+  record `T**`/`T* const*` (`ReadOnlySpan<T?>`, the counted handle-array projection); the end
+  parameter takes begin's reshaped type. Fixtures: `Pointers/PointerRanges.hpp`. Increments 1 and 2 are done. Open: a
+  future `SpanLength` derived kind could hide a `counted_by` count the same way; (3) virtual
   methods, director callbacks and rbfx adoption; constructors are degraded today. Done: class
   template members and template functions are degraded with a reason (`CreateConcreteParameter`
   does not copy parameter metadata); the inheritance projection copies `EndedBy`,

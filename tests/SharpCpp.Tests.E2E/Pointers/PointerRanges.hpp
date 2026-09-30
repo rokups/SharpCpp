@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstring>
+
 // [[sharpcpp::ended_by(end)]] on a begin pointer parameter (mirrors Clang `__ended_by`), or a
 // consumer-set MetadataKeys.EndedBy, binds `(T* begin, T* end)` as ONE managed span parameter:
 // `ReadOnlySpan<T>` for a const pointee, `Span<T>` for a mutable one. `end` is hidden from the
@@ -118,11 +120,6 @@ inline int bad_ended_record([[sharpcpp::ended_by(end)]] const range_item* begin,
     return static_cast<int>(end - begin);
 }
 
-inline int bad_ended_pointer_pointer([[sharpcpp::ended_by(end)]] char** begin, char** end)
-{
-    return static_cast<int>(end - begin);
-}
-
 // A template parameter cannot be the pointee (the parser does not expose `const T*`), so the
 // range is over `int` and the function is generic through another parameter.
 template <typename T>
@@ -185,3 +182,96 @@ struct range_both : range_left, range_right
 {
     range_both() = default;
 };
+
+// Enum elements bind as `ReadOnlySpan<T>` / `Span<T>` like integers.
+enum class range_color : int
+{
+    red = 1,
+    green = 2,
+    blue = 4
+};
+
+inline int sum_color_range([[sharpcpp::ended_by(end)]] const range_color* begin, const range_color* end)
+{
+    int result = 0;
+    for (const range_color* it = begin; it != end; ++it)
+        result += static_cast<int>(*it);
+    return result;
+}
+
+inline void fill_color_range([[sharpcpp::ended_by(end)]] range_color* begin, range_color* end)
+{
+    for (range_color* it = begin; it != end; ++it)
+        *it = range_color::blue;
+}
+
+// Record pointer ranges bind as `ReadOnlySpan<T?>`, like a counted record pointer array; a
+// null entry stays null.
+struct range_widget
+{
+    explicit range_widget(int value)
+        : value_(value)
+    {
+    }
+
+    int get_value() const
+    {
+        return value_;
+    }
+
+private:
+    int value_{};
+};
+
+inline int sum_widget_range([[sharpcpp::ended_by(end)]] range_widget** begin, range_widget** end)
+{
+    int result = 0;
+    for (range_widget** it = begin; it != end; ++it)
+        result += *it == nullptr ? 100 : (*it)->get_value();
+    return result;
+}
+
+inline int sum_const_widget_range([[sharpcpp::ended_by(end)]] range_widget* const* begin, range_widget* const* end)
+{
+    int result = 0;
+    for (range_widget* const* it = begin; it != end; ++it)
+        result += *it == nullptr ? 100 : (*it)->get_value();
+    return result;
+}
+
+// A char** range is an array of NUL-terminated UTF-8 pointers, as for a counted char**.
+inline int measure_char_range([[sharpcpp::ended_by(end)]] char** begin, char** end)
+{
+    int result = 0;
+    for (char** it = begin; it != end; ++it)
+        result += static_cast<int>(std::strlen(*it));
+    return result;
+}
+
+inline int measure_const_char_range([[sharpcpp::ended_by(end)]] const char* const* begin, const char* const* end)
+{
+    int result = 0;
+    for (const char* const* it = begin; it != end; ++it)
+        result += static_cast<int>(std::strlen(*it));
+    return result;
+}
+
+// `void* const*` is a raw pointer array (the element is a handle), like a counted one.
+inline int count_address_range([[sharpcpp::ended_by(end)]] void* const* begin, void* const* end)
+{
+    int result = 0;
+    for (void* const* it = begin; it != end; ++it)
+        result += *it != nullptr ? 1 : 0;
+    return result;
+}
+
+// An explicit single/out shape on begin, or any explicit shape on end, cannot be honoured.
+inline int bad_ended_widget_out([[sharpcpp::out]] [[sharpcpp::ended_by(end)]] range_widget** begin, range_widget** end)
+{
+    return static_cast<int>(end - begin);
+}
+
+inline int bad_ended_widget_end_out([[sharpcpp::ended_by(end)]] range_widget** begin, [[sharpcpp::out]] range_widget** end)
+{
+    return static_cast<int>(end - begin);
+}
