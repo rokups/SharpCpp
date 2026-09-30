@@ -325,3 +325,33 @@ static inline c_handle_list* c_get_handle_list(void)
 {
     return &c_handle_list_storage;
 }
+
+static int c_second_native_handle_storage;
+
+static c_native_handle c_handle_array_storage[2];
+
+/* The first item is c_create_native_handle(), the second is a different handle. */
+static inline c_handle_list* c_get_populated_handle_list(void)
+{
+    c_handle_array_storage[0] = c_create_native_handle();
+    c_handle_array_storage[1] = (c_native_handle)&c_second_native_handle_storage;
+    c_handle_list_storage.handles = c_handle_array_storage;
+    c_handle_list_storage.handleCount = 2;
+    return &c_handle_list_storage;
+}
+
+/* A counted array of C strings (OpenXR enabledExtensionNames style). */
+typedef struct c_name_list
+{
+    const char* const* names;
+    unsigned int nameCount;
+} c_name_list;
+
+static const char* const c_name_array_storage[3] = { "alpha", "", 0 };
+
+static c_name_list c_name_list_storage = { c_name_array_storage, 3 };
+
+static inline c_name_list* c_get_name_list(void)
+{
+    return &c_name_list_storage;
+}

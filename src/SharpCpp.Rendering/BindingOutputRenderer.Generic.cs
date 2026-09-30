@@ -892,7 +892,28 @@ public static partial class BindingOutputRenderer
         return result.Values.OrderBy(static type => type.CppTypeName, StringComparer.Ordinal).ToArray();
     }
 
-    private sealed record PointerCountNativeArrayShape(BindingType ElementType, FieldBinding CountField);
+    private sealed record PointerCountNativeArrayShape(
+        BindingType ElementType,
+        FieldBinding CountField,
+        bool IsStringArray = false);
+
+    // `const char* const*` (or `char**`) holding a counted array of NUL-terminated UTF-8 strings.
+    private static bool IsCharPointerArrayField(FieldBinding field)
+    {
+        if (field.PointerDepth != 2 ||
+            field.Type.Kind != BindingTypeKind.Primitive ||
+            field.Type.PrimitiveKind != BindingPrimitiveKind.IntPtr)
+        {
+            return false;
+        }
+
+        var spelling = field.CppTypeName
+            .Replace("*", " ", StringComparison.Ordinal)
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(static token => token != "const")
+            .ToArray();
+        return spelling is ["char"];
+    }
 
     private static bool TryGetPointerCountNativeArrayShape(
         BindingCompilation compilation,
@@ -900,6 +921,25 @@ public static partial class BindingOutputRenderer
         out PointerCountNativeArrayShape shape)
     {
         shape = null!;
+        if (field.Parent is RecordBinding stringOwner &&
+            field.AccessModifier == BindingAccessModifier.Public &&
+            !stringOwner.HasOwnManagedNonFieldMemberNamed($"Get{field.ManagedName}At") &&
+            IsCharPointerArrayField(field))
+        {
+            var stringCountField = FindMatchingCountField(
+                field.NativeName,
+                stringOwner.Members.OfType<FieldBinding>().Where(static candidate => !candidate.IsIgnored()));
+            if (stringCountField is null ||
+                stringCountField.AccessModifier != BindingAccessModifier.Public ||
+                !IsIntegerCountField(stringCountField))
+            {
+                return false;
+            }
+
+            shape = new PointerCountNativeArrayShape(BindingType.IntPtr, stringCountField, IsStringArray: true);
+            return true;
+        }
+
         if (field.Parent is not RecordBinding owner ||
             field.AccessModifier != BindingAccessModifier.Public ||
             owner.HasOwnManagedNonFieldMemberNamed($"Get{field.ManagedName}At") ||
@@ -923,8 +963,12 @@ public static partial class BindingOutputRenderer
         }
 
         var elementRecord = compilation.FindRecordBySymbolId(field.Type.RecordId);
+        // A counted array of opaque handles (`T**` where T is an incomplete handle record, for
+        // example `XrSpaceUserFB*`) is read by handle, so the incomplete record is accepted.
+        var isOpaqueHandleArray = field.PointerDepth == 2 &&
+            elementRecord?.GetMetadata<bool>(MetadataKeys.OpaqueNativeHandle) == true;
         if (elementRecord is null || elementRecord.IsIgnored() ||
-            elementRecord.HasMetadata(MetadataKeys.ForwardDeclaration) || elementRecord.IsGeneric ||
+            (elementRecord.HasMetadata(MetadataKeys.ForwardDeclaration) && !isOpaqueHandleArray) || elementRecord.IsGeneric ||
             elementRecord.IsAbstract || elementRecord.IsPolymorphic)
         {
             return false;

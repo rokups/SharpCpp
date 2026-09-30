@@ -47,9 +47,14 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   signature (needed for polymorphic buffers with a larger element stride, such as OpenXR
   `XrSwapchainImageBaseHeader`) and also get a `NativeArray<T>` overload that checks the
   capacity against the array length. The overload is not generated for virtual methods.
-- A field of type `T**` (for example a counted array of opaque handles, `XrSpaceUserFB*`)
-  is exposed as a single `T` wrapper; only record fields with a matching count get
-  per-item accessors, and C modules do not.
+- A counted pointer-array field (matching `Num{X}`/`count{X}`/`{x}Count`) keeps its single
+  pointer property and gets a read-only `Get{Field}At(nuint index)` that throws
+  `ArgumentOutOfRangeException` past the count, in C and C++ modules: `T*`/`T**` of records,
+  `T**` of opaque handles (`XrSpaceUserFB*`) returning the handle wrapper, and
+  `const char* const*`/`char**` returning `string?` (UTF-8). Only record-value `T*` arrays get
+  `NativeArray<T>` support; there are no setters. A `const char*` item typedef'd to another
+  name is not recognized as a string array, and a pointer-to-pointer of other element kinds
+  (for example primitives) still has no per-item accessor.
 - Containers whose element is not copy-assignable, or whose allocator (a record declaring
   `allocate`) is not default-constructible, are degraded with a diagnostic. The element check
   uses the same coarse heuristic as the non-copyable one (the container has a member taking or

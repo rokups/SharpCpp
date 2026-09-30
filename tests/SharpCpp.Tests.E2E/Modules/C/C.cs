@@ -1,3 +1,5 @@
+using System;
+
 using SharpCpp.Tests.E2E.Modules.C.Generated;
 
 using Xunit;
@@ -143,5 +145,31 @@ public sealed class CTests
         using var list = CBindings.CGetHandleList();
         list.HandleCount = 2;
         Assert.Equal(2u, list.HandleCount);
+    }
+
+    [Fact]
+    public void Counted_opaque_handle_arrays_expose_bounds_checked_item_accessors()
+    {
+        using var list = CBindings.CGetPopulatedHandleList();
+        Assert.Equal(2u, list.HandleCount);
+
+        using var first = list.GetHandlesAt(0);
+        using var second = list.GetHandlesAt(1);
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.Equal(8, CBindings.CUseNativeHandle(first));
+        Assert.Equal(-1, CBindings.CUseNativeHandle(second));
+        Assert.Throws<ArgumentOutOfRangeException>(() => list.GetHandlesAt(2));
+    }
+
+    [Fact]
+    public void Counted_c_string_arrays_expose_bounds_checked_utf8_item_accessors()
+    {
+        using var list = CBindings.CGetNameList();
+        Assert.Equal(3u, list.NameCount);
+        Assert.Equal("alpha", list.GetNamesAt(0));
+        Assert.Equal(string.Empty, list.GetNamesAt(1));
+        Assert.Null(list.GetNamesAt(2));
+        Assert.Throws<ArgumentOutOfRangeException>(() => list.GetNamesAt(3));
     }
 }

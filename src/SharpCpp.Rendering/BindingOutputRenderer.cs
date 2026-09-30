@@ -3554,11 +3554,11 @@ public static partial class BindingOutputRenderer
                 if (TryGetPointerCountNativeArrayShape(compilation, field, out var pointerCountShape))
                 {
                     writer.WriteLine();
-                    writer.Write(RenderManagedPointerCountFieldAccessor(compilation, field, pointerCountShape.ElementType));
+                    writer.Write(RenderManagedPointerCountFieldAccessor(compilation, field, pointerCountShape));
                     pinvokeDeclarations.Add(RenderManagedPointerCountFieldItemGetterImportDeclaration(
                         compilation,
                         field,
-                        pointerCountShape.ElementType,
+                        pointerCountShape,
                         record.ManagedName,
                         record.CppQualifiedName));
                 }
@@ -3693,14 +3693,25 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedPointerCountFieldAccessor(
         BindingCompilation compilation,
         FieldBinding field,
-        BindingType elementType)
+        PointerCountNativeArrayShape shape)
     {
+        var returnTypeName = shape.IsStringArray
+            ? "string?"
+            : GetManagedPublicReturnTypeName(shape.ElementType, compilation);
+        var resultExpression = shape.IsStringArray
+            ? "global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(result)"
+            : "result";
         return $$"""
-            public {{GetManagedPublicReturnTypeName(elementType, compilation)}} Get{{field.ManagedName}}At(nuint index)
+            public {{returnTypeName}} Get{{field.ManagedName}}At(nuint index)
             {
+                if (index >= unchecked((nuint){{shape.CountField.ManagedName}}))
+                {
+                    throw new global::System.ArgumentOutOfRangeException(nameof(index));
+                }
+
                 var result = __PInvoke.Get_{{field.ManagedName}}_Item(this, index);
                 global::System.GC.KeepAlive(this);
-                return result;
+                return {{resultExpression}};
             }
             """;
     }
@@ -5415,13 +5426,16 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedPointerCountFieldItemGetterImportDeclaration(
         BindingCompilation compilation,
         FieldBinding field,
-        BindingType elementType,
+        PointerCountNativeArrayShape shape,
         string recordManagedName,
         string entryPointRecordCppTypeName)
     {
         var writer = new CodeWriter();
+        var elementType = shape.ElementType;
         var returnTypeName = GetManagedImportReturnTypeName(compilation, elementType);
-        var returnAttribute = GetManagedImportReturnAttribute(compilation, elementType, ownsHandle: false);
+        var returnAttribute = shape.IsStringArray
+            ? string.Empty
+            : GetManagedImportReturnAttribute(compilation, elementType, ownsHandle: false);
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static partial {returnTypeName} Get_{field.ManagedName}_Item({recordManagedName} self, nuint index);"
             : $"{returnAttribute}\ninternal static partial {returnTypeName} Get_{field.ManagedName}_Item({recordManagedName} self, nuint index);";
@@ -5860,11 +5874,12 @@ public static partial class BindingOutputRenderer
             if (TryGetPointerCountNativeArrayShape(compilation, field, out var pointerCountShape))
             {
                 var itemCppTypeName = GetNativePointerCountFieldItemCppTypeName(field);
+                var itemReturnType = pointerCountShape.IsStringArray ? "const char*" : $"ret_t<{itemCppTypeName}>";
                 writer.WriteLine();
                 writer.Write($$"""
-                    SHARPCPP_EXPORT ret_t<{{itemCppTypeName}}> {{GetNativeFieldItemGetterEntrypointName(compilation, accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self, std::size_t index)
+                    SHARPCPP_EXPORT {{itemReturnType}} {{GetNativeFieldItemGetterEntrypointName(compilation, accessorRecord.CppQualifiedName, field)}}(arg_t<{{accessorRecord.CppQualifiedName}}*> self, std::size_t index)
                     {
-                    {{RenderNativePointerCountFieldItemGetInvocation(field, pointerCountShape.CountField, "self")}}
+                    {{RenderNativePointerCountFieldItemGetInvocation(field, pointerCountShape, "self")}}
                     }
                     """);
             }
@@ -6021,11 +6036,23 @@ public static partial class BindingOutputRenderer
 
     private static string RenderNativePointerCountFieldItemGetInvocation(
         FieldBinding field,
-        FieldBinding countField,
+        PointerCountNativeArrayShape shape,
         string selfExpression)
     {
         var pointerExpression = GetNativeFixedArrayFieldAccessExpression(field, selfExpression);
-        var countExpression = GetNativeFixedArrayFieldAccessExpression(countField, selfExpression);
+        var countExpression = GetNativeFixedArrayFieldAccessExpression(shape.CountField, selfExpression);
+        if (shape.IsStringArray)
+        {
+            return $$"""
+                if ({{pointerExpression}} == nullptr || index >= static_cast<std::size_t>({{countExpression}}))
+                {
+                    throw std::out_of_range("SharpCpp pointer-count field access is out of range.");
+                }
+
+                return {{pointerExpression}}[index];
+                """;
+        }
+
         var itemCppTypeName = GetNativePointerCountFieldItemCppTypeName(field);
         var valueExpression = field.PointerDepth == 1
             ? $"&({pointerExpression}[index])"
