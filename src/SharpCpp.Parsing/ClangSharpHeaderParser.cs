@@ -1324,6 +1324,7 @@ public sealed partial class ClangSharpHeaderParser
                 ResolveParameterCppTypeName(parameter.Type, recordsByName, genericParameters, parameterType));
             ApplyManagedDefaultValue(param, parameter, parameterType, managedTypeOverrides);
             ApplyCallbackDelegateAttribute(methodDecl.Handle, parameter.Handle, param, ref ignoreReason);
+            ApplyPointerPointerFacts(methodDecl.Handle, parameter.Handle, param, ref ignoreReason);
             function.Parameters.Add(param);
         }
 
@@ -1457,6 +1458,7 @@ public sealed partial class ClangSharpHeaderParser
                 ResolveParameterCppTypeName(parameter.Type, recordsByName, combinedGenericParameters, parameterType));
             ApplyManagedDefaultValue(templateParam, parameter, parameterType, managedTypeOverrides);
             ApplyCallbackDelegateAttribute(templatedFunction.Handle, parameter.Handle, templateParam, ref ignoreReason);
+            ApplyPointerPointerFacts(templatedFunction.Handle, parameter.Handle, templateParam, ref ignoreReason);
             function.Parameters.Add(templateParam);
         }
 
@@ -1530,6 +1532,7 @@ public sealed partial class ClangSharpHeaderParser
                 ResolveParameterCppTypeName(parameter.Type, recordsByName, genericParameters, parameterType));
             ApplyManagedDefaultValue(staticParam, parameter, parameterType, managedTypeOverrides);
             ApplyCallbackDelegateAttribute(methodDecl.Handle, parameter.Handle, staticParam, ref ignoreReason);
+            ApplyPointerPointerFacts(methodDecl.Handle, parameter.Handle, staticParam, ref ignoreReason);
             function.Parameters.Add(staticParam);
         }
 
@@ -1595,6 +1598,7 @@ public sealed partial class ClangSharpHeaderParser
                 ResolveParameterCppTypeName(parameter.Type, recordsByName, genericParameters, parameterType));
             ApplyManagedDefaultValue(ctorParam, parameter, parameterType, managedTypeOverrides);
             ApplyCallbackDelegateAttribute(ctorDecl.Handle, parameter.Handle, ctorParam, ref ignoreReason);
+            ApplyPointerPointerFacts(ctorDecl.Handle, parameter.Handle, ctorParam, ref ignoreReason);
             function.Parameters.Add(ctorParam);
         }
 
@@ -2261,6 +2265,7 @@ public sealed partial class ClangSharpHeaderParser
                 ResolveParameterCppTypeName(parameter.Type, recordsByName, genericParameters, parameterType));
             ApplyManagedDefaultValue(freeParam, parameter, parameterType, managedTypeOverrides);
             ApplyCallbackDelegateAttribute(functionDecl.Handle, parameter.Handle, freeParam, ref ignoreReason);
+            ApplyPointerPointerFacts(functionDecl.Handle, parameter.Handle, freeParam, ref ignoreReason);
             function.Parameters.Add(freeParam);
         }
 
@@ -2342,6 +2347,7 @@ public sealed partial class ClangSharpHeaderParser
                 ResolveParameterCppTypeName(parameter.Type, recordsByName, genericParameters, parameterType));
             ApplyManagedDefaultValue(freeTemplateParam, parameter, parameterType, managedTypeOverrides);
             ApplyCallbackDelegateAttribute(templatedFunction.Handle, parameter.Handle, freeTemplateParam, ref ignoreReason);
+            ApplyPointerPointerFacts(templatedFunction.Handle, parameter.Handle, freeTemplateParam, ref ignoreReason);
             function.Parameters.Add(freeTemplateParam);
         }
 
@@ -5753,7 +5759,7 @@ public sealed partial class ClangSharpHeaderParser
         return originNames.FirstOrDefault(n => n.Contains("::", StringComparison.Ordinal)) ?? originNames[0];
     }
 
-    private static string NormalizeTypeName(string spelling)
+    internal static string NormalizeTypeName(string spelling)
     {
         return Regex.Replace(spelling.Trim(), @"\s+", " ")
             .Replace("__cxx11::", string.Empty, StringComparison.Ordinal)
@@ -5817,8 +5823,63 @@ public sealed partial class ClangSharpHeaderParser
         return true;
     }
 
+    /// <summary>
+    /// Records what the parser knows about a pointer-to-pointer parameter: whether it is a
+    /// `char**` or `T**` (T a record) whose binding is ambiguous, whether the pointed-to pointer
+    /// is const, and the shape an explicit [[sharpcpp::in]] (array) or [[sharpcpp::out]] (single)
+    /// requests. The shape itself is applied by <see cref="PointerPointerShapeResolver"/>.
+    /// </summary>
+    private static void ApplyPointerPointerFacts(
+        CXCursor functionCursor,
+        CXCursor parameterCursor,
+        ParameterBinding parameter,
+        ref string? ignoreReason)
+    {
+        var canonical = parameterCursor.Type.CanonicalType;
+        if (!TypeIsPointer(canonical) || !TypeIsPointer(canonical.PointeeType.CanonicalType))
+            return;
+
+        var pointee = canonical.PointeeType;
+        var element = pointee.CanonicalType.PointeeType.CanonicalType;
+        var kind = element.kind is CXTypeKind.CXType_Char_S or CXTypeKind.CXType_Char_U
+            ? PointerPointerKind.Chars
+            : TypeIsRecord(element) ? PointerPointerKind.Handles : PointerPointerKind.None;
+        if (kind == PointerPointerKind.None)
+            return;
+
+        parameter.PointerPointer = kind;
+        parameter.PointeeIsConst = pointee.IsConstQualified;
+        if (!TryGetPassKindOverride(functionCursor, parameterCursor, out var direction))
+            return;
+
+        // An explicit ref keeps the by-reference binding; in/out select the shape.
+        var shape = direction switch
+        {
+            BindingParameterDirection.In => PointerPointerShapes.Array,
+            BindingParameterDirection.Out => PointerPointerShapes.Single,
+            _ => null
+        };
+        if (shape is null)
+        {
+            parameter.PointerPointer = PointerPointerKind.None;
+            return;
+        }
+
+        if (PointerPointerShapeResolver.TryGetProblem(parameter, shape) is { } problem)
+        {
+            // An explicit request that cannot be honoured is never silent.
+            ignoreReason ??= $"parameter '{parameter.NativeName}' cannot use pointer-pointer shape '{shape}': {problem}";
+            parameter.PointerPointer = PointerPointerKind.None;
+            return;
+        }
+
+        parameter.SetMetadata(MetadataKeys.PointerPointerShape, shape);
+    }
+
     private static void ApplyInferredInputPointerArrayMetadata(FunctionBinding function)
     {
+        PointerPointerShapeResolver.TagDefaultShapes(function);
+
         for (var index = 0; index < function.Parameters.Count - 2; ++index)
         {
             var capacity = function.Parameters[index];
@@ -5853,6 +5914,15 @@ public sealed partial class ClangSharpHeaderParser
                 ApplyAdjacentInputPointerArrayMetadata(second);
         }
 
+        ApplyTrailingInputPointerArrayMetadata(function);
+    }
+
+    /// <summary>
+    /// The primitive pointers that follow a count and an input handle array are parallel input
+    /// arrays (`count, Handle* const* values, const int* weights`).
+    /// </summary>
+    internal static void ApplyTrailingInputPointerArrayMetadata(FunctionBinding function)
+    {
         var countParameterSeen = false;
         var handlePointerArraySeen = false;
 
@@ -5884,10 +5954,12 @@ public sealed partial class ClangSharpHeaderParser
 
     private static void ApplyAdjacentInputPointerArrayMetadata(ParameterBinding parameter)
     {
-        if (parameter.AbiKind != BindingParameterAbiKind.Pointer)
+        // char** and record T** shapes are resolved by PointerPointerShapeResolver.
+        if (parameter.AbiKind != BindingParameterAbiKind.Pointer ||
+            parameter.PointerPointer != PointerPointerKind.None)
             return;
 
-        // A counted by-reference projection (`const char** flags, size_t count`) is an array
+        // A counted by-reference projection (`const T** values, size_t count`) is an array
         // of pointers whose elements cross as raw pointers.
         if (IsConstPointerToPointer(parameter) &&
             string.Equals(NormalizeTypeName(parameter.Type.CppTypeName), NormalizeTypeName(parameter.CppTypeName), StringComparison.Ordinal))
@@ -5947,7 +6019,9 @@ public sealed partial class ClangSharpHeaderParser
             parameter.CppTypeName.Contains("const", StringComparison.Ordinal);
     }
 
-    private static bool IsArrayCountParameter(ParameterBinding parameter)
+    /// <param name="strictName">Accepts only argc, Num* and *Count* names: pointer-pointer shapes flip
+    /// from an output to an array on a match, so a false positive misbehaves at run time.</param>
+    internal static bool IsArrayCountParameter(ParameterBinding parameter, bool strictName = false)
     {
         if (parameter.Direction != BindingParameterDirection.In ||
             parameter.AbiKind != BindingParameterAbiKind.Value ||
@@ -5962,10 +6036,12 @@ public sealed partial class ClangSharpHeaderParser
             return false;
         }
 
-        return parameter.NativeName.StartsWith("Num", StringComparison.OrdinalIgnoreCase) ||
+        return parameter.NativeName.Equals("argc", StringComparison.OrdinalIgnoreCase) ||
+            parameter.NativeName.StartsWith("Num", StringComparison.OrdinalIgnoreCase) ||
             parameter.NativeName.Contains("Count", StringComparison.OrdinalIgnoreCase) ||
-            parameter.NativeName.EndsWith("Length", StringComparison.OrdinalIgnoreCase) ||
-            parameter.NativeName.EndsWith("Size", StringComparison.OrdinalIgnoreCase);
+            (!strictName &&
+                (parameter.NativeName.EndsWith("Length", StringComparison.OrdinalIgnoreCase) ||
+                parameter.NativeName.EndsWith("Size", StringComparison.OrdinalIgnoreCase)));
     }
 
     private static bool IsArrayCapacityInputParameter(ParameterBinding parameter)

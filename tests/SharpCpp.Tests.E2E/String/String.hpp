@@ -91,10 +91,8 @@ inline bool string_equals(const char* lhs, const char* rhs)
 
 inline void get_name([[sharpcpp::out]] const char** value)
 {
-    const char* source = "SharpCpp";
-    auto* buf = (char*)std::malloc(std::strlen(source) + 1);
-    std::strcpy(buf, source);
-    *value = buf;
+    // An output char** is borrowed: the wrapper copies the text and never frees the pointer.
+    *value = "SharpCpp";
 }
 
 inline void replace_name([[sharpcpp::ref]] char** value)

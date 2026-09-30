@@ -157,6 +157,15 @@ internal static class Program
         return 0;
     }
 
+    private static void SetPointerPointerShape(BindingCompilation compilation, string functionName, string parameterName, string shape)
+    {
+        compilation.Functions
+            .Single(function => string.Equals(function.CppQualifiedName, functionName, StringComparison.Ordinal))
+            .Parameters
+            .Single(parameter => string.Equals(parameter.NativeName, parameterName, StringComparison.Ordinal))
+            .SetMetadata(MetadataKeys.PointerPointerShape, shape);
+    }
+
     private static void ApplyConsumerExtensions(BindingCompilation compilation)
     {
         const string headerPath = "Consumer/ConsumerProjection.hpp";
@@ -183,6 +192,22 @@ internal static class Program
                 string.Equals(function.CppQualifiedName, "fill_configured_wide_vector3s", StringComparison.Ordinal))
             .Parameters[0]
             .SetMetadata(MetadataKeys.MinimumSpanLength, 3);
+
+        // Consumers cannot edit third-party headers, so they select the shape of an ambiguous
+        // char** / T** parameter by name.
+        SetPointerPointerShape(compilation, "measure_configured_names", "names", PointerPointerShapes.Array);
+        SetPointerPointerShape(compilation, "get_configured_label", "value", PointerPointerShapes.Single);
+        SetPointerPointerShape(compilation, "sum_configured_items", "items", PointerPointerShapes.Array);
+        SetPointerPointerShape(compilation, "pick_configured_item", "item", PointerPointerShapes.Single);
+        SetPointerPointerShape(compilation, "measure_bad_shape", "names", PointerPointerShapes.Array);
+        SetPointerPointerShape(compilation, "measure_bad_value", "names", "sideways");
+        SetPointerPointerShape(compilation, "pick_const_item", "item", PointerPointerShapes.Single);
+        SetPointerPointerShape(compilation, "get_const_label", "value", PointerPointerShapes.Single);
+        // A consumer that projects the pointee to a raw pointer cannot also ask for a record array.
+        compilation.Functions
+            .Single(function => string.Equals(function.CppQualifiedName, "pick_retyped_item", StringComparison.Ordinal))
+            .Parameters[0].Type = BindingType.IntPtr;
+        SetPointerPointerShape(compilation, "pick_retyped_item", "item", PointerPointerShapes.Array);
 
         compilation.Records.Single(record =>
                 string.Equals(record.CppQualifiedName, "consumer_projection_query_target", StringComparison.Ordinal))

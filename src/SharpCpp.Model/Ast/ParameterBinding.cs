@@ -14,6 +14,14 @@ public enum BindingParameterAbiKind
     Pointer = 2
 }
 
+/// <summary>The element of a pointer-to-pointer parameter, when it can be bound as an array or a single value.</summary>
+public enum PointerPointerKind
+{
+    None = 0,
+    Chars = 1,
+    Handles = 2
+}
+
 public sealed class ParameterBinding : BindingNamedNode
 {
     public ParameterBinding(
@@ -53,4 +61,13 @@ public sealed class ParameterBinding : BindingNamedNode
     public string? CallbackDelegateTypeName { get; set; }
 
     public bool CallbackTakesOwnership { get; set; }
+
+    /// <summary>
+    /// Set for `char**` and `T**` (T a record) parameters whose binding shape is ambiguous
+    /// (see <see cref="MetadataKeys.PointerPointerShape"/>); None for every other parameter.
+    /// </summary>
+    public PointerPointerKind PointerPointer { get; set; }
+
+    /// <summary>True when the pointed-to pointer is const (`T* const*`); such a pointer cannot be written.</summary>
+    public bool PointeeIsConst { get; set; }
 }

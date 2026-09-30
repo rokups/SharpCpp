@@ -60,7 +60,8 @@ public sealed class CTests
     {
         Assert.Equal("message"u8, CBindings.CGetMessage());
         Assert.Equal(6u, ((uint*)CBindings.CGetWords())[1]);
-        Assert.Equal(5, CBindings.CCompile("hello"));
+        CBindings.CGetCompilerName(out var compilerName);
+        Assert.Equal("cc", compilerName);
     }
 
     [Fact]
@@ -127,9 +128,17 @@ public sealed class CTests
     }
 
     [Fact]
-    public void Uncounted_char_pointer_pointers_pass_one_string_and_external_records_stay_unbound()
+    public void Counted_char_pointer_pointers_are_string_arrays_and_external_records_stay_unbound()
     {
-        Assert.Equal(5, CBindings.CFirstArgLength("argv0"));
+        var argument = System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8("argv0");
+        try
+        {
+            Assert.Equal(5, CBindings.CFirstArgLength(1, [argument]));
+        }
+        finally
+        {
+            System.Runtime.InteropServices.Marshal.FreeCoTaskMem(argument);
+        }
 
         // FILE is declared by a system header, so its pointer typedef is not bound here.
         Assert.Null(typeof(CBindings).GetMethod("CFileIsNull"));

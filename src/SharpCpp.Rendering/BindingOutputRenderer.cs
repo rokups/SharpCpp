@@ -6543,6 +6543,11 @@ public static partial class BindingOutputRenderer
         BindingCompilation compilation,
         ParameterBinding? callbackMarshallerParameter)
     {
+        if (IsBorrowedStringOutputParameter(parameter))
+        {
+            return $"out nint {parameter.ManagedName}";
+        }
+
         if (IsInputHandlePointerArrayParameter(parameter))
         {
             return $"nint* {parameter.ManagedName}";
@@ -6948,6 +6953,11 @@ public static partial class BindingOutputRenderer
         BindingCompilation compilation,
         bool renderUnexpressibleDefault = false)
     {
+        if (IsBorrowedStringOutputParameter(parameter))
+        {
+            return $"out string? {parameter.ManagedName}";
+        }
+
         if (IsInputHandlePointerArrayParameter(parameter))
         {
             return $"global::System.ReadOnlySpan<{GetManagedPublicReturnTypeName(parameter.Type, compilation)}?> {parameter.ManagedName}";
@@ -7180,6 +7190,17 @@ public static partial class BindingOutputRenderer
                 arguments.Add(parameter.Type.Kind == BindingTypeKind.Enum
                     ? $"({GetManagedImportTypeName(parameter.Type, compilation)}*){pointerName}"
                     : pointerName);
+                continue;
+            }
+
+            if (IsBorrowedStringOutputParameter(parameter))
+            {
+                // The native pointer is borrowed: copy the text, never free it.
+                var borrowedVariableName = $"__abi_{parameter.ManagedName.TrimStart('@')}";
+                preCallStatements.Add($"nint {borrowedVariableName};");
+                arguments.Add($"out {borrowedVariableName}");
+                postCallStatements.Add(
+                    $"{parameter.ManagedName} = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8({borrowedVariableName});");
                 continue;
             }
 
@@ -8990,6 +9011,14 @@ public static partial class BindingOutputRenderer
     {
         return string.Equals(managedTypeName, "string", StringComparison.Ordinal) ||
             string.Equals(managedTypeName, "global::System.String", StringComparison.Ordinal);
+    }
+
+    private static bool IsBorrowedStringOutputParameter(ParameterBinding parameter)
+    {
+        ArgumentNullException.ThrowIfNull(parameter);
+
+        return parameter.Direction == BindingParameterDirection.Out &&
+            parameter.HasMetadata(MetadataKeys.BorrowedStringOutput);
     }
 
     private static bool IsInputHandlePointerArrayParameter(ParameterBinding parameter)

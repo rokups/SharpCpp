@@ -84,6 +84,29 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   `NativeArray<T>` support; there are no setters. A `const char*` item typedef'd to another
   name is not recognized as a string array, and a pointer-to-pointer of other element kinds
   (for example primitives) still has no per-item accessor.
+- Pointer-to-pointer parameters (`char**`, record `T**`) are ambiguous, so each gets a shape
+  (`MetadataKeys.PointerPointerShape`, `array` or `single`), resolved by
+  `PointerPointerShapeResolver` after the consumer `configureBeforeValidation` hook. Defaults:
+  `T* const*`, and a non-const one with an adjacent value count (`{x}Count`, `Num{X}`,
+  `count`, `argc`; narrower than `IsArrayCountParameter`; a pointer count such as
+  `int* count` does not qualify), are input arrays; every other one is a single output. `[[sharpcpp::in]]` /
+  `[[sharpcpp::out]]` or a consumer overwriting the metadata value select the other shape; a
+  value that cannot be honoured (unknown value, not a `char**`/record `T**`, an output through
+  a const pointer) ignores the function with a reason in generator.log. Char arrays are
+  `ReadOnlySpan<nint>` of NUL-terminated UTF-8 pointers (callers allocate the strings); an
+  output `char**` is `out string?`, copied from the native pointer, which is borrowed and never
+  freed (this changed the ownership of the previous explicit `[[sharpcpp::out]] const char**`,
+  which the LibraryImport marshaller freed). Element kinds other than char and records
+  (`int**`, `void**`) keep their previous binding.
+- Open items for pointer-to-pointer shapes: (a) string arrays bind as `ReadOnlySpan<nint>`;
+  the target is `ReadOnlySpan<string?>` with generator-side UTF-8 marshalling. (b) There is no
+  owned out-string variant with a configurable free function (output `char**` is always
+  borrowed). (c) The inheritance projection (`BindingCompilationInheritancePass`) does not copy
+  `InputPointerArray`/`WritablePointerArray` (it does copy the pointer-pointer fields).
+  The output-to-array flip uses a narrower count name set than the primitive-array heuristic
+  (`argc`, `Num*`, `*Count*`; not `*Length`/`*Size`), because a false positive silently changes
+  an output into an array; an explicit `[[sharpcpp::in]]`/`[[sharpcpp::out]]` that cannot be
+  honoured ignores the function with a reason.
 - Containers whose element is not copy-assignable, or whose allocator (a record declaring
   `allocate`) is not default-constructible, are degraded with a diagnostic. The element check
   uses the same coarse heuristic as the non-copyable one (the container has a member taking or

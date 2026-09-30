@@ -43,6 +43,8 @@ public static class BindingCompilationBootstrapPipeline
         RunTimed("ConfigureIntrusiveReferenceCounting", () => ConfigureIntrusiveReferenceCountingPass.Apply(compilation));
         if (configureBeforeValidation is not null)
             RunTimed("ConfigureBeforeValidation", () => configureBeforeValidation(compilation));
+        // After the consumer hook so a consumer-set PointerPointerShape is honoured.
+        RunTimed("ResolvePointerPointerShapes", () => PointerPointerShapeResolver.Apply(compilation));
         RunTimed("DegradeUnsupportedSurface", () => DegradeUnsupportedSurfacePass.Apply(compilation));
         RunTimed("RefreshGenericInstantiations", () => BindingCompilationGenericInstantiationPass.RefreshInferred(compilation));
         RunTimed("Inheritance", () => BindingCompilationInheritancePass.Apply(compilation));

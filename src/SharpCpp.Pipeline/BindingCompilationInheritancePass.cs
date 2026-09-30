@@ -108,7 +108,7 @@ public static class BindingCompilationInheritancePass
 
         foreach (var parameter in sourceMethod.Parameters)
         {
-            projectedMethod.Parameters.Add(new ParameterBinding(
+            var projectedParameter = new ParameterBinding(
                 $"{projectedMethod.SymbolId}:{parameter.ManagedName}",
                 parameter.NativeName,
                 parameter.ManagedName,
@@ -120,8 +120,13 @@ public static class BindingCompilationInheritancePass
                 ManagedDefaultValueExpression = parameter.ManagedDefaultValueExpression,
                 UseCallbackDelegate = parameter.UseCallbackDelegate,
                 CallbackDelegateTypeName = parameter.CallbackDelegateTypeName,
-                CallbackTakesOwnership = parameter.CallbackTakesOwnership
-            });
+                CallbackTakesOwnership = parameter.CallbackTakesOwnership,
+                PointerPointer = parameter.PointerPointer,
+                PointeeIsConst = parameter.PointeeIsConst
+            };
+            if (parameter.HasMetadata(MetadataKeys.BorrowedStringOutput))
+                projectedParameter.SetMetadata(MetadataKeys.BorrowedStringOutput, true);
+            projectedMethod.Parameters.Add(projectedParameter);
         }
 
         foreach (var instantiation in sourceMethod.OwnedReturnRecordInstantiations)

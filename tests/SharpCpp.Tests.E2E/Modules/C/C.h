@@ -176,12 +176,10 @@ static inline const unsigned int* c_get_words(void)
     return c_words_storage;
 }
 
-static inline int c_compile(const char** source)
+/* A char** without a count is an output string (borrowed: never freed). */
+static inline void c_get_compiler_name(const char** name)
 {
-    int length = 0;
-    while ((*source)[length] != '\0')
-        ++length;
-    return length;
+    *name = "cc";
 }
 
 /* Adjacent pointer/count parameters are input arrays; a writable pointer is writable. */
@@ -295,8 +293,8 @@ static inline c_byte c_byte_echo(c_byte value)
     return (c_byte)(value + 1);
 }
 
-/* A pointer typedef to a record declared by a system header, and a char** without a
-   count (a pointer to one string). */
+/* A pointer typedef to a record declared by a system header, and a char** with an adjacent
+   count (an argv style array of strings). */
 typedef FILE* c_file_handle;
 
 static inline int c_file_is_null(c_file_handle file)
@@ -304,10 +302,10 @@ static inline int c_file_is_null(c_file_handle file)
     return file == 0;
 }
 
-static inline int c_first_arg_length(char** argv)
+static inline int c_first_arg_length(int argc, char** argv)
 {
     int length = 0;
-    while (argv[0][length] != '\0')
+    while (argc > 0 && argv[0][length] != '\0')
         ++length;
     return length;
 }

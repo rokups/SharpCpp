@@ -55,10 +55,26 @@ public static class MetadataKeys
     // Value: minimum element count (int) a span parameter must have; the managed wrapper throws
     // ArgumentException before the native call when the span is shorter.
     public const string MinimumSpanLength = "minimum_span_length";
+    // Value: "array" or "single" (PointerPointerShapes). Selects how a pointer-to-pointer
+    // parameter to char or a record is bound: as an input array (a span of strings or pointers)
+    // or as one output value. The parser sets the default from an adjacent value count and the
+    // [[sharpcpp::in]] / [[sharpcpp::out]] attributes; a consumer overwrites it before the
+    // ResolvePointerPointerShapes pipeline step (any configuration hook, or right after parsing).
+    public const string PointerPointerShape = "pointer_pointer_shape";
+    // Set on an out char** parameter that is bound as `out string?`: the wrapper copies the UTF-8
+    // text and never frees the native pointer (a borrowed string).
+    public const string BorrowedStringOutput = "borrowed_string_output";
     // Value: "; "-joined C++ spellings of the explicit full specializations declared for a class
     // template record. Their members are independent of the primary template, so primary-template
     // field accessors cannot be rendered against them.
     public const string ExplicitFullSpecializations = "explicit_full_specializations";
+}
+
+/// <summary>Values of <see cref="MetadataKeys.PointerPointerShape"/>.</summary>
+public static class PointerPointerShapes
+{
+    public const string Array = "array";
+    public const string Single = "single";
 }
 
 public sealed record NativeInterfaceQueryAnnotation(string SourceRecordCppQualifiedName, string InterfaceIdExpression);
