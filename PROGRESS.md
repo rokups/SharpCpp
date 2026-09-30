@@ -51,9 +51,15 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   are reached by a non-plain record or through an ambiguous path also stay class-typed (logged
   as a warning on the base record). Objects constructed from managed code resolve through their
   director class's type id, registered as an alias of the record's wrapper (abstract director
-  records have no registration, so their secondary-base returns still get a base wrapper). A
-  secondary base that has its own secondary base with an interface fails to compile (CS0108:
-  the interface redeclares the inherited base-interface methods; predates the view work).
+  records have no registration, so their secondary-base returns still get a base wrapper).
+  Nested secondary-base interfaces (`ILabelled : ITickable`) inherit base-interface members
+  instead of redeclaring them, and explicit accessor forwarders name the declaring interface
+  (fixture `secondary_bases::labelled`). Known gaps: a covariant override of a secondary-base
+  virtual (`tickable* self()` / `labelled* self() override`) fails the native build in the
+  secondary-base dispatch `static_cast` instead of degrading with a reason; once it degrades,
+  `SecondaryBaseViewPass.WarnOnRedeclaredInterfaceMethods` needs a fixture. A promoted accessor
+  owned by a non-view class that reaches an interface only through a secondary base may still
+  lack an explicit implementation (possible CS0535; not reproduced).
 - Open containers of a template parameter (`std::vector<T>` in a generic member) are not
   bound and are out of scope (no consumer uses them); such fields are reported instead of
   leaking an open type.

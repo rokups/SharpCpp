@@ -121,6 +121,10 @@ internal static class Program
 
         ApplyConsumerExtensions(compilation);
         BindingCompilationBootstrapPipeline.Apply(compilation, marshallerConfigurationFiles, clangArguments);
+        // Secondary-base interface forwarders only exist for accessor-promoted members; promote just this fixture's.
+        GenerateAccessorPropertiesPass.Apply(
+            compilation,
+            recordFilter: static record => record.CppQualifiedName.StartsWith("secondary_bases::", StringComparison.Ordinal));
 
         var generatedFiles = BindingOutputRenderer.Render(compilation, fileStem, headerPath =>
         {

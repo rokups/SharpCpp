@@ -25,9 +25,47 @@ public static class SecondaryBaseViewPass
         ArgumentNullException.ThrowIfNull(compilation);
 
         var eligible = FindEligibleRecords(compilation);
-        if (eligible.Count == 0)
-            return;
+        if (eligible.Count > 0)
+            RetypeSecondaryBaseViews(compilation, eligible);
 
+        // After retyping: return types are compared as the interfaces will render them.
+        WarnOnRedeclaredInterfaceMethods(compilation);
+    }
+
+    // An interface inherits members its interface bases already expose instead of redeclaring them
+    // (which would hide them, CS0108), so a redeclaration with another return type is dropped.
+    private static void WarnOnRedeclaredInterfaceMethods(BindingCompilation compilation)
+    {
+        var interfaceRecordIds = compilation.Records
+            .SelectMany(record => record.GetSecondaryBaseRecords(compilation))
+            .Select(static record => record.SymbolId)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var record in compilation.Records.Where(record => interfaceRecordIds.Contains(record.SymbolId) && !record.IsIgnored()))
+        {
+            foreach (var method in record.GetRenderableInterfaceMethods(compilation))
+            {
+                if (!record.TryFindDeclaringInterfaceRecord(compilation, method, out _, out var declaring))
+                    continue;
+
+                var inherited = declaring.GetRenderableInterfaceMethods(compilation)
+                    .First(candidate => RecordBindingExtensions.ManagedSignaturesMatch(method, candidate));
+                if (!ReturnTypesMatch(method.ReturnType, inherited.ReturnType))
+                {
+                    record.SetWarning(
+                        $"'{method.CppQualifiedName}' redeclares '{inherited.ManagedName}' with a covariant return type; " +
+                        "the interface exposes the base return type");
+                }
+            }
+        }
+    }
+
+    private static bool ReturnTypesMatch(BindingType left, BindingType right)
+        => left.Kind == right.Kind &&
+           left.Marshaller.ManagedIsSecondaryBaseView == right.Marshaller.ManagedIsSecondaryBaseView &&
+           string.Equals(left.ManagedTypeName, right.ManagedTypeName, StringComparison.Ordinal);
+
+    private static void RetypeSecondaryBaseViews(BindingCompilation compilation, Dictionary<string, RecordBinding> eligible)
+    {
         foreach (var record in eligible.Values)
             record.SetMetadata(MetadataKeys.SecondaryBaseView, true);
 

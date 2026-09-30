@@ -5139,8 +5139,15 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
+        // Base interfaces in the clause already expose their own (and their bases') members; redeclaring one
+        // would hide it (CS0108), so it is inherited. A differing return type is reported by SecondaryBaseViewPass.
         foreach (var method in record.GetRenderableInterfaceMethods(compilation).OrderBy(static method => method.ManagedName, StringComparer.Ordinal))
         {
+            if (record.TryFindDeclaringInterfaceRecord(compilation, method, out _, out _))
+            {
+                continue;
+            }
+
             writer.WriteLine();
             var parameterList = RenderManagedPublicParameterList(method.Parameters, compilation);
             var returnTypeName = GetManagedPublicReturnTypeName(method.ReturnType, compilation);
@@ -5204,15 +5211,7 @@ public static partial class BindingOutputRenderer
     private static IReadOnlyList<(RecordBaseBinding Binding, RecordBinding Record)> GetManagedInterfaceBaseBindings(
         BindingCompilation compilation,
         RecordBinding record)
-    {
-        var primaryBase = record.Bases.FirstOrDefault(static candidate => !candidate.IsVirtual);
-        return record.Bases
-            .Where(candidate => !candidate.IsVirtual && !ReferenceEquals(candidate, primaryBase))
-            .Select(binding => (Binding: binding, Record: compilation.FindRecordBySymbolId(binding.RecordId)))
-            .Where(static pair => pair.Record is not null)
-            .Select(static pair => (pair.Binding, pair.Record!))
-            .ToArray();
-    }
+        => record.GetManagedInterfaceBaseBindings(compilation);
 
     private static string GetManagedInterfaceTypeName(
         BindingCompilation compilation,
@@ -8250,17 +8249,21 @@ public static partial class BindingOutputRenderer
             }
 
             writer.WriteLine();
+            // I{record} inherits a member an interface base already exposes; name the interface that declares it.
+            var declaringInterfaceName = record.TryFindDeclaringInterfaceRecord(compilation, method, out var declaringBinding, out var declaringRecord)
+                ? GetManagedInterfaceTypeName(compilation, declaringRecord, declaringBinding.Type)
+                : interfaceName;
             if (accessor.Kind == AccessorPropertyKind.Getter)
             {
                 writer.Write($$"""
-                    {{GetManagedPublicReturnTypeName(method.ReturnType, compilation)}} {{interfaceName}}.{{method.ManagedName}}() => this.{{accessor.PropertyName}};
+                    {{GetManagedPublicReturnTypeName(method.ReturnType, compilation)}} {{declaringInterfaceName}}.{{method.ManagedName}}() => this.{{accessor.PropertyName}};
                     """);
             }
             else
             {
                 var parameter = method.Parameters[0];
                 writer.Write($$"""
-                    void {{interfaceName}}.{{method.ManagedName}}({{RenderManagedPublicParameterNoDefault(parameter, compilation)}}) => this.{{accessor.PropertyName}} = {{parameter.ManagedName}};
+                    void {{declaringInterfaceName}}.{{method.ManagedName}}({{RenderManagedPublicParameterNoDefault(parameter, compilation)}}) => this.{{accessor.PropertyName}} = {{parameter.ManagedName}};
                     """);
             }
         }
@@ -8363,26 +8366,7 @@ public static partial class BindingOutputRenderer
     }
 
     private static bool ManagedSignaturesMatch(FunctionBinding candidate, FunctionBinding abstractMethod)
-    {
-        if (!string.Equals(candidate.ManagedName, abstractMethod.ManagedName, StringComparison.Ordinal) ||
-            candidate.Parameters.Count != abstractMethod.Parameters.Count)
-        {
-            return false;
-        }
-
-        for (var i = 0; i < candidate.Parameters.Count; i++)
-        {
-            var left = candidate.Parameters[i].Type;
-            var right = abstractMethod.Parameters[i].Type;
-            if (!string.Equals(left.ManagedTypeName, right.ManagedTypeName, StringComparison.Ordinal) ||
-                left.Kind != right.Kind)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
+        => RecordBindingExtensions.ManagedSignaturesMatch(candidate, abstractMethod);
 
     private static bool InheritsCloneInterface(BindingCompilation compilation, RecordBinding record)
     {

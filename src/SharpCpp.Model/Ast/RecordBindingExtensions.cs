@@ -164,6 +164,104 @@ public static class RecordBindingExtensions
         return record.GetSecondaryBaseRecords(compilation);
     }
 
+    public static IReadOnlyList<(RecordBaseBinding Binding, RecordBinding Record)> GetManagedInterfaceBaseBindings(
+        this RecordBinding record,
+        BindingCompilation compilation)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentNullException.ThrowIfNull(compilation);
+
+        var primaryBase = record.Bases.FirstOrDefault(static candidate => !candidate.IsVirtual);
+        return record.Bases
+            .Where(candidate => !candidate.IsVirtual && !ReferenceEquals(candidate, primaryBase))
+            .Select(binding => (Binding: binding, Record: compilation.FindRecordBySymbolId(binding.RecordId)))
+            .Where(static pair => pair.Record is not null)
+            .Select(static pair => (pair.Binding, pair.Record!))
+            .ToArray();
+    }
+
+    public static bool ManagedSignaturesMatch(FunctionBinding candidate, FunctionBinding other)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(other);
+
+        if (!string.Equals(candidate.ManagedName, other.ManagedName, StringComparison.Ordinal) ||
+            candidate.Parameters.Count != other.Parameters.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < candidate.Parameters.Count; i++)
+        {
+            var left = candidate.Parameters[i].Type;
+            var right = other.Parameters[i].Type;
+            if (!string.Equals(left.ManagedTypeName, right.ManagedTypeName, StringComparison.Ordinal) ||
+                left.Kind != right.Kind)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Finds the deepest interface among the record's managed interface bases (walked recursively) that
+    /// already exposes <paramref name="method"/>. Such a member is inherited by I{record} instead of redeclared,
+    /// so explicit implementations must name that interface. Returns false when I{record} declares it itself.
+    /// </summary>
+    public static bool TryFindDeclaringInterfaceRecord(
+        this RecordBinding record,
+        BindingCompilation compilation,
+        FunctionBinding method,
+        out RecordBaseBinding binding,
+        out RecordBinding declaring)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentNullException.ThrowIfNull(compilation);
+        ArgumentNullException.ThrowIfNull(method);
+
+        return TryFindDeclaringInterfaceRecord(record, compilation, method, 0, out binding, out declaring);
+    }
+
+    private static bool TryFindDeclaringInterfaceRecord(
+        RecordBinding record,
+        BindingCompilation compilation,
+        FunctionBinding method,
+        int depth,
+        out RecordBaseBinding binding,
+        out RecordBinding declaring)
+    {
+        if (depth <= 64)
+        {
+            foreach (var (baseBinding, baseRecord) in record.GetManagedInterfaceBaseBindings(compilation))
+            {
+                var inherited = baseRecord.GetRenderableInterfaceMethods(compilation).FirstOrDefault(candidate => ManagedSignaturesMatch(method, candidate));
+                if (inherited is null)
+                {
+                    continue;
+                }
+
+                if (TryFindDeclaringInterfaceRecord(baseRecord, compilation, method, depth + 1, out var deeperBinding, out var deeperRecord))
+                {
+                    binding = deeperBinding;
+                    declaring = deeperRecord;
+                }
+                else
+                {
+                    binding = baseBinding;
+                    declaring = baseRecord;
+                }
+
+                return true;
+            }
+        }
+
+        binding = null!;
+        declaring = null!;
+        return false;
+    }
+
     public static IReadOnlyList<FunctionBinding> GetRenderableInterfaceMethods(this RecordBinding record, BindingCompilation compilation)
     {
         ArgumentNullException.ThrowIfNull(record);
