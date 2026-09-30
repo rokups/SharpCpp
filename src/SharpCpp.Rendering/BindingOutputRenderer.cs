@@ -3242,7 +3242,7 @@ public static partial class BindingOutputRenderer
             .Select(pair => GetManagedInterfaceTypeName(compilation, pair.Record, pair.Binding.Type))
             .Cast<string>()
             .ToArray();
-        var canEmitClone = CanEmitClone(record, isEffectivelyAbstract, canEmitDeleteThunk);
+        var canEmitClone = RendersManagedClone(compilation, record);
         var baseTypes = new List<string>
         {
             string.IsNullOrWhiteSpace(record.ManagedBaseTypeName)
@@ -4121,6 +4121,12 @@ public static partial class BindingOutputRenderer
         if (string.IsNullOrWhiteSpace(record.ManagedBaseTypeName))
         {
             return false;
+        }
+
+        // A header Clone() hides a base's synthesized one exactly when the synthesized one would.
+        if (function.ManagedName == "Clone" && function.Parameters.Count == 0 && InheritsCloneInterface(compilation, record))
+        {
+            return true;
         }
 
         if (record.ManagedBaseTypeName.Contains('.', StringComparison.Ordinal))
@@ -8368,6 +8374,22 @@ public static partial class BindingOutputRenderer
     private static bool ManagedSignaturesMatch(FunctionBinding candidate, FunctionBinding abstractMethod)
         => RecordBindingExtensions.ManagedSignaturesMatch(candidate, abstractMethod);
 
+    // The single predicate for whether a record's managed wrapper renders a Clone method, shared by
+    // the wrapper emitters and by the derived-type walk that decides whether Clone hides a base one.
+    private static bool RendersManagedClone(BindingCompilation compilation, RecordBinding record)
+    {
+        var isManagedAbstract = IsManagedWrapperAbstract(
+            compilation,
+            record,
+            record.GetEffectiveVirtualMethodSlots(compilation));
+        return record.IsGeneric
+            ? CanEmitClone(
+                record,
+                isManagedAbstract || record.IsEffectivelyAbstract || record.HasUnimplementedAbstractBaseMethods(compilation),
+                canEmitDeleteThunk: true)
+            : CanEmitClone(record, isManagedAbstract, CanEmitDeleteThunk(record));
+    }
+
     private static bool InheritsCloneInterface(BindingCompilation compilation, RecordBinding record)
     {
         var visited = new HashSet<string>(StringComparer.Ordinal) { record.SymbolId };
@@ -8378,14 +8400,7 @@ public static partial class BindingOutputRenderer
                 break;
             }
 
-            var isManagedAbstract = IsManagedWrapperAbstract(
-                compilation,
-                current,
-                current.GetEffectiveVirtualMethodSlots(compilation));
-            if (CanEmitClone(
-                    current,
-                    isManagedAbstract || current.IsEffectivelyAbstract || current.HasUnimplementedAbstractBaseMethods(compilation),
-                    current.IsGeneric || CanEmitDeleteThunk(current)))
+            if (RendersManagedClone(compilation, current))
             {
                 return true;
             }

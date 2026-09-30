@@ -284,4 +284,58 @@ inline int add_through_base(adder<int>* target, int value)
     target->add(value);
     return value;
 }
+
+/// A curiously recurring generic base renders a synthesized Clone that derived types hide.
+template <typename T>
+struct intrusive_ptr_base
+{
+    T* target = nullptr;
+
+    intrusive_ptr_base() = default;
+    intrusive_ptr_base(const intrusive_ptr_base& other)
+        : target(other.target)
+    {
+    }
+};
+
+struct intrusive_shape : intrusive_ptr_base<intrusive_shape>
+{
+    int size = 1;
+
+    intrusive_shape() = default;
+    intrusive_shape(const intrusive_shape& other) = default;
+
+    intrusive_shape clone() const
+    {
+        return *this;
+    }
+};
+
+struct intrusive_box : intrusive_ptr_base<intrusive_shape>
+{
+    int width = 2;
+
+    intrusive_box() = default;
+    intrusive_box(const intrusive_box& other) = default;
+};
+
+struct intrusive_abstract : intrusive_ptr_base<intrusive_shape>
+{
+    intrusive_abstract() = default;
+    intrusive_abstract(const intrusive_abstract& other) = default;
+    virtual ~intrusive_abstract() = default;
+
+    virtual int value() const = 0;
+};
+
+struct intrusive_leaf : intrusive_abstract
+{
+    intrusive_leaf() = default;
+    intrusive_leaf(const intrusive_leaf& other) = default;
+
+    int value() const override
+    {
+        return 7;
+    }
+};
 }

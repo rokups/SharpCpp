@@ -132,10 +132,7 @@ public static partial class BindingOutputRenderer
             compilation,
             record,
             record.GetEffectiveVirtualMethodSlots(compilation));
-        var canEmitClone = CanEmitClone(
-            record,
-            isEffectivelyAbstract || record.IsEffectivelyAbstract || record.HasUnimplementedAbstractBaseMethods(compilation),
-            canEmitDeleteThunk: true);
+        var canEmitClone = RendersManagedClone(compilation, record);
         var classModifier = isEffectivelyAbstract ? "abstract " : string.Empty;
         var additionalInterfaces = GetConfiguredManagedStaticInterfaces(compilation, record);
         var additionalInterfaceClause = additionalInterfaces.Count == 0

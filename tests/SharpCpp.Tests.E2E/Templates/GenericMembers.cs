@@ -1,3 +1,5 @@
+using System;
+
 using Generic_members;
 
 using SharpCpp.Tests.E2E.Generated;
@@ -82,5 +84,36 @@ public sealed class GenericMemberTests
         E2EBindings.AddThroughBase(adder, 4);
         adder.Add(5);
         Assert.Equal(9, adder.Total());
+    }
+
+    [Fact]
+    public void Derived_of_a_generic_base_clones_to_its_own_type_without_hiding_warnings()
+    {
+        using var box = new IntrusiveBox();
+        using var clone = box.Clone();
+        Assert.IsType<IntrusiveBox>(clone);
+        Assert.Equal(typeof(IntrusiveBox), typeof(IntrusiveBox).GetMethod("Clone", Type.EmptyTypes)!.DeclaringType);
+
+        using var viaBase = ((IntrusivePtrBase<IntrusiveShape>)box).Clone();
+        Assert.IsType<IntrusivePtrBase<IntrusiveShape>>(viaBase);
+    }
+
+    [Fact]
+    public void Header_clone_of_a_generic_base_derived_type_copies_fields()
+    {
+        using var shape = new IntrusiveShape { Size = 3 };
+        using var copy = shape.Clone();
+        Assert.Equal(3, copy.Size);
+        Assert.Equal(typeof(IntrusiveShape), typeof(IntrusiveShape).GetMethod("Clone", Type.EmptyTypes)!.DeclaringType);
+    }
+
+    [Fact]
+    public void Clone_through_an_abstract_intermediate_of_a_generic_base_hides_the_generic_clone()
+    {
+        using var leaf = new IntrusiveLeaf();
+        using var clone = leaf.Clone();
+        Assert.IsType<IntrusiveLeaf>(clone);
+        Assert.Equal(7, clone.Value());
+        Assert.Equal(typeof(IntrusiveLeaf), typeof(IntrusiveLeaf).GetMethod("Clone", Type.EmptyTypes)!.DeclaringType);
     }
 }
