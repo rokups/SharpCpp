@@ -1352,8 +1352,18 @@ public sealed partial class ClangSharpHeaderParser
             return;
         }
 
+        // A pointer range (tagged begin and its end) is bound as a span, so it is not lowered.
+        var endNames = function.Parameters
+            .Select(static parameter => parameter.GetMetadata<string>(MetadataKeys.EndedBy))
+            .Where(static name => !string.IsNullOrEmpty(name))
+            .ToHashSet(StringComparer.Ordinal);
         foreach (var parameter in function.Parameters)
         {
+            if (parameter.HasMetadata(MetadataKeys.EndedBy) || endNames.Contains(parameter.NativeName))
+            {
+                continue;
+            }
+
             var isPrimitivePointer =
                 parameter.AbiKind == BindingParameterAbiKind.Pointer &&
                 parameter.Type.Kind == BindingTypeKind.Primitive;
@@ -1373,6 +1383,7 @@ public sealed partial class ClangSharpHeaderParser
                 primitiveKind: BindingPrimitiveKind.IntPtr);
             parameter.Direction = BindingParameterDirection.In;
             parameter.AbiKind = BindingParameterAbiKind.Value;
+            parameter.SetMetadata(MetadataKeys.DirectorLoweredPointer, true);
         }
     }
 

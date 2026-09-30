@@ -4702,8 +4702,9 @@ public static partial class BindingOutputRenderer
                 .Append(callbackReturnType));
         var invocationArguments = string.Join(
             ", ",
-            GetPublicManagedParameters(method.Parameters).Select(parameter => BuildManagedCallbackInvocationArgument(compilation, parameter)));
-        var rangeBegins = method.Parameters.Where(IsPointerRangeBegin).ToArray();
+            GetPublicManagedParameters(method.Parameters).Select(parameter => BuildManagedCallbackInvocationArgument(compilation, method, parameter)));
+        var rangeBegins = method.Parameters.Where(IsRecordPointerRangeBegin).ToArray();
+        var hasRangeBegin = method.Parameters.Any(IsPointerRangeBegin);
 
         var callbackPointerFieldName = $"{GetVirtualCallbackDispatchName(method)}Pointer";
         writer.Write($$"""
@@ -4720,7 +4721,7 @@ public static partial class BindingOutputRenderer
             """);
 
         writer.Write($$"""
-            internal static {{(rangeBegins.Length > 0 ? "unsafe " : string.Empty)}}{{callbackReturnType}} {{GetVirtualCallbackDispatchName(method)}}({{callbackParameterList}})
+            internal static {{(hasRangeBegin ? "unsafe " : string.Empty)}}{{callbackReturnType}} {{GetVirtualCallbackDispatchName(method)}}({{callbackParameterList}})
             {
             var owner = {{dispatchTypeName}}.CreateManagedWrapper(self, ownsHandle: false);
             """);
@@ -5100,7 +5101,7 @@ public static partial class BindingOutputRenderer
         var entryPointName = owningRecord is not null
             ? GetNativeCallbaseEntrypointName(compilation, owningRecord, function)
             : function.EntryPointName;
-        var unsafeModifier = function.Parameters.Any(IsInputHandlePointerArrayParameter) ? "unsafe " : string.Empty;
+        var unsafeModifier = parameterList.Contains('*', StringComparison.Ordinal) ? "unsafe " : string.Empty;
         importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static {unsafeModifier}partial {returnTypeName} {importMethodName}({parameterList});"
             : $"{returnAttribute}\ninternal static {unsafeModifier}partial {returnTypeName} {importMethodName}({parameterList});";
@@ -5559,7 +5560,7 @@ public static partial class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         var allFunctions = compilation.Functions.AsEnumerable();
-        var allRecords = compilation.Records.Where(record => IsSharedManagedWrapper(record) || !record.GetMetadata<bool>(MetadataKeys.SuppressEmission)).AsEnumerable();
+        var allRecords = compilation.Records.Where(record => (IsSharedManagedWrapper(record) || !record.GetMetadata<bool>(MetadataKeys.SuppressEmission)) && !record.IsIgnored()).AsEnumerable();
 
         if (memberFilter is not null)
         {
@@ -7571,13 +7572,22 @@ public static partial class BindingOutputRenderer
         return $"{GetManagedVirtualCallbackAbiTypeName(compilation, parameter)} {parameter.ManagedName}";
     }
 
-    private static string BuildManagedCallbackInvocationArgument(BindingCompilation compilation, ParameterBinding parameter)
+    private static string BuildManagedCallbackInvocationArgument(BindingCompilation compilation, FunctionBinding method, ParameterBinding parameter)
     {
         ValidateVirtualCallbackSupport(parameter);
 
-        if (IsPointerRangeBegin(parameter))
+        if (IsRecordPointerRangeBegin(parameter))
         {
             return $"new {GetManagedPublicArrayTypeName(parameter, compilation)}(__{parameter.ManagedName.TrimStart('@')}_items)";
+        }
+
+        if (IsPointerRangeBegin(parameter))
+        {
+            // Raw elements are viewed in place: valid only during the callback. An empty range
+            // (null/null) is a zero-length span.
+            var end = GetPointerRangeEnd(method, parameter);
+            var elementTypeName = GetManagedPublicRawArrayElementTypeName(parameter, compilation);
+            return $"new {GetManagedPublicArrayTypeName(parameter, compilation)}((void*){parameter.ManagedName}, (int)(({end.ManagedName} - {parameter.ManagedName}) / sizeof({elementTypeName})))";
         }
 
         return parameter.Type.PrimitiveKind == BindingPrimitiveKind.Boolean
@@ -9157,17 +9167,19 @@ public static partial class BindingOutputRenderer
         return $"global::System.ReadOnlySpan<{elementTypeName}?>";
     }
 
+    /// <summary>The element type of a raw (primitive, enum or address) pointer array span.</summary>
+    private static string GetManagedPublicRawArrayElementTypeName(ParameterBinding parameter, BindingCompilation compilation) =>
+        GetManagedPublicReturnTypeName(parameter.Type, compilation);
+
     /// <summary>
-    /// The begin of a record <c>T**</c> range (<c>ended_by</c>): bound as a span in managed code
-    /// and received as a raw pointer by a director callback.
+    /// The begin of an <c>ended_by</c> range (record <c>T**</c>, primitive, enum or address
+    /// elements): bound as a span in managed code and received as a raw pointer by a director callback.
     /// </summary>
     private static bool IsPointerRangeBegin(ParameterBinding parameter) =>
-        !IsDerivedParameter(parameter) &&
-        parameter.HasMetadata(MetadataKeys.EndedBy) &&
-        parameter.Direction == BindingParameterDirection.In &&
-        parameter.AbiKind == BindingParameterAbiKind.Pointer &&
-        parameter.Type.Kind == BindingTypeKind.Handle &&
-        !string.IsNullOrEmpty(parameter.Type.RecordId);
+        parameter.GetPointerRangeBeginKind() != PointerRangeBeginKind.None;
+
+    private static bool IsRecordPointerRangeBegin(ParameterBinding parameter) =>
+        parameter.GetPointerRangeBeginKind() == PointerRangeBeginKind.Record;
 
     private static ParameterBinding GetPointerRangeEnd(FunctionBinding method, ParameterBinding begin) =>
         method.Parameters.First(candidate =>

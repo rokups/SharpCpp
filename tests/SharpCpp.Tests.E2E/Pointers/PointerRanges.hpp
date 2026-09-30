@@ -382,11 +382,73 @@ inline int invoke_range_visitor_count_empty(range_visitor* visitor)
     return visitor->count(nullptr, nullptr);
 }
 
-// Only record ranges are supported in director callbacks: a range of enums degrades the pure
-// virtual, so the abstract director record is not bound.
+// Primitive and enum ranges bind as spans over the native elements (valid only during the callback).
+struct [[sharpcpp::director]] int_range_visitor
+{
+    virtual ~int_range_visitor() = default;
+
+    virtual int visit([[sharpcpp::ended_by(end)]] const int* begin, const int* end) = 0;
+
+    // A writable range binds as `Span<int>`: writes are visible to native code.
+    virtual int fill([[sharpcpp::ended_by(end)]] int* begin, int* end)
+    {
+        return 0;
+    }
+};
+
+inline int invoke_int_range_visitor(int_range_visitor* visitor)
+{
+    const int items[3] = { 1, 2, 3 };
+    return visitor->visit(items, items + 3);
+}
+
+inline int invoke_int_range_visitor_empty(int_range_visitor* visitor)
+{
+    return visitor->visit(nullptr, nullptr);
+}
+
+inline int invoke_int_range_visitor_fill(int_range_visitor* visitor)
+{
+    int items[4] = { 0, 0, 0, 0 };
+    visitor->fill(items, items + 4);
+    int result = 0;
+    for (int item : items)
+        result += item;
+    return result;
+}
+
 struct [[sharpcpp::director]] color_range_visitor
 {
     virtual ~color_range_visitor() = default;
 
     virtual int visit([[sharpcpp::ended_by(end)]] const range_color* begin, const range_color* end) = 0;
+};
+
+inline int invoke_color_range_visitor(color_range_visitor* visitor)
+{
+    const range_color items[3] = { range_color::red, range_color::blue, range_color::green };
+    return visitor->visit(items, items + 3);
+}
+
+// Address ranges (`void* const*`, like `char**`) bind as spans of IntPtr.
+struct [[sharpcpp::director]] address_range_visitor
+{
+    virtual ~address_range_visitor() = default;
+
+    virtual int visit([[sharpcpp::ended_by(end)]] void* const* begin, void* const* end) = 0;
+};
+
+inline int invoke_address_range_visitor(address_range_visitor* visitor, void* first)
+{
+    void* const items[2] = { first, nullptr };
+    return visitor->visit(items, items + 2);
+}
+
+// Untagged in the header and tagged by the consumer generator: the parameter was already lowered to
+// an address value for the director callback, so the tag cannot be honoured.
+struct [[sharpcpp::director]] lowered_range_visitor
+{
+    virtual ~lowered_range_visitor() = default;
+
+    virtual int visit(const int* begin, const int* end) = 0;
 };

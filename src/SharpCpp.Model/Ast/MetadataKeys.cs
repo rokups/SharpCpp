@@ -79,9 +79,9 @@ public static class MetadataKeys
     // Element kinds: primitives and enums (`ReadOnlySpan<T>`/`Span<T>`), record `T**`
     // (`ReadOnlySpan<T?>`), `char**` and `void* const*` (nint/IntPtr spans). Every override of a
     // virtual method must carry the tag too, or its signature differs from the base. Director
-    // callbacks are unsupported for now: a director virtual with a range is degraded with a
-    // reason. There is no name-based default, and the tag is valid on parameters only. An
-    // invalid tag ignores the function with a logged reason (PointerPointerShapeResolver.Apply).
+    // callbacks bind the range as a span of borrowed elements (record, primitive, enum and address
+    // elements, and `char**`/`void* const*` as IntPtr spans). There is no name-based default, and
+    // the tag is valid on parameters only. An invalid tag ignores the function with a logged reason (PointerPointerShapeResolver.Apply).
     public const string EndedBy = "ended_by";
     // Value: a DerivedArgumentKinds string. Set on a parameter whose native argument is computed
     // from another parameter, so it has no managed counterpart: it stays in Parameters at its
@@ -91,6 +91,10 @@ public static class MetadataKeys
     public const string DerivedArgument = "derived_argument";
     // Value: native name of the parameter a derived argument is computed from.
     public const string DerivedFromParameter = "derived_from_parameter";
+    // Set by parse-time lowering of primitive pointer/reference parameters of director virtuals
+    // (they cross the callback as an address value). A consumer tag applied after that point
+    // cannot recover the pointer, so the ended_by resolver reports it instead.
+    public const string DirectorLoweredPointer = "director_lowered_pointer";
     // Set on an out char** parameter that is bound as `out string?`: the wrapper copies the UTF-8
     // text and never frees the native pointer (a borrowed string).
     public const string BorrowedStringOutput = "borrowed_string_output";

@@ -279,13 +279,105 @@ public sealed class PointerRangeTests
     }
 
     [Fact]
-    public void A_director_callback_with_a_non_record_range_is_not_bound_and_the_reason_is_logged()
+    public void A_director_callback_with_an_int_range_calls_the_managed_override_with_a_span()
     {
-        Assert.Null(typeof(E2EBindings).Assembly.GetType("SharpCpp.Tests.E2E.Generated.ColorRangeVisitor"));
-        Assert.Contains(
-            GeneratedArtifacts.ReadText("generator.log").Split('\n'),
-            line => line.Contains("color_range_visitor", StringComparison.Ordinal) &&
-                line.Contains("parameter 'begin' is a pointer range; only record pointer ranges are supported in director callbacks", StringComparison.Ordinal));
+        using var visitor = new ManagedIntRangeVisitor();
+
+        Assert.Equal(6, E2EBindings.InvokeIntRangeVisitor(visitor));
+        Assert.Equal(3, visitor.LastLength);
+        Assert.Equal(0, E2EBindings.InvokeIntRangeVisitorEmpty(visitor));
+        Assert.Equal(0, visitor.LastLength);
+        Assert.Equal(new[] { typeof(ReadOnlySpan<int>) }, typeof(IntRangeVisitor).GetMethod(nameof(IntRangeVisitor.Visit))!.GetParameters().Select(static parameter => parameter.ParameterType));
+    }
+
+    [Fact]
+    public void A_director_callback_with_a_writable_range_writes_through_to_native_memory()
+    {
+        using var visitor = new ManagedIntRangeVisitor();
+
+        Assert.Equal(10 + 20 + 30 + 40, E2EBindings.InvokeIntRangeVisitorFill(visitor));
+        Assert.Equal(4, visitor.LastLength);
+        Assert.Equal(new[] { typeof(Span<int>) }, typeof(IntRangeVisitor).GetMethod(nameof(IntRangeVisitor.Fill))!.GetParameters().Select(static parameter => parameter.ParameterType));
+    }
+
+    [Fact]
+    public void A_director_callback_with_an_enum_range_calls_the_managed_override_with_a_span()
+    {
+        using var visitor = new ManagedColorRangeVisitor();
+
+        Assert.Equal(1 + 4 + 2, E2EBindings.InvokeColorRangeVisitor(visitor));
+        Assert.Equal(new[] { RangeColor.Red, RangeColor.Blue, RangeColor.Green }, visitor.Seen);
+        Assert.Equal(new[] { typeof(ReadOnlySpan<RangeColor>) }, typeof(ColorRangeVisitor).GetMethod(nameof(ColorRangeVisitor.Visit))!.GetParameters().Select(static parameter => parameter.ParameterType));
+    }
+
+    [Fact]
+    public void A_director_callback_with_an_address_range_receives_a_span_of_pointers()
+    {
+        var value = 0;
+        using var visitor = new ManagedAddressRangeVisitor();
+        unsafe
+        {
+            Assert.Equal(1, E2EBindings.InvokeAddressRangeVisitor(visitor, (IntPtr)(&value)));
+            Assert.Equal(new[] { (IntPtr)(&value), IntPtr.Zero }, visitor.Seen);
+        }
+
+        Assert.Equal(new[] { typeof(ReadOnlySpan<IntPtr>) }, typeof(AddressRangeVisitor).GetMethod(nameof(AddressRangeVisitor.Visit))!.GetParameters().Select(static parameter => parameter.ParameterType));
+    }
+
+    [Fact]
+    public void A_consumer_tag_on_a_lowered_director_pointer_is_not_bound_and_the_reason_is_logged()
+    {
+        Assert.Null(typeof(E2EBindings).Assembly.GetType("SharpCpp.Tests.E2E.Generated.LoweredRangeVisitor"));
+        var lines = GeneratedArtifacts.ReadText("generator.log").Split('\n').Where(static line => line.Contains("lowered_range_visitor", StringComparison.Ordinal)).ToArray();
+        Assert.Contains(lines, static line => line.Contains("was lowered to an address value for the director callback before the consumer tag was applied; tag it with [[sharpcpp::ended_by]] in the header", StringComparison.Ordinal));
+        Assert.DoesNotContain(lines, static line => line.Contains("the parameter is not a pointer", StringComparison.Ordinal));
+    }
+
+    private sealed class ManagedIntRangeVisitor : IntRangeVisitor
+    {
+        public int LastLength { get; private set; } = -1;
+
+        public override int Visit(ReadOnlySpan<int> begin)
+        {
+            LastLength = begin.Length;
+            var result = 0;
+            foreach (var item in begin)
+                result += item;
+            return result;
+        }
+
+        public override int Fill(Span<int> begin)
+        {
+            LastLength = begin.Length;
+            for (var index = 0; index < begin.Length; index++)
+                begin[index] = (index + 1) * 10;
+            return begin.Length;
+        }
+    }
+
+    private sealed class ManagedAddressRangeVisitor : AddressRangeVisitor
+    {
+        public IntPtr[] Seen { get; private set; } = [];
+
+        public override int Visit(ReadOnlySpan<IntPtr> begin)
+        {
+            Seen = begin.ToArray();
+            return begin.ToArray().Count(static item => item != IntPtr.Zero);
+        }
+    }
+
+    private sealed class ManagedColorRangeVisitor : ColorRangeVisitor
+    {
+        public RangeColor[] Seen { get; private set; } = [];
+
+        public override int Visit(ReadOnlySpan<RangeColor> begin)
+        {
+            Seen = begin.ToArray();
+            var result = 0;
+            foreach (var item in begin)
+                result += (int)item;
+            return result;
+        }
     }
 
     private class ManagedRangeVisitor : RangeVisitor

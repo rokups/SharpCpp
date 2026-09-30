@@ -193,6 +193,8 @@ public static class PointerPointerShapeResolver
     private static string? GetEndedByProblem(FunctionBinding function, ParameterBinding begin, ParameterBinding? next, string name, out ParameterBinding end)
     {
         end = begin;
+        if (begin.HasMetadata(MetadataKeys.DirectorLoweredPointer))
+            return "the parameter was lowered to an address value for the director callback before the consumer tag was applied; tag it with [[sharpcpp::ended_by]] in the header";
         var named = function.Parameters.FirstOrDefault(candidate =>
             !ReferenceEquals(candidate, begin) && string.Equals(candidate.NativeName, name, StringComparison.Ordinal));
         if (named is null)

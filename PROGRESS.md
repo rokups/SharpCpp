@@ -155,14 +155,18 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   record `T**`/`T* const*` (`ReadOnlySpan<T?>`, the counted handle-array projection); the end
   parameter takes begin's reshaped type. Fixtures: `Pointers/PointerRanges.hpp`. Increments 1, 2 and 3 are done (3: virtual and
   abstract non-director records work with ranges as long as the base and every override carry
-  the tag, fixtures `range_shape`/`widget_query`; a director virtual with a range is degraded
-  with "ranges are not supported in director callbacks yet", fixture `range_visitor`; rbfx
+  the tag, fixtures `range_shape`/`widget_query`; rbfx
   adopts it through `RbfxPointerRangesPass`, which tags `TestDrawables(start, end, inside)` as
-  `ReadOnlySpan<Drawable?>` and replaced the old unsupported-API suppression). Open:
-  (3b) the director reverse path: a managed override receiving a range needs the native
-  callback to build a span from `begin`/`end` (`end - begin` length) and the `end` argument
-  hidden from the managed callback signature; a future `SpanLength` derived kind could hide a
-  `counted_by` count the same way; constructors are degraded today. Done: class
+  `ReadOnlySpan<Drawable?>` and replaced the old unsupported-API suppression). Increment 3b is
+  done: director callbacks bind record, primitive, enum and address ranges (fixtures
+  `range_visitor`, `int_range_visitor`, `color_range_visitor`, `address_range_visitor`). The
+  native side is unchanged (one pointer per native parameter); the managed dispatch rebuilds a
+  span from `begin`/`end` and the `end` argument is hidden from the override signature.
+  Limitations: span elements passed to a managed override are borrowed and only valid during
+  the callback; a consumer `ended_by` tag on a primitive director pointer is rejected with a
+  reason, because parse-time lowering has already turned it into an address value (use the
+  header attribute instead; fixture `lowered_range_visitor`). Open: a future `SpanLength`
+  derived kind could hide a `counted_by` count the same way; constructors are degraded today. Done: class
   template members and template functions are degraded with a reason (`CreateConcreteParameter`
   does not copy parameter metadata); the inheritance projection copies `EndedBy`,
   `DerivedArgument`, `DerivedFromParameter`, `InputPointerArray` and `WritablePointerArray`

@@ -229,6 +229,9 @@ internal static class Program
         SetPointerPointerShape(compilation, "pick_configured_counted_single", "items", PointerPointerShapes.Single);
         // Consumers also pair a begin pointer with its end pointer by name.
         SetEndedBy(compilation, "sum_configured_range", "begin", "end");
+        // The director virtual's pointers were lowered to address values at parse time, so this tag
+        // cannot be honoured.
+        SetEndedBy(compilation, "lowered_range_visitor::visit", "begin", "end");
         // A consumer that projects the pointee to a raw pointer cannot also ask for a record array.
         compilation.Functions
             .Single(function => string.Equals(function.CppQualifiedName, "pick_retyped_item", StringComparison.Ordinal))
