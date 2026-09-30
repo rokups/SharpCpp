@@ -8,8 +8,9 @@ public enum BindingTemplateArgumentKind
 
 public sealed class BindingTemplateArgument
 {
-    private BindingTemplateArgument(BindingTemplateArgumentKind kind, BindingType? type, long integralValue, bool isBoolean = false)
+    private BindingTemplateArgument(BindingTemplateArgumentKind kind, BindingType? type, long integralValue, bool isBoolean = false, bool isNonDefaultConstructibleAllocator = false)
     {
+        IsNonDefaultConstructibleAllocator = isNonDefaultConstructibleAllocator;
         Kind = kind;
         Type = type;
         IntegralValue = integralValue;
@@ -25,10 +26,16 @@ public sealed class BindingTemplateArgument
     /// <summary>A bool non-type argument; spelled true/false in C++.</summary>
     public bool IsBoolean { get; }
 
-    public static BindingTemplateArgument FromType(BindingType type)
+    /// <summary>
+    /// A type argument that looks like an allocator (declares allocate) but cannot be
+    /// default-constructed. Generated wrappers default-construct every container instantiation.
+    /// </summary>
+    public bool IsNonDefaultConstructibleAllocator { get; }
+
+    public static BindingTemplateArgument FromType(BindingType type, bool isNonDefaultConstructibleAllocator = false)
     {
         ArgumentNullException.ThrowIfNull(type);
-        return new BindingTemplateArgument(BindingTemplateArgumentKind.Type, type, 0);
+        return new BindingTemplateArgument(BindingTemplateArgumentKind.Type, type, 0, isNonDefaultConstructibleAllocator: isNonDefaultConstructibleAllocator);
     }
 
     public static BindingTemplateArgument FromIntegral(long value, bool isBoolean = false) =>

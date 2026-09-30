@@ -50,9 +50,11 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
 - A field of type `T**` (for example a counted array of opaque handles, `XrSpaceUserFB*`)
   is exposed as a single `T` wrapper; only record fields with a matching count get
   per-item accessors, and C modules do not.
-- Containers of records that are copy-constructible but not copy-assignable, or whose
-  allocator is not default-constructible, are not detected; consumers ignore such records
-  (RedBolt ignores Jolt's internal `PhysicsUpdateContext`).
+- Containers whose element is not copy-assignable, or whose allocator (a record declaring
+  `allocate`) is not default-constructible, are degraded with a diagnostic. The element check
+  uses the same coarse heuristic as the non-copyable one (the container has a member taking or
+  returning the element by value), so it can over-degrade. The allocator flag is set only on
+  the AST template-argument path, not the CX fallback.
 - Projected-value arrays (`Marshaller<T*>` / `Marshaller<const T*>` specialized with
   `ProjectedValueSpanMarshallerBase` / `ProjectedValueConstSpanMarshallerBase` and bound to
   `Span<T>` / `ReadOnlySpan<T>` through `SpanAbiMarshaller<>`) work for parameters of

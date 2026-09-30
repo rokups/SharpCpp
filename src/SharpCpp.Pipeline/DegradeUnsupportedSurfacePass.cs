@@ -643,6 +643,42 @@ public static class DegradeUnsupportedSurfacePass
     private static bool TryGetCopiedNonCopyableArgument(
         BindingType type,
         IReadOnlyDictionary<string, RecordBinding> recordsById,
+        out string argumentName) =>
+        TryGetElementCopiedByValue(type, recordsById, static record => record.IsNonCopyable, out argumentName);
+
+    /// <summary>
+    /// Sequence containers also assign elements (set, insert, erase); a record whose copy
+    /// assignment is deleted cannot be bound as that element even when it is copyable.
+    /// </summary>
+    private static bool TryGetAssignedNonAssignableArgument(
+        BindingType type,
+        IReadOnlyDictionary<string, RecordBinding> recordsById,
+        out string argumentName) =>
+        TryGetElementCopiedByValue(type, recordsById, static record => record.IsNonAssignable, out argumentName);
+
+    /// <summary>
+    /// The generated wrapper of every container instantiation default-constructs the container,
+    /// which needs a default-constructible allocator.
+    /// </summary>
+    private static bool TryGetNonDefaultConstructibleAllocator(BindingType type, out string allocatorName)
+    {
+        allocatorName = string.Empty;
+        foreach (var argument in type.NativeTemplateArguments)
+        {
+            if (argument.Kind == BindingTemplateArgumentKind.Type && argument.IsNonDefaultConstructibleAllocator)
+            {
+                allocatorName = argument.Type!.CppTypeName;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryGetElementCopiedByValue(
+        BindingType type,
+        IReadOnlyDictionary<string, RecordBinding> recordsById,
+        Func<RecordBinding, bool> isUnsuitable,
         out string argumentName)
     {
         argumentName = string.Empty;
@@ -659,7 +695,7 @@ public static class DegradeUnsupportedSurfacePass
             if (argument.RecordId is null ||
                 !argument.Marshaller.CppIsRecordValue ||
                 !recordsById.TryGetValue(argument.RecordId, out var argumentRecord) ||
-                !argumentRecord.IsNonCopyable)
+                !isUnsuitable(argumentRecord))
             {
                 continue;
             }
@@ -805,6 +841,18 @@ public static class DegradeUnsupportedSurfacePass
         if (TryGetCopiedNonCopyableArgument(type, recordsById, out var nonCopyableArgument))
         {
             reason = $"generic argument '{nonCopyableArgument}' is not copyable, but '{rawCppTypeName}' copies its elements";
+            return true;
+        }
+
+        if (TryGetAssignedNonAssignableArgument(type, recordsById, out var nonAssignableArgument))
+        {
+            reason = $"generic argument '{nonAssignableArgument}' is not copy-assignable, but '{rawCppTypeName}' assigns its elements";
+            return true;
+        }
+
+        if (TryGetNonDefaultConstructibleAllocator(type, out var allocatorName))
+        {
+            reason = $"allocator '{allocatorName}' is not default-constructible, but '{rawCppTypeName}' is default-constructed by generated wrappers";
             return true;
         }
 

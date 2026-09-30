@@ -98,7 +98,7 @@ public sealed class BindingType
         GenericParameterName = genericParameterName;
         _genericArguments = genericArguments?.ToArray() ?? Array.Empty<BindingType>();
         _nativeTemplateArguments = nativeTemplateArguments?.ToArray() ??
-            _genericArguments.Select(BindingTemplateArgument.FromType).ToArray();
+            _genericArguments.Select(static argument => BindingTemplateArgument.FromType(argument)).ToArray();
         NativeTemplateArgumentsAreAstVerified = nativeTemplateArgumentsAreAstVerified;
         IsCallback = isCallback;
         CallbackReturnType = callbackReturnType;
@@ -290,7 +290,7 @@ public sealed class BindingType
             !NativeTemplateArgumentsAreAstVerified &&
                 NativeTemplateArguments.Count == GenericArguments.Count &&
                 NativeTemplateArguments.All(static argument => argument.Kind == BindingTemplateArgumentKind.Type)
-                ? arguments.Select(BindingTemplateArgument.FromType)
+                ? arguments.Select(static argument => BindingTemplateArgument.FromType(argument))
                 : NativeTemplateArguments,
             IsCallback,
             CallbackReturnType,

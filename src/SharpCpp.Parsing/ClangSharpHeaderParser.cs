@@ -600,7 +600,8 @@ public sealed partial class ClangSharpHeaderParser
             HasCopyConstructor = recordDecl.Handle.HasUserDeclaredCopyConstructor ||
                 ContainsCopyConstructorDeclaration(sourceText, nativeName) ||
                 ContainsCopyConstructorDeclaration(GetDeclFileText(recordDecl), nativeName),
-            IsNonCopyable = cxxRecord is not null && IsNonCopyableRecord(cxxRecord, new HashSet<CXXRecordDecl>())
+            IsNonCopyable = cxxRecord is not null && IsNonCopyableRecord(cxxRecord, new HashSet<CXXRecordDecl>()),
+            IsNonAssignable = cxxRecord is not null && IsNonAssignableRecord(cxxRecord, new HashSet<CXXRecordDecl>())
         };
         if (HasSharpCppAttribute(declarationText, "native_interface"))
         {
@@ -2551,6 +2552,59 @@ public sealed partial class ClangSharpHeaderParser
         return false;
     }
 
+    /// <summary>
+    /// An allocator-shaped record (declares allocate) with no usable default constructor.
+    /// </summary>
+    private static bool IsNonDefaultConstructibleAllocator(CXXRecordDecl record)
+    {
+        var definition = record.Definition as CXXRecordDecl ?? record;
+        return definition.Methods.Any(static method => method.Name == "allocate") &&
+            !IsDefaultConstructibleRecord(definition, new HashSet<CXXRecordDecl>());
+    }
+
+    private static bool IsDefaultConstructibleRecord(CXXRecordDecl record, HashSet<CXXRecordDecl> visited)
+    {
+        var definition = record.Definition as CXXRecordDecl ?? record;
+        if (!visited.Add(definition))
+        {
+            return true;
+        }
+
+        foreach (var constructor in definition.Ctors)
+        {
+            if (constructor.IsDefaultConstructor)
+            {
+                return !constructor.IsDeleted && constructor.Access != CX_CXXAccessSpecifier.CX_CXXPrivate;
+            }
+        }
+
+        // Any user-declared constructor suppresses the implicit default constructor.
+        if (definition.HasUserDeclaredConstructor)
+        {
+            return false;
+        }
+
+        foreach (var baseSpecifier in definition.Bases)
+        {
+            if (baseSpecifier.Type.CanonicalType.AsCXXRecordDecl is { } baseRecord &&
+                !IsDefaultConstructibleRecord(baseRecord, visited))
+            {
+                return false;
+            }
+        }
+
+        foreach (var field in definition.Fields)
+        {
+            if (field.Type.CanonicalType is RecordType && field.Type.CanonicalType.AsCXXRecordDecl is { } fieldRecord &&
+                !IsDefaultConstructibleRecord(fieldRecord, visited))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private static bool IsNonCopyableRecord(CXXRecordDecl record, HashSet<CXXRecordDecl> visited)
     {
         var definition = record.Definition as CXXRecordDecl ?? record;
@@ -2707,7 +2761,9 @@ public sealed partial class ClangSharpHeaderParser
                     mappedArgument = mappedArgument.WithCppTypeName(IsDependentCxType(argumentType.Handle)
                         ? FormatCppTypeFromAst(argumentType, recordsByName, genericParameters)
                         : FormatCanonicalCxTypeName(argumentType.CanonicalType.Handle));
-                    nativeArguments.Add(BindingTemplateArgument.FromType(mappedArgument));
+                    nativeArguments.Add(BindingTemplateArgument.FromType(
+                        mappedArgument,
+                        argumentType.CanonicalType.AsCXXRecordDecl is { } argumentRecord && IsNonDefaultConstructibleAllocator(argumentRecord)));
                     break;
 
                 case CXTemplateArgumentKind.CXTemplateArgumentKind_Integral:

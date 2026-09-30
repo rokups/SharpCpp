@@ -45,6 +45,13 @@ public sealed class RecordBinding : BindingNamedContainerNode
     public bool IsNonCopyable { get; set; }
 
     /// <summary>
+    /// True when the C++ copy assignment is deleted or inaccessible, explicitly or implicitly
+    /// (for example through an atomic member). Containers that assign or shift such elements
+    /// (set, insert, erase) cannot compile natively.
+    /// </summary>
+    public bool IsNonAssignable { get; set; }
+
+    /// <summary>
     /// Class template deriving from one of its own type parameters
     /// (template &lt;class TBase&gt; struct tracked : TBase). A C# generic cannot express that
     /// base, so records deriving from an instantiation use the concrete argument instead;

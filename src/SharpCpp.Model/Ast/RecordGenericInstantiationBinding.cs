@@ -16,7 +16,7 @@ public sealed class RecordGenericInstantiationBinding
 
         _typeArguments = typeArguments.ToArray();
         _nativeTemplateArguments = nativeTemplateArguments?.ToArray() ??
-            _typeArguments.Select(BindingTemplateArgument.FromType).ToArray();
+            _typeArguments.Select(static argument => BindingTemplateArgument.FromType(argument)).ToArray();
         IsInferred = isInferred;
     }
 
