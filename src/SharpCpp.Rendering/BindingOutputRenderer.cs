@@ -1888,7 +1888,7 @@ public static partial class BindingOutputRenderer
         var bufferTypeName = $"global::SharpCpp.NativeArray<{elementTypeName}>";
         var parameterList = string.Join(
             ", ",
-            function.Parameters.Select(parameter => ReferenceEquals(parameter, buffer)
+            GetPublicManagedParameters(function.Parameters).Select(parameter => ReferenceEquals(parameter, buffer)
                 ? $"{bufferTypeName} {bufferName}"
                 : RenderManagedPublicParameterRequired(parameter, compilation)));
 
@@ -6548,6 +6548,14 @@ public static partial class BindingOutputRenderer
             return $"out nint {parameter.ManagedName}";
         }
 
+        if (IsDerivedParameter(parameter))
+        {
+            // The end of a pointer range has the pointer type of its begin parameter.
+            return parameter.Type.Kind == BindingTypeKind.Handle
+                ? $"nint* {parameter.ManagedName}"
+                : $"{GetManagedImportTypeName(type, compilation)}* {parameter.ManagedName}";
+        }
+
         if (IsInputHandlePointerArrayParameter(parameter))
         {
             return $"nint* {parameter.ManagedName}";
@@ -6613,7 +6621,7 @@ public static partial class BindingOutputRenderer
     {
         ArgumentNullException.ThrowIfNull(parameters);
 
-        var parameterArray = parameters as ParameterBinding[] ?? parameters.ToArray();
+        var parameterArray = GetPublicManagedParameters(parameters).ToArray();
 
         var firstUnexpressibleDefault = parameterArray
             .Select((parameter, index) => (parameter, index))
@@ -6717,8 +6725,8 @@ public static partial class BindingOutputRenderer
             var parameterList = RenderManagedUnexpressibleDefaultOverloadParameterList(function, keepCount, compilation);
             var forwardedArgs = string.Join(
                 ", ",
-                variantParams.Select(RenderManagedForwardingArgument)
-                    .Concat(function.Parameters.Skip(keepCount).Select(p => GetManagedOmittedDefaultArgument(p, compilation))));
+                GetPublicManagedParameters(variantParams).Select(RenderManagedForwardingArgument)
+                    .Concat(GetPublicManagedParameters(function.Parameters.Skip(keepCount)).Select(p => GetManagedOmittedDefaultArgument(p, compilation))));
             var overloadSignaturePrefix = signaturePrefix;
 
             if (!isConstructor &&
@@ -6863,7 +6871,7 @@ public static partial class BindingOutputRenderer
         BindingCompilation compilation)
     {
         var parameterArray = function.Parameters;
-        var keepParameters = parameterArray.Take(keepCount).ToArray();
+        var keepParameters = GetPublicManagedParameters(parameterArray.Take(keepCount)).ToArray();
         if (keepParameters.Length == 0)
         {
             return string.Empty;
@@ -7187,12 +7195,19 @@ public static partial class BindingOutputRenderer
 
         foreach (var parameter in parameters)
         {
+            if (IsDerivedParameter(parameter))
+            {
+                // The end of a pointer range: begin's pinned pointer plus the span length. The
+                // call sits inside begin's fixed block, so the pointer is in scope.
+                var begin = ((FunctionBinding)parameter.Parent!).Parameters.First(candidate =>
+                    string.Equals(candidate.NativeName, parameter.GetMetadata<string>(MetadataKeys.DerivedFromParameter), StringComparison.Ordinal));
+                arguments.Add($"{BuildPointerArrayArgument(compilation, begin)} + {begin.ManagedName}.Length");
+                continue;
+            }
+
             if (IsInputPointerArrayParameter(parameter))
             {
-                var pointerName = GetPointerArrayPointerName(parameter);
-                arguments.Add(parameter.Type.Kind == BindingTypeKind.Enum
-                    ? $"({GetManagedImportTypeName(parameter.Type, compilation)}*){pointerName}"
-                    : pointerName);
+                arguments.Add(BuildPointerArrayArgument(compilation, parameter));
                 continue;
             }
 
@@ -7277,6 +7292,14 @@ public static partial class BindingOutputRenderer
         }
 
         return new ManagedInvocationPlan(arguments, preCallStatements, postCallStatements);
+    }
+
+    private static string BuildPointerArrayArgument(BindingCompilation compilation, ParameterBinding parameter)
+    {
+        var pointerName = GetPointerArrayPointerName(parameter);
+        return parameter.Type.Kind == BindingTypeKind.Enum
+            ? $"({GetManagedImportTypeName(parameter.Type, compilation)}*){pointerName}"
+            : pointerName;
     }
 
     private sealed record ManagedInvocationPlan(
@@ -9052,17 +9075,31 @@ public static partial class BindingOutputRenderer
     {
         ArgumentNullException.ThrowIfNull(parameter);
 
-        return !parameter.HasMetadata(MetadataKeys.InputPointerArray) &&
+        return !IsDerivedParameter(parameter) &&
+            !parameter.HasMetadata(MetadataKeys.InputPointerArray) &&
             parameter.Direction == BindingParameterDirection.In &&
             parameter.AbiKind == BindingParameterAbiKind.Pointer &&
             parameter.Type.Kind == BindingTypeKind.Handle;
     }
 
+    /// <summary>True for a parameter whose native argument is computed from another parameter.</summary>
+    private static bool IsDerivedParameter(ParameterBinding parameter) =>
+        parameter.HasMetadata(MetadataKeys.DerivedArgument);
+
+    /// <summary>
+    /// The parameters a public managed signature exposes: derived parameters stay in
+    /// <c>function.Parameters</c> at their native index, so invocation plans, variants and
+    /// dispatch stay index-aligned, and only signatures skip them.
+    /// </summary>
+    private static IEnumerable<ParameterBinding> GetPublicManagedParameters(IEnumerable<ParameterBinding> parameters) =>
+        parameters.Where(static parameter => !IsDerivedParameter(parameter));
+
     private static bool IsInputRawPointerArrayParameter(ParameterBinding parameter)
     {
         ArgumentNullException.ThrowIfNull(parameter);
 
-        return parameter.HasMetadata(MetadataKeys.InputPointerArray) &&
+        return !IsDerivedParameter(parameter) &&
+            parameter.HasMetadata(MetadataKeys.InputPointerArray) &&
             parameter.Direction == BindingParameterDirection.In &&
             parameter.AbiKind == BindingParameterAbiKind.Pointer &&
             (parameter.Type.Kind is BindingTypeKind.Primitive or BindingTypeKind.Enum ||
@@ -9183,7 +9220,7 @@ public static partial class BindingOutputRenderer
             var beforeHasUnexpressible = beforeParams.Any(p => p.HasMetadata(MetadataKeys.UnexpressibleDefault));
 
             // Render public signature for overload A
-            var aParamList = string.Join(", ", beforeParams.Select(p => RenderManagedPublicParameter(p, compilation)));
+            var aParamList = string.Join(", ", GetPublicManagedParameters(beforeParams).Select(p => RenderManagedPublicParameter(p, compilation)));
 
             writer.Write($$"""
                 {{declarationPrefix}} {{GetManagedPublicReturnTypeName(function.ReturnType, compilation)}} {{function.ManagedName}}({{aParamList}})
@@ -9263,6 +9300,11 @@ public static partial class BindingOutputRenderer
             for (var i = 0; i < function.Parameters.Count; i++)
             {
                 var param = function.Parameters[i];
+                if (IsDerivedParameter(param))
+                {
+                    continue;
+                }
+
                 if (i < firstU || param.HasMetadata(MetadataKeys.UndefaultableParam))
                 {
                     // Required: no default, non-nullable

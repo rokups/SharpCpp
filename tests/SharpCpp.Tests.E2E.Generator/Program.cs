@@ -175,6 +175,15 @@ internal static class Program
             .SetMetadata(MetadataKeys.CountedBy, countName);
     }
 
+    private static void SetEndedBy(BindingCompilation compilation, string functionName, string parameterName, string endName)
+    {
+        compilation.Functions
+            .Single(function => string.Equals(function.CppQualifiedName, functionName, StringComparison.Ordinal))
+            .Parameters
+            .Single(parameter => string.Equals(parameter.NativeName, parameterName, StringComparison.Ordinal))
+            .SetMetadata(MetadataKeys.EndedBy, endName);
+    }
+
     private static void ApplyConsumerExtensions(BindingCompilation compilation)
     {
         const string headerPath = "Consumer/ConsumerProjection.hpp";
@@ -218,6 +227,8 @@ internal static class Program
         SetCountedBy(compilation, "sum_configured_counted_noop", "items", "item_count");
         SetCountedBy(compilation, "pick_configured_counted_single", "items", "item_count");
         SetPointerPointerShape(compilation, "pick_configured_counted_single", "items", PointerPointerShapes.Single);
+        // Consumers also pair a begin pointer with its end pointer by name.
+        SetEndedBy(compilation, "sum_configured_range", "begin", "end");
         // A consumer that projects the pointee to a raw pointer cannot also ask for a record array.
         compilation.Functions
             .Single(function => string.Equals(function.CppQualifiedName, "pick_retyped_item", StringComparison.Ordinal))

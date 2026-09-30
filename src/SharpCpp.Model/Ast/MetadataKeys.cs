@@ -71,6 +71,22 @@ public static class MetadataKeys
     // arrays. On a char** or record T** it selects the array shape unless an explicit shape is
     // present; on a primitive or handle pointer it makes the parameter an input array.
     public const string CountedBy = "counted_by";
+    // Value: native name of the end parameter of a `(T* begin, T* end)` pair
+    // (`[[sharpcpp::ended_by(end)]]` on begin, mirroring Clang `__ended_by`, or set by a
+    // consumer). Binds the pair as ONE managed span parameter: `ReadOnlySpan<T>` for a const
+    // pointee, `Span<T>` for a mutable one. The wrapper passes begin = the pinned pointer and
+    // end = begin + span.Length; an empty span passes null/null, which is a valid empty range.
+    // There is no name-based default, and the tag is valid on parameters only. An invalid tag
+    // ignores the function with a logged reason (PointerPointerShapeResolver.Apply).
+    public const string EndedBy = "ended_by";
+    // Value: a DerivedArgumentKinds string. Set on a parameter whose native argument is computed
+    // from another parameter, so it has no managed counterpart: it stays in Parameters at its
+    // native index (invocation plans, variants and dispatch are index-aligned) and only public
+    // managed signatures skip it. A future `SpanLength` kind could hide a counted_by count the
+    // same way.
+    public const string DerivedArgument = "derived_argument";
+    // Value: native name of the parameter a derived argument is computed from.
+    public const string DerivedFromParameter = "derived_from_parameter";
     // Set on an out char** parameter that is bound as `out string?`: the wrapper copies the UTF-8
     // text and never frees the native pointer (a borrowed string).
     public const string BorrowedStringOutput = "borrowed_string_output";
@@ -96,3 +112,10 @@ public enum AccessorPropertyKind
 }
 
 public sealed record AccessorPropertyAnnotation(string PropertyName, AccessorPropertyKind Kind);
+
+/// <summary>Values of <see cref="MetadataKeys.DerivedArgument"/>.</summary>
+public static class DerivedArgumentKinds
+{
+    /// <summary>The end of a `(begin, end)` range: the begin argument plus the span length.</summary>
+    public const string PointerRangeEnd = "pointer_range_end";
+}

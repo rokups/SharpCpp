@@ -142,6 +142,103 @@ public static class PointerPointerShapeResolver
     }
 
     /// <summary>
+    /// Validates every <see cref="MetadataKeys.EndedBy"/> tag of the function and binds each valid
+    /// `(T* begin, T* end)` pair as one input array on begin; `end` becomes a derived argument
+    /// (<see cref="MetadataKeys.DerivedArgument"/>) that keeps its native position and has no
+    /// managed counterpart. An invalid tag ignores the function with its own reason. Returns
+    /// true when a parameter was reshaped.
+    /// </summary>
+    private static bool ApplyEndedBy(FunctionBinding function)
+    {
+        var changed = false;
+        for (var index = 0; index < function.Parameters.Count; ++index)
+        {
+            var begin = function.Parameters[index];
+            if (!begin.TryGetMetadata<string>(MetadataKeys.EndedBy, out var name))
+                continue;
+
+            var next = function.Parameters.ElementAtOrDefault(index + 1);
+            if (GetEndedByProblem(function, begin, next, name!, out var end) is { } problem)
+            {
+                function.SetIgnoreReason($"parameter '{begin.NativeName}' is ended by '{name}' but {problem}");
+                continue;
+            }
+
+            ClangSharpHeaderParser.ApplyAdjacentInputPointerArrayMetadata(begin);
+            if (!begin.HasMetadata(MetadataKeys.InputPointerArray))
+            {
+                function.SetIgnoreReason($"parameter '{begin.NativeName}' is ended by '{name}' but has no input array projection");
+                continue;
+            }
+
+            MarkPointerRangeEnd(begin, end);
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    /// <summary>The first reason the tag on <paramref name="begin"/> is invalid, or null.</summary>
+    private static string? GetEndedByProblem(FunctionBinding function, ParameterBinding begin, ParameterBinding? next, string name, out ParameterBinding end)
+    {
+        end = begin;
+        var named = function.Parameters.FirstOrDefault(candidate =>
+            !ReferenceEquals(candidate, begin) && string.Equals(candidate.NativeName, name, StringComparison.Ordinal));
+        if (named is null)
+            return "that is not another parameter of the function";
+        if (!IsPointerLike(begin))
+            return "the parameter is not a pointer";
+        if (begin.PointerPointer != PointerPointerKind.None)
+            return "pointer-to-pointer ranges are not supported yet";
+        if (!HasSamePointerFacts(begin, named))
+            return "its end is not a pointer of the same type";
+        if (!ReferenceEquals(next, named))
+            return "its end is not the parameter directly after it";
+        end = named;
+        if (begin.HasMetadata(MetadataKeys.CountedBy))
+            return "the parameter is also counted_by";
+        if (end.HasMetadata(MetadataKeys.CountedBy) || end.HasMetadata(MetadataKeys.EndedBy))
+            return "its end is itself counted_by or ended_by";
+
+        if (function.IsGeneric || function.IsConstructor || function.Parent is RecordBinding { IsGeneric: true })
+            return "ended_by on a template function, a class template member or a constructor is not supported";
+        if (begin.HasMetadata(MetadataKeys.NativeDefaultValueExpression) || end.HasMetadata(MetadataKeys.NativeDefaultValueExpression))
+            return "pointer range begin/end cannot have a default value";
+        return null;
+    }
+
+    private static bool HasSamePointerFacts(ParameterBinding begin, ParameterBinding end) =>
+        begin.AbiKind == end.AbiKind &&
+        begin.PointerPointer == end.PointerPointer &&
+        begin.PointeeIsConst == end.PointeeIsConst &&
+        begin.Type.Kind == end.Type.Kind &&
+        begin.Type.PrimitiveKind == end.Type.PrimitiveKind &&
+        begin.Type.RecordId == end.Type.RecordId &&
+        begin.Type.EnumId == end.Type.EnumId &&
+        begin.Type.ManagedTypeName == end.Type.ManagedTypeName;
+
+    /// <summary>Turns <paramref name="end"/> into a plain native pointer computed from begin.</summary>
+    private static void MarkPointerRangeEnd(ParameterBinding begin, ParameterBinding end)
+    {
+        foreach (var key in new[]
+        {
+            MetadataKeys.PointerPointerShape, MetadataKeys.PointerPointerDefaultShape,
+            MetadataKeys.InputPointerArray, MetadataKeys.WritablePointerArray,
+            MetadataKeys.UnexpressibleDefault, MetadataKeys.UndefaultableParam,
+            MetadataKeys.NativeDefaultValueExpression
+        })
+        {
+            end.RemoveMetadata(key);
+        }
+
+        end.Direction = BindingParameterDirection.In;
+        end.AbiKind = BindingParameterAbiKind.Pointer;
+        end.ManagedDefaultValueExpression = null;
+        end.SetMetadata(MetadataKeys.DerivedArgument, DerivedArgumentKinds.PointerRangeEnd);
+        end.SetMetadata(MetadataKeys.DerivedFromParameter, begin.NativeName);
+    }
+
+    /// <summary>
     /// True when the parameter at <paramref name="countIndex"/> is a value count that counts the
     /// pointer-to-pointer parameter at <paramref name="arrayIndex"/> (adjacent parameters).
     /// </summary>
@@ -235,6 +332,7 @@ public static class PointerPointerShapeResolver
         foreach (var function in compilation.Functions)
         {
             var changed = ApplyCountedBy(function);
+            changed |= ApplyEndedBy(function);
             foreach (var parameter in function.Parameters)
             {
                 if (!parameter.TryGetMetadata<string>(MetadataKeys.PointerPointerShape, out var shape))

@@ -124,10 +124,18 @@ public static class BindingCompilationInheritancePass
                 PointerPointer = parameter.PointerPointer,
                 PointeeIsConst = parameter.PointeeIsConst
             };
-            if (parameter.HasMetadata(MetadataKeys.BorrowedStringOutput))
-                projectedParameter.SetMetadata(MetadataKeys.BorrowedStringOutput, true);
-            if (parameter.TryGetMetadata<string>(MetadataKeys.CountedBy, out var countedBy))
-                projectedParameter.SetMetadata(MetadataKeys.CountedBy, countedBy);
+            foreach (var key in ProjectedParameterFlagKeys)
+            {
+                if (parameter.HasMetadata(key))
+                    projectedParameter.SetMetadata(key, true);
+            }
+
+            foreach (var key in ProjectedParameterStringKeys)
+            {
+                if (parameter.TryGetMetadata<string>(key, out var value))
+                    projectedParameter.SetMetadata(key, value);
+            }
+
             projectedMethod.Parameters.Add(projectedParameter);
         }
 
@@ -138,4 +146,22 @@ public static class BindingCompilationInheritancePass
 
         return projectedMethod;
     }
+
+    // Parameter metadata a projected method keeps: pointer-array projections and the pointer
+    // range pair (begin's EndedBy, end's DerivedArgument), which the renderer needs to bind
+    // the span and hide the end pointer.
+    private static readonly string[] ProjectedParameterFlagKeys =
+    [
+        MetadataKeys.BorrowedStringOutput,
+        MetadataKeys.InputPointerArray,
+        MetadataKeys.WritablePointerArray
+    ];
+
+    private static readonly string[] ProjectedParameterStringKeys =
+    [
+        MetadataKeys.CountedBy,
+        MetadataKeys.EndedBy,
+        MetadataKeys.DerivedArgument,
+        MetadataKeys.DerivedFromParameter
+    ];
 }

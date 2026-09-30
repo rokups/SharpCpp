@@ -1326,6 +1326,7 @@ public sealed partial class ClangSharpHeaderParser
             ApplyCallbackDelegateAttribute(methodDecl.Handle, parameter.Handle, param, ref ignoreReason);
             ApplyPointerPointerFacts(methodDecl.Handle, parameter.Handle, param, ref ignoreReason);
             ApplyCountedByAttribute(methodDecl.Handle, parameter.Handle, param, ref ignoreReason);
+            ApplyEndedByAttribute(methodDecl.Handle, parameter.Handle, param, ref ignoreReason);
             function.Parameters.Add(param);
         }
 
@@ -1461,6 +1462,7 @@ public sealed partial class ClangSharpHeaderParser
             ApplyCallbackDelegateAttribute(templatedFunction.Handle, parameter.Handle, templateParam, ref ignoreReason);
             ApplyPointerPointerFacts(templatedFunction.Handle, parameter.Handle, templateParam, ref ignoreReason);
             ApplyCountedByAttribute(templatedFunction.Handle, parameter.Handle, templateParam, ref ignoreReason);
+            ApplyEndedByAttribute(templatedFunction.Handle, parameter.Handle, templateParam, ref ignoreReason);
             function.Parameters.Add(templateParam);
         }
 
@@ -1536,6 +1538,7 @@ public sealed partial class ClangSharpHeaderParser
             ApplyCallbackDelegateAttribute(methodDecl.Handle, parameter.Handle, staticParam, ref ignoreReason);
             ApplyPointerPointerFacts(methodDecl.Handle, parameter.Handle, staticParam, ref ignoreReason);
             ApplyCountedByAttribute(methodDecl.Handle, parameter.Handle, staticParam, ref ignoreReason);
+            ApplyEndedByAttribute(methodDecl.Handle, parameter.Handle, staticParam, ref ignoreReason);
             function.Parameters.Add(staticParam);
         }
 
@@ -1603,6 +1606,7 @@ public sealed partial class ClangSharpHeaderParser
             ApplyCallbackDelegateAttribute(ctorDecl.Handle, parameter.Handle, ctorParam, ref ignoreReason);
             ApplyPointerPointerFacts(ctorDecl.Handle, parameter.Handle, ctorParam, ref ignoreReason);
             ApplyCountedByAttribute(ctorDecl.Handle, parameter.Handle, ctorParam, ref ignoreReason);
+            ApplyEndedByAttribute(ctorDecl.Handle, parameter.Handle, ctorParam, ref ignoreReason);
             function.Parameters.Add(ctorParam);
         }
 
@@ -2271,6 +2275,7 @@ public sealed partial class ClangSharpHeaderParser
             ApplyCallbackDelegateAttribute(functionDecl.Handle, parameter.Handle, freeParam, ref ignoreReason);
             ApplyPointerPointerFacts(functionDecl.Handle, parameter.Handle, freeParam, ref ignoreReason);
             ApplyCountedByAttribute(functionDecl.Handle, parameter.Handle, freeParam, ref ignoreReason);
+            ApplyEndedByAttribute(functionDecl.Handle, parameter.Handle, freeParam, ref ignoreReason);
             function.Parameters.Add(freeParam);
         }
 
@@ -2354,6 +2359,7 @@ public sealed partial class ClangSharpHeaderParser
             ApplyCallbackDelegateAttribute(templatedFunction.Handle, parameter.Handle, freeTemplateParam, ref ignoreReason);
             ApplyPointerPointerFacts(templatedFunction.Handle, parameter.Handle, freeTemplateParam, ref ignoreReason);
             ApplyCountedByAttribute(templatedFunction.Handle, parameter.Handle, freeTemplateParam, ref ignoreReason);
+            ApplyEndedByAttribute(templatedFunction.Handle, parameter.Handle, freeTemplateParam, ref ignoreReason);
             function.Parameters.Add(freeTemplateParam);
         }
 
@@ -5978,7 +5984,7 @@ public sealed partial class ClangSharpHeaderParser
         }
     }
 
-    private static void ApplyAdjacentInputPointerArrayMetadata(ParameterBinding parameter)
+    internal static void ApplyAdjacentInputPointerArrayMetadata(ParameterBinding parameter)
     {
         // char** and record T** shapes are resolved by PointerPointerShapeResolver.
         if (parameter.AbiKind != BindingParameterAbiKind.Pointer ||
@@ -6135,6 +6141,38 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         parameter.SetMetadata(MetadataKeys.CountedBy, name);
+    }
+
+    /// <summary>
+    /// Reads `[[sharpcpp::ended_by(end)]]` on a begin pointer parameter and records the native
+    /// name of its end parameter. <see cref="PointerPointerShapeResolver.Apply"/> validates the
+    /// name and the pair, so consumer-set tags share the checks.
+    /// </summary>
+    private static void ApplyEndedByAttribute(
+        CXCursor functionCursor,
+        CXCursor parameterCursor,
+        ParameterBinding parameter,
+        ref string? ignoreReason)
+    {
+        var match = FindSharpCppAttribute(GetSourceText(parameterCursor.TranslationUnit, parameterCursor.Extent), "ended_by");
+        if (match is null && TryGetParameterDeclarationSourceText(functionCursor, parameterCursor, out var parameterSourceText))
+        {
+            match = FindSharpCppAttribute(parameterSourceText, "ended_by");
+        }
+
+        if (match is null)
+        {
+            return;
+        }
+
+        var name = match.Body.Trim();
+        if (name.Length == 0)
+        {
+            ignoreReason ??= $"parameter '{parameter.NativeName}' has an empty [[sharpcpp::ended_by]] attribute";
+            return;
+        }
+
+        parameter.SetMetadata(MetadataKeys.EndedBy, name);
     }
 
     private static void ApplyCallbackDelegateAttribute(
