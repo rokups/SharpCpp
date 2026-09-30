@@ -3182,6 +3182,9 @@ public static partial class BindingOutputRenderer
         var requiresDirector = record.RequiresDirector(compilation);
         var virtualSlots = record.GetEffectiveVirtualMethodSlots(compilation);
         var isEffectivelyAbstract = IsManagedWrapperAbstract(compilation, record, virtualSlots);
+        var nativeAbstractOverrides = isEffectivelyAbstract && !requiresDirector
+            ? CollectNativeAbstractOverrides(compilation, record)
+            : null;
         var isRegistrationPolymorphic = record.IsPolymorphic && !IsNativeInterfaceWrapper(record);
         if (isRegistrationPolymorphic)
         {
@@ -3631,7 +3634,7 @@ public static partial class BindingOutputRenderer
 
             static global::SharpCpp.Support.INativeInstanceCache global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationInstanceCache => s_instanceCache;
 
-            static global::System.Func<nint, bool, global::SharpCpp.Support.NativeObject>? global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationCreateFactory => {{(isEffectivelyAbstract ? "null" : $"static (handle, ownsHandle) => new {record.ManagedName}(handle, ownsHandle)")}};
+            static global::System.Func<nint, bool, global::SharpCpp.Support.NativeObject>? global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationCreateFactory => {{(nativeAbstractOverrides is not null ? $"static (handle, ownsHandle) => new {GetNativeAbstractWrapperClassName(record)}(handle, ownsHandle)" : isEffectivelyAbstract ? "null" : $"static (handle, ownsHandle) => new {record.ManagedName}(handle, ownsHandle)")}};
 
             static global::SharpCpp.Support.NativeObjectMetadata global::SharpCpp.Support.INativeObjectRegistration<{{record.ManagedName}}>.RegistrationGetMetadata(nint handle)
             {
@@ -3639,6 +3642,13 @@ public static partial class BindingOutputRenderer
             }
             """);
         writer.WriteLine();
+
+        if (nativeAbstractOverrides is not null)
+        {
+            writer.WriteLine();
+            writer.Write(RenderNativeAbstractWrapperClass(compilation, record, nativeAbstractOverrides));
+            writer.WriteLine();
+        }
 
         if (requiresDirector)
         {
@@ -3771,15 +3781,22 @@ public static partial class BindingOutputRenderer
             !function.IsSilentlyExcluded());
     }
 
-    private static string RenderManagedInstanceMethod(BindingCompilation compilation, RecordBinding record, FunctionBinding function, bool useCallbase = false)
+    // A native override (nativeOverride) renders a managed abstract member as an override that
+    // calls the declaring record's native entry point; the hidden concrete wrapper of a
+    // director-less abstract record uses it.
+    private static string RenderManagedInstanceMethod(BindingCompilation compilation, RecordBinding record, FunctionBinding function, bool useCallbase = false, bool nativeOverride = false)
     {
         var writer = new CodeWriter();
-        WriteDocumentationComment(writer, function);
+        if (!nativeOverride)
+        {
+            WriteDocumentationComment(writer, function);
+        }
+
         var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType, compilation);
         var importMethodName = useCallbase
             ? GetManagedCallbaseImportMethodName(function)
             : GetManagedImportMethodName(function);
-        var memberModifier = GetManagedInstanceMethodModifier(compilation, record, function);
+        var memberModifier = nativeOverride ? "override " : GetManagedInstanceMethodModifier(compilation, record, function);
 
         if (memberModifier.Contains("abstract ", StringComparison.Ordinal))
         {
@@ -3820,7 +3837,7 @@ public static partial class BindingOutputRenderer
             return writer.ToString();
         }
 
-        if (HasUnexpressibleDefaultParams(function))
+        if (!nativeOverride && HasUnexpressibleDefaultParams(function))
         {
             WriteManagedUnexpressibleDefaultConvenienceOverloads(
                 writer,
@@ -7780,6 +7797,136 @@ public static partial class BindingOutputRenderer
 
         return !IsManagedWrapperAbstract(compilation, record, record.GetEffectiveVirtualMethodSlots(compilation));
     }
+
+    // The managed abstract members a hidden concrete wrapper of a director-less abstract record
+    // must override with native calls, each paired with its declaring record; null when the
+    // record's shape is not supported (generic, unrendered managed base, director base, or a
+    // parameter shape that needs extra managed plumbing).
+    private static IReadOnlyList<(RecordBinding DeclaringRecord, FunctionBinding Method)>? CollectNativeAbstractOverrides(
+        BindingCompilation compilation,
+        RecordBinding record)
+    {
+        var chain = new List<RecordBinding>();
+        var visited = new HashSet<RecordBinding>(ReferenceEqualityComparer.Instance);
+        for (var current = record; current is not null; current = current.GetPrimaryBaseRecord(compilation))
+        {
+            if (!visited.Add(current) || current.IsGeneric)
+            {
+                return null;
+            }
+
+            chain.Add(current);
+            var primaryBase = current.GetPrimaryBaseRecord(compilation);
+            if (!IsRenderedPrimaryBase(primaryBase))
+            {
+                if (!string.IsNullOrWhiteSpace(current.ManagedBaseTypeName))
+                {
+                    return null;
+                }
+
+                break;
+            }
+        }
+
+        chain.Reverse();
+        var pending = new List<(RecordBinding DeclaringRecord, FunctionBinding Method)>();
+        foreach (var declaringRecord in chain)
+        {
+            // Members rendered outside the method loop (accessor properties, operators, generic
+            // methods) have no native override path, so a pure one among them opts the record out.
+            var accessorIds = CollectAccessorProperties(declaringRecord)
+                .SelectMany(static property => new[] { property.Getter?.SymbolId, property.Setter?.SymbolId })
+                .OfType<string>()
+                .ToHashSet(StringComparer.Ordinal);
+            foreach (var method in declaringRecord.Members.OfType<FunctionBinding>())
+            {
+                if (method.IsConstructor || method.IsStatic || method.IsSilentlyExcluded() || method.HasMetadata(MetadataKeys.IgnoreReason))
+                {
+                    continue;
+                }
+
+                if (method.IsGeneric || method.IsConversionOperator || method.OperatorToken is not null || accessorIds.Contains(method.SymbolId))
+                {
+                    if (method.IsPureVirtual)
+                    {
+                        return null;
+                    }
+
+                    continue;
+                }
+
+                var modifier = GetManagedInstanceMethodModifier(compilation, declaringRecord, method);
+                var matchIndex = pending.FindIndex(entry =>
+                    ManagedSignaturesMatch(method, entry.Method) ||
+                    RecordBindingExtensions.OverridesSignature(method, entry.Method));
+                if (modifier.Contains("abstract ", StringComparison.Ordinal))
+                {
+                    if (matchIndex >= 0)
+                    {
+                        return null;
+                    }
+
+                    pending.Add((declaringRecord, method));
+                }
+                else if (matchIndex >= 0)
+                {
+                    if (!modifier.Contains("override ", StringComparison.Ordinal))
+                    {
+                        return null;
+                    }
+
+                    pending.RemoveAt(matchIndex);
+                }
+            }
+        }
+
+        foreach (var (declaringRecord, method) in pending)
+        {
+            if (declaringRecord.RequiresDirector(compilation) ||
+                method.Parameters.Any(IsInputPointerArrayParameter) ||
+                HasUndefaultableParams(method) ||
+                HasNativeDefaultDispatchParams(method))
+            {
+                return null;
+            }
+        }
+
+        return pending;
+    }
+
+    // Renders the hidden concrete wrapper whose overrides call the native entry points.
+    private static string RenderNativeAbstractWrapperClass(
+        BindingCompilation compilation,
+        RecordBinding record,
+        IReadOnlyList<(RecordBinding DeclaringRecord, FunctionBinding Method)> overrides)
+    {
+        var writer = new CodeWriter();
+        var className = GetNativeAbstractWrapperClassName(record);
+        writer.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
+        writer.WriteLine($"internal sealed class {className} : {record.ManagedName}");
+        writer.WriteLine("{");
+        writer.WriteLine($"internal {className}(nint handle, bool ownsHandle) : base(handle, ownsHandle)");
+        writer.WriteLine("{");
+        writer.WriteLine("}");
+        foreach (var (declaringRecord, method) in overrides.OrderBy(static entry => entry.Method.ManagedName, StringComparer.Ordinal))
+        {
+            var body = RenderManagedInstanceMethod(compilation, declaringRecord, method, nativeOverride: true);
+            if (!ReferenceEquals(declaringRecord, record))
+            {
+                var owner = QualifyRecordTypeName(compilation, declaringRecord.ManagedName);
+                body = Regex.Replace(body, @"(?<![\w.])__PInvoke\.", $"{owner}.__PInvoke.");
+            }
+
+            writer.WriteLine();
+            writer.Write(body.TrimEnd());
+            writer.WriteLine();
+        }
+
+        writer.Write("}");
+        return writer.ToString();
+    }
+
+    private static string GetNativeAbstractWrapperClassName(RecordBinding record) => $"__{record.ManagedName}Native";
 
     private static bool IsManagedWrapperAbstract(
         BindingCompilation compilation,

@@ -48,4 +48,55 @@ public sealed class ForcedDirectorTests
         Assert.Equal(9, E2EBindings.ComputeForcedDerivedAbstract(derived));
         Assert.Equal([], Assert.Single(typeof(ForcedDerivedAbstract).GetConstructors()).GetParameters());
     }
+
+    [Fact]
+    public void Abstract_record_without_a_director_wraps_an_unbound_native_implementation()
+    {
+        var value = E2EBindings.HiddenUnforcedAbstract();
+
+        Assert.True(typeof(UnforcedAbstract).IsAbstract);
+        Assert.False(value.GetType().IsVisible);
+        Assert.Equal(45, value.Compute());
+        Assert.Equal(5, value.Seed());
+        Assert.Same(value, E2EBindings.HiddenUnforcedAbstract());
+        Assert.Same(value, E2EBindings.HiddenUnforcedAbstractRef());
+    }
+
+    [Fact]
+    public void Abstract_record_without_a_director_returns_null_for_a_null_pointer()
+    {
+        Assert.Null(E2EBindings.NullUnforcedAbstract());
+    }
+
+    [Fact]
+    public void Abstract_record_without_a_director_resolves_a_bound_derived_wrapper()
+    {
+        var value = E2EBindings.SharedUnforcedConcrete();
+
+        Assert.IsType<UnforcedConcrete>(value);
+        Assert.Equal(70, value.Compute());
+        Assert.Equal(3, value.Seed());
+    }
+
+    [Fact]
+    public void Abstract_record_without_a_director_overrides_inherited_abstract_members()
+    {
+        var value = E2EBindings.HiddenUnforcedAbstractChild();
+
+        Assert.True(typeof(UnforcedAbstractChild).IsAbstract);
+        Assert.Equal(16, value.Compute());
+        Assert.Equal(12, value.Twice());
+        Assert.Equal(6, value.Seed());
+    }
+
+    [Fact]
+    public void Abstract_record_without_a_director_keeps_inherited_implementations()
+    {
+        var value = E2EBindings.HiddenUnforcedPartialChild();
+
+        Assert.True(typeof(UnforcedPartialChild).IsAbstract);
+        Assert.Equal(9, value.Compute());
+        Assert.Equal(108, value.Extra());
+        Assert.Null(value.GetType().GetMethod(nameof(UnforcedPartialChild.Compute), System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly));
+    }
 }

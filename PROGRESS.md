@@ -37,7 +37,12 @@ complete canonical arguments; the rest of type identity is still string-based.
 
 Known gaps (unbound or degraded today, with a diagnostic where the generator sees them):
 
-- An abstract record without a director has no managed wrapper factory.
+- An abstract record without a director gets a hidden concrete wrapper
+  (`__{Name}Native`) whose overrides call native code, so native pointers to unbound
+  implementations wrap. The factory stays null (returning such a pointer throws) for generic
+  records, records whose managed base is not rendered here, records that inherit abstract
+  members from a director base, and pure virtuals that are operators, accessor properties,
+  generic methods, or take pointer-array, undefaultable or native-default-dispatch parameters.
 - Secondary-base parameters and returns cannot take or produce a derived wrapper (C#
   single inheritance).
 - Open containers of a template parameter (`std::vector<T>` in a generic member) are not
