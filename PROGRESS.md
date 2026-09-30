@@ -153,9 +153,16 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   primitives and enums (`ReadOnlySpan<T>`/`Span<T>`), `void* const*` (`ReadOnlySpan<IntPtr>`),
   `char**` and `const char* const*` (`ReadOnlySpan<nint>` of UTF-8 pointers, as counted), and
   record `T**`/`T* const*` (`ReadOnlySpan<T?>`, the counted handle-array projection); the end
-  parameter takes begin's reshaped type. Fixtures: `Pointers/PointerRanges.hpp`. Increments 1 and 2 are done. Open: a
-  future `SpanLength` derived kind could hide a `counted_by` count the same way; (3) virtual
-  methods, director callbacks and rbfx adoption; constructors are degraded today. Done: class
+  parameter takes begin's reshaped type. Fixtures: `Pointers/PointerRanges.hpp`. Increments 1, 2 and 3 are done (3: virtual and
+  abstract non-director records work with ranges as long as the base and every override carry
+  the tag, fixtures `range_shape`/`widget_query`; a director virtual with a range is degraded
+  with "ranges are not supported in director callbacks yet", fixture `range_visitor`; rbfx
+  adopts it through `RbfxPointerRangesPass`, which tags `TestDrawables(start, end, inside)` as
+  `ReadOnlySpan<Drawable?>` and replaced the old unsupported-API suppression). Open:
+  (3b) the director reverse path: a managed override receiving a range needs the native
+  callback to build a span from `begin`/`end` (`end - begin` length) and the `end` argument
+  hidden from the managed callback signature; a future `SpanLength` derived kind could hide a
+  `counted_by` count the same way; constructors are degraded today. Done: class
   template members and template functions are degraded with a reason (`CreateConcreteParameter`
   does not copy parameter metadata); the inheritance projection copies `EndedBy`,
   `DerivedArgument`, `DerivedFromParameter`, `InputPointerArray` and `WritablePointerArray`

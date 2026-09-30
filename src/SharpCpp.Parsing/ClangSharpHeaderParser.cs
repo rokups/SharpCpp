@@ -5861,6 +5861,7 @@ public sealed partial class ClangSharpHeaderParser
 
         parameter.PointerPointer = kind;
         parameter.PointeeIsConst = pointee.IsConstQualified;
+        parameter.PointerElementIsConst = element.IsConstQualified;
         if (!TryGetPassKindOverride(functionCursor, parameterCursor, out var direction))
             return;
 

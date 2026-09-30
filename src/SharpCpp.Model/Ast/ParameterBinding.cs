@@ -70,4 +70,7 @@ public sealed class ParameterBinding : BindingNamedNode
 
     /// <summary>True when the pointed-to pointer is const (`T* const*`); such a pointer cannot be written.</summary>
     public bool PointeeIsConst { get; set; }
+
+    /// <summary>True when the element behind a pointer-to-pointer is const (`const T**`); set with <see cref="PointerPointer"/>.</summary>
+    public bool PointerElementIsConst { get; set; }
 }

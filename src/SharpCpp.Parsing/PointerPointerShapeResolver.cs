@@ -242,6 +242,7 @@ public static class PointerPointerShapeResolver
         begin.AbiKind == end.AbiKind &&
         begin.PointerPointer == end.PointerPointer &&
         begin.PointeeIsConst == end.PointeeIsConst &&
+        begin.PointerElementIsConst == end.PointerElementIsConst &&
         begin.Type.Kind == end.Type.Kind &&
         begin.Type.PrimitiveKind == end.Type.PrimitiveKind &&
         begin.Type.RecordId == end.Type.RecordId &&

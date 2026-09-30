@@ -275,3 +275,83 @@ inline int bad_ended_widget_end_out([[sharpcpp::ended_by(end)]] range_widget** b
 {
     return static_cast<int>(end - begin);
 }
+
+// An explicit [[sharpcpp::in]] on a `T**` begin is the default input array shape.
+inline int sum_in_widget_range([[sharpcpp::in]] [[sharpcpp::ended_by(end)]] range_widget** begin, range_widget** end)
+{
+    int result = 0;
+    for (range_widget** it = begin; it != end; ++it)
+        result += *it == nullptr ? 100 : (*it)->get_value();
+    return result;
+}
+
+// The end pointer must have the same type as begin, including const.
+inline int bad_ended_widget_const_mismatch([[sharpcpp::ended_by(end)]] range_widget** begin, const range_widget** end)
+{
+    return static_cast<int>(reinterpret_cast<range_widget**>(const_cast<range_widget**>(end)) - begin);
+}
+
+// Virtual methods with ranges: the base and every override carry the tag. The wrapper of a
+// non-director record calls through the vtable, so these are plain forward-path calls.
+struct range_shape
+{
+    virtual ~range_shape() = default;
+
+    virtual int sum([[sharpcpp::ended_by(end)]] const int* begin, const int* end) const = 0;
+};
+
+struct doubling_range_shape final : range_shape
+{
+    int sum([[sharpcpp::ended_by(end)]] const int* begin, const int* end) const override
+    {
+        int result = 0;
+        for (const int* it = begin; it != end; ++it)
+            result += *it * 2;
+        return result;
+    }
+};
+
+inline range_shape* create_doubling_range_shape()
+{
+    return new doubling_range_shape();
+}
+
+// The rbfx shape (`Octree query TestDrawables(Drawable** start, Drawable** end, bool inside)`).
+struct widget_query
+{
+    virtual ~widget_query() = default;
+
+    virtual void test_widgets([[sharpcpp::ended_by(end)]] range_widget** start, range_widget** end, bool inside) = 0;
+
+    int total = 0;
+};
+
+struct summing_widget_query final : widget_query
+{
+    void test_widgets([[sharpcpp::ended_by(end)]] range_widget** start, range_widget** end, bool inside) override
+    {
+        if (!inside)
+            return;
+        for (range_widget** it = start; it != end; ++it)
+        {
+            if (*it != nullptr)
+                total += (*it)->get_value();
+        }
+    }
+};
+
+inline widget_query* create_summing_widget_query()
+{
+    return new summing_widget_query();
+}
+
+// A director callback with a range is not supported yet: the pure virtual degrades, so the
+// abstract director record is not bound. (A primitive pointer in a director virtual is lowered to
+// an address value at parse time, before the range is resolved, so only `T**` reaches the
+// director degrade reason.)
+struct [[sharpcpp::director]] range_visitor
+{
+    virtual ~range_visitor() = default;
+
+    virtual int visit([[sharpcpp::ended_by(end)]] range_widget** begin, range_widget** end) = 0;
+};

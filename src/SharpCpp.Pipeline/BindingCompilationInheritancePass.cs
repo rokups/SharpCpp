@@ -122,7 +122,8 @@ public static class BindingCompilationInheritancePass
                 CallbackDelegateTypeName = parameter.CallbackDelegateTypeName,
                 CallbackTakesOwnership = parameter.CallbackTakesOwnership,
                 PointerPointer = parameter.PointerPointer,
-                PointeeIsConst = parameter.PointeeIsConst
+                PointeeIsConst = parameter.PointeeIsConst,
+                PointerElementIsConst = parameter.PointerElementIsConst
             };
             foreach (var key in ProjectedParameterFlagKeys)
             {

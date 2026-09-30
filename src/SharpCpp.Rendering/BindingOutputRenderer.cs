@@ -2629,6 +2629,7 @@ public static partial class BindingOutputRenderer
             ? compilation.Records
                 .Where(record => !record.GetMetadata<bool>(MetadataKeys.SuppressEmission) &&
                     !record.IsSilentlyExcluded() &&
+                    !record.IsIgnored() &&
                     record.RequiresDirector(compilation))
                 .SelectMany(record => record.GetEffectiveVirtualMethodSlots(compilation)
                     .Select(slot => (Record: record, Slot: slot)))

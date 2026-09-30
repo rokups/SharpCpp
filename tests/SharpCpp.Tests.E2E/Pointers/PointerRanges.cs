@@ -86,6 +86,7 @@ public sealed class PointerRangeTests
     [InlineData("BadEndedWidgetEndOut", "bad_ended_widget_end_out", "its end has an explicit pointer-pointer shape")]
     [InlineData("BadEndedBeginDefault", "bad_ended_begin_default", "pointer range begin/end cannot have a default value")]
     [InlineData("BadEndedEndDefault", "bad_ended_end_default", "pointer range begin/end cannot have a default value")]
+    [InlineData("BadEndedWidgetConstMismatch", "bad_ended_widget_const_mismatch", "parameter 'begin' is ended by 'end' but its end is not a pointer of the same type")]
     public void Ended_by_that_cannot_be_honoured_degrades_the_function_with_a_diagnostic(
         string managedName,
         string nativeName,
@@ -189,5 +190,59 @@ public sealed class PointerRangeTests
         Assert.Equal(2, E2EBindings.CountAddressRange([1, 0, 2]));
         Assert.Equal(0, E2EBindings.CountAddressRange([]));
         Assert.Equal(typeof(ReadOnlySpan<IntPtr>), Assert.Single(Method(nameof(E2EBindings.CountAddressRange)).GetParameters()).ParameterType);
+    }
+
+    [Fact]
+    public void An_explicit_in_shape_on_a_record_range_is_the_default_input_array()
+    {
+        using var first = new RangeWidget(5);
+        using var second = new RangeWidget(6);
+
+        Assert.Equal(11, E2EBindings.SumInWidgetRange([first, second]));
+        Assert.Equal(typeof(ReadOnlySpan<RangeWidget?>), Assert.Single(Method(nameof(E2EBindings.SumInWidgetRange)).GetParameters()).ParameterType);
+    }
+
+    [Fact]
+    public void A_pure_virtual_range_binds_through_the_base_and_the_derived_wrapper()
+    {
+        using var shape = E2EBindings.CreateDoublingRangeShape();
+        Assert.Equal(12, shape.Sum([1, 2, 3]));
+        Assert.Equal(0, shape.Sum([]));
+        Assert.Equal(typeof(ReadOnlySpan<int>), Assert.Single(typeof(RangeShape).GetMethod(nameof(RangeShape.Sum))!.GetParameters()).ParameterType);
+
+        using var derived = new DoublingRangeShape();
+        Assert.Equal(6, derived.Sum([1, 2]));
+        Assert.Equal(0, derived.Sum(default));
+        Assert.Equal(typeof(ReadOnlySpan<int>), Assert.Single(typeof(DoublingRangeShape).GetMethod(nameof(DoublingRangeShape.Sum))!.GetParameters()).ParameterType);
+    }
+
+    [Fact]
+    public void A_virtual_record_range_keeps_the_trailing_parameter_and_skips_null_elements()
+    {
+        var parameters = typeof(WidgetQuery).GetMethod(nameof(WidgetQuery.TestWidgets))!.GetParameters();
+        Assert.Equal(new[] { typeof(ReadOnlySpan<RangeWidget?>), typeof(bool) }, parameters.Select(static parameter => parameter.ParameterType));
+
+        using var first = new RangeWidget(5);
+        using var second = new RangeWidget(6);
+        using var query = E2EBindings.CreateSummingWidgetQuery();
+
+        query.TestWidgets([first, second], true);
+        Assert.Equal(11, query.Total);
+        query.TestWidgets([first, null, second], true);
+        Assert.Equal(22, query.Total);
+        query.TestWidgets([first, second], false);
+        Assert.Equal(22, query.Total);
+        query.TestWidgets([], true);
+        Assert.Equal(22, query.Total);
+    }
+
+    [Fact]
+    public void A_director_callback_with_a_range_is_not_bound_and_the_reason_is_logged()
+    {
+        Assert.Null(typeof(E2EBindings).Assembly.GetType("SharpCpp.Tests.E2E.Generated.RangeVisitor"));
+        Assert.Contains(
+            GeneratedArtifacts.ReadText("generator.log").Split('\n'),
+            line => line.Contains("range_visitor", StringComparison.Ordinal) &&
+                line.Contains("parameter 'begin' is a pointer range; ranges are not supported in director callbacks yet", StringComparison.Ordinal));
     }
 }

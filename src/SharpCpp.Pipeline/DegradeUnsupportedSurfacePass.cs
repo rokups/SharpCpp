@@ -376,6 +376,12 @@ public static class DegradeUnsupportedSurfacePass
     {
         foreach (var parameter in function.Parameters)
         {
+            if (parameter.HasMetadata(MetadataKeys.EndedBy) || parameter.HasMetadata(MetadataKeys.DerivedArgument))
+            {
+                reason = $"parameter '{parameter.ManagedName}' is a pointer range; ranges are not supported in director callbacks yet";
+                return true;
+            }
+
             if (parameter.Direction is not BindingParameterDirection.In || parameter.AbiKind is not BindingParameterAbiKind.Value)
             {
                 reason = $"parameter '{parameter.ManagedName}' must be an in-value parameter";
