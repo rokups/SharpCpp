@@ -166,10 +166,10 @@ public sealed class CTests
     public void Counted_c_string_arrays_expose_bounds_checked_utf8_item_accessors()
     {
         using var list = CBindings.CGetNameList();
-        Assert.Equal(3u, list.NameCount);
-        Assert.Equal("alpha", list.GetNamesAt(0));
-        Assert.Equal(string.Empty, list.GetNamesAt(1));
-        Assert.Null(list.GetNamesAt(2));
-        Assert.Throws<ArgumentOutOfRangeException>(() => list.GetNamesAt(3));
+        Assert.Equal(3u, list.EnabledExtensionCount);
+        Assert.Equal("alpha", list.GetEnabledExtensionNamesAt(0));
+        Assert.Equal(string.Empty, list.GetEnabledExtensionNamesAt(1));
+        Assert.Null(list.GetEnabledExtensionNamesAt(2));
+        Assert.Throws<ArgumentOutOfRangeException>(() => list.GetEnabledExtensionNamesAt(3));
     }
 }

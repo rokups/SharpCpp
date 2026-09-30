@@ -343,13 +343,13 @@ static inline c_handle_list* c_get_populated_handle_list(void)
 /* A counted array of C strings (OpenXR enabledExtensionNames style). */
 typedef struct c_name_list
 {
-    const char* const* names;
-    unsigned int nameCount;
+    unsigned int enabledExtensionCount;
+    const char* const* enabledExtensionNames;
 } c_name_list;
 
 static const char* const c_name_array_storage[3] = { "alpha", "", 0 };
 
-static c_name_list c_name_list_storage = { c_name_array_storage, 3 };
+static c_name_list c_name_list_storage = { 3, c_name_array_storage };
 
 static inline c_name_list* c_get_name_list(void)
 {

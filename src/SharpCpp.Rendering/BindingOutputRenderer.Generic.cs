@@ -1010,7 +1010,8 @@ public static partial class BindingOutputRenderer
             if (pointerFieldName == countedName ||
                 pointerFieldName == $"{countedName}Array" ||
                 pointerFieldName == $"{countedName}s" ||
-                pointerFieldName == $"{countedName}es")
+                pointerFieldName == $"{countedName}es" ||
+                pointerFieldName == $"{countedName}Names")
                 return field;
         }
         return null;
