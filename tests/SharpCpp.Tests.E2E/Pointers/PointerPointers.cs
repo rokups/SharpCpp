@@ -200,6 +200,57 @@ public sealed class PointerPointerTests
     }
 
     [Fact]
+    public void Counted_by_names_the_count_of_an_array_parameter()
+    {
+        using var first = new PointerPointerItem(3);
+        using var second = new PointerPointerItem(4);
+        PointerPointerItem?[] items = [first, second];
+        ReadOnlySpan<int> values = [10, 20];
+
+        Assert.Equal(7, E2EBindings.SumCountedItems(items, 2));
+        Assert.Equal(typeof(ReadOnlySpan<PointerPointerItem?>), Parameter(nameof(E2EBindings.SumCountedItems), 0).ParameterType);
+        WithStrings(pointers =>
+        {
+            Assert.Equal(5, E2EBindings.MeasureCountedNames(pointers, 2));
+            Assert.Equal(typeof(ReadOnlySpan<nint>), Parameter(nameof(E2EBindings.MeasureCountedNames), 0).ParameterType);
+        });
+        Assert.Equal(30, E2EBindings.SumCountedValues(values, 2));
+        Assert.Equal(typeof(ReadOnlySpan<int>), Parameter(nameof(E2EBindings.SumCountedValues), 0).ParameterType);
+
+        Assert.Equal(37, E2EBindings.SumSharedCount(values, items, 2));
+        Assert.Equal(typeof(ReadOnlySpan<int>), Parameter(nameof(E2EBindings.SumSharedCount), 0).ParameterType);
+        Assert.Equal(typeof(ReadOnlySpan<PointerPointerItem?>), Parameter(nameof(E2EBindings.SumSharedCount), 1).ParameterType);
+    }
+
+    [Fact]
+    public void Counted_by_does_not_override_an_explicit_out_attribute()
+    {
+        E2EBindings.PickOutCounted(out var item, 1);
+        Assert.Equal(97, item.GetValue());
+        Assert.True(Parameter(nameof(E2EBindings.PickOutCounted), 0).IsOut);
+    }
+
+    [Fact]
+    public void A_consumer_set_count_names_the_count_of_an_array_parameter()
+    {
+        using var first = new PointerPointerItem(3);
+        using var second = new PointerPointerItem(4);
+        PointerPointerItem?[] items = [first, second];
+        ReadOnlySpan<int> values = [10, 20];
+
+        Assert.Equal(30, E2EBindings.SumConfiguredCountedValues(values, 2));
+        Assert.Equal(typeof(ReadOnlySpan<int>), Parameter(nameof(E2EBindings.SumConfiguredCountedValues), 0).ParameterType);
+        Assert.Equal(7, E2EBindings.SumConfiguredCountedItems(items, 2));
+        Assert.Equal(typeof(ReadOnlySpan<PointerPointerItem?>), Parameter(nameof(E2EBindings.SumConfiguredCountedItems), 0).ParameterType);
+        Assert.Equal(7, E2EBindings.SumConfiguredCountedNoop(items, 2));
+        Assert.Equal(typeof(ReadOnlySpan<PointerPointerItem?>), Parameter(nameof(E2EBindings.SumConfiguredCountedNoop), 0).ParameterType);
+
+        E2EBindings.PickConfiguredCountedSingle(out var item, 1);
+        Assert.Equal(101, item.GetValue());
+        Assert.True(Parameter(nameof(E2EBindings.PickConfiguredCountedSingle), 0).IsOut);
+    }
+
+    [Fact]
     public void Argc_pairs_with_a_char_pointer_pointer_that_follows_it()
     {
         WithStrings(pointers =>
@@ -253,6 +304,24 @@ public sealed class PointerPointerTests
             GeneratedArtifacts.ReadText("generator.log").Split('\n'),
             line => line.Contains($"\t{nativeName}\t", StringComparison.Ordinal) &&
                 line.Contains("cannot use pointer-pointer shape", StringComparison.Ordinal) &&
+                line.Contains(reason, StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("BadCountedUnknown", "bad_counted_unknown", "parameter 'items' is counted by 'missing', which is not an integer value parameter of the function")]
+    [InlineData("BadCountedPointer", "bad_counted_pointer", "parameter 'items' is counted by 'n', which is not an integer value parameter of the function")]
+    [InlineData("BadCountedValue", "bad_counted_value", "parameter 'values' is counted by 'n' but is not a pointer")]
+    [InlineData("BadCountedRecord", "bad_counted_record", "parameter 'items' is counted by 'n' but has no input array projection")]
+    [InlineData("BadCountedRef", "bad_counted_ref", "parameter 'names' is counted by 'n' but is not a pointer")]
+    public void Counted_by_that_cannot_be_honoured_degrades_the_function_with_a_diagnostic(
+        string managedName,
+        string nativeName,
+        string reason)
+    {
+        Assert.Null(typeof(E2EBindings).GetMethod(managedName));
+        Assert.Contains(
+            GeneratedArtifacts.ReadText("generator.log").Split('\n'),
+            line => line.Contains($"\t{nativeName}\t", StringComparison.Ordinal) &&
                 line.Contains(reason, StringComparison.Ordinal));
     }
 }

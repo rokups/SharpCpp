@@ -22,7 +22,10 @@ namespace SharpCpp.Parsing;
 /// it when nothing pointer-like precedes. A count that names something else (`word_count`
 /// before `spv_parsed_ir* parsed_ir`, `NumVertices` before `ppAllocation`) leaves the
 /// parameter an output. [[sharpcpp::in]] and [[sharpcpp::out]] on the parameter select the
-/// array and single shapes explicitly.
+/// array and single shapes explicitly. An array can also name its count with
+/// [[sharpcpp::counted_by(name)]] (or a consumer-set <see cref="MetadataKeys.CountedBy"/>),
+/// which replaces the name heuristic; the count must be an integer value parameter, and an
+/// explicit or consumer-set shape other than the parser's default still wins over it.
 /// </remarks>
 public static class PointerPointerShapeResolver
 {
@@ -38,15 +41,104 @@ public static class PointerPointerShapeResolver
                 continue;
             }
 
-            var hasAdjacentCount =
-                CountPairsWith(function, index, index - 1) ||
-                CountPairsWith(function, index, index + 1);
+            // An explicit count replaces the name heuristic; it may be anywhere in the list.
+            var hasAdjacentCount = parameter.HasMetadata(MetadataKeys.CountedBy)
+                ? TryGetExplicitCount(function, parameter) is not null
+                : CountPairsWith(function, index, index - 1) ||
+                    CountPairsWith(function, index, index + 1);
             var shape = parameter.PointeeIsConst || hasAdjacentCount
                 ? PointerPointerShapes.Array
                 : PointerPointerShapes.Single;
             if (CanApply(parameter, shape))
+            {
                 parameter.SetMetadata(MetadataKeys.PointerPointerShape, shape);
+                parameter.SetMetadata(MetadataKeys.PointerPointerDefaultShape, shape);
+            }
         }
+    }
+
+    /// <summary>
+    /// The integer value parameter that <paramref name="parameter"/> names through
+    /// <see cref="MetadataKeys.CountedBy"/>, or null when it names none or the named parameter
+    /// is missing or not an integer value.
+    /// </summary>
+    internal static ParameterBinding? TryGetExplicitCount(FunctionBinding function, ParameterBinding parameter)
+    {
+        if (!parameter.TryGetMetadata<string>(MetadataKeys.CountedBy, out var name))
+            return null;
+
+        var count = function.Parameters.FirstOrDefault(candidate =>
+            !ReferenceEquals(candidate, parameter) && string.Equals(candidate.NativeName, name, StringComparison.Ordinal));
+        return count is not null && ClangSharpHeaderParser.IsIntegerValueParameter(count) ? count : null;
+    }
+
+    /// <summary>True when some other parameter names <paramref name="candidate"/> as its count.</summary>
+    internal static bool IsExplicitCount(FunctionBinding function, ParameterBinding candidate) =>
+        ClangSharpHeaderParser.IsIntegerValueParameter(candidate) &&
+        function.Parameters.Any(parameter =>
+            !ReferenceEquals(parameter, candidate) &&
+            parameter.TryGetMetadata<string>(MetadataKeys.CountedBy, out var name) &&
+            string.Equals(name, candidate.NativeName, StringComparison.Ordinal));
+
+    /// <summary>
+    /// Validates every <see cref="MetadataKeys.CountedBy"/> tag of the function. A tag whose
+    /// count is missing or not an integer value, or on a parameter that is not a pointer,
+    /// ignores the function with a reason. A `char**`/record `T**` becomes an input array
+    /// unless it carries a shape that is not the parser's default (an explicit
+    /// [[sharpcpp::in]]/[[sharpcpp::out]] or a consumer-set shape wins over the count; a
+    /// consumer shape equal to the default cannot be told apart from it). Returns true when a
+    /// primitive or handle pointer was made an input array.
+    /// </summary>
+    private static bool ApplyCountedBy(FunctionBinding function)
+    {
+        List<ParameterBinding>? counted = null;
+        foreach (var parameter in function.Parameters)
+        {
+            if (!parameter.TryGetMetadata<string>(MetadataKeys.CountedBy, out var name))
+                continue;
+
+            if (TryGetExplicitCount(function, parameter) is null)
+            {
+                function.SetIgnoreReason(
+                    $"parameter '{parameter.NativeName}' is counted by '{name}', which is not an integer value parameter of the function");
+                continue;
+            }
+
+            if (!IsPointerLike(parameter))
+            {
+                function.SetIgnoreReason(
+                    $"parameter '{parameter.NativeName}' is counted by '{name}' but is not a pointer");
+                continue;
+            }
+
+            if (parameter.PointerPointer == PointerPointerKind.None)
+            {
+                (counted ??= []).Add(parameter);
+                continue;
+            }
+
+            parameter.TryGetMetadata<string>(MetadataKeys.PointerPointerShape, out var shape);
+            parameter.TryGetMetadata<string>(MetadataKeys.PointerPointerDefaultShape, out var defaultShape);
+            if (shape is null || shape == defaultShape)
+                parameter.SetMetadata(MetadataKeys.PointerPointerShape, PointerPointerShapes.Array);
+        }
+
+        if (counted is null)
+            return false;
+
+        ClangSharpHeaderParser.ApplyExplicitCountedInputArrays(function);
+        foreach (var parameter in counted)
+        {
+            // A pointer with no array projection (a record `T*`, an element kind the span
+            // wrapper cannot carry) is never silent.
+            if (!parameter.HasMetadata(MetadataKeys.InputPointerArray))
+            {
+                function.SetIgnoreReason(
+                    $"parameter '{parameter.NativeName}' is counted by '{parameter.GetMetadata<string>(MetadataKeys.CountedBy)}' but has no input array projection");
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -142,7 +234,7 @@ public static class PointerPointerShapeResolver
 
         foreach (var function in compilation.Functions)
         {
-            var changed = false;
+            var changed = ApplyCountedBy(function);
             foreach (var parameter in function.Parameters)
             {
                 if (!parameter.TryGetMetadata<string>(MetadataKeys.PointerPointerShape, out var shape))

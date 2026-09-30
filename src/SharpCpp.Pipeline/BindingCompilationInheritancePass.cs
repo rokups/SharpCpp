@@ -126,6 +126,8 @@ public static class BindingCompilationInheritancePass
             };
             if (parameter.HasMetadata(MetadataKeys.BorrowedStringOutput))
                 projectedParameter.SetMetadata(MetadataKeys.BorrowedStringOutput, true);
+            if (parameter.TryGetMetadata<string>(MetadataKeys.CountedBy, out var countedBy))
+                projectedParameter.SetMetadata(MetadataKeys.CountedBy, countedBy);
             projectedMethod.Parameters.Add(projectedParameter);
         }
 

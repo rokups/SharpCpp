@@ -1325,6 +1325,7 @@ public sealed partial class ClangSharpHeaderParser
             ApplyManagedDefaultValue(param, parameter, parameterType, managedTypeOverrides);
             ApplyCallbackDelegateAttribute(methodDecl.Handle, parameter.Handle, param, ref ignoreReason);
             ApplyPointerPointerFacts(methodDecl.Handle, parameter.Handle, param, ref ignoreReason);
+            ApplyCountedByAttribute(methodDecl.Handle, parameter.Handle, param, ref ignoreReason);
             function.Parameters.Add(param);
         }
 
@@ -1459,6 +1460,7 @@ public sealed partial class ClangSharpHeaderParser
             ApplyManagedDefaultValue(templateParam, parameter, parameterType, managedTypeOverrides);
             ApplyCallbackDelegateAttribute(templatedFunction.Handle, parameter.Handle, templateParam, ref ignoreReason);
             ApplyPointerPointerFacts(templatedFunction.Handle, parameter.Handle, templateParam, ref ignoreReason);
+            ApplyCountedByAttribute(templatedFunction.Handle, parameter.Handle, templateParam, ref ignoreReason);
             function.Parameters.Add(templateParam);
         }
 
@@ -1533,6 +1535,7 @@ public sealed partial class ClangSharpHeaderParser
             ApplyManagedDefaultValue(staticParam, parameter, parameterType, managedTypeOverrides);
             ApplyCallbackDelegateAttribute(methodDecl.Handle, parameter.Handle, staticParam, ref ignoreReason);
             ApplyPointerPointerFacts(methodDecl.Handle, parameter.Handle, staticParam, ref ignoreReason);
+            ApplyCountedByAttribute(methodDecl.Handle, parameter.Handle, staticParam, ref ignoreReason);
             function.Parameters.Add(staticParam);
         }
 
@@ -1599,6 +1602,7 @@ public sealed partial class ClangSharpHeaderParser
             ApplyManagedDefaultValue(ctorParam, parameter, parameterType, managedTypeOverrides);
             ApplyCallbackDelegateAttribute(ctorDecl.Handle, parameter.Handle, ctorParam, ref ignoreReason);
             ApplyPointerPointerFacts(ctorDecl.Handle, parameter.Handle, ctorParam, ref ignoreReason);
+            ApplyCountedByAttribute(ctorDecl.Handle, parameter.Handle, ctorParam, ref ignoreReason);
             function.Parameters.Add(ctorParam);
         }
 
@@ -2266,6 +2270,7 @@ public sealed partial class ClangSharpHeaderParser
             ApplyManagedDefaultValue(freeParam, parameter, parameterType, managedTypeOverrides);
             ApplyCallbackDelegateAttribute(functionDecl.Handle, parameter.Handle, freeParam, ref ignoreReason);
             ApplyPointerPointerFacts(functionDecl.Handle, parameter.Handle, freeParam, ref ignoreReason);
+            ApplyCountedByAttribute(functionDecl.Handle, parameter.Handle, freeParam, ref ignoreReason);
             function.Parameters.Add(freeParam);
         }
 
@@ -2348,6 +2353,7 @@ public sealed partial class ClangSharpHeaderParser
             ApplyManagedDefaultValue(freeTemplateParam, parameter, parameterType, managedTypeOverrides);
             ApplyCallbackDelegateAttribute(templatedFunction.Handle, parameter.Handle, freeTemplateParam, ref ignoreReason);
             ApplyPointerPointerFacts(templatedFunction.Handle, parameter.Handle, freeTemplateParam, ref ignoreReason);
+            ApplyCountedByAttribute(templatedFunction.Handle, parameter.Handle, freeTemplateParam, ref ignoreReason);
             function.Parameters.Add(freeTemplateParam);
         }
 
@@ -5908,11 +5914,14 @@ public sealed partial class ClangSharpHeaderParser
         {
             var first = function.Parameters[index];
             var second = function.Parameters[index + 1];
-            if (IsArrayCountParameter(second))
+            // An explicitly counted array pairs only with the count it names.
+            if (IsArrayCountParameter(second) && !first.HasMetadata(MetadataKeys.CountedBy))
                 ApplyAdjacentInputPointerArrayMetadata(first);
-            else if (IsArrayCountParameter(first))
+            else if (IsArrayCountParameter(first) && !second.HasMetadata(MetadataKeys.CountedBy))
                 ApplyAdjacentInputPointerArrayMetadata(second);
         }
+
+        ApplyExplicitCountedInputArrays(function);
 
         ApplyTrailingInputPointerArrayMetadata(function);
     }
@@ -5928,7 +5937,7 @@ public sealed partial class ClangSharpHeaderParser
 
         foreach (var parameter in function.Parameters)
         {
-            if (IsArrayCountParameter(parameter))
+            if (IsArrayCountParameter(parameter) || PointerPointerShapeResolver.IsExplicitCount(function, parameter))
                 countParameterSeen = true;
 
             if (countParameterSeen && IsInputHandlePointerArrayParameter(parameter))
@@ -5949,6 +5958,23 @@ public sealed partial class ClangSharpHeaderParser
             }
 
             handlePointerArraySeen = false;
+        }
+    }
+
+    /// <summary>
+    /// Makes every primitive or handle pointer that names a valid count through
+    /// <see cref="MetadataKeys.CountedBy"/> an input array, wherever the count is. `char**` and
+    /// record `T**` shapes are resolved by <see cref="PointerPointerShapeResolver"/>.
+    /// </summary>
+    internal static void ApplyExplicitCountedInputArrays(FunctionBinding function)
+    {
+        foreach (var parameter in function.Parameters)
+        {
+            if (!parameter.HasMetadata(MetadataKeys.InputPointerArray) &&
+                PointerPointerShapeResolver.TryGetExplicitCount(function, parameter) is not null)
+            {
+                ApplyAdjacentInputPointerArrayMetadata(parameter);
+            }
         }
     }
 
@@ -6019,9 +6045,7 @@ public sealed partial class ClangSharpHeaderParser
             parameter.CppTypeName.Contains("const", StringComparison.Ordinal);
     }
 
-    /// <param name="strictName">Accepts only argc, Num* and *Count* names: pointer-pointer shapes flip
-    /// from an output to an array on a match, so a false positive misbehaves at run time.</param>
-    internal static bool IsArrayCountParameter(ParameterBinding parameter, bool strictName = false)
+    internal static bool IsIntegerValueParameter(ParameterBinding parameter)
     {
         if (parameter.Direction != BindingParameterDirection.In ||
             parameter.AbiKind != BindingParameterAbiKind.Value ||
@@ -6032,6 +6056,18 @@ public sealed partial class ClangSharpHeaderParser
                 BindingPrimitiveKind.Int32 or BindingPrimitiveKind.UInt32 or
                 BindingPrimitiveKind.Int64 or BindingPrimitiveKind.UInt64 or
                 BindingPrimitiveKind.NativeInt or BindingPrimitiveKind.NativeUInt))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <param name="strictName">Accepts only argc, Num* and *Count* names: pointer-pointer shapes flip
+    /// from an output to an array on a match, so a false positive misbehaves at run time.</param>
+    internal static bool IsArrayCountParameter(ParameterBinding parameter, bool strictName = false)
+    {
+        if (!IsIntegerValueParameter(parameter))
         {
             return false;
         }
@@ -6067,6 +6103,38 @@ public sealed partial class ClangSharpHeaderParser
         return parameter.Direction == BindingParameterDirection.In &&
             parameter.AbiKind == BindingParameterAbiKind.Pointer &&
             parameter.Type.Kind == BindingTypeKind.Handle;
+    }
+
+    /// <summary>
+    /// Reads `[[sharpcpp::counted_by(name)]]` on an array parameter and records the native name
+    /// of its count parameter. The name is validated later, by
+    /// <see cref="PointerPointerShapeResolver.Apply"/>, so consumer-set tags share the checks.
+    /// </summary>
+    private static void ApplyCountedByAttribute(
+        CXCursor functionCursor,
+        CXCursor parameterCursor,
+        ParameterBinding parameter,
+        ref string? ignoreReason)
+    {
+        var match = FindSharpCppAttribute(GetSourceText(parameterCursor.TranslationUnit, parameterCursor.Extent), "counted_by");
+        if (match is null && TryGetParameterDeclarationSourceText(functionCursor, parameterCursor, out var parameterSourceText))
+        {
+            match = FindSharpCppAttribute(parameterSourceText, "counted_by");
+        }
+
+        if (match is null)
+        {
+            return;
+        }
+
+        var name = match.Body.Trim();
+        if (name.Length == 0)
+        {
+            ignoreReason ??= $"parameter '{parameter.NativeName}' has an empty [[sharpcpp::counted_by]] attribute";
+            return;
+        }
+
+        parameter.SetMetadata(MetadataKeys.CountedBy, name);
     }
 
     private static void ApplyCallbackDelegateAttribute(
@@ -6225,6 +6293,20 @@ public sealed partial class ClangSharpHeaderParser
             return true;
         }
 
+        // Prefer the parameter's position: a name match is ambiguous for short names (`n`).
+        var parts = SplitTopLevelParameters(parameterListText);
+        if (parts.Count == functionCursor.NumArguments)
+        {
+            for (var argument = 0; argument < parts.Count; argument++)
+            {
+                if (functionCursor.GetArgument((uint)argument).Equals(parameterCursor))
+                {
+                    sourceText = parts[argument];
+                    return true;
+                }
+            }
+        }
+
         var parameterName = parameterCursor.Spelling.ToString();
         if (string.IsNullOrWhiteSpace(parameterName))
         {
@@ -6232,7 +6314,7 @@ public sealed partial class ClangSharpHeaderParser
             return false;
         }
 
-        foreach (var part in SplitTopLevelParameters(parameterListText))
+        foreach (var part in parts)
         {
             if (part.Contains(parameterName, StringComparison.Ordinal))
             {

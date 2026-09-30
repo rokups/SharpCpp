@@ -286,3 +286,92 @@ inline int sum_hungarian_items(pointer_pointer_item** pItems, unsigned int NumIt
 {
     return sum_items(pItems, NumItems);
 }
+
+// [[sharpcpp::counted_by(name)]] names the count explicitly, so a name outside the heuristic
+// works, the count may be anywhere in the list, and one count may serve several arrays.
+inline int sum_counted_items([[sharpcpp::counted_by(n)]] pointer_pointer_item** items, int n)
+{
+    return sum_items(items, static_cast<unsigned int>(n));
+}
+
+inline int measure_counted_names([[sharpcpp::counted_by(n)]] char** names, int n)
+{
+    return measure_strings(names, static_cast<unsigned int>(n));
+}
+
+inline int sum_counted_values([[sharpcpp::counted_by(n)]] const int* values, int n)
+{
+    int result = 0;
+    for (int i = 0; i < n; ++i)
+        result += values[i];
+    return result;
+}
+
+inline int sum_shared_count(
+    [[sharpcpp::counted_by(n)]] const int* values,
+    [[sharpcpp::counted_by(n)]] pointer_pointer_item** items,
+    int n)
+{
+    return sum_counted_values(values, n) + sum_items(items, static_cast<unsigned int>(n));
+}
+
+// An explicit [[sharpcpp::out]] wins over counted_by.
+inline void pick_out_counted([[sharpcpp::out]] [[sharpcpp::counted_by(n)]] pointer_pointer_item** item, int n)
+{
+    static pointer_pointer_item value{97};
+    *item = n < 0 ? nullptr : &value;
+}
+
+// The consumer generator names the counts of these parameters (a header it cannot edit).
+inline int sum_configured_counted_values(const int* values, int n)
+{
+    return sum_counted_values(values, n);
+}
+
+inline int sum_configured_counted_items(pointer_pointer_item** items, int n)
+{
+    return sum_items(items, static_cast<unsigned int>(n));
+}
+
+// The default is already an array, so a consumer counted_by is a no-op.
+inline int sum_configured_counted_noop(pointer_pointer_item** items, unsigned int item_count)
+{
+    return sum_items(items, item_count);
+}
+
+// A consumer-set shape other than the default wins over counted_by.
+inline void pick_configured_counted_single(pointer_pointer_item** items, unsigned int item_count)
+{
+    static pointer_pointer_item value{101};
+    *items = item_count == 0 ? nullptr : &value;
+}
+
+// counted_by that cannot be honoured degrades the function with a diagnostic: an unknown
+// count, a count that is a pointer, and a parameter that is not a pointer.
+inline int bad_counted_unknown([[sharpcpp::counted_by(missing)]] pointer_pointer_item** items, int n)
+{
+    return sum_items(items, static_cast<unsigned int>(n));
+}
+
+inline int bad_counted_pointer([[sharpcpp::counted_by(n)]] pointer_pointer_item** items, int* n)
+{
+    return sum_items(items, static_cast<unsigned int>(*n));
+}
+
+inline int bad_counted_value([[sharpcpp::counted_by(n)]] int values, int n)
+{
+    return values + n;
+}
+
+// A record pointer passed by value has no array projection, and a char** that
+// [[sharpcpp::ref]] keeps by reference is not a plain pointer; neither is silently left counted
+// or turned into an input array.
+inline int bad_counted_record([[sharpcpp::counted_by(n)]] pointer_pointer_item* items, int n)
+{
+    return items->get_value() + n;
+}
+
+inline int bad_counted_ref([[sharpcpp::ref]] [[sharpcpp::counted_by(n)]] char** names, int n)
+{
+    return measure_strings(names, static_cast<unsigned int>(n));
+}

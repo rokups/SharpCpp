@@ -166,6 +166,15 @@ internal static class Program
             .SetMetadata(MetadataKeys.PointerPointerShape, shape);
     }
 
+    private static void SetCountedBy(BindingCompilation compilation, string functionName, string parameterName, string countName)
+    {
+        compilation.Functions
+            .Single(function => string.Equals(function.CppQualifiedName, functionName, StringComparison.Ordinal))
+            .Parameters
+            .Single(parameter => string.Equals(parameter.NativeName, parameterName, StringComparison.Ordinal))
+            .SetMetadata(MetadataKeys.CountedBy, countName);
+    }
+
     private static void ApplyConsumerExtensions(BindingCompilation compilation)
     {
         const string headerPath = "Consumer/ConsumerProjection.hpp";
@@ -203,6 +212,12 @@ internal static class Program
         SetPointerPointerShape(compilation, "measure_bad_value", "names", "sideways");
         SetPointerPointerShape(compilation, "pick_const_item", "item", PointerPointerShapes.Single);
         SetPointerPointerShape(compilation, "get_const_label", "value", PointerPointerShapes.Single);
+        // Consumers also name the count of an array parameter by name.
+        SetCountedBy(compilation, "sum_configured_counted_values", "values", "n");
+        SetCountedBy(compilation, "sum_configured_counted_items", "items", "n");
+        SetCountedBy(compilation, "sum_configured_counted_noop", "items", "item_count");
+        SetCountedBy(compilation, "pick_configured_counted_single", "items", "item_count");
+        SetPointerPointerShape(compilation, "pick_configured_counted_single", "items", PointerPointerShapes.Single);
         // A consumer that projects the pointee to a raw pointer cannot also ask for a record array.
         compilation.Functions
             .Single(function => string.Equals(function.CppQualifiedName, "pick_retyped_item", StringComparison.Ordinal))

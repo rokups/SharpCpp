@@ -61,6 +61,16 @@ public static class MetadataKeys
     // [[sharpcpp::in]] / [[sharpcpp::out]] attributes; a consumer overwrites it before the
     // ResolvePointerPointerShapes pipeline step (any configuration hook, or right after parsing).
     public const string PointerPointerShape = "pointer_pointer_shape";
+    // Value: the shape the parser tagged as a default (not an explicit [[sharpcpp::in]] /
+    // [[sharpcpp::out]]). A shape equal to it is treated as not chosen, so an explicit
+    // CountedBy can still turn the parameter into an array; any other shape is a choice.
+    public const string PointerPointerDefaultShape = "pointer_pointer_default_shape";
+    // Value: native name of the integer value parameter that holds the element count of this
+    // array parameter (`[[sharpcpp::counted_by(n)]]`, or set by a consumer). It bypasses the
+    // count-name heuristic and the adjacency/ownership rules; one count may serve several
+    // arrays. On a char** or record T** it selects the array shape unless an explicit shape is
+    // present; on a primitive or handle pointer it makes the parameter an input array.
+    public const string CountedBy = "counted_by";
     // Set on an out char** parameter that is bound as `out string?`: the wrapper copies the UTF-8
     // text and never frees the native pointer (a borrowed string).
     public const string BorrowedStringOutput = "borrowed_string_output";

@@ -94,7 +94,15 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   prefix and trailing `s` ignored: `NumPrerequisites`/`ppPrerequisites`; `word_count` or
   `NumVertices` before an unrelated out pointer do not), or a generic `count`/`num` not
   claimed by a pointer before it; narrower than `IsArrayCountParameter`; a pointer count such
-  as `int* count` does not qualify. `[[sharpcpp::in]]` /
+  as `int* count` does not qualify. `[[sharpcpp::counted_by(n)]]` on the array parameter (or a
+  consumer setting `MetadataKeys.CountedBy` to the count's native name) is the sanctioned way
+  to name a count outside that heuristic, such as `n`: it works for `char**`, record `T**`
+  and primitive/handle pointers, the count may be anywhere in the list, one count may serve
+  several arrays, and the count must be an integer value parameter (an unknown name, a pointer
+  count, or a non-pointer tagged parameter ignores the function with a reason). Precedence for
+  `char**`/`T**`: an explicit `[[sharpcpp::in]]`/`[[sharpcpp::out]]` or a consumer-set shape
+  different from the parser's default (`PointerPointerDefaultShape`) wins over `counted_by`; a
+  consumer shape equal to the default is indistinguishable from it. `[[sharpcpp::in]]` /
   `[[sharpcpp::out]]` or a consumer overwriting the metadata value select the other shape; a
   value that cannot be honoured (unknown value, not a `char**`/record `T**`, an output through
   a const pointer) ignores the function with a reason in generator.log. Char arrays are
