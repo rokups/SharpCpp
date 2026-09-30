@@ -55,7 +55,18 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   secondary base that has its own secondary base with an interface fails to compile (CS0108:
   the interface redeclares the inherited base-interface methods; predates the view work).
 - Open containers of a template parameter (`std::vector<T>` in a generic member) are not
-  bound; such fields are reported instead of leaking an open type.
+  bound and are out of scope (no consumer uses them); such fields are reported instead of
+  leaking an open type.
+- RmlUi `Colour<...>`, `Vector3<T>` and `Vector4<T>` are parsed as non-generic records (ClangSharp
+  reports `CXType_Unexposed`), so they are degraded and not emitted; `Vector2<T>` binds. This
+  is a parser gap in template-record detection, separate from open containers.
+- Every declaration the generator leaves out appears in `generator.log` (IGNORED, EXCLUDED or
+  WARNING); the console stays clean. Warnings cover fields hidden by a same-named member
+  (including an ignored one: the collision resolver skips ignored members, so the field is
+  not renamed), counted-array accessors whose name is taken, bases lost when a generic base
+  is dropped, removed generic instantiations, unmerged placeholder members and pruned type
+  aliases (logged on the compilation). Clashes introduced by accessor properties generated after
+  the pipeline are not diagnosed.
 - Fields of class templates are bound per instantiation only as public, non-static value
   members (no references, pointers, arrays or bitfields). If the template has an explicit
   full specialization, all its fields are left unbound for every instantiation (reported,

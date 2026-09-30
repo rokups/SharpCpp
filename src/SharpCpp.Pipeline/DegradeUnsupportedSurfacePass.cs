@@ -480,24 +480,39 @@ public static class DegradeUnsupportedSurfacePass
             {
                 // Recorded at parse time: the template's own parameter base may already have
                 // been dropped from its base list by this pass.
-                if (droppedBaseRecord.TemplateParameterBaseName is { } parameterBaseName &&
-                    SubstituteHoistedBase(
+                if (droppedBaseRecord.TemplateParameterBaseName is { } parameterBaseName)
+                {
+                    var parameterBase = SubstituteHoistedBase(
                         new RecordBaseBinding(droppedBaseRecord.SymbolId, parameterBaseName, parameterBaseName, parameterBaseName, isVirtual: false, BindingType.CreateGenericParameter(parameterBaseName)),
                         droppedBaseRecord,
                         baseBinding,
-                        recordsById) is { } parameterBase &&
-                    !record.Bases.Any(existing => string.Equals(existing.RecordId, parameterBase.RecordId, StringComparison.Ordinal)))
-                {
-                    record.Bases.Insert(baseIndex++, parameterBase);
+                        recordsById);
+                    if (parameterBase is null)
+                    {
+                        WarnLostHoistedBase(record, baseBinding, parameterBaseName, "it does not resolve to a concrete record");
+                    }
+                    else if (!record.Bases.Any(existing => string.Equals(existing.RecordId, parameterBase.RecordId, StringComparison.Ordinal)))
+                    {
+                        record.Bases.Insert(baseIndex++, parameterBase);
+                    }
                 }
 
                 // Keep the inherited surface: the dropped base's own concrete bases are
                 // still bases of this record in C++ (e.g. a variadic template's base).
-                foreach (var candidate in droppedBaseRecord.Bases.Where(static candidate => !candidate.IsVirtual))
+                foreach (var candidate in droppedBaseRecord.Bases)
                 {
+                    if (candidate.IsVirtual)
+                    {
+                        WarnLostHoistedBase(record, baseBinding, candidate.CppQualifiedName, "it is a virtual base");
+                        continue;
+                    }
+
                     var hoisted = SubstituteHoistedBase(candidate, droppedBaseRecord, baseBinding, recordsById);
-                    if (hoisted is not null &&
-                        !record.Bases.Any(existing => string.Equals(existing.RecordId, hoisted.RecordId, StringComparison.Ordinal)))
+                    if (hoisted is null)
+                    {
+                        WarnLostHoistedBase(record, baseBinding, candidate.CppQualifiedName, "it does not resolve to a concrete record");
+                    }
+                    else if (!record.Bases.Any(existing => string.Equals(existing.RecordId, hoisted.RecordId, StringComparison.Ordinal)))
                     {
                         record.Bases.Insert(baseIndex++, hoisted);
                     }
@@ -543,6 +558,15 @@ public static class DegradeUnsupportedSurfacePass
 
         reason = string.Empty;
         return false;
+    }
+
+    private static void WarnLostHoistedBase(RecordBinding record, RecordBaseBinding droppedBase, string lostBaseName, string cause)
+    {
+        var warning = $"base '{lostBaseName}' of the dropped base '{droppedBase.CppQualifiedName}' is not inherited by record '{record.CppQualifiedName}' because {cause}";
+        if (!record.GetWarnings().Contains(warning))
+        {
+            record.SetWarning(warning);
+        }
     }
 
     private static bool HasAvailableNativeBaseRecord(BindingCompilation compilation, RecordBinding record)

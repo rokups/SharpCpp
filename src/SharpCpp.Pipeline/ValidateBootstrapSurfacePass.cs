@@ -208,10 +208,14 @@ public static class ValidateBootstrapSurfacePass
             if (instantiations[i].TypeArguments.Count != function.GenericParameters.Count ||
                 !ValidateInstantiationKinds(instantiations[i], recordsById, configuredNativeNamespaces))
             {
+                function.SetWarning($"generic instantiation <{FormatTypeArguments(instantiations[i])}> of '{function.CppQualifiedName}' removed because its type arguments are not supported");
                 instantiations.RemoveAt(i);
             }
         }
     }
+
+    private static string FormatTypeArguments(RecordGenericInstantiationBinding instantiation) =>
+        string.Join(", ", instantiation.TypeArguments.Select(static argument => argument.CppTypeName));
 
     private static void FilterUnsupportedInstantiations(
         RecordBinding record,
@@ -223,6 +227,7 @@ public static class ValidateBootstrapSurfacePass
         {
             if (!ValidateInstantiationKinds(record, instantiations[i], recordsById, configuredNativeNamespaces))
             {
+                record.SetWarning($"generic instantiation <{FormatTypeArguments(instantiations[i])}> of '{record.CppQualifiedName}' removed because its type arguments are not supported");
                 instantiations.RemoveAt(i);
             }
         }

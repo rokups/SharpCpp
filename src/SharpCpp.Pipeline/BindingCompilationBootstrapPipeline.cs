@@ -63,6 +63,9 @@ public static class BindingCompilationBootstrapPipeline
         // that nothing refers to is dropped along with its providers and exports.
         RunTimed("SilentlyExcludeUnusedSharedWrappers", () => SilentlyExcludeUnusedSharedWrappersPass.Apply(compilation));
 
+        // Needs the final surface: the renderer's clash-based skips are evaluated on it.
+        RunTimed("SilentDropDiagnostics", () => SilentDropDiagnosticsPass.Apply(compilation));
+
         // Needs the final surface: which secondary bases keep a rendered interface decides
         // whether SecondaryBase* parameters and returns can be typed as that interface.
         RunTimed("SecondaryBaseView", () => SecondaryBaseViewPass.Apply(compilation));
@@ -103,6 +106,12 @@ public static class BindingCompilationBootstrapPipeline
             var alias = compilation.TypeAliases[i];
             if (ShouldPruneAliasTarget(alias, compilation))
             {
+                if (!alias.IsImported)
+                {
+                    // Aliases are not binding nodes, so the log sees this through the root.
+                    compilation.SetWarning($"type alias '{alias.CppQualifiedName}' = '{alias.TargetType.CppTypeName}' not generated: its target record was degraded, excluded or is not available");
+                }
+
                 compilation.TypeAliases.RemoveAt(i);
             }
         }

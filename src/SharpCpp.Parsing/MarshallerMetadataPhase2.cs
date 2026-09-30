@@ -634,6 +634,11 @@ public static class MarshallerMetadataPhase2
                     placeholder.Members.Remove(member);
                     realRecord.Members.Add(member);
                 }
+                else
+                {
+                    // The placeholder is suppressed, so this configured member is never emitted.
+                    realRecord.SetWarning($"configured member '{member.CppQualifiedName}' of placeholder '{placeholder.CppQualifiedName}' not merged: managed name '{member.ManagedName}' clashes with a member of the real record");
+                }
             }
 
             placeholder.SetMetadata(MetadataKeys.SuppressEmission, true);
@@ -1050,9 +1055,17 @@ public static class MarshallerMetadataPhase2
         for (var i = compilation.TypeAliases.Count - 1; i >= 0; i--)
         {
             var alias = compilation.TypeAliases[i];
-            if (ContainsGenericParameter(alias.TargetType) ||
+            var containsGenericParameter = ContainsGenericParameter(alias.TargetType);
+            if (containsGenericParameter ||
                 !CanRenderAliasTarget(alias.TargetType, recordsByNativeName))
             {
+                if (!alias.IsImported)
+                {
+                    // Aliases are not binding nodes, so the log sees this through the root.
+                    compilation.SetWarning($"type alias '{alias.CppQualifiedName}' = '{alias.TargetType.CppTypeName}' not generated: " +
+                        (containsGenericParameter ? "its target contains a generic parameter" : "its target cannot be rendered as a managed type"));
+                }
+
                 compilation.TypeAliases.RemoveAt(i);
             }
         }
