@@ -59,6 +59,10 @@ public static class BindingCompilationBootstrapPipeline
         if (configureAfterValidation is not null)
             RunTimed("ConfigureAfterValidation", () => configureAfterValidation(compilation));
 
+        // Runs last so the surface it scans is final: a shared wrapper record (std::basic_string)
+        // that nothing refers to is dropped along with its providers and exports.
+        RunTimed("SilentlyExcludeUnusedSharedWrappers", () => SilentlyExcludeUnusedSharedWrappersPass.Apply(compilation));
+
         // Invalidate cached member lookups so rendering picks up any members
         // added by pipeline passes (MI projections, generic instantiations, etc.)
         compilation.InvalidateCaches();
