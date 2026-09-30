@@ -132,6 +132,84 @@ public sealed class PointerPointerTests
     }
 
     [Fact]
+    public void An_unrelated_or_claimed_count_leaves_a_record_pointer_pointer_an_output()
+    {
+        ReadOnlySpan<uint> words = [5u];
+        E2EBindings.ParseWords(words, 1, out var parsed);
+        Assert.Equal(61, parsed.GetValue());
+        Assert.True(Parameter(nameof(E2EBindings.ParseWords), 2).IsOut);
+
+        ReadOnlySpan<int> data = [5];
+        E2EBindings.ParseCountedData(data, 1, out var result);
+        Assert.Equal(67, result.GetValue());
+        Assert.True(Parameter(nameof(E2EBindings.ParseCountedData), 2).IsOut);
+
+        E2EBindings.AllocateVertices(1, out var allocation);
+        Assert.Equal(71, allocation.GetValue());
+        Assert.True(Parameter(nameof(E2EBindings.AllocateVertices), 1).IsOut);
+
+        E2EBindings.AllocateSwapchainData(1, 1, out var swapchain);
+        Assert.Equal(73, swapchain.GetValue());
+        Assert.True(Parameter(nameof(E2EBindings.AllocateSwapchainData), 2).IsOut);
+
+        E2EBindings.PickItemAfterArgc(1, out var item);
+        Assert.Equal(79, item.GetValue());
+        Assert.True(Parameter(nameof(E2EBindings.PickItemAfterArgc), 1).IsOut);
+    }
+
+    [Fact]
+    public void A_related_count_makes_a_record_pointer_pointer_an_input_array()
+    {
+        using var task = new PointerPointerItem(1);
+        using var first = new PointerPointerItem(3);
+        using var second = new PointerPointerItem(4);
+        PointerPointerItem?[] items = [first, second];
+
+        Assert.Equal(8, E2EBindings.EnqueueTask(task, items, 2));
+        Assert.Equal(typeof(ReadOnlySpan<PointerPointerItem?>), Parameter(nameof(E2EBindings.EnqueueTask), 1).ParameterType);
+        Assert.Equal(7, E2EBindings.TestDrawables(items, 2));
+        Assert.Equal(typeof(ReadOnlySpan<PointerPointerItem?>), Parameter(nameof(E2EBindings.TestDrawables), 0).ParameterType);
+    }
+
+    [Fact]
+    public void A_record_pointer_before_a_generic_count_owns_it()
+    {
+        using var owner = new PointerPointerItem(1);
+        E2EBindings.PickAfterHandle(owner, 1, out var item);
+        Assert.Equal(83, item.GetValue());
+        Assert.True(Parameter(nameof(E2EBindings.PickAfterHandle), 2).IsOut);
+
+        E2EBindings.PickLimited(out var limited, 1);
+        Assert.Equal(89, limited.GetValue());
+        Assert.True(Parameter(nameof(E2EBindings.PickLimited), 0).IsOut);
+    }
+
+    [Fact]
+    public void Prefixed_and_leading_counts_make_a_record_pointer_pointer_an_input_array()
+    {
+        using var first = new PointerPointerItem(3);
+        using var second = new PointerPointerItem(4);
+        PointerPointerItem?[] items = [first, second];
+
+        Assert.Equal(7, E2EBindings.SumCountPrefixed(2, items));
+        Assert.Equal(7, E2EBindings.SumLeadingCount(2, items));
+        Assert.Equal(7, E2EBindings.SumHungarianItems(items, 2));
+        Assert.Equal(typeof(ReadOnlySpan<PointerPointerItem?>), Parameter(nameof(E2EBindings.SumCountPrefixed), 1).ParameterType);
+        Assert.Equal(typeof(ReadOnlySpan<PointerPointerItem?>), Parameter(nameof(E2EBindings.SumLeadingCount), 1).ParameterType);
+        Assert.Equal(typeof(ReadOnlySpan<PointerPointerItem?>), Parameter(nameof(E2EBindings.SumHungarianItems), 0).ParameterType);
+    }
+
+    [Fact]
+    public void Argc_pairs_with_a_char_pointer_pointer_that_follows_it()
+    {
+        WithStrings(pointers =>
+        {
+            Assert.Equal(5, E2EBindings.MeasureArgs(2, pointers));
+            Assert.Equal(typeof(ReadOnlySpan<nint>), Parameter(nameof(E2EBindings.MeasureArgs), 1).ParameterType);
+        });
+    }
+
+    [Fact]
     public void Sharpcpp_attributes_override_the_record_pointer_pointer_default()
     {
         E2EBindings.PickForcedItem(out var item, 1);

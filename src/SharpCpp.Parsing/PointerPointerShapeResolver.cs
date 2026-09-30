@@ -11,9 +11,18 @@ namespace SharpCpp.Parsing;
 /// </summary>
 /// <remarks>
 /// Defaults: `T* const*` is an input array; a non-const pointer-to-pointer with an adjacent
-/// value count (argc, Num*, *Count*; deliberately narrower than the primitive-array heuristic, which also accepts *Length and *Size) is an input array; anything else is
-/// one output value (`out string?` for char, `out T` for records). [[sharpcpp::in]] and
-/// [[sharpcpp::out]] on the parameter select the array and single shapes explicitly.
+/// value count that relates to it is an input array; anything else is one output value
+/// (`out string?` for char, `out T` for records). The count name set (argc, Num*, *Count*) is
+/// deliberately narrower than the primitive-array heuristic, which also accepts *Length and
+/// *Size, and the pairing is narrower still: `argc` pairs with `argv` or a `char**` right
+/// after it, a specific count (`Num{X}`, `num_{x}`, `{x}Count`, `{x}_count`, `count{X}`) only
+/// with a parameter whose stem is the same after normalisation (case-insensitive, underscores
+/// dropped, a Hungarian `pp`/`p` prefix and a trailing plural `s` ignored), and a generic count
+/// (`count`, `num`) only with the pointer parameter directly before it, or the one after
+/// it when nothing pointer-like precedes. A count that names something else (`word_count`
+/// before `spv_parsed_ir* parsed_ir`, `NumVertices` before `ppAllocation`) leaves the
+/// parameter an output. [[sharpcpp::in]] and [[sharpcpp::out]] on the parameter select the
+/// array and single shapes explicitly.
 /// </remarks>
 public static class PointerPointerShapeResolver
 {
@@ -30,14 +39,96 @@ public static class PointerPointerShapeResolver
             }
 
             var hasAdjacentCount =
-                (index > 0 && ClangSharpHeaderParser.IsArrayCountParameter(function.Parameters[index - 1], strictName: true)) ||
-                (index + 1 < function.Parameters.Count && ClangSharpHeaderParser.IsArrayCountParameter(function.Parameters[index + 1], strictName: true));
+                CountPairsWith(function, index, index - 1) ||
+                CountPairsWith(function, index, index + 1);
             var shape = parameter.PointeeIsConst || hasAdjacentCount
                 ? PointerPointerShapes.Array
                 : PointerPointerShapes.Single;
             if (CanApply(parameter, shape))
                 parameter.SetMetadata(MetadataKeys.PointerPointerShape, shape);
         }
+    }
+
+    /// <summary>
+    /// True when the parameter at <paramref name="countIndex"/> is a value count that counts the
+    /// pointer-to-pointer parameter at <paramref name="arrayIndex"/> (adjacent parameters).
+    /// </summary>
+    private static bool CountPairsWith(FunctionBinding function, int arrayIndex, int countIndex)
+    {
+        if (countIndex < 0 || countIndex >= function.Parameters.Count)
+            return false;
+
+        var array = function.Parameters[arrayIndex];
+        var count = function.Parameters[countIndex];
+        if (!ClangSharpHeaderParser.IsArrayCountParameter(count, strictName: true))
+            return false;
+
+        var countName = count.NativeName;
+        if (countName.Equals("argc", StringComparison.OrdinalIgnoreCase))
+        {
+            return array.NativeName.Equals("argv", StringComparison.OrdinalIgnoreCase) ||
+                array.PointerPointer == PointerPointerKind.Chars && countIndex < arrayIndex;
+        }
+
+        var countStem = GetCountStem(countName);
+        if (countStem is null)
+            return false;
+
+        if (countStem.Length == 0)
+        {
+            // A generic count belongs to the pointer before it; only without one does it
+            // belong to the parameter after it.
+            var ownerIndex = countIndex > 0 && IsPointerLike(function.Parameters[countIndex - 1])
+                ? countIndex - 1
+                : countIndex + 1;
+            return ownerIndex == arrayIndex;
+        }
+
+        return NormalizeStem(countStem) == NormalizeStem(array.NativeName);
+    }
+
+    private static bool IsPointerLike(ParameterBinding parameter) =>
+        parameter.PointerPointer != PointerPointerKind.None ||
+        parameter.AbiKind == BindingParameterAbiKind.Pointer ||
+        parameter.Type.IsPointerType ||
+        parameter.Type.Kind == BindingTypeKind.Handle;
+
+    /// <summary>
+    /// The `{x}` of `Num{X}`, `num_{x}`, `{x}Count`, `{x}_count` and `count{X}`; empty for a
+    /// generic `count`/`num`; null when the name has no recognizable stem.
+    /// </summary>
+    private static string? GetCountStem(string name)
+    {
+        if (name.Equals("count", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("num", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Empty;
+        }
+
+        if (name.StartsWith("num", StringComparison.OrdinalIgnoreCase))
+            return name[3..].Trim('_');
+        if (name.EndsWith("count", StringComparison.OrdinalIgnoreCase))
+            return name[..^5].Trim('_');
+        if (name.StartsWith("count", StringComparison.OrdinalIgnoreCase))
+            return name[5..].Trim('_');
+        return null;
+    }
+
+    /// <summary>Case-insensitive, no underscores, no Hungarian `pp`/`p` prefix, no plural `s`.</summary>
+    private static string NormalizeStem(string name)
+    {
+        foreach (var prefix in new[] { "pp", "p" })
+        {
+            if (name.Length > prefix.Length && name.StartsWith(prefix, StringComparison.Ordinal) &&
+                char.IsUpper(name[prefix.Length]))
+            {
+                name = name[prefix.Length..];
+                break;
+            }
+        }
+
+        var normalized = name.Replace("_", string.Empty).ToLowerInvariant();
+        return normalized.Length > 1 && normalized[^1] == 's' ? normalized[..^1] : normalized;
     }
 
     /// <summary>

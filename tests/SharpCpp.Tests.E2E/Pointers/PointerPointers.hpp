@@ -200,3 +200,89 @@ inline void pick_retyped_item(pointer_pointer_item** item)
 {
     (void)item;
 }
+
+// The count must relate to the pointer-to-pointer for the output-to-array flip. A specific
+// count that names another parameter, or a generic count claimed by the pointer before it,
+// leaves the parameter an output.
+inline int parse_words(const unsigned int* words, unsigned long word_count, pointer_pointer_item** parsed)
+{
+    static pointer_pointer_item value{61};
+    *parsed = &value;
+    return static_cast<int>(words[0] + word_count);
+}
+
+inline int parse_counted_data(const int* data, unsigned int count, pointer_pointer_item** result)
+{
+    static pointer_pointer_item value{67};
+    *result = &value;
+    return data[0] + static_cast<int>(count);
+}
+
+inline void allocate_vertices(unsigned int NumVertices, pointer_pointer_item** ppAllocation)
+{
+    static pointer_pointer_item value{71};
+    *ppAllocation = NumVertices == 0 ? nullptr : &value;
+}
+
+inline void allocate_swapchain_data(int DeviceType, unsigned int ImageCount, pointer_pointer_item** ppSwapchainImageData)
+{
+    static pointer_pointer_item value{73};
+    *ppSwapchainImageData = DeviceType + ImageCount == 0 ? nullptr : &value;
+}
+
+inline void pick_item_after_argc(int argc, pointer_pointer_item** item)
+{
+    static pointer_pointer_item value{79};
+    *item = argc < 0 ? nullptr : &value;
+}
+
+// A specific count with the same stem, and a generic count after the array, pair with it.
+inline int enqueue_task(pointer_pointer_item* task, pointer_pointer_item** ppPrerequisites, unsigned int NumPrerequisites)
+{
+    int result = task->get_value();
+    for (unsigned int i = 0; i < NumPrerequisites; ++i)
+        result += ppPrerequisites[i]->get_value();
+    return result;
+}
+
+inline int test_drawables(pointer_pointer_item** drawables, unsigned int count)
+{
+    return sum_items(drawables, count);
+}
+
+// argc pairs with any char** right after it, not only with one named argv.
+inline int measure_args(int argc, char** args)
+{
+    return measure_strings(args, static_cast<unsigned int>(argc));
+}
+
+// A record pointer before a generic count owns that count, so the pointer-to-pointer after it
+// stays an output.
+inline void pick_after_handle(pointer_pointer_item* owner, unsigned int count, pointer_pointer_item** item)
+{
+    static pointer_pointer_item value{83};
+    *item = owner == nullptr || count == 0 ? nullptr : &value;
+}
+
+// count{X}, a generic count with nothing pointer-like before it, and a single `p` prefix pair
+// with the array; a Count in the middle of the name has no stem and does not.
+inline int sum_count_prefixed(unsigned int countItems, pointer_pointer_item** items)
+{
+    return sum_items(items, countItems);
+}
+
+inline void pick_limited(pointer_pointer_item** item, unsigned int itemCountLimit)
+{
+    static pointer_pointer_item value{89};
+    *item = itemCountLimit == 0 ? nullptr : &value;
+}
+
+inline int sum_leading_count(unsigned int count, pointer_pointer_item** items)
+{
+    return sum_items(items, count);
+}
+
+inline int sum_hungarian_items(pointer_pointer_item** pItems, unsigned int NumItems)
+{
+    return sum_items(pItems, NumItems);
+}

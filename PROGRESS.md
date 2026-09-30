@@ -87,9 +87,14 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
 - Pointer-to-pointer parameters (`char**`, record `T**`) are ambiguous, so each gets a shape
   (`MetadataKeys.PointerPointerShape`, `array` or `single`), resolved by
   `PointerPointerShapeResolver` after the consumer `configureBeforeValidation` hook. Defaults:
-  `T* const*`, and a non-const one with an adjacent value count (`{x}Count`, `Num{X}`,
-  `count`, `argc`; narrower than `IsArrayCountParameter`; a pointer count such as
-  `int* count` does not qualify), are input arrays; every other one is a single output. `[[sharpcpp::in]]` /
+  `T* const*`, and a non-const one with an adjacent value count that relates to it, are input
+  arrays; every other one is a single output. A count relates when it is `argc` (with `argv` or
+  a `char**` right after it), a specific `Num{X}`/`num_{x}`/`{x}Count`/`{x}_count`/`count{X}`
+  whose stem equals the parameter's stem (case-insensitive, no underscores, Hungarian `pp`/`p`
+  prefix and trailing `s` ignored: `NumPrerequisites`/`ppPrerequisites`; `word_count` or
+  `NumVertices` before an unrelated out pointer do not), or a generic `count`/`num` not
+  claimed by a pointer before it; narrower than `IsArrayCountParameter`; a pointer count such
+  as `int* count` does not qualify. `[[sharpcpp::in]]` /
   `[[sharpcpp::out]]` or a consumer overwriting the metadata value select the other shape; a
   value that cannot be honoured (unknown value, not a `char**`/record `T**`, an output through
   a const pointer) ignores the function with a reason in generator.log. Char arrays are
@@ -104,7 +109,8 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   borrowed). (c) The inheritance projection (`BindingCompilationInheritancePass`) does not copy
   `InputPointerArray`/`WritablePointerArray` (it does copy the pointer-pointer fields).
   The output-to-array flip uses a narrower count name set than the primitive-array heuristic
-  (`argc`, `Num*`, `*Count*`; not `*Length`/`*Size`), because a false positive silently changes
+  (`argc`, `Num*`, `*Count*`; not `*Length`/`*Size`) and additionally requires the count name
+  to relate to the parameter (see above), because a false positive silently changes
   an output into an array; an explicit `[[sharpcpp::in]]`/`[[sharpcpp::out]]` that cannot be
   honoured ignores the function with a reason.
 - Containers whose element is not copy-assignable, or whose allocator (a record declaring
