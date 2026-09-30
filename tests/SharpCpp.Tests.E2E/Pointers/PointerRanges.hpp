@@ -345,13 +345,48 @@ inline widget_query* create_summing_widget_query()
     return new summing_widget_query();
 }
 
-// A director callback with a range is not supported yet: the pure virtual degrades, so the
-// abstract director record is not bound. (A primitive pointer in a director virtual is lowered to
-// an address value at parse time, before the range is resolved, so only `T**` reaches the
-// director degrade reason.)
+// A director callback with a record range: native calls the managed override with the begin/end
+// pointers, and the dispatch rebuilds a `ReadOnlySpan<RangeWidget?>` of borrowed wrappers. `count`
+// is not overridden by every managed class, so the native fallback must stay in place for them.
 struct [[sharpcpp::director]] range_visitor
 {
     virtual ~range_visitor() = default;
 
     virtual int visit([[sharpcpp::ended_by(end)]] range_widget** begin, range_widget** end) = 0;
+
+    virtual int count([[sharpcpp::ended_by(end)]] range_widget** begin, range_widget** end)
+    {
+        return static_cast<int>(end - begin);
+    }
+};
+
+inline int invoke_range_visitor(range_visitor* visitor, range_widget* first, range_widget* second)
+{
+    range_widget* items[3] = { first, nullptr, second };
+    return visitor->visit(items, items + 3);
+}
+
+inline int invoke_range_visitor_empty(range_visitor* visitor)
+{
+    return visitor->visit(nullptr, nullptr);
+}
+
+inline int invoke_range_visitor_count(range_visitor* visitor, range_widget* first, range_widget* second)
+{
+    range_widget* items[3] = { first, nullptr, second };
+    return visitor->count(items, items + 3);
+}
+
+inline int invoke_range_visitor_count_empty(range_visitor* visitor)
+{
+    return visitor->count(nullptr, nullptr);
+}
+
+// Only record ranges are supported in director callbacks: a range of enums degrades the pure
+// virtual, so the abstract director record is not bound.
+struct [[sharpcpp::director]] color_range_visitor
+{
+    virtual ~color_range_visitor() = default;
+
+    virtual int visit([[sharpcpp::ended_by(end)]] const range_color* begin, const range_color* end) = 0;
 };

@@ -376,9 +376,16 @@ public static class DegradeUnsupportedSurfacePass
     {
         foreach (var parameter in function.Parameters)
         {
-            if (parameter.HasMetadata(MetadataKeys.EndedBy) || parameter.HasMetadata(MetadataKeys.DerivedArgument))
+            // Record pointer ranges cross as raw pointers and are rebuilt as a span in the dispatch; the
+            // derived end parameter is hidden from the public override signature.
+            if (parameter.HasMetadata(MetadataKeys.DerivedArgument) || IsRecordPointerRangeBegin(parameter))
             {
-                reason = $"parameter '{parameter.ManagedName}' is a pointer range; ranges are not supported in director callbacks yet";
+                continue;
+            }
+
+            if (parameter.HasMetadata(MetadataKeys.EndedBy))
+            {
+                reason = $"parameter '{parameter.ManagedName}' is a pointer range; only record pointer ranges are supported in director callbacks";
                 return true;
             }
 
@@ -392,6 +399,13 @@ public static class DegradeUnsupportedSurfacePass
         reason = string.Empty;
         return false;
     }
+
+    private static bool IsRecordPointerRangeBegin(ParameterBinding parameter) =>
+        parameter.HasMetadata(MetadataKeys.EndedBy) &&
+        parameter.Direction is BindingParameterDirection.In &&
+        parameter.AbiKind is BindingParameterAbiKind.Pointer &&
+        parameter.Type.Kind == BindingTypeKind.Handle &&
+        !string.IsNullOrEmpty(parameter.Type.RecordId);
 
     private static HashSet<string> CollectReferencedRecordIds(BindingCompilation compilation)
     {

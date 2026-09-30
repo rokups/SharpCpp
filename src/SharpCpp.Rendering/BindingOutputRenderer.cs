@@ -2743,7 +2743,7 @@ public static partial class BindingOutputRenderer
             new[] { "nint self" }.Concat(method.Parameters.Select(parameter => RenderManagedCallbackParameter(compilation, parameter))));
         var callbackFunctionPointerTypes = string.Join(", ",
             new[] { "nint" }
-                .Concat(method.Parameters.Select(parameter => GetManagedVirtualCallbackAbiTypeName(compilation, parameter.Type)))
+                .Concat(method.Parameters.Select(parameter => GetManagedVirtualCallbackAbiTypeName(compilation, parameter)))
                 .Append(callbackReturnType));
         var invocationArguments = string.Join(", ",
             new[] { "self" }.Concat(method.Parameters.Select(static parameter => parameter.ManagedName)));
@@ -4698,11 +4698,12 @@ public static partial class BindingOutputRenderer
         var callbackFunctionPointerTypes = string.Join(
             ", ",
             new[] { "nint" }
-                .Concat(method.Parameters.Select(parameter => GetManagedVirtualCallbackAbiTypeName(compilation, parameter.Type)))
+                .Concat(method.Parameters.Select(parameter => GetManagedVirtualCallbackAbiTypeName(compilation, parameter)))
                 .Append(callbackReturnType));
         var invocationArguments = string.Join(
             ", ",
-            method.Parameters.Select(parameter => BuildManagedCallbackInvocationArgument(compilation, parameter)));
+            GetPublicManagedParameters(method.Parameters).Select(parameter => BuildManagedCallbackInvocationArgument(compilation, parameter)));
+        var rangeBegins = method.Parameters.Where(IsPointerRangeBegin).ToArray();
 
         var callbackPointerFieldName = $"{GetVirtualCallbackDispatchName(method)}Pointer";
         writer.Write($$"""
@@ -4719,10 +4720,31 @@ public static partial class BindingOutputRenderer
             """);
 
         writer.Write($$"""
-            internal static {{callbackReturnType}} {{GetVirtualCallbackDispatchName(method)}}({{callbackParameterList}})
+            internal static {{(rangeBegins.Length > 0 ? "unsafe " : string.Empty)}}{{callbackReturnType}} {{GetVirtualCallbackDispatchName(method)}}({{callbackParameterList}})
             {
             var owner = {{dispatchTypeName}}.CreateManagedWrapper(self, ownsHandle: false);
             """);
+
+        foreach (var begin in rangeBegins)
+        {
+            // The native range is borrowed: the wrappers never own or free their elements.
+            var end = GetPointerRangeEnd(method, begin);
+            var baseName = begin.ManagedName.TrimStart('@');
+            var countName = $"__{baseName}_count";
+            var itemsName = $"__{baseName}_items";
+            var indexName = $"__{baseName}_i";
+            var handleName = $"__{baseName}_handle";
+            var elementTypeName = GetManagedPublicReturnTypeName(begin.Type, compilation);
+            writer.Write($$"""
+                var {{countName}} = (int)(({{end.ManagedName}} - {{begin.ManagedName}}) / sizeof(nint));
+                var {{itemsName}} = {{countName}} == 0 ? global::System.Array.Empty<{{elementTypeName}}?>() : new {{elementTypeName}}?[{{countName}}];
+                for (var {{indexName}} = 0; {{indexName}} < {{countName}}; {{indexName}}++)
+                {
+                    var {{handleName}} = ((nint*){{begin.ManagedName}})[{{indexName}}];
+                    {{itemsName}}[{{indexName}}] = {{handleName}} != 0 ? {{BuildManagedHandleWrap(compilation, begin.Type, handleName, ownsHandle: false)}} : null;
+                }
+                """);
+        }
 
         var invocation = $"owner.{method.ManagedName}({invocationArguments})";
         if (method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
@@ -6967,15 +6989,9 @@ public static partial class BindingOutputRenderer
             return $"out string? {parameter.ManagedName}";
         }
 
-        if (IsInputHandlePointerArrayParameter(parameter))
+        if (IsInputPointerArrayParameter(parameter))
         {
-            return $"global::System.ReadOnlySpan<{GetManagedPublicReturnTypeName(parameter.Type, compilation)}?> {parameter.ManagedName}";
-        }
-
-        if (IsInputRawPointerArrayParameter(parameter))
-        {
-            var spanType = parameter.HasMetadata(MetadataKeys.WritablePointerArray) ? "Span" : "ReadOnlySpan";
-            return $"global::System.{spanType}<{GetManagedPublicReturnTypeName(parameter.Type, compilation)}> {parameter.ManagedName}";
+            return $"{GetManagedPublicArrayTypeName(parameter, compilation)} {parameter.ManagedName}";
         }
 
         var modifier = parameter.Direction switch
@@ -7552,18 +7568,31 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedCallbackParameter(BindingCompilation compilation, ParameterBinding parameter)
     {
         ValidateVirtualCallbackSupport(parameter);
-        return $"{GetManagedVirtualCallbackAbiTypeName(compilation, parameter.Type)} {parameter.ManagedName}";
+        return $"{GetManagedVirtualCallbackAbiTypeName(compilation, parameter)} {parameter.ManagedName}";
     }
 
     private static string BuildManagedCallbackInvocationArgument(BindingCompilation compilation, ParameterBinding parameter)
     {
         ValidateVirtualCallbackSupport(parameter);
 
+        if (IsPointerRangeBegin(parameter))
+        {
+            return $"new {GetManagedPublicArrayTypeName(parameter, compilation)}(__{parameter.ManagedName.TrimStart('@')}_items)";
+        }
+
         return parameter.Type.PrimitiveKind == BindingPrimitiveKind.Boolean
             ? $"{parameter.ManagedName} != 0"
             : parameter.Type.IsPointerType
             ? BuildManagedHandleWrap(compilation, parameter.Type, parameter.ManagedName, parameter.CallbackTakesOwnership)
             : BuildManagedImportToPublicExpression(compilation, parameter.Type, parameter.ManagedName);
+    }
+
+    /// <summary>A range begin and its derived end cross a director callback as raw native pointers.</summary>
+    private static string GetManagedVirtualCallbackAbiTypeName(BindingCompilation compilation, ParameterBinding parameter)
+    {
+        return IsPointerRangeBegin(parameter) || IsDerivedParameter(parameter)
+            ? "nint"
+            : GetManagedVirtualCallbackAbiTypeName(compilation, parameter.Type);
     }
 
     private static string GetManagedVirtualCallbackAbiTypeName(BindingCompilation compilation, BindingType type)
@@ -7575,9 +7604,10 @@ public static partial class BindingOutputRenderer
 
     private static string FormatReflectionParameterTypes(BindingCompilation compilation, FunctionBinding method)
     {
-        return method.Parameters.Count == 0
+        var parameters = GetPublicManagedParameters(method.Parameters).ToArray();
+        return parameters.Length == 0
             ? "System.Array.Empty<global::System.Type>()"
-            : $"new global::System.Type[] {{ {string.Join(", ", method.Parameters.Select(parameter => $"typeof({GetManagedWrapperTypeName(parameter.Type, compilation)})"))} }}";
+            : $"new global::System.Type[] {{ {string.Join(", ", parameters.Select(parameter => IsPointerRangeBegin(parameter) ? $"typeof({GetManagedPublicArrayTypeName(parameter, compilation)})" : $"typeof({GetManagedWrapperTypeName(parameter.Type, compilation)})"))} }}";
     }
 
     private static string GetVirtualCallbackPointerAccessorName(FunctionBinding method)
@@ -7624,6 +7654,11 @@ public static partial class BindingOutputRenderer
 
     private static void ValidateVirtualCallbackSupport(ParameterBinding parameter)
     {
+        if (IsPointerRangeBegin(parameter) || IsDerivedParameter(parameter))
+        {
+            return;
+        }
+
         if (parameter.Direction is not BindingParameterDirection.In || parameter.AbiKind is not BindingParameterAbiKind.Value)
         {
             throw new NotSupportedException($"Director callback parameter '{parameter.ManagedName}' must be an in-value parameter.");
@@ -9108,6 +9143,36 @@ public static partial class BindingOutputRenderer
                 string.IsNullOrEmpty(parameter.Type.RecordId) &&
                 string.Equals(parameter.Type.ManagedTypeName, "global::System.IntPtr", StringComparison.Ordinal));
     }
+
+    /// <summary>The span type an input pointer array or range binds as in a public signature.</summary>
+    private static string GetManagedPublicArrayTypeName(ParameterBinding parameter, BindingCompilation compilation)
+    {
+        var elementTypeName = GetManagedPublicReturnTypeName(parameter.Type, compilation);
+        if (IsInputRawPointerArrayParameter(parameter))
+        {
+            var spanType = parameter.HasMetadata(MetadataKeys.WritablePointerArray) ? "Span" : "ReadOnlySpan";
+            return $"global::System.{spanType}<{elementTypeName}>";
+        }
+
+        return $"global::System.ReadOnlySpan<{elementTypeName}?>";
+    }
+
+    /// <summary>
+    /// The begin of a record <c>T**</c> range (<c>ended_by</c>): bound as a span in managed code
+    /// and received as a raw pointer by a director callback.
+    /// </summary>
+    private static bool IsPointerRangeBegin(ParameterBinding parameter) =>
+        !IsDerivedParameter(parameter) &&
+        parameter.HasMetadata(MetadataKeys.EndedBy) &&
+        parameter.Direction == BindingParameterDirection.In &&
+        parameter.AbiKind == BindingParameterAbiKind.Pointer &&
+        parameter.Type.Kind == BindingTypeKind.Handle &&
+        !string.IsNullOrEmpty(parameter.Type.RecordId);
+
+    private static ParameterBinding GetPointerRangeEnd(FunctionBinding method, ParameterBinding begin) =>
+        method.Parameters.First(candidate =>
+            IsDerivedParameter(candidate) &&
+            string.Equals(candidate.GetMetadata<string>(MetadataKeys.DerivedFromParameter), begin.NativeName, StringComparison.Ordinal));
 
     private static bool IsInputPointerArrayParameter(ParameterBinding parameter)
     {

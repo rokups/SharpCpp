@@ -237,12 +237,85 @@ public sealed class PointerRangeTests
     }
 
     [Fact]
-    public void A_director_callback_with_a_range_is_not_bound_and_the_reason_is_logged()
+    public void A_director_callback_with_a_record_range_calls_the_managed_override_with_a_span()
     {
-        Assert.Null(typeof(E2EBindings).Assembly.GetType("SharpCpp.Tests.E2E.Generated.RangeVisitor"));
+        using var first = new RangeWidget(5);
+        using var second = new RangeWidget(6);
+        using var visitor = new ManagedRangeVisitor();
+
+        Assert.Equal(5 + 6 - 100, E2EBindings.InvokeRangeVisitor(visitor, first, second));
+        Assert.Equal(3, visitor.LastLength);
+        Assert.Equal(0, E2EBindings.InvokeRangeVisitorEmpty(visitor));
+        Assert.Equal(0, visitor.LastLength);
+        Assert.Equal(new[] { typeof(ReadOnlySpan<RangeWidget?>) }, typeof(RangeVisitor).GetMethod(nameof(RangeVisitor.Visit))!.GetParameters().Select(static parameter => parameter.ParameterType));
+
+        // The span elements are borrowed: the native widgets survive the callback.
+        Assert.Equal(5, first.GetValue());
+        Assert.Equal(6, second.GetValue());
+    }
+
+    [Fact]
+    public void A_director_range_without_a_managed_override_keeps_the_native_implementation()
+    {
+        using var first = new RangeWidget(5);
+        using var second = new RangeWidget(6);
+        using var passthrough = new PassthroughRangeVisitor();
+
+        Assert.Equal(3, E2EBindings.InvokeRangeVisitorCount(passthrough, first, second));
+        Assert.Equal(0, E2EBindings.InvokeRangeVisitorCountEmpty(passthrough));
+    }
+
+    [Fact]
+    public void A_managed_override_of_a_non_pure_director_range_runs()
+    {
+        using var first = new RangeWidget(5);
+        using var second = new RangeWidget(6);
+        using var visitor = new CountingRangeVisitor();
+
+        Assert.Equal(11, E2EBindings.InvokeRangeVisitorCount(visitor, first, second));
+        Assert.Equal(3, visitor.LastLength);
+        Assert.Equal(0, E2EBindings.InvokeRangeVisitorCountEmpty(visitor));
+        Assert.Equal(0, visitor.LastLength);
+    }
+
+    [Fact]
+    public void A_director_callback_with_a_non_record_range_is_not_bound_and_the_reason_is_logged()
+    {
+        Assert.Null(typeof(E2EBindings).Assembly.GetType("SharpCpp.Tests.E2E.Generated.ColorRangeVisitor"));
         Assert.Contains(
             GeneratedArtifacts.ReadText("generator.log").Split('\n'),
-            line => line.Contains("range_visitor", StringComparison.Ordinal) &&
-                line.Contains("parameter 'begin' is a pointer range; ranges are not supported in director callbacks yet", StringComparison.Ordinal));
+            line => line.Contains("color_range_visitor", StringComparison.Ordinal) &&
+                line.Contains("parameter 'begin' is a pointer range; only record pointer ranges are supported in director callbacks", StringComparison.Ordinal));
+    }
+
+    private class ManagedRangeVisitor : RangeVisitor
+    {
+        public int LastLength { get; protected set; } = -1;
+
+        public override int Visit(ReadOnlySpan<RangeWidget?> begin)
+        {
+            LastLength = begin.Length;
+            var result = 0;
+            foreach (var widget in begin)
+                result += widget is null ? -100 : widget.GetValue();
+            return result;
+        }
+    }
+
+    private sealed class PassthroughRangeVisitor : RangeVisitor
+    {
+        public override int Visit(ReadOnlySpan<RangeWidget?> begin) => begin.Length;
+    }
+
+    private sealed class CountingRangeVisitor : ManagedRangeVisitor
+    {
+        public override int Count(ReadOnlySpan<RangeWidget?> begin)
+        {
+            LastLength = begin.Length;
+            var result = 0;
+            foreach (var widget in begin)
+                result += widget?.GetValue() ?? 0;
+            return result;
+        }
     }
 }
