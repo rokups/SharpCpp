@@ -1020,10 +1020,10 @@ public static partial class BindingOutputRenderer
 
                 using DispatchFT = {{memberSignature.Replace(method.OwningRecordCppTypeName + "::*", method.NativeDispatchRecordCppTypeName + "::*", StringComparison.Ordinal)}};
                 {{(method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void
-                    ? $"MarshallerInvoker::invoke_instance<{BuildMarshallerInvokerTemplateArguments("DispatchFT", method.Parameters.Select(static parameter => parameter.CppTypeName))}>(static_cast<DispatchFT>(&{method.NativeDispatchRecordCppTypeName}::{nativeName}), dispatch{argumentsSuffix});"
+                    ? $"MarshallerInvoker::invoke_instance<{BuildMarshallerInvokerTemplateArguments("DispatchFT", method.Parameters.Select(static parameter => parameter.CppTypeName))}>(static_cast<DispatchFT>(&{method.NativeDeclaringRecordCppTypeName ?? method.NativeDispatchRecordCppTypeName}::{nativeName}), dispatch{argumentsSuffix});"
                     : RequiresOwnedRecordValueReturn(method)
-                        ? $"return MarshallerInvoker::invoke_owned_instance<{BuildMarshallerInvokerTemplateArguments("DispatchFT", method.Parameters.Select(static parameter => parameter.CppTypeName))}>(static_cast<DispatchFT>(&{method.NativeDispatchRecordCppTypeName}::{nativeName}), dispatch{argumentsSuffix});"
-                        : $"return MarshallerInvoker::invoke_instance<{BuildMarshallerInvokerTemplateArguments("DispatchFT", method.Parameters.Select(static parameter => parameter.CppTypeName))}>(static_cast<DispatchFT>(&{method.NativeDispatchRecordCppTypeName}::{nativeName}), dispatch{argumentsSuffix});")}}
+                        ? $"return MarshallerInvoker::invoke_owned_instance<{BuildMarshallerInvokerTemplateArguments("DispatchFT", method.Parameters.Select(static parameter => parameter.CppTypeName))}>(static_cast<DispatchFT>(&{method.NativeDeclaringRecordCppTypeName ?? method.NativeDispatchRecordCppTypeName}::{nativeName}), dispatch{argumentsSuffix});"
+                        : $"return MarshallerInvoker::invoke_instance<{BuildMarshallerInvokerTemplateArguments("DispatchFT", method.Parameters.Select(static parameter => parameter.CppTypeName))}>(static_cast<DispatchFT>(&{method.NativeDeclaringRecordCppTypeName ?? method.NativeDispatchRecordCppTypeName}::{nativeName}), dispatch{argumentsSuffix});")}}
                 """;
     }
 

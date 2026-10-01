@@ -65,6 +65,10 @@ public sealed class FunctionBinding : BindingNamedNode
 
     public string? NativeDispatchRecordCppTypeName { get; set; }
 
+    // Record that declares the native member a projected method forwards to, set only when naming
+    // the member through the dispatch record would find a covariant override that does not convert.
+    public string? NativeDeclaringRecordCppTypeName { get; set; }
+
     public string? OwningRecordCppTypeName { get; set; }
 
     public bool IsConstructor { get; set; }

@@ -39,12 +39,27 @@ public static class BindingCompilationInheritancePass
                     continue;
                 }
 
-                if (record.Members.OfType<FunctionBinding>().Any(existing => RecordBindingExtensions.SignaturesMatch(existing, method)))
+                if (record.Members.OfType<FunctionBinding>().Any(existing => !existing.IsIgnored() && RecordBindingExtensions.SignaturesMatch(existing, method)))
                 {
                     continue;
                 }
 
-                record.Members.Add(CloneProjectedMethod(compilation, record, secondaryBase, secondaryBaseBinding.CppQualifiedName, method));
+                var projected = CloneProjectedMethod(compilation, record, secondaryBase, secondaryBaseBinding.CppQualifiedName, method);
+                var covariantOverride = FindCovariantOverride(compilation, record, secondaryBase, method);
+                if (covariantOverride is not null && projected.IsVirtual)
+                {
+                    // A director could not reproduce the covariant native override, so the base
+                    // declaration is bound non-virtually.
+                    projected.IsVirtual = false;
+                    projected.IsPureVirtual = false;
+                    projected.SetMetadata(MetadataKeys.CovariantProjectedBaseMethod, true);
+                    // Name the member through its declaring record: the covariant override would
+                    // otherwise win the lookup through the dispatch record and not convert.
+                    projected.NativeDeclaringRecordCppTypeName ??= ResolveDeclaringRecordCppTypeName(method, secondaryBaseBinding.CppQualifiedName);
+                    record.SetWarning($"'{method.CppQualifiedName}' is bound non-virtually on '{record.CppQualifiedName}' because '{covariantOverride.CppQualifiedName}' overrides it with a covariant return type");
+                }
+
+                record.Members.Add(projected);
             }
         }
     }
@@ -70,6 +85,43 @@ public static class BindingCompilationInheritancePass
         }
     }
 
+    private static FunctionBinding? FindCovariantOverride(
+        BindingCompilation compilation,
+        RecordBinding targetRecord,
+        RecordBinding secondaryBase,
+        FunctionBinding method)
+    {
+        foreach (var candidateRecord in secondaryBase.EnumerateAllBaseRecords(compilation).Prepend(secondaryBase).Prepend(targetRecord))
+        {
+            foreach (var candidate in candidateRecord.Members.OfType<FunctionBinding>())
+            {
+                if (candidate.HasMetadata(MetadataKeys.CovariantSecondaryBaseOverride) &&
+                    RecordBindingExtensions.SignaturesMatch(candidate, method))
+                {
+                    return candidate;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static string ResolveDeclaringRecordCppTypeName(FunctionBinding sourceMethod, string dispatchRecordCppTypeName)
+    {
+        if (!string.IsNullOrWhiteSpace(sourceMethod.NativeDeclaringRecordCppTypeName))
+        {
+            return sourceMethod.NativeDeclaringRecordCppTypeName;
+        }
+
+        if (!string.IsNullOrWhiteSpace(sourceMethod.NativeDispatchRecordCppTypeName))
+        {
+            return sourceMethod.NativeDispatchRecordCppTypeName;
+        }
+
+        var owner = sourceMethod.FindOwningRecord();
+        return owner is null || owner.IsGeneric ? dispatchRecordCppTypeName : owner.CppQualifiedName;
+    }
+
     private static FunctionBinding CloneProjectedMethod(
         BindingCompilation compilation,
         RecordBinding targetRecord,
@@ -93,6 +145,7 @@ public static class BindingCompilationInheritancePass
             IsPureVirtual = sourceMethod.IsPureVirtual && targetRecord.IsAbstract,
             IsConstMethod = sourceMethod.IsConstMethod,
             NativeDispatchRecordCppTypeName = dispatchRecordCppTypeName,
+            NativeDeclaringRecordCppTypeName = sourceMethod.NativeDeclaringRecordCppTypeName,
             OwningRecordCppTypeName = targetRecord.CppQualifiedName,
             IsConversionOperator = sourceMethod.IsConversionOperator,
             IsExplicitConversionOperator = sourceMethod.IsExplicitConversionOperator,

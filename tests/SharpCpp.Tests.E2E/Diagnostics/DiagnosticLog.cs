@@ -19,6 +19,27 @@ public sealed class DiagnosticLogTests
     }
 
     [Fact]
+    public void Covariant_overrides_of_secondary_base_virtuals_are_ignored_in_favour_of_the_base_declaration()
+    {
+        foreach (var function in new[] { "secondary_bases::labelled::self", "secondary_bases::lighthouse::source" })
+        {
+            Assert.Contains(Lines, line =>
+                line.StartsWith("IGNORED\tFunction\t", StringComparison.Ordinal) &&
+                line.Contains("\t" + function + "\t", StringComparison.Ordinal) &&
+                line.Contains("with a covariant return type", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public void Base_methods_projected_non_virtually_past_a_covariant_override_are_warned_about()
+    {
+        Assert.Contains(Lines, static line =>
+            line.StartsWith("WARNING\tRecord\t", StringComparison.Ordinal) &&
+            line.Contains("\tsecondary_bases::signal_tower\t", StringComparison.Ordinal) &&
+            line.Contains("is bound non-virtually on 'secondary_bases::signal_tower' because", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Silent_exclusions_and_warnings_are_logged()
     {
         Assert.Contains(Lines, static line => line.StartsWith("EXCLUDED\tRecord\t(unknown)\tstd::locale\t", StringComparison.Ordinal));

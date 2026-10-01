@@ -45,4 +45,45 @@ public sealed class SecondaryBaseTests
             typeof(Labelled).GetInterfaceMap(typeof(ILabelled)).TargetMethods,
             static method => method.Name.EndsWith("GetRate", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void Covariant_overrides_of_secondary_base_virtuals_bind_the_base_declaration_in_their_place()
+    {
+        Assert.Equal(typeof(Tickable), typeof(Labelled).GetMethod("Self")!.ReturnType);
+        Assert.Equal(typeof(Tickable), typeof(Clock).GetMethod("Self")!.ReturnType);
+        Assert.Equal(typeof(Pulse), typeof(Lighthouse).GetMethod("Source")!.ReturnType);
+        Assert.Equal(typeof(Beacon), typeof(Lighthouse).GetMethod("Origin")!.ReturnType);
+        Assert.Equal(typeof(Beacon), typeof(SignalTower).GetMethod("Origin")!.ReturnType);
+
+        // The projected base declaration is non-virtual so a director cannot override it covariantly.
+        Assert.True(IsNonVirtual(typeof(Clock).GetMethod("Self")!));
+        Assert.True(IsNonVirtual(typeof(SignalTower).GetMethod("Origin")!));
+    }
+
+    // An implicit interface implementation is reported as virtual final; only an overridable one is virtual.
+    private static bool IsNonVirtual(System.Reflection.MethodInfo method) => !method.IsVirtual || method.IsFinal;
+
+    [Fact]
+    public void Covariant_secondary_base_overrides_dispatch_natively_through_the_base_declaration()
+    {
+        using var clock = new Clock();
+        Assert.Equal(9, clock.Self().Tick());
+        Assert.Equal(9, ((ITickable)clock).Self().Tick());
+
+        using var lighthouse = new Lighthouse();
+        Assert.NotNull(lighthouse.Source());
+        Assert.NotNull(lighthouse.Origin());
+    }
+
+    private sealed class TowerSubclass : SignalTower
+    {
+    }
+
+    [Fact]
+    public void A_managed_subclass_of_a_director_with_a_degraded_covariant_override_still_constructs()
+    {
+        using var tower = new TowerSubclass();
+        Assert.NotNull(tower.Origin());
+        Assert.Equal(1, tower.PrimaryValue());
+    }
 }

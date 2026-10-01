@@ -16,7 +16,8 @@ namespace SharpCpp.Pipeline;
 /// always; returns only when the base is polymorphic, because only then can the complete
 /// object (and its most derived wrapper) be recovered from a subobject pointer. Returns of a
 /// non-polymorphic secondary base keep the base class type. Virtual methods, constructors,
-/// operators and accessor properties keep their declared types.
+/// operators, accessor properties and base methods projected non-virtually past a covariant
+/// override keep their declared types.
 /// </remarks>
 public static class SecondaryBaseViewPass
 {
@@ -195,7 +196,7 @@ public static class SecondaryBaseViewPass
     {
         if (function.IsIgnored() || function.IsConstructor || function.IsVirtual || function.IsOverride ||
             function.IsGeneric || function.IsConversionOperator || function.OperatorToken is not null ||
-            function.HasMetadata(MetadataKeys.AccessorProperty))
+            function.HasMetadata(MetadataKeys.AccessorProperty) || function.HasMetadata(MetadataKeys.CovariantProjectedBaseMethod))
         {
             return false;
         }

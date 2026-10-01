@@ -18,6 +18,12 @@ public static class MetadataKeys
     // Set on a secondary-base record whose managed interface carries a hidden handle accessor,
     // so SecondaryBase* parameters and returns can be typed as that interface.
     public const string SecondaryBaseView = "secondary_base_view";
+    // Set on an override that was ignored because its covariant return type cannot satisfy the
+    // managed interface of a secondary base; the base declaration is projected in its place.
+    public const string CovariantSecondaryBaseOverride = "covariant_secondary_base_override";
+    // Set on a projected secondary-base method that was bound non-virtually because a covariant
+    // override shadows it; it keeps the declared return type so it still implements the interface.
+    public const string CovariantProjectedBaseMethod = "covariant_projected_base_method";
     public const string Warnings = "warnings";
     public const string DocumentationComment = "documentation_comment";
     public const string DeclarationDisplayText = "declaration_display_text";

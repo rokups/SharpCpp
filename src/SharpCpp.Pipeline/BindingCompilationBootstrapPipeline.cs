@@ -48,6 +48,7 @@ public static class BindingCompilationBootstrapPipeline
         RunTimed("ResolveOwnedStrings", () => OwnedStringResolver.Apply(compilation));
         RunTimed("DegradeUnsupportedSurface", () => DegradeUnsupportedSurfacePass.Apply(compilation));
         RunTimed("RefreshGenericInstantiations", () => BindingCompilationGenericInstantiationPass.RefreshInferred(compilation));
+        RunTimed("DegradeCovariantSecondaryBaseOverrides", () => DegradeCovariantSecondaryBaseOverridesPass.Apply(compilation));
         RunTimed("Inheritance", () => BindingCompilationInheritancePass.Apply(compilation));
         RunTimed("InheritManagedRuntimePolicy", () => InheritManagedRuntimePolicyPass.Apply(compilation));
         RunTimed("Polymorphism", () => BindingCompilationPolymorphismPass.Apply(compilation));

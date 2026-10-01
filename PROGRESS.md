@@ -54,10 +54,20 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   records have no registration, so their secondary-base returns still get a base wrapper).
   Nested secondary-base interfaces (`ILabelled : ITickable`) inherit base-interface members
   instead of redeclaring them, and explicit accessor forwarders name the declaring interface
-  (fixture `secondary_bases::labelled`). Known gaps: a covariant override of a secondary-base
-  virtual (`tickable* self()` / `labelled* self() override`) fails the native build in the
-  secondary-base dispatch `static_cast` instead of degrading with a reason; once it degrades,
-  `SecondaryBaseViewPass.WarnOnRedeclaredInterfaceMethods` needs a fixture. A promoted accessor
+  (fixture `secondary_bases::labelled`). A covariant override of a secondary-base
+  virtual (`tickable* self()` / `labelled* self() override`) is degraded with a reason
+  (`DegradeCovariantSecondaryBaseOverridesPass`) and the base declaration is bound in its place,
+  since the managed interface exposes the base return type; the projected base method is bound
+  non-virtually (with a warning) so a director cannot be affected, and its native member pointer
+  names the declaring record (fixtures `labelled`, `lighthouse`, `signal_tower`). Known gaps:
+  non-virtual hiding with a different return type across a secondary base still only warns
+  (`SecondaryBaseViewPass.WarnOnRedeclaredInterfaceMethods`) and gives CS0738, and a covariant
+  override on a primary chain that a secondary-base projection dispatches through still fails the
+  native build in the secondary-base dispatch `static_cast`. The intended fix is to make
+  `EnumerateProjectableMethods` yield most-derived first (or make the dedup prefer the later
+  declaration); that also removes the `get_rate` metadata/dispatch mismatch, where the clone's
+  docs, defaults and return type come from the base declaration while the call resolves to the
+  hiding derived one. A promoted accessor
   owned by a non-view class that reaches an interface only through a secondary base may still
   lack an explicit implementation (possible CS0535; not reproduced).
 - Open containers of a template parameter (`std::vector<T>` in a generic member) are not

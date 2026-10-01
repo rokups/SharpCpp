@@ -34,6 +34,11 @@ struct tickable
     virtual ~tickable() = default;
     virtual int tick() = 0;
 
+    virtual tickable* self()
+    {
+        return this;
+    }
+
     int stored_rate = 3;
 
     int get_rate() const
@@ -55,6 +60,11 @@ struct label_base
 struct labelled : public label_base, public tickable
 {
     int labelled_stored_rate = 4;
+
+    labelled* self() override
+    {
+        return this;
+    }
 
     int get_rate() const
     {
@@ -78,6 +88,44 @@ public:
     int tick() override
     {
         return 9;
+    }
+};
+
+/// Covariant overrides of secondary-base virtuals: the managed interface keeps the base return type.
+struct pulse
+{
+    virtual ~pulse() = default;
+    virtual pulse* source() = 0;
+};
+
+struct beacon
+{
+    virtual ~beacon() = default;
+    virtual beacon* origin()
+    {
+        return this;
+    }
+};
+
+class lighthouse : public primary, public pulse, public beacon
+{
+public:
+    lighthouse* source() override
+    {
+        return this;
+    }
+
+    lighthouse* origin() override
+    {
+        return this;
+    }
+};
+
+struct [[sharpcpp::director]] signal_tower : public primary, public beacon
+{
+    signal_tower* origin() override
+    {
+        return this;
     }
 };
 
