@@ -21,6 +21,15 @@ public struct ProjectedValueVec(float x, float y, float z)
     public float Z = z;
 }
 
+/// Hand-written managed side of the pv_ns2::pv_plain value projection (a namespaced record without
+/// member functions). Layout must match the native pv_plain_abi exactly.
+[StructLayout(LayoutKind.Sequential)]
+public struct ProjectedValuePlain(float x, float y)
+{
+    public float X = x;
+    public float Y = y;
+}
+
 /// A suppress_emission Marshaller<T> with a namespaced public_type and no wrapper class is a
 /// pure value projection. When the by-value record still reaches the renderer as a handle-shaped
 /// binding type (fixed-array items, class-template arguments) the renderer must import it as the
@@ -62,6 +71,29 @@ public sealed class ProjectedValueHandleTests
         triangle.V[2] = new ProjectedValueVec(10, 11, 12);
         Assert.Equal(new ProjectedValueVec(), triangle.V[0]);
         Assert.Equal(new ProjectedValueVec(10, 11, 12), triangle.V[2]);
+    }
+
+    [Fact]
+    public void Fixed_array_field_of_a_plain_namespaced_record_is_emitted_fully_qualified()
+    {
+        using var holder = E2EBindings.MakePvPlainHolder();
+        Assert.Equal(2, holder.Points.Count);
+
+        Assert.Equal(new ProjectedValuePlain(), holder.Points[0]);
+        holder.Points[0] = new ProjectedValuePlain(1, 2);
+        holder.Points[1] = new ProjectedValuePlain(3, 4);
+
+        Assert.Equal(new ProjectedValuePlain(1, 2), holder.Points[0]);
+        Assert.Equal(new ProjectedValuePlain(3, 4), holder.Points[1]);
+
+        holder.Origin = new ProjectedValuePlain(5, 6);
+        Assert.Equal(new ProjectedValuePlain(5, 6), holder.Origin);
+
+        Assert.Equal(2, holder.Aliased.Count);
+        holder.Aliased[0] = new ProjectedValuePlain(7, 8);
+        holder.Aliased[1] = new ProjectedValuePlain(9, 10);
+        Assert.Equal(new ProjectedValuePlain(7, 8), holder.Aliased[0]);
+        Assert.Equal(new ProjectedValuePlain(9, 10), holder.Aliased[1]);
     }
 
     [Fact]

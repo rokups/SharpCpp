@@ -86,3 +86,32 @@ inline pv_vec_box* make_pv_box()
 }
 
 }
+
+namespace pv_ns2
+{
+
+/// A namespaced plain value record without member functions, projected to a managed struct. Used
+/// from a record in the same namespace, so the field spellings are unqualified and the generated
+/// wrapper must qualify them.
+struct pv_plain
+{
+    float x;
+    float y;
+};
+
+using pv_plain_alias = pv_plain;
+
+/// Declared next to pv_plain, so the field element types are spelled unqualified in the source.
+struct pv_plain_holder
+{
+    pv_plain origin{};
+    pv_plain points[2];
+    pv_plain_alias aliased[2];
+};
+
+inline pv_plain_holder* make_pv_plain_holder()
+{
+    return new pv_plain_holder();
+}
+
+}

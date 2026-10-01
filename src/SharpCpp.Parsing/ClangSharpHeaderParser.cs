@@ -4391,6 +4391,16 @@ public sealed partial class ClangSharpHeaderParser
 
         var elementType = MapType(arrayType.ArrayElementType, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
 
+        // A configured value projection (a suppress_emission Marshaller<T> with no bound record) has no
+        // declaration surface of its own, so qualify the element here, the same way field, return and
+        // template-argument surfaces are qualified. Otherwise it keeps the spelling relative to the
+        // field owner's namespace, which does not resolve from the generated global-namespace wrapper.
+        if (elementType is { Kind: BindingTypeKind.Primitive, PrimitiveKind: BindingPrimitiveKind.Unsupported })
+        {
+            elementType = elementType.WithCppTypeName(
+                ResolveQualifiedTypeName(arrayType.ArrayElementType, recordsByName, genericParameters, elementType));
+        }
+
         var concreteArrayTypeName = FormatConfiguredNativeArrayTypeName(nativeArrayOverride.CppTypeName, elementType.CppTypeName, length);
         return CreateConfiguredOrWrapperType(
                 nativeArrayOverride,

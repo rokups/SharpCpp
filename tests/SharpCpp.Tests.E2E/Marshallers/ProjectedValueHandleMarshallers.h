@@ -35,4 +35,23 @@ struct Marshaller<const pv_ns::pv_vec&> : ProjectedValueConstReferenceMarshaller
 template <>
 struct Marshaller<pv_ns::pv_vec&> : ProjectedValueReferenceMarshallerBase<pv_ns::pv_vec> {};
 
+struct pv_plain_abi
+{
+    float x;
+    float y;
+};
+
+template <>
+struct [[sharpcpp::managed_type(
+    public_type = "global::SharpCpp.Tests.E2E.Marshallers.ProjectedValuePlain",
+    suppress_emission = true
+)]] Marshaller<pv_ns2::pv_plain>
+{
+    using cpp_type = pv_ns2::pv_plain;
+    using abi_type = pv_plain_abi;
+
+    abi_type ConvertToAbi(cpp_type value) noexcept { return {value.x, value.y}; }
+    cpp_type ConvertToCpp(abi_type value) noexcept { return {value.x, value.y}; }
+};
+
 }
