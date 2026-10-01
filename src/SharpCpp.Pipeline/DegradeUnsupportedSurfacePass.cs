@@ -25,6 +25,7 @@ public static class DegradeUnsupportedSurfacePass
     public static void Apply(BindingCompilation compilation)
     {
         ArgumentNullException.ThrowIfNull(compilation);
+        ResolveReservedMemberNames(compilation);
         ResolveManagedFieldNameCollisions(compilation);
         RequireNativeDefaultsOfGenericRecordMembers(compilation);
 
@@ -210,6 +211,142 @@ public static class DegradeUnsupportedSurfacePass
                     record.IsNonCopyable = true;
                     record.HasCopyConstructor = false;
                     changed = true;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Managed names of the public and protected <c>SafeHandle</c> and <c>NativeObject</c> instance surface. A
+    /// generated member with one of these names would hide (CS0108) or be confused with the wrapper's own
+    /// lifetime API, whatever its parameters. <c>object</c> members are not listed; they have their own
+    /// <c>new</c> handling.
+    /// </summary>
+    private static readonly IReadOnlySet<string> ReservedInstanceMemberNames = new HashSet<string>(StringComparer.Ordinal)
+    {
+        // SafeHandle
+        "Close", "Dispose", "DangerousGetHandle", "DangerousAddRef", "DangerousRelease",
+        "SetHandleAsInvalid", "SetHandle", "ReleaseHandle", "IsClosed", "IsInvalid",
+        // NativeObject
+        "OwnsNativeHandle", "ManagesInstanceCacheLifecycle", "InstanceCache",
+        "ReleaseNativeHandle", "PrepareForOwnedRegistration", "TryPromoteToOwningHandle",
+        "AcquireOwningHandleCore", "DisposeFromNativeRuntimeCore",
+    };
+
+    /// <summary>
+    /// The static <c>NativeObject</c> helpers with their parameter types (<c>GetObject(object?)</c>,
+    /// <c>GetHandle(object?)</c>, <c>TransferHandleOwnership(object?)</c> and
+    /// <c>HasManagedOverride(Type, Type, string, Type[])</c>). Only a generated function with the same name and
+    /// the same by-value parameter types has the same signature and would hide the helper; any other signature is
+    /// a plain overload and keeps its name.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, string[]> ReservedStaticHelperSignatures =
+        new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            ["GetObject"] = ["object"],
+            ["GetHandle"] = ["object"],
+            ["TransferHandleOwnership"] = ["object"],
+            ["HasManagedOverride"] = ["Type", "Type", "string", "Type[]"],
+        };
+
+    /// <summary>
+    /// Whether <paramref name="function"/> would hide or be confused with the <c>SafeHandle</c>/<c>NativeObject</c>
+    /// surface: an instance name at any arity, or a static helper name with exactly the helper's signature.
+    /// </summary>
+    internal static bool IsReservedMember(FunctionBinding function)
+    {
+        var name = function.ManagedName;
+        if (ReservedInstanceMemberNames.Contains(name))
+            return true;
+
+        return ReservedStaticHelperSignatures.TryGetValue(name, out var signature) &&
+               function.Parameters.Count == signature.Length &&
+               function.Parameters.Zip(signature).All(static pair =>
+                   pair.First.Direction is BindingParameterDirection.In &&
+                   NormalizeManagedTypeName(pair.First.Type.ManagedTypeName) == pair.Second);
+    }
+
+    private static string NormalizeManagedTypeName(string managedTypeName)
+    {
+        var name = managedTypeName.Trim().Replace("?", string.Empty, StringComparison.Ordinal);
+        if (name.StartsWith("global::", StringComparison.Ordinal))
+            name = name["global::".Length..];
+        if (name.StartsWith("System.", StringComparison.Ordinal))
+            name = name["System.".Length..];
+        return name switch { "Object" => "object", "String" => "string", _ => name };
+    }
+
+    /// <summary>
+    /// Whether <paramref name="managedName"/> is reserved whatever the signature. A property hides an inherited
+    /// method of the same name, so properties use this check.
+    /// </summary>
+    internal static bool IsReservedPropertyName(string managedName) =>
+        ReservedInstanceMemberNames.Contains(managedName) || ReservedStaticHelperSignatures.ContainsKey(managedName);
+
+    /// <summary>
+    /// Renames bound functions that would hide the <c>SafeHandle</c>/<c>NativeObject</c> surface (see
+    /// <see cref="IsReservedMember"/>) to <c>Native{Name}</c>.
+    /// Functions with an explicit rename (<see cref="MetadataKeys.ExplicitManagedRename"/>) keep their name.
+    /// The reserved functions of a record are grouped by their old name and the whole group (an overload set) gets
+    /// one replacement. The replacement is taken only if a member outside the group already uses it: a non-virtual
+    /// group then gets a counter suffix, while a group with a virtual function is ignored instead, because its
+    /// replacement is shared by name across records so overrides stay consistent.
+    /// </summary>
+    private static void ResolveReservedMemberNames(BindingCompilation compilation)
+    {
+        var virtualRenames = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var record in compilation.Records)
+        {
+            var groups = record.Members
+                .OfType<FunctionBinding>()
+                .Where(static function => !function.IsIgnored() &&
+                                          !function.IsConstructor &&
+                                          IsReservedMember(function) &&
+                                          !function.GetMetadata<bool>(MetadataKeys.ExplicitManagedRename))
+                .GroupBy(static function => function.ManagedName, StringComparer.Ordinal)
+                .ToArray();
+            if (groups.Length == 0)
+                continue;
+
+            var usedNames = record.Members
+                .OfType<BindingNamedNode>()
+                .Where(static member => !member.IsIgnored())
+                .Select(static member => member.ManagedName)
+                .ToHashSet(StringComparer.Ordinal);
+
+            foreach (var group in groups)
+            {
+                var oldName = group.Key;
+                var isVirtual = group.Any(static function => function.IsVirtual);
+                bool IsTaken(string name) => usedNames.Contains(name) || record.HasOwnManagedMemberNamed(name);
+
+                string newName;
+                if (isVirtual)
+                {
+                    newName = virtualRenames.TryGetValue(oldName, out var shared) ? shared : "Native" + oldName;
+                    if (IsTaken(newName))
+                    {
+                        foreach (var function in group)
+                            function.SetIgnoreReason($"'{function.CppQualifiedName}' cannot be bound as '{newName}' because '{oldName}' would hide the SafeHandle/NativeObject member of the same name and '{newName}' is already taken in '{record.CppQualifiedName}'");
+                        continue;
+                    }
+
+                    virtualRenames[oldName] = newName;
+                }
+                else
+                {
+                    var baseName = "Native" + oldName;
+                    newName = baseName;
+                    for (var index = 2; IsTaken(newName); ++index)
+                        newName = baseName + index;
+                }
+
+                usedNames.Add(newName);
+                foreach (var function in group)
+                {
+                    function.ManagedName = newName;
+                    function.SetWarning($"'{function.CppQualifiedName}' is bound as '{newName}' because '{oldName}' would hide the SafeHandle/NativeObject member of the same name");
                 }
             }
         }

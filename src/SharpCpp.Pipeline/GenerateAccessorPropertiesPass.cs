@@ -1,3 +1,4 @@
+using SharpCpp.Model.Diagnostics;
 using SharpCpp.Model.Ast;
 
 namespace SharpCpp.Pipeline;
@@ -163,6 +164,12 @@ public static class GenerateAccessorPropertiesPass
                 var setter = compatibleSetters.Length == 1 ? compatibleSetters[0] : null;
                 if (setter is null && !pattern.AllowGetterOnly)
                 {
+                    continue;
+                }
+
+                if (DegradeUnsupportedSurfacePass.IsReservedPropertyName(propertyName))
+                {
+                    BindingDiagnosticLog.AddLateWarning(getter, $"'{getter.CppQualifiedName}' is not promoted to property '{propertyName}' because that name would hide the SafeHandle/NativeObject member of the same name");
                     continue;
                 }
 

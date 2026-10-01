@@ -72,7 +72,32 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   not renamed), counted-array accessors whose name is taken, bases lost when a generic base
   is dropped, removed generic instantiations, unmerged placeholder members and pruned type
   aliases (logged on the compilation). Clashes introduced by accessor properties generated after
-  the pipeline are not diagnosed.
+  the pipeline are not diagnosed, except reserved names (see below).
+- Reserved member names: every wrapper derives from `NativeObject : SafeHandle`, so a bound
+  function whose managed name is in `DegradeUnsupportedSurfacePass.ReservedInstanceMemberNames`
+  (`Close`, `Dispose`, `DangerousGetHandle`, `DangerousAddRef`, `DangerousRelease`,
+  `SetHandleAsInvalid`, `SetHandle`, `ReleaseHandle`, `IsClosed`, `IsInvalid` plus the instance
+  members of `NativeObject`: `OwnsNativeHandle`, `ManagesInstanceCacheLifecycle`, `InstanceCache`,
+  `ReleaseNativeHandle`, `PrepareForOwnedRegistration`, `TryPromoteToOwningHandle`,
+  `AcquireOwningHandleCore`, `DisposeFromNativeRuntimeCore`) is bound as `Native{Name}`
+  (`NativeClose`) at any arity, with a WARNING in `generator.log`. Overloads of one name in a record
+  share one replacement (`NativeClose()` and `NativeClose(int)`, never `NativeClose2`); if a member
+  outside the overload set already uses the name, a non-virtual set gets a counter suffix. The
+  four static `NativeObject` helpers (`GetObject(object?)`, `GetHandle(object?)`,
+  `TransferHandleOwnership(object?)` and `HasManagedOverride(Type, Type, string, Type[])`) are
+  renamed only when the function has the helper's exact signature (same parameter count and the same
+  by-value managed parameter types); any other signature, such as `GetObject(uint)`, is a plain
+  overload and keeps its name. The positive branch (a function with an `object` parameter) has no
+  end-to-end fixture. An overload set containing a virtual function whose shared `Native{Name}` is
+  already taken by a member outside the set is ignored with a reason instead of getting a counter
+  suffix. `new` is not used, so `x.Close()` always disposes. Virtual functions share one replacement
+  per name, so overrides stay consistent. `ResolveReservedMemberNames` runs before the field collision resolver. To pick
+  its own name a consumer uses the header `[[sharpcpp::rename("Name")]]` or, when setting
+  `FunctionBinding.ManagedName` in code before the pipeline, also sets
+  `MetadataKeys.ExplicitManagedRename` to `true`; such functions are left alone (the author must
+  avoid a CS0108 clash, for example with a different signature). `GenerateAccessorPropertiesPass`
+  refuses to create a property with a reserved name and logs a WARNING (appended to the log
+  through `BindingDiagnosticLog.AddLateWarning`, since the log is written before consumer passes).
 - Fields of class templates are bound per instantiation only as public, non-static value
   members (no references, pointers, arrays or bitfields). If the template has an explicit
   full specialization, all its fields are left unbound for every instantiation (reported,

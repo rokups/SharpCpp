@@ -125,6 +125,14 @@ internal static class Program
         GenerateAccessorPropertiesPass.Apply(
             compilation,
             recordFilter: static record => record.CppQualifiedName.StartsWith("secondary_bases::", StringComparison.Ordinal));
+        // Reserved SafeHandle/NativeObject names are renamed before this pass and never become properties.
+        GenerateAccessorPropertiesPass.Apply(
+            compilation,
+            [
+                new AccessorPropertyPattern("Get", "Set"),
+                new AccessorPropertyPattern("Is", "Set", propertyNamePrefix: "Is", allowGetterOnly: true)
+            ],
+            recordFilter: static record => record.CppQualifiedName.StartsWith("reserved_names::", StringComparison.Ordinal));
 
         var generatedFiles = BindingOutputRenderer.Render(compilation, fileStem, headerPath =>
         {

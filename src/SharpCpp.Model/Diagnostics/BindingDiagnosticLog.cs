@@ -19,6 +19,27 @@ public static class BindingDiagnosticLog
         writer.Flush();
     }
 
+    /// <summary>
+    /// Records a warning on <paramref name="node"/> from a pass that runs after the pipeline wrote the log,
+    /// and appends it to the configured log so it is not lost.
+    /// The log must not be rewritten after late warnings were added: <see cref="Write"/> would emit them again.
+    /// </summary>
+    public static void AddLateWarning(BindingNode node, string warning)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+
+        node.SetWarning(warning);
+
+        var writer = SharpCppLog.FileWriter;
+        if (writer is null)
+        {
+            return;
+        }
+
+        writer.WriteLine($"WARNING\t{node.Kind}\t{FormatSource(node.Source)}\t{GetQualifiedName(node)}\t{Escape(warning)}");
+        writer.Flush();
+    }
+
     public static void Write(BindingCompilation compilation, TextWriter writer)
     {
         ArgumentNullException.ThrowIfNull(compilation);
