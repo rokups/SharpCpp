@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 using SharpCpp.Support;
 
 using Reserved_names;
@@ -7,6 +8,20 @@ using Reserved_names;
 using Xunit;
 
 namespace SharpCpp.Tests.E2E.Records;
+
+/// <summary>Boxes the <c>int</c> payload of <c>opaque_token</c> so the token is bound as <c>object</c>.</summary>
+[CustomMarshaller(typeof(object), MarshalMode.Default, typeof(OpaqueTokenMarshaller))]
+public static class OpaqueTokenMarshaller
+{
+    public static nint ConvertToUnmanaged(object managed) =>
+        SharpCpp.Support.IndirectValueMarshaller<int>.ConvertToUnmanaged((int)managed);
+
+    public static object ConvertToManaged(nint unmanaged) =>
+        SharpCpp.Support.IndirectValueMarshaller<int>.ConvertToManaged(unmanaged);
+
+    public static void Free(nint unmanaged) =>
+        SharpCpp.Support.IndirectValueMarshaller<int>.Free(unmanaged);
+}
 
 public sealed class ReservedNamesTests
 {
@@ -121,6 +136,30 @@ public sealed class ReservedNamesTests
     }
 
     [Fact]
+    public void Static_helper_signature_match_is_renamed_and_stays_callable()
+    {
+        var instance = typeof(OpaqueWindow).GetMethod("NativeGetHandle", [typeof(object)]);
+        Assert.NotNull(instance);
+        Assert.Equal(typeof(OpaqueWindow), instance!.DeclaringType);
+        Assert.False(instance.IsStatic);
+        Assert.Equal(typeof(OpaqueWindow), typeof(OpaqueWindow).GetMethod("NativeGetObject", [typeof(object)])!.DeclaringType);
+        Assert.Equal(typeof(OpaqueWindow), typeof(OpaqueWindow).GetMethod("NativeTransferHandleOwnership", [typeof(object)])!.DeclaringType);
+
+        // The inherited static helpers are not hidden.
+        foreach (var helper in new[] { "GetHandle", "GetObject", "TransferHandleOwnership" })
+        {
+            var inherited = typeof(OpaqueWindow).GetMethod(helper, BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy, [typeof(object)]);
+            Assert.Equal(typeof(NativeObject), inherited!.DeclaringType);
+            Assert.Null(typeof(OpaqueWindow).GetMethod(helper, BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly, [typeof(object)]));
+        }
+
+        using var window = new OpaqueWindow();
+        Assert.Equal(42, window.NativeGetHandle(21));
+        Assert.Equal(107, OpaqueWindow.NativeGetObject(7));
+        Assert.Equal(4, OpaqueWindow.NativeTransferHandleOwnership(5));
+    }
+
+    [Fact]
     public void Generator_log_reports_the_rename_and_the_refused_property()
     {
         var lines = Diagnostics.GeneratedArtifacts.ReadText("generator.log").Split('\n');
@@ -131,5 +170,8 @@ public sealed class ReservedNamesTests
         Assert.Contains(lines, static line => line.StartsWith("WARNING\tFunction\t", StringComparison.Ordinal) &&
             line.Contains("document::get_is_closed", StringComparison.Ordinal) &&
             line.Contains("'IsClosed'", StringComparison.Ordinal));
+        Assert.Contains(lines, static line => line.StartsWith("WARNING\tFunction\t", StringComparison.Ordinal) &&
+            line.Contains("opaque_window::get_handle", StringComparison.Ordinal) &&
+            line.Contains("NativeGetHandle", StringComparison.Ordinal));
     }
 }

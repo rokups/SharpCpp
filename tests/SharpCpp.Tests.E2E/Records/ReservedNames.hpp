@@ -127,4 +127,30 @@ struct mixed_window
         last_code = code;
     }
 };
+
+/// A parameter type that the marshaller configuration binds as managed `object`.
+struct opaque_token
+{
+    int value = 0;
+};
+
+/// Functions whose managed signature is exactly a reserved static NativeObject helper, GetHandle(object),
+/// GetObject(object) and TransferHandleOwnership(object): they are renamed because they would hide the helper.
+struct opaque_window
+{
+    int get_handle(opaque_token token) const
+    {
+        return token.value * 2;
+    }
+
+    static int get_object(opaque_token token)
+    {
+        return token.value + 100;
+    }
+
+    static int transfer_handle_ownership(opaque_token token)
+    {
+        return token.value - 1;
+    }
+};
 }
