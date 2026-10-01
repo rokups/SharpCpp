@@ -68,8 +68,15 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   declaration); that also removes the `get_rate` metadata/dispatch mismatch, where the clone's
   docs, defaults and return type come from the base declaration while the call resolves to the
   hiding derived one. A promoted accessor
-  owned by a non-view class that reaches an interface only through a secondary base may still
-  lack an explicit implementation (possible CS0535; not reproduced).
+  owned by a non-view class that reaches an interface only through a secondary base lacked an
+  explicit implementation (CS0535 when the class redeclared `get_x`/`set_x`, fixtures `gauge` and
+  `meter`); `WriteSecondaryBaseViewAccessorForwarders` now also runs for non-view classes, and a
+  promoted base accessor no longer makes a projected plain method of the same name emit a
+  spurious `new` (CS0109, fixture `rated_ticker`). `rated_ticker` keeps `tickable`'s
+  `GetRate`/`SetRate` as plain methods beside the inherited `Rate` property (the two C++ members
+  are distinct; the unqualified C++ call is ambiguous). A setter-only redeclaration (`splitter`)
+  was fine. Redeclaring only one accessor of a pair across a secondary base (`meter`) pairs the
+  hiding getter with the base setter through the interface.
 - Open containers of a template parameter (`std::vector<T>` in a generic member) are not
   bound and are out of scope (no consumer uses them); such fields are reported instead of
   leaking an open type.

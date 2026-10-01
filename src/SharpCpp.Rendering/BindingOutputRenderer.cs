@@ -4237,8 +4237,10 @@ public static partial class BindingOutputRenderer
                 break;
             }
 
+            // A promoted accessor is emitted as a property, so there is no base method of that name to hide.
             if (current.Members.OfType<FunctionBinding>().Any(candidate =>
                     !candidate.IsIgnored() &&
+                    candidate.GetMetadata<AccessorPropertyAnnotation>(MetadataKeys.AccessorProperty) is null &&
                     ManagedSignaturesMatch(candidate, function)))
             {
                 return true;
@@ -8349,17 +8351,22 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
+        // A class that is not a view itself still implements the interfaces of its secondary bases; its own
+        // promoted accessors replace the projected plain methods, so they need explicit implementations too.
+        string? viewInterfaceName = null;
         if (IsSecondaryBaseViewRecord(record))
         {
             var interfaceName = GetManagedInterfaceTypeName(compilation, record, null!);
+            viewInterfaceName = interfaceName;
             writer.WriteLine();
             writer.Write($$"""
                 [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
                 public static {{interfaceName}} __CreateI{{record.ManagedName}}View(nint handle, bool ownsHandle)
                     => handle == 0 ? null! : ({{interfaceName}})global::SharpCpp.Support.NativeObjectRegistry.CreateView<{{record.ManagedName}}>(handle, ownsHandle, typeof({{interfaceName}}));
                 """);
-            WriteSecondaryBaseViewAccessorForwarders(writer, compilation, record, interfaceName);
         }
+
+        WriteSecondaryBaseViewAccessorForwarders(writer, compilation, record, viewInterfaceName);
 
         return writer.ToString();
     }
@@ -8367,7 +8374,7 @@ public static partial class BindingOutputRenderer
     // I{Record} declares every renderable method as a plain method, but the class exposes
     // accessor-promoted getters/setters (its own or inherited through the primary chain) only
     // as properties. Satisfy the interface with explicit implementations forwarding to them.
-    private static void WriteSecondaryBaseViewAccessorForwarders(CodeWriter writer, BindingCompilation compilation, RecordBinding record, string interfaceName)
+    private static void WriteSecondaryBaseViewAccessorForwarders(CodeWriter writer, BindingCompilation compilation, RecordBinding record, string? interfaceName)
     {
         var classChain = new HashSet<RecordBinding>(ReferenceEqualityComparer.Instance) { record };
         for (var primaryBase = record.GetPrimaryBaseRecord(compilation); IsRenderedPrimaryBase(primaryBase); primaryBase = primaryBase!.GetPrimaryBaseRecord(compilation))
@@ -8383,11 +8390,16 @@ public static partial class BindingOutputRenderer
                 continue;
             }
 
-            writer.WriteLine();
             // I{record} inherits a member an interface base already exposes; name the interface that declares it.
             var declaringInterfaceName = record.TryFindDeclaringInterfaceRecord(compilation, method, out var declaringBinding, out var declaringRecord)
                 ? GetManagedInterfaceTypeName(compilation, declaringRecord, declaringBinding.Type)
                 : interfaceName;
+            if (declaringInterfaceName is null)
+            {
+                continue;
+            }
+
+            writer.WriteLine();
             if (accessor.Kind == AccessorPropertyKind.Getter)
             {
                 writer.Write($$"""

@@ -47,6 +47,79 @@ public sealed class SecondaryBaseTests
     }
 
     [Fact]
+    public void Non_view_class_redeclaring_both_accessors_implements_the_interface_through_its_property()
+    {
+        using var gauge = new Gauge();
+        var tickable = (ITickable)gauge;
+        Assert.Equal(20, gauge.Rate);
+        Assert.Equal(20, tickable.GetRate());
+        tickable.SetRate(7);
+        Assert.Equal(7, gauge.Rate);
+        Assert.Equal(7, tickable.GetRate());
+        gauge.Rate = 8;
+        Assert.Equal(8, tickable.GetRate());
+        Assert.Equal(21, tickable.Tick());
+    }
+
+    [Fact]
+    public void Non_view_class_redeclaring_only_the_getter_implements_the_interface_through_its_property()
+    {
+        using var meter = new Meter();
+        var tickable = (ITickable)meter;
+        Assert.Equal(103, meter.Rate);
+        Assert.Equal(103, tickable.GetRate());
+        tickable.SetRate(9);
+        Assert.Equal(109, tickable.GetRate());
+    }
+
+    [Fact]
+    public void Meter_implements_the_getter_explicitly_and_the_setter_with_the_plain_method()
+    {
+        var map = typeof(Meter).GetInterfaceMap(typeof(ITickable));
+        var getter = Array.FindIndex(map.InterfaceMethods, static method => method.Name == "GetRate");
+        var setter = Array.FindIndex(map.InterfaceMethods, static method => method.Name == "SetRate");
+        Assert.True(getter >= 0);
+        Assert.True(setter >= 0);
+        Assert.False(map.TargetMethods[getter].IsPublic);
+        Assert.True(map.TargetMethods[setter].IsPublic);
+    }
+
+    [Fact]
+    public void Rated_ticker_keeps_the_secondary_base_methods_beside_the_inherited_property()
+    {
+        var map = typeof(RatedTicker).GetInterfaceMap(typeof(ITickable));
+        foreach (var name in new[] { "GetRate", "SetRate" })
+        {
+            var index = Array.FindIndex(map.InterfaceMethods, method => method.Name == name);
+            Assert.True(index >= 0);
+            Assert.True(map.TargetMethods[index].IsPublic);
+        }
+
+        Assert.Equal(typeof(RatedTicker), typeof(RatedTicker).GetMethod("GetRate")!.DeclaringType);
+        Assert.Equal(typeof(RatedBase), typeof(RatedTicker).GetProperty("Rate")!.DeclaringType);
+    }
+
+    [Fact]
+    public void Non_view_class_redeclaring_only_the_setter_keeps_the_interface_implemented()
+    {
+        using var splitter = new Splitter();
+        var tickable = (ITickable)splitter;
+        Assert.Equal(3, tickable.GetRate());
+        tickable.SetRate(5);
+        Assert.Equal(23, tickable.Tick());
+    }
+
+    [Fact]
+    public void Primary_chain_accessors_next_to_a_secondary_base_of_the_same_name_compile_and_round_trip()
+    {
+        using var ticker = new RatedTicker();
+        var tickable = (ITickable)ticker;
+        tickable.SetRate(11);
+        Assert.Equal(11, tickable.GetRate());
+        Assert.Equal(24, tickable.Tick());
+    }
+
+    [Fact]
     public void Covariant_overrides_of_secondary_base_virtuals_bind_the_base_declaration_in_their_place()
     {
         Assert.Equal(typeof(Tickable), typeof(Labelled).GetMethod("Self")!.ReturnType);

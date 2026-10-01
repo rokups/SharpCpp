@@ -91,6 +91,87 @@ public:
     }
 };
 
+/// Non-view classes (never a secondary base themselves) that reach tickable's accessors through a secondary base.
+/// (a) redeclares both accessors, hiding the base ones.
+class gauge : public primary, public tickable
+{
+public:
+    int gauge_rate = 20;
+
+    int tick() override
+    {
+        return 21;
+    }
+
+    int get_rate() const
+    {
+        return gauge_rate;
+    }
+
+    void set_rate(int value)
+    {
+        gauge_rate = value;
+    }
+};
+
+/// (b) redeclares only the getter.
+class meter : public primary, public tickable
+{
+public:
+    int tick() override
+    {
+        return 22;
+    }
+
+    int get_rate() const
+    {
+        return 100 + stored_rate;
+    }
+};
+
+/// (d) redeclares only the setter.
+class splitter : public primary, public tickable
+{
+public:
+    int split_rate = 30;
+
+    int tick() override
+    {
+        return 23;
+    }
+
+    void set_rate(int value)
+    {
+        split_rate = value;
+    }
+};
+
+/// (c) the accessors come through the primary chain while tickable is a secondary base.
+class rated_base : public primary
+{
+public:
+    int rated_value = 40;
+
+    int get_rate() const
+    {
+        return rated_value;
+    }
+
+    void set_rate(int value)
+    {
+        rated_value = value;
+    }
+};
+
+class rated_ticker : public rated_base, public tickable
+{
+public:
+    int tick() override
+    {
+        return 24;
+    }
+};
+
 /// Covariant overrides of secondary-base virtuals: the managed interface keeps the base return type.
 struct pulse
 {
