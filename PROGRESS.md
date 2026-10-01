@@ -207,9 +207,14 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   record-pointer input parameter (those use dedicated wrapper writers without an owned-return
   branch; an owned output parameter has no such restriction). The out pointer is initialised to
   zero before the call, so a native function that returns without writing it (SDL's error
-  paths) is neither copied nor freed. Known gap (open): the metadata exporter reads `ReturnType` after the retype, so an owned return
-  exports as the raw address type (`nint`), not `string?`; the importer only rebuilds record
-  members and `freed_by` is limited to free functions, so imported modules cannot yet see it.
+  paths) is neither copied nor freed. The metadata exporter writes the public managed return type of an owned return (`string`,
+  from `OwnedStringTypes`, shared with the renderer) instead of the retyped raw address, and the
+  free function as an optional `return_string_free_function` on the function entry and
+  `string_free_function` on an owned output parameter (`native_name`, `cpp_qualified_name`; omitted
+  when absent, so documents without `freed_by` are unchanged and the schema version stays 9).
+  Known gap (open): the importer rebuilds only records, enums, aliases and record members, never
+  free functions, and `freed_by` is limited to free functions, so an importing module still cannot
+  bind another module's owned-string functions.
 - Containers whose element is not copy-assignable, or whose allocator (a record declaring
   `allocate`) is not default-constructible, are degraded with a diagnostic. The element check
   uses the same coarse heuristic as the non-copyable one (the container has a member taking or

@@ -160,18 +160,33 @@ public static class BindingMetadataExporter
                 parameter.UseCallbackDelegate,
                 parameter.CallbackDelegateTypeName,
                 parameter.CppTypeName,
-                parameter.AbiKind.ToString().ToLowerInvariant()))
+                parameter.AbiKind.ToString().ToLowerInvariant(),
+                CreateStringFreeFunction(parameter)))
             .ToArray();
+
+        // An owned string return is retyped to a raw address for the import; export what the wrapper exposes.
+        var returnStringFree = CreateStringFreeFunction(function);
+        var returnType = returnStringFree is null
+            ? function.ReturnType
+            : OwnedStringTypes.CreatePublicReturnType(function.ReturnType.CppTypeName);
 
         return new BindingMetadataFunction(
             function.SymbolId,
             function.NativeName,
             function.ManagedName,
             function.EntryPointName,
-            CreateTypeReference(compilation, function.ReturnType, fullyQualifyConcrete: true),
+            CreateTypeReference(compilation, returnType, fullyQualifyConcrete: true),
             parameters,
             function.ReturnsOwnedHandle,
-            function.ReturnPointerDepth);
+            function.ReturnPointerDepth,
+            returnStringFree);
+    }
+
+    private static BindingMetadataStringFreeFunction? CreateStringFreeFunction(BindingNode node)
+    {
+        return node.TryGetMetadata<StringFreeFunction>(MetadataKeys.StringFreeFunction, out var free)
+            ? new BindingMetadataStringFreeFunction(free!.NativeName, free.CppQualifiedName)
+            : null;
     }
 
     private static BindingMetadataRecordMember CreateRecordMember(BindingCompilation compilation, BindingNode member)

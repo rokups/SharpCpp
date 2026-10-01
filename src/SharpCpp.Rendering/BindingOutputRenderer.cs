@@ -1758,7 +1758,7 @@ public static partial class BindingOutputRenderer
         var writer = new CodeWriter();
         WriteDocumentationComment(writer, function);
         var returnTypeName = IsOwnedStringReturn(function)
-            ? "string?"
+            ? OwnedStringTypes.NullableManagedTypeName
             : GetManagedPublicReturnTypeName(function.ReturnType, compilation);
         var importMethodName = GetManagedImportMethodName(function);
 

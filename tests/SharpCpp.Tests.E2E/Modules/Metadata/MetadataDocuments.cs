@@ -130,6 +130,75 @@ public sealed class MetadataDocumentTests
         Assert.DoesNotContain(ConsumerDocument.GetProperty("types").EnumerateArray(), static type => Name(type) == "DependencyBase");
     }
 
+    [Fact]
+    public void Owned_string_returns_export_the_public_string_and_their_free_function()
+    {
+        // Header attribute and consumer tag alike: the exported return is the managed string the
+        // wrapper exposes (not the raw address the import returns), plus the function that frees it.
+        foreach (var name in new[] { "MakeOwnedText", "MakeOwnedConstText", "MakeConsumerOwnedText" })
+        {
+            var function = Function(Main, name);
+            var returnType = function.GetProperty("return_type");
+            Assert.Equal("string", returnType.GetProperty("public_type").GetString());
+            Assert.Equal("unsupported", returnType.GetProperty("primitive").GetString());
+            Assert.EndsWith("*", returnType.GetProperty("cpp_type").GetString(), StringComparison.Ordinal);
+            Assert.True(function.TryGetProperty("return_string_free_function", out _), name);
+        }
+
+        var owned = Function(Main, "MakeOwnedText").GetProperty("return_string_free_function");
+        Assert.Equal("release_owned_text", owned.GetProperty("native_name").GetString());
+        Assert.Equal("release_owned_text", owned.GetProperty("cpp_qualified_name").GetString());
+        Assert.Equal("release_owned_memory", Function(Main, "MakeOwnedConstText").GetProperty("return_string_free_function").GetProperty("native_name").GetString());
+        Assert.Equal("release_owned_text", Function(Main, "MakeConsumerOwnedText").GetProperty("return_string_free_function").GetProperty("native_name").GetString());
+    }
+
+    [Fact]
+    public void Owned_string_output_parameters_export_their_free_function()
+    {
+        foreach (var name in new[] { "GetOwnedLabel", "GetConsumerOwnedLabel" })
+        {
+            var function = Function(Main, name);
+            Assert.False(function.TryGetProperty("return_string_free_function", out _));
+            var parameter = Assert.Single(function.GetProperty("parameters").EnumerateArray());
+            Assert.Equal("out", parameter.GetProperty("direction").GetString());
+            Assert.Equal("string", parameter.GetProperty("type").GetProperty("public_type").GetString());
+            Assert.Equal("release_owned_text", parameter.GetProperty("string_free_function").GetProperty("native_name").GetString());
+        }
+
+        // Both forms on one function: the return and the output parameter each name their own free.
+        var paired = Function(Main, "MakeOwnedTextWithLabel");
+        Assert.Equal("release_owned_text", paired.GetProperty("return_string_free_function").GetProperty("native_name").GetString());
+        Assert.Equal("release_owned_text", Assert.Single(paired.GetProperty("parameters").EnumerateArray()).GetProperty("string_free_function").GetProperty("native_name").GetString());
+    }
+
+    [Fact]
+    public void Functions_without_freed_by_export_no_free_function()
+    {
+        // An ordinary char* return stays the raw address; an ordinary input string has no free either.
+        var plain = Function(Main, "MakeBleedUntaggedAfterBody");
+        Assert.Equal("global::System.IntPtr", plain.GetProperty("return_type").GetProperty("public_type").GetString());
+        Assert.False(plain.TryGetProperty("return_string_free_function", out _));
+
+        // Only the validated freed_by functions carry the fields; every other function (and the
+        // dependency/consumer documents) omits them entirely.
+        static string[] WithFreeFunction(JsonElement document) => document.GetProperty("functions").EnumerateArray()
+            .Where(static function => function.TryGetProperty("return_string_free_function", out _)
+                || function.GetProperty("parameters").EnumerateArray().Any(static parameter => parameter.TryGetProperty("string_free_function", out _)))
+            .Select(Name)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        string[] expected =
+            [
+                "GetConsumerOwnedLabel", "GetOwnedLabel", "GetOwnedLabelUnwritten", "GetOwnedNullLabel",
+                "MakeConsumerOwnedText", "MakeNullOwnedText", "MakeOwnedBleedTagged", "MakeOwnedConstText",
+                "MakeOwnedText", "MakeOwnedTextWithLabel",
+            ];
+        Assert.Equal(expected, WithFreeFunction(Main));
+        Assert.Empty(WithFreeFunction(DependencyDocument));
+        Assert.Empty(WithFreeFunction(ConsumerDocument));
+    }
+
     private static string Name(JsonElement element) => element.GetProperty("managed_name").GetString()!;
 
     private static JsonElement Type(JsonElement document, string managedName, string? symbolId = null) =>

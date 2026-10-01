@@ -154,3 +154,21 @@ public static class DerivedArgumentKinds
     /// <summary>The end of a `(begin, end)` range: the begin argument plus the span length.</summary>
     public const string PointerRangeEnd = "pointer_range_end";
 }
+
+/// <summary>
+/// Public managed spelling of an owned string return (<see cref="MetadataKeys.StringFreeFunction"/>): the
+/// wrapper exposes <c>string?</c>, and the metadata document records <c>string</c> (it never spells
+/// nullability for configured types). Shared by the renderer and the metadata exporter.
+/// </summary>
+public static class OwnedStringTypes
+{
+    public const string ManagedTypeName = "string";
+    public const string NullableManagedTypeName = ManagedTypeName + "?";
+
+    /// <summary>
+    /// The public return type of a function whose <c>char*</c> return is an owned string. The function's
+    /// <c>ReturnType</c> is the raw address the P/Invoke import returns, not what the wrapper exposes.
+    /// </summary>
+    public static BindingType CreatePublicReturnType(string cppReturnTypeName)
+        => BindingType.CreateConfigured(cppReturnTypeName, ManagedTypeName);
+}

@@ -86,7 +86,13 @@ public sealed record BindingMetadataFunction(
     BindingMetadataTypeReference ReturnType,
     IReadOnlyList<BindingMetadataParameter> Parameters,
     bool ReturnsOwnedHandle = false,
-    int ReturnPointerDepth = 0);
+    int ReturnPointerDepth = 0,
+    // Set when the char* return is a caller-owned string: ReturnType is then the public managed
+    // string and this names the function that frees the native text.
+    BindingMetadataStringFreeFunction? ReturnStringFreeFunction = null);
+
+/// <summary>The free function of an owned string (an owned return or an owned output parameter).</summary>
+public sealed record BindingMetadataStringFreeFunction(string NativeName, string CppQualifiedName);
 
 public sealed record BindingMetadataAlias(
     string CppQualifiedName,
@@ -103,7 +109,8 @@ public sealed record BindingMetadataParameter(
     bool UseCallbackDelegate = false,
     string? CallbackDelegateTypeName = null,
     string? CppTypeName = null,
-    string? AbiKind = null);
+    string? AbiKind = null,
+    BindingMetadataStringFreeFunction? StringFreeFunction = null);
 
 public sealed record BindingMetadataTypeReference(
     string Kind,
