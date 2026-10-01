@@ -7334,7 +7334,10 @@ public static partial class BindingOutputRenderer
             {
                 // The end of a pointer range: begin's pinned pointer plus the span length. The
                 // call sits inside begin's fixed block, so the pointer is in scope.
-                var begin = ((FunctionBinding)parameter.Parent!).Parameters.First(candidate =>
+                if (parameter.Parent is not FunctionBinding owner)
+                    throw new InvalidOperationException($"Derived pointer-range parameter '{parameter.NativeName}' is not attached to a function.");
+
+                var begin = owner.Parameters.First(candidate =>
                     string.Equals(candidate.NativeName, parameter.GetMetadata<string>(MetadataKeys.DerivedFromParameter), StringComparison.Ordinal));
                 arguments.Add($"{BuildPointerArrayArgument(compilation, begin)} + {begin.ManagedName}.Length");
                 continue;
