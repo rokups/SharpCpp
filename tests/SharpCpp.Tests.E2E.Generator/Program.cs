@@ -120,7 +120,14 @@ internal static class Program
         }
 
         ApplyConsumerExtensions(compilation);
-        BindingCompilationBootstrapPipeline.Apply(compilation, marshallerConfigurationFiles, clangArguments);
+        BindingCompilationBootstrapPipeline.Apply(
+            compilation,
+            marshallerConfigurationFiles,
+            clangArguments,
+            // Renamed after the collision resolver has run, so the field keeps its name and clashes with a live method.
+            configureAfterValidation: static compilation => compilation.Functions
+                .Single(function => string.Equals(function.CppQualifiedName, "silent_drop_field_renamed_clash::Sum", StringComparison.Ordinal))
+                .ManagedName = "Total");
         // Secondary-base interface forwarders only exist for accessor-promoted members; promote just this fixture's.
         GenerateAccessorPropertiesPass.Apply(
             compilation,

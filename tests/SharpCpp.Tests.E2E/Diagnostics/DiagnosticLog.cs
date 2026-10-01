@@ -40,12 +40,23 @@ public sealed class DiagnosticLogTests
         Assert.Contains(Lines, static line =>
             line.StartsWith("WARNING\tField\t", StringComparison.Ordinal) &&
             line.Contains("SilentDrops.hpp", StringComparison.Ordinal) &&
-            line.Contains("silent_drop_field_clash::count", StringComparison.Ordinal) &&
-            line.EndsWith("field not rendered: managed name 'Count' clashes with a member of the same name", StringComparison.Ordinal));
-        Assert.Contains(Lines, static line =>
+            line.Contains("silent_drop_field_renamed_clash::total", StringComparison.Ordinal) &&
+            line.EndsWith("field not rendered: managed name 'Total' clashes with a member of the same name", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Fields_clashing_only_with_ignored_methods_are_rendered_and_the_method_is_logged()
+    {
+        Assert.DoesNotContain(Lines, static line =>
             line.StartsWith("WARNING\tField\t", StringComparison.Ordinal) &&
-            line.Contains("silent_drop_generic_field_clash::count", StringComparison.Ordinal) &&
-            line.Contains("field not rendered", StringComparison.Ordinal));
+            line.Contains("silent_drop_field_clash::count", StringComparison.Ordinal));
+        Assert.DoesNotContain(Lines, static line =>
+            line.StartsWith("WARNING\tField\t", StringComparison.Ordinal) &&
+            line.Contains("silent_drop_generic_field_clash::count", StringComparison.Ordinal));
+        Assert.Contains(Lines, static line =>
+            line.StartsWith("IGNORED\tFunction\t", StringComparison.Ordinal) &&
+            line.Contains("silent_drop_field_clash::Count", StringComparison.Ordinal) &&
+            line.Contains("CXType_RValueReference", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -4,8 +4,9 @@
 // must still show up as a WARNING in generator.log (see DiagnosticLogTests).
 
 // The field `count` shares its managed name with the method `Count`, which cannot be bound (rvalue
-// reference parameter) and is therefore ignored. The collision resolver skips ignored members, so
-// the field keeps its name and the renderer leaves it out.
+// reference parameter) and is therefore ignored. Ignored members emit nothing under their managed
+// name, so they do not clash: the field is still rendered as `Count` (and the method is logged as
+// IGNORED).
 struct silent_drop_field_clash
 {
     int count = 3;
@@ -16,7 +17,20 @@ struct silent_drop_field_clash
     }
 };
 
-// Same clash on a generic record.
+// The method `Sum` is renamed to `Total` by the generator after the collision resolver has run, so
+// the field `total` (managed name `Total`) clashes with a live method: the renderer leaves the field
+// out and logs a WARNING.
+struct silent_drop_field_renamed_clash
+{
+    int total = 4;
+
+    int Sum() const
+    {
+        return total;
+    }
+};
+
+// Same ignored-method clash on a generic record.
 template <typename T>
 struct
 [[sharpcpp::instantiate("int")]]

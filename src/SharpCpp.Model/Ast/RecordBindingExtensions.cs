@@ -289,8 +289,10 @@ public static class RecordBindingExtensions
         ArgumentNullException.ThrowIfNull(record);
         ArgumentException.ThrowIfNullOrWhiteSpace(managedName);
 
-        return record.Members.OfType<FunctionBinding>().Any(function => string.Equals(function.ManagedName, managedName, StringComparison.Ordinal))
-            || record.Members.OfType<FunctionBinding>()
+        // Ignored functions emit nothing under their managed name, so they cannot clash.
+        var functions = record.Members.OfType<FunctionBinding>().Where(static function => !function.IsIgnored()).ToArray();
+        return functions.Any(function => string.Equals(function.ManagedName, managedName, StringComparison.Ordinal))
+            || functions
                 .Select(function => function.GetMetadata<AccessorPropertyAnnotation>(MetadataKeys.AccessorProperty))
                 .Any(annotation => annotation is not null && string.Equals(annotation.PropertyName, managedName, StringComparison.Ordinal));
     }
