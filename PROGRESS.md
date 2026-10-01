@@ -176,7 +176,8 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   wrapper frees its own separately kept pointers and native writes are not read back. Native
   code must not retain the array or its strings after the call returns (they are freed in the
   `finally`), and no attribute or metadata value keeps the previous raw `ReadOnlySpan<nint>`
-  binding yet. An
+  binding yet. A NULL-terminated list without a count (HarfBuzz `shaper_list`) is not detected:
+  the caller appends a `null` element, as it appended a zero pointer before. An
   output `char**` is `out string?`, copied from the native pointer, which is borrowed and never
   freed (this changed the ownership of the previous explicit `[[sharpcpp::out]] const char**`,
   which the LibraryImport marshaller freed). Element kinds other than char and records
@@ -265,7 +266,7 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   `range_visitor`, `int_range_visitor`, `color_range_visitor`, `address_range_visitor`). The
   native side is unchanged (one pointer per native parameter); the managed dispatch rebuilds a
   span from `begin`/`end` and the `end` argument is hidden from the override signature.
-  Limitations: span elements passed to a managed override are borrowed and only valid during
+  Limitations: span elements passed to a managed override (other than strings, which are copied) are borrowed and only valid during
   the callback; a consumer `ended_by` tag on a primitive director pointer is rejected with a
   reason, because parse-time lowering has already turned it into an address value (use the
   header attribute instead; fixture `lowered_range_visitor`). Open: a future `SpanLength`
