@@ -98,6 +98,19 @@ public static class MetadataKeys
     // Set on an out char** parameter that is bound as `out string?`: the wrapper copies the UTF-8
     // text and never frees the native pointer (a borrowed string).
     public const string BorrowedStringOutput = "borrowed_string_output";
+    // Value: native name of the free function that releases a caller-owned string
+    // (`[[sharpcpp::freed_by(SDL_free)]]`, or set by a consumer). Valid on an output `char**`
+    // ParameterBinding or on a FunctionBinding that returns `char*`/`const char*`; the wrapper
+    // copies the UTF-8 text into a managed string and then releases the native pointer. OwnedStringResolver
+    // validates the tag and, on success, records StringFreeFunction; the renderer reads only that.
+    // C headers parsed as C17 cannot carry `[[...]]`; consumers must set this key through the
+    // metadata path there. An invalid tag ignores the function with a logged reason.
+    public const string FreedBy = "freed_by";
+    // Value: StringFreeFunction. Set by OwnedStringResolver on a validated FreedBy node.
+    public const string StringFreeFunction = "string_free_function";
+    // Set (bool) on a FunctionBinding whose canonical return type is a pointer to char
+    // (`char*` or `const char*`, not `char**`). Lets the resolver validate a FreedBy return tag.
+    public const string CharPointerReturn = "char_pointer_return";
     // Value: "; "-joined C++ spellings of the explicit full specializations declared for a class
     // template record. Their members are independent of the primary template, so primary-template
     // field accessors cannot be rendered against them.
@@ -110,6 +123,13 @@ public static class PointerPointerShapes
     public const string Array = "array";
     public const string Single = "single";
 }
+
+/// <summary>
+/// The validated free function of an owned string (<see cref="MetadataKeys.StringFreeFunction"/>).
+/// <paramref name="NativeName"/> is the C++ name used in the thunk export; <paramref name="CppQualifiedName"/>
+/// is the call target and <paramref name="ParameterCppTypeName"/> the C++ type of its one parameter.
+/// </summary>
+public sealed record StringFreeFunction(string NativeName, string CppQualifiedName, string ParameterCppTypeName);
 
 public sealed record NativeInterfaceQueryAnnotation(string SourceRecordCppQualifiedName, string InterfaceIdExpression);
 

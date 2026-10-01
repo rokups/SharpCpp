@@ -194,6 +194,17 @@ internal static class Program
             .SetMetadata(MetadataKeys.CountedBy, countName);
     }
 
+    // A null parameterName tags the function's char* return.
+    private static void SetFreedBy(BindingCompilation compilation, string functionName, string? parameterName, string freeName)
+    {
+        var function = compilation.Functions
+            .Single(candidate => string.Equals(candidate.CppQualifiedName, functionName, StringComparison.Ordinal));
+        BindingNode target = parameterName is null
+            ? function
+            : function.Parameters.Single(parameter => string.Equals(parameter.NativeName, parameterName, StringComparison.Ordinal));
+        target.SetMetadata(MetadataKeys.FreedBy, freeName);
+    }
+
     private static void SetEndedBy(BindingCompilation compilation, string functionName, string parameterName, string endName)
     {
         compilation.Functions
@@ -246,6 +257,9 @@ internal static class Program
         SetCountedBy(compilation, "sum_configured_counted_noop", "items", "item_count");
         SetCountedBy(compilation, "pick_configured_counted_single", "items", "item_count");
         SetPointerPointerShape(compilation, "pick_configured_counted_single", "items", PointerPointerShapes.Single);
+        // Consumers also name the free function of an owned string, on a return or an output parameter.
+        SetFreedBy(compilation, "make_consumer_owned_text", null, "release_owned_text");
+        SetFreedBy(compilation, "get_consumer_owned_label", "value", "release_owned_text");
         // Consumers also pair a begin pointer with its end pointer by name.
         SetEndedBy(compilation, "sum_configured_range", "begin", "end");
         // The director virtual's pointers were lowered to address values at parse time, so this tag

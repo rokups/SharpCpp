@@ -1300,6 +1300,7 @@ public sealed partial class ClangSharpHeaderParser
             ReturnPointerDepth = GetPointerDepth(methodDecl.ReturnType.Handle)
         };
         function.ReturnsOwnedHandle = ShouldReturnOwnedHandle(methodDecl.ReturnType, returnType, managedTypeOverrides);
+        ApplyOwnedStringReturnFacts(function, methodDecl, ref ignoreReason);
         ApplyOperatorMetadata(function, methodDecl);
 
         for (int parameterIndex = 0; parameterIndex < methodDecl.Parameters.Count; parameterIndex++)
@@ -1326,6 +1327,7 @@ public sealed partial class ClangSharpHeaderParser
             ApplyCallbackDelegateAttribute(methodDecl.Handle, parameter.Handle, param, ref ignoreReason);
             ApplyPointerPointerFacts(methodDecl.Handle, parameter.Handle, param, ref ignoreReason);
             ApplyCountedByAttribute(methodDecl.Handle, parameter.Handle, param, ref ignoreReason);
+            ApplyFreedByAttribute(methodDecl.Handle, parameter.Handle, param, ref ignoreReason);
             ApplyEndedByAttribute(methodDecl.Handle, parameter.Handle, param, ref ignoreReason);
             function.Parameters.Add(param);
         }
@@ -1436,6 +1438,7 @@ public sealed partial class ClangSharpHeaderParser
             ReturnPointerDepth = GetPointerDepth(templatedFunction.ReturnType.Handle)
         };
         function.ReturnsOwnedHandle = ShouldReturnOwnedHandle(templatedFunction.ReturnType, returnType, managedTypeOverrides);
+        ApplyOwnedStringReturnFacts(function, templatedFunction, ref ignoreReason);
         if (templatedFunction is CXXConstructorDecl)
         {
             function.SetIgnoreReason("generic constructors are not supported");
@@ -1473,6 +1476,7 @@ public sealed partial class ClangSharpHeaderParser
             ApplyCallbackDelegateAttribute(templatedFunction.Handle, parameter.Handle, templateParam, ref ignoreReason);
             ApplyPointerPointerFacts(templatedFunction.Handle, parameter.Handle, templateParam, ref ignoreReason);
             ApplyCountedByAttribute(templatedFunction.Handle, parameter.Handle, templateParam, ref ignoreReason);
+            ApplyFreedByAttribute(templatedFunction.Handle, parameter.Handle, templateParam, ref ignoreReason);
             ApplyEndedByAttribute(templatedFunction.Handle, parameter.Handle, templateParam, ref ignoreReason);
             function.Parameters.Add(templateParam);
         }
@@ -1523,6 +1527,7 @@ public sealed partial class ClangSharpHeaderParser
             ReturnPointerDepth = GetPointerDepth(methodDecl.ReturnType.Handle)
         };
         function.ReturnsOwnedHandle = ShouldReturnOwnedHandle(methodDecl.ReturnType, returnType, managedTypeOverrides);
+        ApplyOwnedStringReturnFacts(function, methodDecl, ref ignoreReason);
         ApplyOperatorMetadata(function, methodDecl);
 
         for (int parameterIndex = 0; parameterIndex < methodDecl.Parameters.Count; parameterIndex++)
@@ -1549,6 +1554,7 @@ public sealed partial class ClangSharpHeaderParser
             ApplyCallbackDelegateAttribute(methodDecl.Handle, parameter.Handle, staticParam, ref ignoreReason);
             ApplyPointerPointerFacts(methodDecl.Handle, parameter.Handle, staticParam, ref ignoreReason);
             ApplyCountedByAttribute(methodDecl.Handle, parameter.Handle, staticParam, ref ignoreReason);
+            ApplyFreedByAttribute(methodDecl.Handle, parameter.Handle, staticParam, ref ignoreReason);
             ApplyEndedByAttribute(methodDecl.Handle, parameter.Handle, staticParam, ref ignoreReason);
             function.Parameters.Add(staticParam);
         }
@@ -1617,6 +1623,7 @@ public sealed partial class ClangSharpHeaderParser
             ApplyCallbackDelegateAttribute(ctorDecl.Handle, parameter.Handle, ctorParam, ref ignoreReason);
             ApplyPointerPointerFacts(ctorDecl.Handle, parameter.Handle, ctorParam, ref ignoreReason);
             ApplyCountedByAttribute(ctorDecl.Handle, parameter.Handle, ctorParam, ref ignoreReason);
+            ApplyFreedByAttribute(ctorDecl.Handle, parameter.Handle, ctorParam, ref ignoreReason);
             ApplyEndedByAttribute(ctorDecl.Handle, parameter.Handle, ctorParam, ref ignoreReason);
             function.Parameters.Add(ctorParam);
         }
@@ -2261,6 +2268,7 @@ public sealed partial class ClangSharpHeaderParser
             ReturnPointerDepth = GetPointerDepth(functionDecl.ReturnType.Handle)
         };
         function.ReturnsOwnedHandle = ShouldReturnOwnedHandle(functionDecl.ReturnType, returnType, managedTypeOverrides);
+        ApplyOwnedStringReturnFacts(function, functionDecl, ref ignoreReason);
 
         for (int parameterIndex = 0; parameterIndex < functionDecl.Parameters.Count; parameterIndex++)
         {
@@ -2286,6 +2294,7 @@ public sealed partial class ClangSharpHeaderParser
             ApplyCallbackDelegateAttribute(functionDecl.Handle, parameter.Handle, freeParam, ref ignoreReason);
             ApplyPointerPointerFacts(functionDecl.Handle, parameter.Handle, freeParam, ref ignoreReason);
             ApplyCountedByAttribute(functionDecl.Handle, parameter.Handle, freeParam, ref ignoreReason);
+            ApplyFreedByAttribute(functionDecl.Handle, parameter.Handle, freeParam, ref ignoreReason);
             ApplyEndedByAttribute(functionDecl.Handle, parameter.Handle, freeParam, ref ignoreReason);
             function.Parameters.Add(freeParam);
         }
@@ -2338,6 +2347,7 @@ public sealed partial class ClangSharpHeaderParser
             ReturnPointerDepth = GetPointerDepth(templatedFunction.ReturnType.Handle)
         };
         function.ReturnsOwnedHandle = ShouldReturnOwnedHandle(templatedFunction.ReturnType, returnType, managedTypeOverrides);
+        ApplyOwnedStringReturnFacts(function, templatedFunction, ref ignoreReason);
 
         foreach (var templateParameter in templateParameters)
         {
@@ -2370,6 +2380,7 @@ public sealed partial class ClangSharpHeaderParser
             ApplyCallbackDelegateAttribute(templatedFunction.Handle, parameter.Handle, freeTemplateParam, ref ignoreReason);
             ApplyPointerPointerFacts(templatedFunction.Handle, parameter.Handle, freeTemplateParam, ref ignoreReason);
             ApplyCountedByAttribute(templatedFunction.Handle, parameter.Handle, freeTemplateParam, ref ignoreReason);
+            ApplyFreedByAttribute(templatedFunction.Handle, parameter.Handle, freeTemplateParam, ref ignoreReason);
             ApplyEndedByAttribute(templatedFunction.Handle, parameter.Handle, freeTemplateParam, ref ignoreReason);
             function.Parameters.Add(freeTemplateParam);
         }
@@ -6163,6 +6174,136 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         parameter.SetMetadata(MetadataKeys.CountedBy, name);
+    }
+
+    /// <summary>
+    /// Reads `[[sharpcpp::freed_by(release)]]` on an output `char**` parameter and records the
+    /// native name of the free function. <see cref="OwnedStringResolver.Apply"/> validates it, so
+    /// consumer-set tags share the checks.
+    /// </summary>
+    private static void ApplyFreedByAttribute(
+        CXCursor functionCursor,
+        CXCursor parameterCursor,
+        ParameterBinding parameter,
+        ref string? ignoreReason)
+    {
+        var match = FindSharpCppAttribute(GetSourceText(parameterCursor.TranslationUnit, parameterCursor.Extent), "freed_by");
+        if (match is null && TryGetParameterDeclarationSourceText(functionCursor, parameterCursor, out var parameterSourceText))
+        {
+            match = FindSharpCppAttribute(parameterSourceText, "freed_by");
+        }
+
+        if (match is null)
+        {
+            return;
+        }
+
+        var name = match.Body.Trim();
+        if (name.Length == 0)
+        {
+            ignoreReason ??= $"parameter '{parameter.NativeName}' has an empty [[sharpcpp::freed_by]] attribute";
+            return;
+        }
+
+        parameter.SetMetadata(MetadataKeys.FreedBy, name);
+    }
+
+    /// <summary>
+    /// Records <see cref="MetadataKeys.CharPointerReturn"/> for a `char*`/`const char*` return
+    /// and reads `[[sharpcpp::freed_by(release)]]` placed before the function name.
+    /// </summary>
+    private static void ApplyOwnedStringReturnFacts(FunctionBinding function, Decl decl, ref string? ignoreReason)
+    {
+        var returnType = decl is FunctionDecl functionDecl ? functionDecl.ReturnType.Handle.CanonicalType : default;
+        if (decl is FunctionDecl &&
+            TypeIsPointer(returnType) &&
+            returnType.PointeeType.CanonicalType.kind is CXTypeKind.CXType_Char_S or CXTypeKind.CXType_Char_U)
+        {
+            function.SetMetadata(MetadataKeys.CharPointerReturn, true);
+        }
+
+        ApplyFreedByReturnAttribute(decl, function, ref ignoreReason);
+    }
+
+    /// <summary>
+    /// Reads `[[sharpcpp::freed_by(release)]]` from the declaration text that precedes the
+    /// function name, so a parameter-level tag is never mistaken for the return tag. A leading
+    /// attribute lies outside the declaration's extent, so the scan starts in the source before
+    /// it and walks back to the previous statement boundary.
+    /// </summary>
+    private static bool WindowMentions(CXTranslationUnit translationUnit, CXFile file, uint start, uint end, string text)
+    {
+        var contents = translationUnit.GetFileContents(file, out _);
+        if (contents.IsEmpty || end > contents.Length || start >= end)
+        {
+            return true;
+        }
+
+        var window = System.Text.Encoding.UTF8.GetString(contents.Slice((int)start, (int)(end - start)));
+        return window.Contains(text, StringComparison.Ordinal);
+    }
+
+    private static void ApplyFreedByReturnAttribute(Decl decl, FunctionBinding function, ref string? ignoreReason)
+    {
+        const uint LookBehindBytes = 4096;
+        var translationUnit = decl.Handle.TranslationUnit;
+        decl.Location.GetFileLocation(out var file, out _, out _, out var nameOffset);
+        decl.Extent.Start.GetFileLocation(out _, out _, out _, out var extentOffset);
+        var windowOffset = extentOffset > LookBehindBytes ? extentOffset - LookBehindBytes : 0;
+        if (!WindowMentions(translationUnit, file, windowOffset, nameOffset, "freed_by"))
+        {
+            return;
+        }
+
+        var range = CXSourceRange.Create(translationUnit.GetLocationForOffset(file, windowOffset), decl.Location);
+        var tokens = translationUnit.Tokenize(range);
+        string prefix;
+        try
+        {
+            var spellings = new List<string>();
+            foreach (var token in tokens)
+            {
+                if (token.Kind == CXTokenKind.CXToken_Comment)
+                {
+                    continue;
+                }
+
+                token.GetLocation(translationUnit).GetFileLocation(out _, out _, out _, out var tokenOffset);
+                if (tokenOffset >= nameOffset)
+                {
+                    break;
+                }
+
+                spellings.Add(token.GetSpelling(translationUnit).ToString());
+            }
+
+            var start = spellings.Count;
+            while (start > 0 && spellings[start - 1] is not (";" or "{" or "}"))
+            {
+                start--;
+            }
+
+            prefix = string.Concat(spellings.Skip(start));
+        }
+        finally
+        {
+            translationUnit.DisposeTokens(tokens);
+        }
+
+        var match = FindSharpCppAttribute(prefix, "freed_by");
+        if (match is null)
+        {
+            return;
+        }
+
+        var name = match.Body.Trim();
+        if (name.Length == 0)
+        {
+            ignoreReason ??= $"function '{function.NativeName}' has an empty [[sharpcpp::freed_by]] attribute";
+            return;
+        }
+
+        function.SetMetadata(MetadataKeys.FreedBy, name);
     }
 
     /// <summary>

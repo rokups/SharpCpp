@@ -222,7 +222,7 @@ public static class PointerPointerShapeResolver
         return null;
     }
 
-    private static bool HasDefaultValue(ParameterBinding parameter) =>
+    internal static bool HasDefaultValue(ParameterBinding parameter) =>
         parameter.HasMetadata(MetadataKeys.NativeDefaultValueExpression) ||
         parameter.HasMetadata(MetadataKeys.UnexpressibleDefault) ||
         parameter.HasMetadata(MetadataKeys.UndefaultableParam) ||
@@ -311,7 +311,7 @@ public static class PointerPointerShapeResolver
         return NormalizeStem(countStem) == NormalizeStem(array.NativeName);
     }
 
-    private static bool IsPointerLike(ParameterBinding parameter) =>
+    internal static bool IsPointerLike(ParameterBinding parameter) =>
         parameter.PointerPointer != PointerPointerKind.None ||
         parameter.AbiKind == BindingParameterAbiKind.Pointer ||
         parameter.Type.IsPointerType ||

@@ -143,15 +143,42 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   which the LibraryImport marshaller freed). Element kinds other than char and records
   (`int**`, `void**`) keep their previous binding.
 - Open items for pointer-to-pointer shapes: (a) string arrays bind as `ReadOnlySpan<nint>`;
-  the target is `ReadOnlySpan<string?>` with generator-side UTF-8 marshalling. (b) There is no
-  owned out-string variant with a configurable free function (output `char**` is always
-  borrowed). (c) The inheritance projection (`BindingCompilationInheritancePass`) does not copy
+  the target is `ReadOnlySpan<string?>` with generator-side UTF-8 marshalling. (b) The
+  inheritance projection (`BindingCompilationInheritancePass`) does not copy
   `InputPointerArray`/`WritablePointerArray` (it does copy the pointer-pointer fields).
   The output-to-array flip uses a narrower count name set than the primitive-array heuristic
   (`argc`, `Num*`, `*Count*`; not `*Length`/`*Size`) and additionally requires the count name
   to relate to the parameter (see above), because a false positive silently changes
   an output into an array; an explicit `[[sharpcpp::in]]`/`[[sharpcpp::out]]` that cannot be
   honoured ignores the function with a reason.
+- Owned (caller-freed) strings: `[[sharpcpp::freed_by(release)]]` names the free function of a
+  native string, on an output `char**` parameter (anywhere in its extent, like `counted_by`) or
+  before the decl-specifiers of a function returning `char*`/`const char*`
+  (`[[sharpcpp::freed_by(release_text)]] inline char* make_text();`). A consumer sets
+  `MetadataKeys.FreedBy` to the free function's native name on the `ParameterBinding` or
+  `FunctionBinding` instead; C headers parsed as `-std=c17` cannot carry `[[...]]`, so they must
+  use the consumer path. Managed shapes: the return is `string?` (never a span) and the output
+  is `out string?`; the wrapper copies the UTF-8 text with `Marshal.PtrToStringUTF8` and calls
+  the free function in a `finally`, skipped when the pointer is null (an unwritten or null
+  result is never freed). The free runs through a generated native thunk
+  `{EntryPointPrefix}_free_{name}` (`{cpp free function}(static_cast<{param type}>(value))`),
+  emitted once per distinct free function per compilation: in the single `.g.cpp` or the first
+  group's, with its `[LibraryImport]` `__PInvoke.__free_{name}` in the shared
+  `.Bindings.Aliases.g.cs`, so the free runs in the allocator's own module. `OwnedStringResolver`
+  (after the pointer-pointer shapes) validates the tag, records `MetadataKeys.StringFreeFunction`
+  (the only key the renderer reads) and retypes an owned return to a raw address. It ignores the
+  function with a reason in generator.log when: the attribute is empty; the free function is not
+  exactly one non-generic, non-member function of the compilation (missing or overloaded); the
+  free function does not take one pointer parameter (`void*` counts); a tagged parameter is not an
+  output string (`[[sharpcpp::in]]`, a `counted_by` array, a value parameter); the return is not
+  a `char` pointer; the tagged function is a member, virtual or generic (free functions only);
+  or a tagged return is combined with a default-valued, pointer-array, derived-argument or
+  record-pointer input parameter (those use dedicated wrapper writers without an owned-return
+  branch; an owned output parameter has no such restriction). The out pointer is initialised to
+  zero before the call, so a native function that returns without writing it (SDL's error
+  paths) is neither copied nor freed. Known gap (open): the metadata exporter reads `ReturnType` after the retype, so an owned return
+  exports as the raw address type (`nint`), not `string?`; the importer only rebuilds record
+  members and `freed_by` is limited to free functions, so imported modules cannot yet see it.
 - Containers whose element is not copy-assignable, or whose allocator (a record declaring
   `allocate`) is not default-constructible, are degraded with a diagnostic. The element check
   uses the same coarse heuristic as the non-copyable one (the container has a member taking or

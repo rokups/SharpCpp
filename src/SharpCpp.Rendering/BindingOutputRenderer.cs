@@ -250,7 +250,8 @@ public static partial class BindingOutputRenderer
                     RenderNativeBindings(
                         compilation,
                         node => memberSet.Contains(node) || (node is RecordBinding r && memberSet.Contains(r)),
-                        includeCallbackReleaseRegistration: groupIndex == 0)));
+                        includeCallbackReleaseRegistration: groupIndex == 0,
+                        includeSharedHelpers: groupIndex == 0)));
             }
         }
 
@@ -1718,11 +1719,47 @@ public static partial class BindingOutputRenderer
     }
 
 
+    private static bool IsOwnedStringReturn(FunctionBinding function)
+        => function.HasMetadata(MetadataKeys.StringFreeFunction);
+
+    private static string GetStringFreeImportName(StringFreeFunction free)
+        => $"__free_{SanitizeNativeEntrypointName(free.NativeName)}";
+
+    private static string GetStringFreeEntryPointName(BindingCompilation compilation, StringFreeFunction free)
+        => $"{compilation.EntryPointPrefix}_free_{SanitizeNativeEntrypointName(free.NativeName)}";
+
+    /// <summary>
+    /// The distinct free functions of live owned strings (returns and output parameters), in
+    /// ordinal order. Each gets one native thunk and one managed import for the whole module.
+    /// </summary>
+    private static StringFreeFunction[] CollectStringFreeFunctions(BindingCompilation compilation)
+    {
+        var found = new Dictionary<string, StringFreeFunction>(StringComparer.Ordinal);
+        foreach (var function in compilation.Functions)
+        {
+            if (function.IsIgnored() || function.IsSilentlyExcluded())
+                continue;
+
+            if (function.TryGetMetadata<StringFreeFunction>(MetadataKeys.StringFreeFunction, out var returnFree))
+                found.TryAdd(returnFree!.NativeName, returnFree);
+
+            foreach (var parameter in function.Parameters)
+            {
+                if (parameter.TryGetMetadata<StringFreeFunction>(MetadataKeys.StringFreeFunction, out var parameterFree))
+                    found.TryAdd(parameterFree!.NativeName, parameterFree);
+            }
+        }
+
+        return found.Values.OrderBy(static free => free.NativeName, StringComparer.Ordinal).ToArray();
+    }
+
     private static string RenderManagedWrapperMethod(BindingCompilation compilation, FunctionBinding function)
     {
         var writer = new CodeWriter();
         WriteDocumentationComment(writer, function);
-        var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType, compilation);
+        var returnTypeName = IsOwnedStringReturn(function)
+            ? "string?"
+            : GetManagedPublicReturnTypeName(function.ReturnType, compilation);
         var importMethodName = GetManagedImportMethodName(function);
 
         if (function.Parameters.Any(IsInputPointerArrayParameter))
@@ -1777,7 +1814,33 @@ public static partial class BindingOutputRenderer
                 writer.Write(statement);
             }
 
-        if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
+        if (IsOwnedStringReturn(function))
+        {
+            var freeImportName = GetStringFreeImportName(function.GetMetadata<StringFreeFunction>(MetadataKeys.StringFreeFunction)!);
+            writer.Write($$"""
+                var __result_raw = __PInvoke.{{importMethodName}}({{invokeArguments}});
+                try
+                {
+                """);
+
+            foreach (var statement in invocationPlan.PostCallStatements)
+            {
+                writer.Write(statement);
+            }
+
+            writer.Write($$"""
+                return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__result_raw);
+                }
+                finally
+                {
+                    if (__result_raw != 0)
+                    {
+                        __PInvoke.{{freeImportName}}(__result_raw);
+                    }
+                }
+                """);
+        }
+        else if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
         {
             writer.Write($$"""
                 __PInvoke.{{importMethodName}}({{invokeArguments}});
@@ -2082,6 +2145,29 @@ public static partial class BindingOutputRenderer
                 }
             }
         }
+    }
+
+    private static string RenderManagedStringFreeImports(BindingCompilation compilation, IReadOnlyList<StringFreeFunction> frees)
+    {
+        var writer = new CodeWriter();
+        writer.Write(
+            """
+            internal static partial class __PInvoke
+            {
+            """);
+        foreach (var free in frees)
+        {
+            writer.Write($$"""
+                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetStringFreeEntryPointName(compilation, free)}}")]
+                internal static partial void {{GetStringFreeImportName(free)}}(nint value);
+                """);
+        }
+
+        writer.Write(
+            """
+            }
+            """);
+        return writer.ToString();
     }
 
     private static string RenderManagedCallbackSupport(BindingCompilation compilation, IReadOnlyList<ParameterBinding> callbackParameters)
@@ -2706,6 +2792,15 @@ public static partial class BindingOutputRenderer
         {
             writer.WriteLine();
             writer.Write(RenderManagedCallbackSupport(compilation, callbackParameters));
+        }
+
+        var stringFreeFunctions = includeSharedCallbackHelpers
+            ? CollectStringFreeFunctions(compilation)
+            : [];
+        if (stringFreeFunctions.Length > 0)
+        {
+            writer.WriteLine();
+            writer.Write(RenderManagedStringFreeImports(compilation, stringFreeFunctions));
         }
 
         if (virtualCallbacks.Length > 0)
@@ -5561,7 +5656,8 @@ public static partial class BindingOutputRenderer
         BindingCompilation compilation,
         Func<BindingNode, bool>? memberFilter = null,
         string? groupHeaderPath = null,
-        bool includeCallbackReleaseRegistration = true)
+        bool includeCallbackReleaseRegistration = true,
+        bool includeSharedHelpers = true)
     {
         var writer = new CodeWriter();
         var allFunctions = compilation.Functions.AsEnumerable();
@@ -5616,6 +5712,22 @@ public static partial class BindingOutputRenderer
                     SharpCpp::detail::SetManagedCallbackRelease(release);
                 }
                 """);
+        }
+
+        if (includeSharedHelpers)
+        {
+            // One release thunk per distinct free function of an owned string; the managed side
+            // copies the text and then calls it, so the free runs in the native allocator's module.
+            foreach (var free in CollectStringFreeFunctions(compilation))
+            {
+                writer.Write($$"""
+
+                    SHARPCPP_EXPORT_NAMED({{GetStringFreeEntryPointName(compilation, free)}}) void {{GetStringFreeEntryPointName(compilation, free)}}(void* value)
+                    {
+                        {{free.CppQualifiedName}}(static_cast<{{free.ParameterCppTypeName}}>(value));
+                    }
+                    """);
+            }
         }
 
         foreach (var record in records.Where(record => record.RequiresDirector(compilation)).OrderBy(static record => record.ManagedName, StringComparer.Ordinal))
@@ -7236,12 +7348,26 @@ public static partial class BindingOutputRenderer
 
             if (IsBorrowedStringOutputParameter(parameter))
             {
-                // The native pointer is borrowed: copy the text, never free it.
+                // Borrowed by default: copy the text, never free it. A freed_by tag copies and then
+                // releases the native pointer; the free is skipped when native wrote null.
                 var borrowedVariableName = $"__abi_{parameter.ManagedName.TrimStart('@')}";
-                preCallStatements.Add($"nint {borrowedVariableName};");
+                preCallStatements.Add($"nint {borrowedVariableName} = 0;");
                 arguments.Add($"out {borrowedVariableName}");
-                postCallStatements.Add(
-                    $"{parameter.ManagedName} = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8({borrowedVariableName});");
+                postCallStatements.Add(parameter.TryGetMetadata<StringFreeFunction>(MetadataKeys.StringFreeFunction, out var stringFree)
+                    ? $$"""
+                        try
+                        {
+                            {{parameter.ManagedName}} = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8({{borrowedVariableName}});
+                        }
+                        finally
+                        {
+                            if ({{borrowedVariableName}} != 0)
+                            {
+                                __PInvoke.{{GetStringFreeImportName(stringFree!)}}({{borrowedVariableName}});
+                            }
+                        }
+                        """
+                    : $"{parameter.ManagedName} = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8({borrowedVariableName});");
                 continue;
             }
 

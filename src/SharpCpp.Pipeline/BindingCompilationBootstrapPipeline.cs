@@ -45,6 +45,7 @@ public static class BindingCompilationBootstrapPipeline
             RunTimed("ConfigureBeforeValidation", () => configureBeforeValidation(compilation));
         // After the consumer hook so a consumer-set PointerPointerShape is honoured.
         RunTimed("ResolvePointerPointerShapes", () => PointerPointerShapeResolver.Apply(compilation));
+        RunTimed("ResolveOwnedStrings", () => OwnedStringResolver.Apply(compilation));
         RunTimed("DegradeUnsupportedSurface", () => DegradeUnsupportedSurfacePass.Apply(compilation));
         RunTimed("RefreshGenericInstantiations", () => BindingCompilationGenericInstantiationPass.RefreshInferred(compilation));
         RunTimed("Inheritance", () => BindingCompilationInheritancePass.Apply(compilation));
