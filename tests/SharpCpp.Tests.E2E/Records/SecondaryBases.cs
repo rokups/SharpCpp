@@ -1,4 +1,8 @@
+using System;
+using System.IO;
+using System.Linq;
 using Secondary_bases;
+using SharpCpp.Tests.E2E.Diagnostics;
 
 using Xunit;
 
@@ -158,5 +162,37 @@ public sealed class SecondaryBaseTests
         using var tower = new TowerSubclass();
         Assert.NotNull(tower.Origin());
         Assert.Equal(1, tower.PrimaryValue());
+    }
+
+    [Fact]
+    public void A_covariant_override_on_a_secondary_bases_primary_chain_is_projected_with_the_covariant_return_type()
+    {
+        Assert.Equal(typeof(OriginMid), typeof(OriginUser).GetMethod("Root")!.ReturnType);
+        Assert.Equal(typeof(OriginMid), typeof(IOriginMid).GetMethod("Root")!.ReturnType);
+        using var user = new OriginUser();
+        Assert.NotNull(user.Root());
+        Assert.NotNull(((IOriginMid)user).Root());
+    }
+
+    [Fact]
+    public void Non_virtual_hiding_across_a_secondary_bases_chain_projects_the_most_derived_declaration()
+    {
+        var scale = typeof(ScaleHolder).GetMethod("Scale")!;
+        Assert.Equal(typeof(int), scale.ReturnType);
+        Assert.Equal(3, scale.GetParameters()[0].DefaultValue);
+
+        using var holder = new ScaleHolder();
+        Assert.Equal(300, holder.Scale());
+        Assert.Equal(200, holder.Scale(2));
+        Assert.Equal(300, ((IScaleHiding)holder).Scale());
+
+        var generated = Directory.GetFiles(GeneratedArtifacts.Directory, "*.g.cs").Select(File.ReadAllText).First(static text => text.Contains("partial class ScaleHolder", StringComparison.Ordinal));
+        var start = generated.IndexOf("partial class ScaleHolder", StringComparison.Ordinal);
+        var end = generated.IndexOf("partial class", start + 1, StringComparison.Ordinal);
+        var holderText = generated[start..(end < 0 ? generated.Length : end)];
+        Assert.Contains("Scales by the hiding factor.", holderText, StringComparison.Ordinal);
+        Assert.Contains("int Scale(int factor = 3)", holderText, StringComparison.Ordinal);
+        Assert.DoesNotContain("Scales by the base factor.", holderText, StringComparison.Ordinal);
+        Assert.DoesNotContain("factor = 2", holderText, StringComparison.Ordinal);
     }
 }

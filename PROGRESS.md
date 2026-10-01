@@ -59,15 +59,22 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   (`DegradeCovariantSecondaryBaseOverridesPass`) and the base declaration is bound in its place,
   since the managed interface exposes the base return type; the projected base method is bound
   non-virtually (with a warning) so a director cannot be affected, and its native member pointer
-  names the declaring record (fixtures `labelled`, `lighthouse`, `signal_tower`). Known gaps:
+  names the declaring record (fixtures `labelled`, `lighthouse`, `signal_tower`). Secondary-base
+  method projection prefers the most-derived declaration: `EnumerateProjectableMethods` yields the
+  secondary base itself first, then its bases nearest-first, and skips clones an earlier iteration
+  projected into a base record (`MetadataKeys.ProjectedSecondaryBaseMethod`). A covariant override
+  on the secondary base's own primary chain is therefore projected with its covariant return type
+  and dispatch cast (fixture `origin_user`), and a non-virtual hiding declaration carries the
+  hiding declaration's docs, defaults and return type (fixture `scale_holder`). Known gaps:
   non-virtual hiding with a different return type across a secondary base still only warns
-  (`SecondaryBaseViewPass.WarnOnRedeclaredInterfaceMethods`) and gives CS0738, and a covariant
-  override on a primary chain that a secondary-base projection dispatches through still fails the
-  native build in the secondary-base dispatch `static_cast`. The intended fix is to make
-  `EnumerateProjectableMethods` yield most-derived first (or make the dedup prefer the later
-  declaration); that also removes the `get_rate` metadata/dispatch mismatch, where the clone's
-  docs, defaults and return type come from the base declaration while the call resolves to the
-  hiding derived one. A promoted accessor
+  (`SecondaryBaseViewPass.WarnOnRedeclaredInterfaceMethods`) and gives CS0738; so does a covariant
+  override on a secondary base's primary chain when the overridden base is itself a rendered
+  interface (the class member cannot implicitly implement the inherited base-typed member, so no
+  fixture exists); projection through a virtual-base diamond does not apply the C++ dominance
+  rule (the shared virtual base is enumerated before the second path's hiding declaration); and
+  a hiding declaration with a different parameter list still gets the base overloads projected,
+  although C++ lookup through the hiding record cannot find them (last two found by reading, no
+  fixture). A promoted accessor
   owned by a non-view class that reaches an interface only through a secondary base lacked an
   explicit implementation (CS0535 when the class redeclared `get_x`/`set_x`, fixtures `gauge` and
   `meter`); `WriteSecondaryBaseViewAccessorForwarders` now also runs for non-view classes, and a

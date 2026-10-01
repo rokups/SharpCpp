@@ -210,6 +210,53 @@ struct [[sharpcpp::director]] signal_tower : public primary, public beacon
     }
 };
 
+/// A covariant override on the secondary base's own primary chain.
+struct origin_base
+{
+    virtual ~origin_base() = default;
+    virtual origin_base* root()
+    {
+        return this;
+    }
+};
+
+struct origin_mid : public origin_base
+{
+    origin_mid* root() override
+    {
+        return this;
+    }
+};
+
+class origin_user : public primary, public origin_mid
+{
+};
+
+/// Non-virtual hiding inside a secondary base's own chain: the most-derived declaration (doc, default, body) is the observable one.
+struct scale_base
+{
+    virtual ~scale_base() = default;
+
+    /// Scales by the base factor.
+    int scale(int factor = 2) const
+    {
+        return 10 * factor;
+    }
+};
+
+struct scale_hiding : public scale_base
+{
+    /// Scales by the hiding factor.
+    int scale(int factor = 3) const
+    {
+        return 100 * factor;
+    }
+};
+
+class scale_holder : public primary, public scale_hiding
+{
+};
+
 inline int tick_via_tickable(tickable* value)
 {
     return value->tick();

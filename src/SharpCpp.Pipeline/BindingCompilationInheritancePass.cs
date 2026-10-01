@@ -64,9 +64,17 @@ public static class BindingCompilationInheritancePass
         }
     }
 
+    // Yields the record's own methods first, then those of its base records nearest-first, so the
+    // most-derived declaration of a method is projected and the hidden ones are deduplicated away.
+    // Clones projected into a base record by an earlier iteration are skipped: the declaration they
+    // were cloned from is reachable through the base chain, and a clone of a clone would lose
+    // CovariantProjectedBaseMethod (it is not copied), so SecondaryBaseViewPass would retype its
+    // return to the I{Base} view while the interface member keeps the declared type (CS0738).
+    // GetRenderableInterfaceMethods still enumerates base-first with the later declaration
+    // winning; the two must keep agreeing on which declaration a member comes from.
     private static IEnumerable<FunctionBinding> EnumerateProjectableMethods(BindingCompilation compilation, RecordBinding record)
     {
-        foreach (var baseRecord in record.EnumerateAllBaseRecords(compilation).Reverse().Append(record))
+        foreach (var baseRecord in record.EnumerateAllBaseRecords(compilation).Prepend(record))
         {
             if (baseRecord.IsIgnored())
             {
@@ -75,7 +83,8 @@ public static class BindingCompilationInheritancePass
 
             foreach (var method in baseRecord.Members.OfType<FunctionBinding>())
             {
-                if (method.IsConstructor || method.IsStatic || method.OperatorToken is not null || method.IsConversionOperator)
+                if (method.IsConstructor || method.IsStatic || method.OperatorToken is not null || method.IsConversionOperator ||
+                    method.HasMetadata(MetadataKeys.ProjectedSecondaryBaseMethod))
                 {
                     continue;
                 }
@@ -153,6 +162,8 @@ public static class BindingCompilationInheritancePass
             ReturnsOwnedHandle = sourceMethod.ReturnsOwnedHandle,
             ReturnPointerDepth = sourceMethod.ReturnPointerDepth
         };
+
+        projectedMethod.SetMetadata(MetadataKeys.ProjectedSecondaryBaseMethod, true);
 
         if (sourceMethod.TryGetMetadata(MetadataKeys.DocumentationComment, out string? documentation) && !string.IsNullOrWhiteSpace(documentation))
         {

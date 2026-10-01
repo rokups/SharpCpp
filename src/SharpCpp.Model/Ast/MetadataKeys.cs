@@ -24,6 +24,7 @@ public static class MetadataKeys
     // Set on a projected secondary-base method that was bound non-virtually because a covariant
     // override shadows it; it keeps the declared return type so it still implements the interface.
     public const string CovariantProjectedBaseMethod = "covariant_projected_base_method";
+    public const string ProjectedSecondaryBaseMethod = "projected_secondary_base_method";
     public const string Warnings = "warnings";
     public const string DocumentationComment = "documentation_comment";
     public const string DeclarationDisplayText = "declaration_display_text";
