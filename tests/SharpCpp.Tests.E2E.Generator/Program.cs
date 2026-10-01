@@ -554,10 +554,12 @@ internal static class Program
             cClangArguments,
             marshallerConfigurationFiles,
             marshallerClangArguments: clangArguments);
+        // The C module is parsed as c17, which cannot carry [[sharpcpp::freed_by]], so the consumer names the free function.
+        SetFreedBy(cModule, "c_make_owned_text", null, "c_release_owned_text");
+
         BindingCompilationBootstrapPipeline.Apply(cModule, marshallerConfigurationFiles, clangArguments);
         RemoveLocalConfiguredWrapperRecords(cModule);
         ApplyModuleProjection(cModule);
-
         var ownedRootDirectory = Path.Combine(fixtureRoot, "Modules", "OwnedFiles");
         var owned = parser.Parse(new ClangSharpParseRequest(
             "SharpCpp.Tests.E2E.Modules.OwnedFiles",

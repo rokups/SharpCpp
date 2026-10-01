@@ -2,6 +2,8 @@
 
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <stdint.h>
 
 typedef struct coverage_c_handle coverage_c_handle;
@@ -352,4 +354,29 @@ static c_name_list c_name_list_storage = { 3, c_name_array_storage };
 static inline c_name_list* c_get_name_list(void)
 {
     return &c_name_list_storage;
+}
+
+/* A caller-owned string (SDL style): the C17 consumer path tags the return with its free function. */
+static int c_owned_text_released_count;
+
+static inline void c_release_owned_text(void* text)
+{
+    if (text != 0)
+    {
+        ++c_owned_text_released_count;
+        free(text);
+    }
+}
+
+static inline int c_get_owned_text_released_count(void)
+{
+    return c_owned_text_released_count;
+}
+
+static inline char* c_make_owned_text(void)
+{
+    static const char message[] = "owned message";
+    char* text = (char*)malloc(sizeof(message));
+    memcpy(text, message, sizeof(message));
+    return text;
 }

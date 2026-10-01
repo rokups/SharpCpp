@@ -181,4 +181,15 @@ public sealed class CTests
         Assert.Null(list.GetEnabledExtensionNamesAt(2));
         Assert.Throws<ArgumentOutOfRangeException>(() => list.GetEnabledExtensionNamesAt(3));
     }
+
+    [Fact]
+    public void Owned_c_string_returns_copy_the_text_and_release_it_through_the_free_function()
+    {
+        var before = CBindings.CGetOwnedTextReleasedCount();
+
+        string? text = CBindings.CMakeOwnedText();
+
+        Assert.Equal("owned message", text);
+        Assert.Equal(before + 1, CBindings.CGetOwnedTextReleasedCount());
+    }
 }
