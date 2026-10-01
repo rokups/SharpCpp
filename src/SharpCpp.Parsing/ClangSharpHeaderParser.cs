@@ -5031,6 +5031,13 @@ public sealed partial class ClangSharpHeaderParser
         return lastDot >= 0 ? typeHead[(lastDot + 1)..] : typeHead;
     }
 
+    /// <summary>
+    /// The managed name the parser gives a record from its native name alone, before any marshaller
+    /// projection or rename replaces it: the native name without generic arguments, in PascalCase.
+    /// </summary>
+    public static string GetDefaultRecordManagedName(string nativeName) =>
+        ToPascalCase(GetManagedTypeHead(nativeName));
+
     private static string ToPascalCase(string nativeName)
     {
         return string.Concat(

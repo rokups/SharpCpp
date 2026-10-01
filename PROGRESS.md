@@ -96,19 +96,26 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   `SetHandleAsInvalid`, `SetHandle`, `ReleaseHandle`, `IsClosed`, `IsInvalid` plus the instance
   members of `NativeObject`: `OwnsNativeHandle`, `ManagesInstanceCacheLifecycle`, `InstanceCache`,
   `ReleaseNativeHandle`, `PrepareForOwnedRegistration`, `TryPromoteToOwningHandle`,
-  `AcquireOwningHandleCore`, `DisposeFromNativeRuntimeCore`) is bound as `Native{Name}`
-  (`NativeClose`) at any arity, with a WARNING in `generator.log`. Overloads of one name in a record
-  share one replacement (`NativeClose()` and `NativeClose(int)`, never `NativeClose2`); if a member
-  outside the overload set already uses the name, a non-virtual set gets a counter suffix. The
+  `AcquireOwningHandleCore`, `DisposeFromNativeRuntimeCore`) is bound as `{Name}{ClassName}`
+  (`close` on `base_window` becomes `CloseBaseWindow`) at any arity, with a WARNING in
+  `generator.log`. `ClassName` is the simple managed name of the owning record (no namespace, enclosing
+  type or generic argument list; a record projected onto a type the generator does not emit, by
+  `suppress_emission` or a wrapper assembly, uses its native name in PascalCase, so `JPH::BodyID::IsInvalid`
+  becomes `IsInvalidBodyID`, not `IsInvaliduint`); for a virtual function it is the record that first declares the
+  virtual, found by following `OverriddenNativeDeclarationIds` transitively (the first resolvable
+  overridden declaration at each step), so `base_window::close` and the override
+  `deep_window::close` are both `CloseBaseWindow`. Overloads of one name in a record
+  share one replacement (`CloseOverloadedWindow()` and `CloseOverloadedWindow(int)`, never
+  `CloseOverloadedWindow2`); if a member outside the overload set already uses the name, a non-virtual set
+  gets a counter suffix (`CloseCounterWindow2`). The
   four static `NativeObject` helpers (`GetObject(object?)`, `GetHandle(object?)`,
   `TransferHandleOwnership(object?)` and `HasManagedOverride(Type, Type, string, Type[])`) are
   renamed only when the function has the helper's exact signature (same parameter count and the same
   by-value managed parameter types); any other signature, such as `GetObject(uint)`, is a plain
-  overload and keeps its name. The positive branch (a function with an `object` parameter) has no
-  end-to-end fixture. An overload set containing a virtual function whose shared `Native{Name}` is
+  overload and keeps its name. An overload set containing a virtual function whose `{Name}{ClassName}` is
   already taken by a member outside the set is ignored with a reason instead of getting a counter
-  suffix. `new` is not used, so `x.Close()` always disposes. Virtual functions share one replacement
-  per name, so overrides stay consistent. `ResolveReservedMemberNames` runs before the field collision resolver. To pick
+  suffix; so is a set whose virtual functions override virtuals first declared in different records. `new` is not used, so `x.Close()` always disposes. Every override in a chain shares the root's
+  replacement, so overrides stay consistent. `ResolveReservedMemberNames` runs before the field collision resolver. To pick
   its own name a consumer uses the header `[[sharpcpp::rename("Name")]]` or, when setting
   `FunctionBinding.ManagedName` in code before the pipeline, also sets
   `MetadataKeys.ExplicitManagedRename` to `true`; such functions are left alone (the author must

@@ -1,4 +1,5 @@
 using SharpCpp.Model.Ast;
+using SharpCpp.Parsing;
 
 namespace SharpCpp.Pipeline;
 
@@ -285,16 +286,21 @@ public static class DegradeUnsupportedSurfacePass
 
     /// <summary>
     /// Renames bound functions that would hide the <c>SafeHandle</c>/<c>NativeObject</c> surface (see
-    /// <see cref="IsReservedMember"/>) to <c>Native{Name}</c>.
+    /// <see cref="IsReservedMember"/>) to <c>{Name}{ClassName}</c>, e.g. <c>Close</c> on <c>FileInterface</c>
+    /// becomes <c>CloseFileInterface</c>. <c>ClassName</c> is the simple managed name of the owning record
+    /// (see <see cref="GetSimpleRecordName"/>); for a virtual function it is the record that first declares the
+    /// virtual (the root of its override chain, see <see cref="FindVirtualRoot"/>), so every override of the
+    /// chain shares one name and the managed <c>override</c> keeps lining up.
     /// Functions with an explicit rename (<see cref="MetadataKeys.ExplicitManagedRename"/>) keep their name.
     /// The reserved functions of a record are grouped by their old name and the whole group (an overload set) gets
     /// one replacement. The replacement is taken only if a member outside the group already uses it: a non-virtual
     /// group then gets a counter suffix, while a group with a virtual function is ignored instead, because its
-    /// replacement is shared by name across records so overrides stay consistent.
+    /// replacement is fixed by the override chain. A group whose virtual functions have different roots is
+    /// ignored too, since one name cannot satisfy both chains.
     /// </summary>
     private static void ResolveReservedMemberNames(BindingCompilation compilation)
     {
-        var virtualRenames = new Dictionary<string, string>(StringComparer.Ordinal);
+        Dictionary<string, FunctionBinding>? functionsByDeclarationId = null;
 
         foreach (var record in compilation.Records)
         {
@@ -318,25 +324,35 @@ public static class DegradeUnsupportedSurfacePass
             foreach (var group in groups)
             {
                 var oldName = group.Key;
-                var isVirtual = group.Any(static function => function.IsVirtual);
+                var virtualFunctions = group.Where(static function => function.IsVirtual).ToArray();
                 bool IsTaken(string name) => usedNames.Contains(name) || record.HasOwnManagedMemberNamed(name);
 
                 string newName;
-                if (isVirtual)
+                if (virtualFunctions.Length > 0)
                 {
-                    newName = virtualRenames.TryGetValue(oldName, out var shared) ? shared : "Native" + oldName;
+                    functionsByDeclarationId ??= BuildFunctionsByDeclarationId(compilation);
+                    var rootNames = virtualFunctions
+                        .Select(function => GetSimpleRecordName(FindVirtualRoot(function, functionsByDeclarationId).FindOwningRecord() ?? record))
+                        .Distinct(StringComparer.Ordinal)
+                        .ToArray();
+                    if (rootNames.Length > 1)
+                    {
+                        foreach (var function in group)
+                            function.SetIgnoreReason($"'{function.CppQualifiedName}' cannot be renamed because '{oldName}' would hide the SafeHandle/NativeObject member of the same name and its virtual overloads override virtuals declared in different records ({string.Join(", ", rootNames)})");
+                        continue;
+                    }
+
+                    newName = oldName + rootNames[0];
                     if (IsTaken(newName))
                     {
                         foreach (var function in group)
                             function.SetIgnoreReason($"'{function.CppQualifiedName}' cannot be bound as '{newName}' because '{oldName}' would hide the SafeHandle/NativeObject member of the same name and '{newName}' is already taken in '{record.CppQualifiedName}'");
                         continue;
                     }
-
-                    virtualRenames[oldName] = newName;
                 }
                 else
                 {
-                    var baseName = "Native" + oldName;
+                    var baseName = oldName + GetSimpleRecordName(record);
                     newName = baseName;
                     for (var index = 2; IsTaken(newName); ++index)
                         newName = baseName + index;
@@ -350,6 +366,65 @@ public static class DegradeUnsupportedSurfacePass
                 }
             }
         }
+    }
+
+    private static Dictionary<string, FunctionBinding> BuildFunctionsByDeclarationId(BindingCompilation compilation)
+    {
+        var functionsByDeclarationId = new Dictionary<string, FunctionBinding>(StringComparer.Ordinal);
+        foreach (var function in compilation.Records.SelectMany(static record => record.Members.OfType<FunctionBinding>()))
+        {
+            if (!string.IsNullOrWhiteSpace(function.NativeDeclarationId))
+                functionsByDeclarationId.TryAdd(function.NativeDeclarationId, function);
+        }
+
+        return functionsByDeclarationId;
+    }
+
+    /// <summary>
+    /// Follows <see cref="FunctionBinding.OverriddenNativeDeclarationIds"/> transitively to the function that first
+    /// declares the virtual. With several overridden declarations (multiple inheritance) the first one that
+    /// resolves is followed, so the primary-base chain wins. An overridden declaration that is not bound (for
+    /// example from a record outside the compilation) ends the walk at the last bound function.
+    /// </summary>
+    private static FunctionBinding FindVirtualRoot(
+        FunctionBinding function,
+        IReadOnlyDictionary<string, FunctionBinding> functionsByDeclarationId)
+    {
+        var visited = new HashSet<FunctionBinding>(ReferenceEqualityComparer.Instance) { function };
+        var current = function;
+        while (true)
+        {
+            var next = current.OverriddenNativeDeclarationIds
+                .Select(id => functionsByDeclarationId.GetValueOrDefault(id))
+                .FirstOrDefault(candidate => candidate is not null && !visited.Contains(candidate));
+            if (next is null)
+                return current;
+
+            visited.Add(next);
+            current = next;
+        }
+    }
+
+    /// <summary>
+    /// The managed name of <paramref name="record"/> as a bare identifier: no namespace or enclosing type
+    /// (text up to the last <c>.</c>) and no generic argument list.
+    /// A record projected onto a type the generator does not emit (<c>suppress_emission</c> or a managed
+    /// wrapper assembly, like <c>JPH::BodyID</c> as <c>uint</c>) has that external type as its
+    /// <see cref="BindingNode.ManagedName"/>; the bare name the record would otherwise have is used instead.
+    /// </summary>
+    private static string GetSimpleRecordName(RecordBinding record)
+    {
+        var projectedOntoExternalType =
+            (record.GetMetadata<bool>(MetadataKeys.SuppressEmission) ||
+             record.HasMetadata(MetadataKeys.ManagedWrapperAssembly)) &&
+            !record.GetMetadata<bool>(MetadataKeys.ExplicitManagedRename);
+        var name = projectedOntoExternalType
+            ? ClangSharpHeaderParser.GetDefaultRecordManagedName(record.NativeName)
+            : record.ManagedName;
+        var generic = name.IndexOfAny(['`', '<']);
+        if (generic >= 0)
+            name = name[..generic];
+        return name[(name.LastIndexOf('.') + 1)..];
     }
 
     private static void ResolveManagedFieldNameCollisions(BindingCompilation compilation)

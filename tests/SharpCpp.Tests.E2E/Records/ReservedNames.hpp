@@ -73,10 +73,21 @@ struct derived_window : base_window
     }
 };
 
-/// The virtual close() would become NativeClose, which native_close() already uses: it is ignored.
+/// A second level of the override chain: it still takes the name of the root, base_window.
+struct deep_window : derived_window
+{
+    bool deep_closed = false;
+
+    void close() override
+    {
+        deep_closed = true;
+    }
+};
+
+/// The virtual close() would become CloseTakenWindow, which close_taken_window() already uses: it is ignored.
 struct taken_window
 {
-    bool native_close_called = false;
+    bool taken_close_called = false;
     bool virtual_close_called = false;
 
     virtual ~taken_window() = default;
@@ -86,13 +97,31 @@ struct taken_window
         virtual_close_called = true;
     }
 
-    void native_close()
+    void close_taken_window()
     {
-        native_close_called = true;
+        taken_close_called = true;
     }
 };
 
-/// A non-virtual overload set shares one replacement: NativeClose() and NativeClose(int), no NativeClose2.
+/// A non-virtual close() would become CloseCounterWindow, which close_counter_window() already uses: it takes
+/// the counter instead and is bound as CloseCounterWindow2.
+struct counter_window
+{
+    bool closed = false;
+    bool counter_close_called = false;
+
+    void close()
+    {
+        closed = true;
+    }
+
+    void close_counter_window()
+    {
+        counter_close_called = true;
+    }
+};
+
+/// A non-virtual overload set shares one replacement: CloseOverloadedWindow() and CloseOverloadedWindow(int), no counter.
 struct overloaded_window
 {
     int last_code = 0;
@@ -132,6 +161,13 @@ struct mixed_window
 struct opaque_token
 {
     int value = 0;
+
+    /// A reserved SafeHandle name on a projected record: the rename names the owning record, not the
+    /// managed type (`object`) it is projected onto.
+    bool is_invalid() const
+    {
+        return value == 0;
+    }
 };
 
 /// Functions whose managed signature is exactly a reserved static NativeObject helper, GetHandle(object),
@@ -151,6 +187,33 @@ struct opaque_window
     static int transfer_handle_ownership(opaque_token token)
     {
         return token.value - 1;
+    }
+};
+
+/// A second root for close(int): split_window overrides virtuals declared in two different records, so the
+/// reserved-name overload set cannot be renamed for both chains and is ignored.
+struct other_base
+{
+    virtual ~other_base() = default;
+
+    virtual void close(int code)
+    {
+        other_code = code;
+    }
+
+    int other_code = 0;
+};
+
+struct split_window : base_window, other_base
+{
+    void close() override
+    {
+        derived_closed = true;
+    }
+
+    void close(int code) override
+    {
+        other_code = code + 1;
     }
 };
 }
