@@ -1,5 +1,5 @@
 using System;
-using System.Runtime.InteropServices;
+using System.Linq;
 
 using SharpCpp.Tests.E2E.Diagnostics;
 using SharpCpp.Tests.E2E.Generated;
@@ -10,52 +10,28 @@ namespace SharpCpp.Tests.E2E.Pointers;
 
 public sealed class PointerPointerTests
 {
-    private static nint[] Utf8(params string[] values) =>
-        Array.ConvertAll(values, static value => Marshal.StringToCoTaskMemUTF8(value));
-
-    private static void Free(nint[] pointers)
-    {
-        foreach (var pointer in pointers)
-            Marshal.FreeCoTaskMem(pointer);
-    }
-
-    private static void WithStrings(Action<nint[]> action)
-    {
-        var pointers = Utf8("ab", "cde");
-        try
-        {
-            action(pointers);
-        }
-        finally
-        {
-            Free(pointers);
-        }
-    }
-
     private static System.Reflection.ParameterInfo Parameter(string method, int index) =>
         typeof(E2EBindings).GetMethod(method)!.GetParameters()[index];
 
     [Fact]
     public void Char_pointer_pointer_with_an_adjacent_count_is_an_input_string_array()
     {
-        WithStrings(pointers =>
-        {
-            Assert.Equal(5, E2EBindings.MeasureArgv(2, pointers));
-            Assert.Equal(2, E2EBindings.MeasureArgv(1, pointers));
-            Assert.Equal(5, E2EBindings.MeasureMutableNames(pointers, 2));
-            Assert.Equal(5, E2EBindings.MeasureConstNames(pointers, 2));
-        });
-        Assert.Equal(typeof(ReadOnlySpan<nint>), Parameter(nameof(E2EBindings.MeasureArgv), 1).ParameterType);
+        string?[] names = ["ab", "cde"];
+        Assert.Equal(5, E2EBindings.MeasureArgv(2, names));
+        Assert.Equal(2, E2EBindings.MeasureArgv(1, names));
+        Assert.Equal(5, E2EBindings.MeasureMutableNames(names, 2));
+        Assert.Equal(5, E2EBindings.MeasureConstNames(names, 2));
+        Assert.Equal(typeof(ReadOnlySpan<string>), Parameter(nameof(E2EBindings.MeasureArgv), 1).ParameterType);
+        Assert.Equal(typeof(ReadOnlySpan<string>), Parameter(nameof(E2EBindings.MeasureMutableNames), 0).ParameterType);
+        Assert.Equal(typeof(ReadOnlySpan<string>), Parameter(nameof(E2EBindings.MeasureConstNames), 0).ParameterType);
     }
 
     [Fact]
     public void Const_element_pointer_is_an_input_string_array()
     {
-        WithStrings(pointers =>
-        {
-            Assert.Equal(5, E2EBindings.MeasureStrings(pointers, 2));
-            Assert.Equal(5, E2EBindings.MeasureCharConstNames(pointers, 2));
-        });
+        string?[] names = ["ab", "cde"];
+        Assert.Equal(5, E2EBindings.MeasureStrings(names, 2));
+        Assert.Equal(5, E2EBindings.MeasureCharConstNames(names, 2));
     }
 
     [Fact]
@@ -88,7 +64,7 @@ public sealed class PointerPointerTests
     [Fact]
     public void Sharpcpp_attributes_override_the_char_pointer_pointer_default()
     {
-        WithStrings(pointers => Assert.Equal(5, E2EBindings.MeasureForcedNames(2, pointers)));
+        Assert.Equal(5, E2EBindings.MeasureForcedNames(2, ["ab", "cde"]));
 
         E2EBindings.GetForcedLabel(1, out var label);
         Assert.Equal("forced label", label);
@@ -209,11 +185,8 @@ public sealed class PointerPointerTests
 
         Assert.Equal(7, E2EBindings.SumCountedItems(items, 2));
         Assert.Equal(typeof(ReadOnlySpan<PointerPointerItem?>), Parameter(nameof(E2EBindings.SumCountedItems), 0).ParameterType);
-        WithStrings(pointers =>
-        {
-            Assert.Equal(5, E2EBindings.MeasureCountedNames(pointers, 2));
-            Assert.Equal(typeof(ReadOnlySpan<nint>), Parameter(nameof(E2EBindings.MeasureCountedNames), 0).ParameterType);
-        });
+        Assert.Equal(5, E2EBindings.MeasureCountedNames(["ab", "cde"], 2));
+        Assert.Equal(typeof(ReadOnlySpan<string>), Parameter(nameof(E2EBindings.MeasureCountedNames), 0).ParameterType);
         Assert.Equal(30, E2EBindings.SumCountedValues(values, 2));
         Assert.Equal(typeof(ReadOnlySpan<int>), Parameter(nameof(E2EBindings.SumCountedValues), 0).ParameterType);
 
@@ -253,11 +226,47 @@ public sealed class PointerPointerTests
     [Fact]
     public void Argc_pairs_with_a_char_pointer_pointer_that_follows_it()
     {
-        WithStrings(pointers =>
-        {
-            Assert.Equal(5, E2EBindings.MeasureArgs(2, pointers));
-            Assert.Equal(typeof(ReadOnlySpan<nint>), Parameter(nameof(E2EBindings.MeasureArgs), 1).ParameterType);
-        });
+        Assert.Equal(5, E2EBindings.MeasureArgs(2, ["ab", "cde"]));
+        Assert.Equal(typeof(ReadOnlySpan<string>), Parameter(nameof(E2EBindings.MeasureArgs), 1).ParameterType);
+    }
+
+    [Fact]
+    public void String_arrays_marshal_null_elements_empty_spans_and_non_ascii_text()
+    {
+        const int Checksum = 'a' + 'b' + 'c';
+        Assert.Equal(Checksum, E2EBindings.NameChecksum(["ab", "c"], 2));
+        Assert.Equal(Checksum + 1000, E2EBindings.NameChecksum(["abc", null], 2));
+        Assert.Equal(-1, E2EBindings.NameChecksum([], 0));
+        Assert.Equal(0xC3 + 0xA9 + 0xE2 + 0x82 + 0xAC, E2EBindings.NameChecksum(["é€"], 1));
+        Assert.Equal(5, E2EBindings.MeasureCountedNames(["ab", "cde"], 2));
+        Assert.Equal(0, E2EBindings.MeasureCountedNames([], 0));
+    }
+
+    [Fact]
+    public void String_arrays_over_the_stack_limit_marshal_through_the_heap()
+    {
+        var names = new string?[100];
+        Array.Fill(names, "a");
+        names[70] = null;
+
+        Assert.Equal(99 * 'a' + 1000, E2EBindings.NameChecksum(names, 100));
+        Assert.Equal(100, E2EBindings.MeasureMutableNames(names.Select(static name => name ?? "a").ToArray(), 100));
+    }
+
+    [Fact]
+    public void A_mutable_string_array_is_input_and_native_rewrites_are_not_read_back()
+    {
+        string?[] names = ["ab", "cde", "f"];
+
+        Assert.Equal(3 + 2 + 11, E2EBindings.RewriteNames(names, 3));
+        Assert.Equal(new string?[] { "ab", "cde", "f" }, names);
+        Assert.Equal(typeof(ReadOnlySpan<string>), Parameter(nameof(E2EBindings.RewriteNames), 0).ParameterType);
+    }
+
+    [Fact]
+    public void Address_arrays_stay_spans_of_raw_pointers()
+    {
+        Assert.Equal(typeof(ReadOnlySpan<IntPtr>), Parameter(nameof(E2EBindings.SumPointerAddresses), 0).ParameterType);
     }
 
     [Fact]
@@ -274,7 +283,7 @@ public sealed class PointerPointerTests
     [Fact]
     public void Consumer_metadata_selects_the_pointer_pointer_shape()
     {
-        WithStrings(pointers => Assert.Equal(5, E2EBindings.MeasureConfiguredNames(2, pointers)));
+        Assert.Equal(5, E2EBindings.MeasureConfiguredNames(2, ["ab", "cde"]));
 
         E2EBindings.GetConfiguredLabel(1, out var label);
         Assert.Equal("configured label", label);

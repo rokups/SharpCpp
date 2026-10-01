@@ -73,17 +73,7 @@ public sealed class CTests
         CBindings.CReadValues(values, 3);
         Assert.Equal(new uint[] { 0, 2, 4 }, values);
 
-        var first = System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8("a");
-        var second = System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8("b");
-        try
-        {
-            Assert.Equal('a' + 'b', CBindings.CRegisterFlags([first, second], 2));
-        }
-        finally
-        {
-            System.Runtime.InteropServices.Marshal.FreeCoTaskMem(first);
-            System.Runtime.InteropServices.Marshal.FreeCoTaskMem(second);
-        }
+        Assert.Equal('a' + 'b', CBindings.CRegisterFlags(["a", "b"], 2));
     }
 
     [Fact]
@@ -130,15 +120,7 @@ public sealed class CTests
     [Fact]
     public void Counted_char_pointer_pointers_are_string_arrays_and_external_records_stay_unbound()
     {
-        var argument = System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8("argv0");
-        try
-        {
-            Assert.Equal(5, CBindings.CFirstArgLength(1, [argument]));
-        }
-        finally
-        {
-            System.Runtime.InteropServices.Marshal.FreeCoTaskMem(argument);
-        }
+        Assert.Equal(5, CBindings.CFirstArgLength(1, ["argv0"]));
 
         // FILE is declared by a system header, so its pointer typedef is not bound here.
         Assert.Null(typeof(CBindings).GetMethod("CFileIsNull"));

@@ -52,6 +52,38 @@ inline int measure_char_const_names(char* const* names, unsigned int count)
     return measure_strings(names, count);
 }
 
+// A null array is reported as -1 and a null element as 1000; otherwise the byte sum of every
+// string, so a UTF-8 round trip and an element-wise marshalling error both show.
+inline int name_checksum(const char* const* names, unsigned int count)
+{
+    if (names == nullptr)
+        return -1;
+    int result = 0;
+    for (unsigned int i = 0; i < count; ++i)
+    {
+        if (names[i] == nullptr)
+        {
+            result += 1000;
+            continue;
+        }
+        for (const unsigned char* it = reinterpret_cast<const unsigned char*>(names[i]); *it != 0; ++it)
+            result += *it;
+    }
+    return result;
+}
+
+// Native code may rewrite the elements of a mutable char** array; the wrapper frees only its own
+// allocations. Swaps the first two, points the last at a static string and sums the lengths.
+inline int rewrite_names(char** names, unsigned int count)
+{
+    static char replacement[] = "static-name";
+    char* first = names[0];
+    names[0] = names[1];
+    names[1] = first;
+    names[count - 1] = replacement;
+    return measure_strings(names, count);
+}
+
 // Without a count the pointer receives one borrowed string, which is never freed.
 inline void get_borrowed_label(char** value)
 {

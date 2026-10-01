@@ -167,17 +167,26 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   consumer shape equal to the default is indistinguishable from it. `[[sharpcpp::in]]` /
   `[[sharpcpp::out]]` or a consumer overwriting the metadata value select the other shape; a
   value that cannot be honoured (unknown value, not a `char**`/record `T**`, an output through
-  a const pointer) ignores the function with a reason in generator.log. Char arrays are
-  `ReadOnlySpan<nint>` of NUL-terminated UTF-8 pointers (callers allocate the strings); an
+  a const pointer) ignores the function with a reason in generator.log. Input char arrays
+  and ranges (`PointerPointerKind.Chars` with `InputPointerArray`) are
+  `ReadOnlySpan<string?>`: the wrapper allocates NUL-terminated UTF-8 copies
+  (`Marshal.StringToCoTaskMemUTF8`, null element = null pointer), passes them as the same
+  pointer-to-pointer as before and frees them in a `finally`. A mutable `char**` (a non-const
+  pointee, formerly `Span<nint>`) is also input-only: native may rewrite its elements, so the
+  wrapper frees its own separately kept pointers and native writes are not read back. Native
+  code must not retain the array or its strings after the call returns (they are freed in the
+  `finally`), and no attribute or metadata value keeps the previous raw `ReadOnlySpan<nint>`
+  binding yet. An
   output `char**` is `out string?`, copied from the native pointer, which is borrowed and never
   freed (this changed the ownership of the previous explicit `[[sharpcpp::out]] const char**`,
   which the LibraryImport marshaller freed). Element kinds other than char and records
   (`int**`, `void**`) keep their previous binding.
-- Open items for pointer-to-pointer shapes: (a) string arrays bind as `ReadOnlySpan<nint>`;
-  the target is `ReadOnlySpan<string?>` with generator-side UTF-8 marshalling. (b) The
-  inheritance projection (`BindingCompilationInheritancePass`) does not copy
-  `InputPointerArray`/`WritablePointerArray` (it does copy the pointer-pointer fields).
-  The output-to-array flip uses a narrower count name set than the primitive-array heuristic
+- Open items for pointer-to-pointer shapes: (a) string arrays are done for direct calls and
+  non-director virtual methods, and a director callback with a char range receives managed
+  string copies; still open: a director callback taking a counted `char**` (ignores the
+  record: the parameter is not an in-value), string array fields (`Get{Field}At`), output
+  `char**` as `out string?` arrays, and an override that keeps raw UTF-8 pointers for a function
+  that retains them. (b) The output-to-array flip uses a narrower count name set than the primitive-array heuristic
   (`argc`, `Num*`, `*Count*`; not `*Length`/`*Size`) and additionally requires the count name
   to relate to the parameter (see above), because a false positive silently changes
   an output into an array; an explicit `[[sharpcpp::in]]`/`[[sharpcpp::out]]` that cannot be
@@ -245,7 +254,7 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   (native, unexpressible, undefaultable or managed), no input array projection such as a
   record `T*`, template function, class template member or constructor). Element kinds:
   primitives and enums (`ReadOnlySpan<T>`/`Span<T>`), `void* const*` (`ReadOnlySpan<IntPtr>`),
-  `char**` and `const char* const*` (`ReadOnlySpan<nint>` of UTF-8 pointers, as counted), and
+  `char**` and `const char* const*` (`ReadOnlySpan<string?>`, marshalled to UTF-8 as counted), and
   record `T**`/`T* const*` (`ReadOnlySpan<T?>`, the counted handle-array projection); the end
   parameter takes begin's reshaped type. Fixtures: `Pointers/PointerRanges.hpp`. Increments 1, 2 and 3 are done (3: virtual and
   abstract non-director records work with ranges as long as the base and every override carry

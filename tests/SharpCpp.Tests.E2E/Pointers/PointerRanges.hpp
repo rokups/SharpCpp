@@ -256,6 +256,36 @@ inline int measure_const_char_range([[sharpcpp::ended_by(end)]] const char* cons
     return result;
 }
 
+// Same checksum as `name_checksum`: -1 for a null range, 1000 for a null element.
+inline int char_range_checksum([[sharpcpp::ended_by(end)]] const char* const* begin, const char* const* end)
+{
+    if (begin == nullptr)
+        return -1;
+    int result = 0;
+    for (const char* const* it = begin; it != end; ++it)
+    {
+        if (*it == nullptr)
+        {
+            result += 1000;
+            continue;
+        }
+        for (const unsigned char* c = reinterpret_cast<const unsigned char*>(*it); *c != 0; ++c)
+            result += *c;
+    }
+    return result;
+}
+
+// A mutable char** range: native code replaces the first element with a static string.
+inline int rewrite_char_range([[sharpcpp::ended_by(end)]] char** begin, char** end)
+{
+    static char replacement[] = "static-name";
+    *begin = replacement;
+    int result = 0;
+    for (char** it = begin; it != end; ++it)
+        result += static_cast<int>(std::strlen(*it));
+    return result;
+}
+
 // `void* const*` is a raw pointer array (the element is a handle), like a counted one.
 inline int count_address_range([[sharpcpp::ended_by(end)]] void* const* begin, void* const* end)
 {

@@ -163,25 +163,39 @@ public sealed class PointerRangeTests
     }
 
     [Fact]
-    public void Char_pointer_pointer_ranges_bind_as_spans_of_utf8_pointers()
+    public void Char_pointer_pointer_ranges_bind_as_spans_of_strings()
     {
-        var strings = new[] { Marshal.StringToCoTaskMemUTF8("ab"), Marshal.StringToCoTaskMemUTF8("cde") };
-        try
-        {
-            Assert.Equal(5, E2EBindings.MeasureCharRange(strings));
-            Assert.Equal(5, E2EBindings.MeasureConstCharRange(strings));
-            Assert.Equal(2, E2EBindings.MeasureCharRange(strings.AsSpan(0, 1)));
-            Assert.Equal(0, E2EBindings.MeasureCharRange([]));
-            Assert.Equal(0, E2EBindings.MeasureConstCharRange([]));
-        }
-        finally
-        {
-            foreach (var pointer in strings)
-                Marshal.FreeCoTaskMem(pointer);
-        }
+        string?[] strings = ["ab", "cde"];
+        Assert.Equal(5, E2EBindings.MeasureCharRange(strings));
+        Assert.Equal(5, E2EBindings.MeasureConstCharRange(strings));
+        Assert.Equal(2, E2EBindings.MeasureCharRange(strings.AsSpan(0, 1)));
+        Assert.Equal(0, E2EBindings.MeasureCharRange([]));
+        Assert.Equal(0, E2EBindings.MeasureConstCharRange([]));
 
-        Assert.Equal(typeof(ReadOnlySpan<nint>), Assert.Single(Method(nameof(E2EBindings.MeasureCharRange)).GetParameters()).ParameterType);
-        Assert.Equal(typeof(ReadOnlySpan<nint>), Assert.Single(Method(nameof(E2EBindings.MeasureConstCharRange)).GetParameters()).ParameterType);
+        Assert.Equal(typeof(ReadOnlySpan<string>), Assert.Single(Method(nameof(E2EBindings.MeasureCharRange)).GetParameters()).ParameterType);
+        Assert.Equal(typeof(ReadOnlySpan<string>), Assert.Single(Method(nameof(E2EBindings.MeasureConstCharRange)).GetParameters()).ParameterType);
+    }
+
+    [Fact]
+    public void String_ranges_marshal_null_elements_empty_spans_non_ascii_text_and_large_ranges()
+    {
+        Assert.Equal('a' + 'b' + 'c', E2EBindings.CharRangeChecksum(["ab", "c"]));
+        Assert.Equal('a' + 1000, E2EBindings.CharRangeChecksum(["a", null]));
+        Assert.Equal(-1, E2EBindings.CharRangeChecksum([]));
+        Assert.Equal(0xC3 + 0xA9, E2EBindings.CharRangeChecksum(["é"]));
+
+        var names = new string?[100];
+        Array.Fill(names, "a");
+        Assert.Equal(100 * 'a', E2EBindings.CharRangeChecksum(names));
+    }
+
+    [Fact]
+    public void A_mutable_string_range_is_input_and_native_rewrites_are_not_read_back()
+    {
+        string?[] strings = ["ab", "cde"];
+
+        Assert.Equal(11 + 3, E2EBindings.RewriteCharRange(strings));
+        Assert.Equal(new string?[] { "ab", "cde" }, strings);
     }
 
     [Fact]

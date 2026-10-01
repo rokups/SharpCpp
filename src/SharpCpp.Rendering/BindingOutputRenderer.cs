@@ -4125,6 +4125,49 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
+        var stringArrayParameters = pointerArrayParameters.Where(IsInputStringArrayParameter).ToArray();
+        foreach (var parameter in stringArrayParameters)
+        {
+            // Zeroed so the finally block frees only what was allocated, even when marshalling
+            // throws part-way (a stackalloc span is not guaranteed to be zero).
+            var abiSpanName = GetPointerArrayAbiSpanName(parameter);
+            writer.Write($$"""
+                global::System.Span<nint> {{abiSpanName}} = {{parameter.ManagedName}}.Length <= 64 ? stackalloc nint[{{parameter.ManagedName}}.Length] : new nint[{{parameter.ManagedName}}.Length];
+                {{abiSpanName}}.Clear();
+                """);
+            if (!parameter.PointeeIsConst)
+            {
+                // Native may rewrite the element pointers of a mutable array: keep the
+                // wrapper's own allocations apart so exactly those are freed.
+                var ownedSpanName = GetPointerArrayOwnedSpanName(parameter);
+                writer.Write($$"""
+                    global::System.Span<nint> {{ownedSpanName}} = {{parameter.ManagedName}}.Length <= 64 ? stackalloc nint[{{parameter.ManagedName}}.Length] : new nint[{{parameter.ManagedName}}.Length];
+                    {{ownedSpanName}}.Clear();
+                    """);
+            }
+        }
+
+        if (stringArrayParameters.Length > 0)
+        {
+            writer.WriteLine("try");
+            writer.WriteLine("{");
+            foreach (var parameter in stringArrayParameters)
+            {
+                var abiSpanName = GetPointerArrayAbiSpanName(parameter);
+                var indexName = $"{abiSpanName}_i";
+                // A mutable array keeps its own copy of the allocated pointers apart from the array native may rewrite.
+                var target = parameter.PointeeIsConst
+                    ? $"{abiSpanName}[{indexName}]"
+                    : $"{abiSpanName}[{indexName}] = {GetPointerArrayOwnedSpanName(parameter)}[{indexName}]";
+                writer.Write($$"""
+                    for (var {{indexName}} = 0; {{indexName}} < {{parameter.ManagedName}}.Length; {{indexName}}++)
+                    {
+                        {{target}} = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8({{parameter.ManagedName}}[{{indexName}}]);
+                    }
+                    """);
+            }
+        }
+
         var invocationPlan = BuildManagedInvocationPlan(compilation, parameters);
         var hasNativeDefaultDispatch = GetNativeDefaultDispatchParameterIndices(function)
             .Any(index => index < parameterCount);
@@ -4145,7 +4188,7 @@ public static partial class BindingOutputRenderer
                 var pointerTypeName = parameter.Type.Kind == BindingTypeKind.Enum
                     ? GetManagedPublicReturnTypeName(parameter.Type, compilation)
                     : GetManagedImportTypeName(parameter.Type, compilation);
-                var spanName = IsInputHandlePointerArrayParameter(parameter)
+                var spanName = IsInputHandlePointerArrayParameter(parameter) || IsInputStringArrayParameter(parameter)
                     ? GetPointerArrayAbiSpanName(parameter)
                     : parameter.ManagedName;
                 writer.WriteLine($"fixed ({pointerTypeName}* {GetPointerArrayPointerName(parameter)} = {spanName})");
@@ -4195,6 +4238,26 @@ public static partial class BindingOutputRenderer
         if (pointerArrayParameters.Length > 0)
         {
             writer.WriteLine("}");
+            writer.WriteLine("}");
+        }
+
+        if (stringArrayParameters.Length > 0)
+        {
+            writer.WriteLine("}");
+            writer.WriteLine("finally");
+            writer.WriteLine("{");
+            foreach (var parameter in stringArrayParameters)
+            {
+                var ownedSpanName = parameter.PointeeIsConst
+                    ? GetPointerArrayAbiSpanName(parameter)
+                    : GetPointerArrayOwnedSpanName(parameter);
+                writer.Write($$"""
+                    foreach (var __pointer in {{ownedSpanName}})
+                    {
+                        global::System.Runtime.InteropServices.Marshal.FreeCoTaskMem(__pointer);
+                    }
+                    """);
+            }
             writer.WriteLine("}");
         }
         writer.WriteLine("}");
@@ -4806,7 +4869,7 @@ public static partial class BindingOutputRenderer
         var invocationArguments = string.Join(
             ", ",
             GetPublicManagedParameters(method.Parameters).Select(parameter => BuildManagedCallbackInvocationArgument(compilation, method, parameter)));
-        var rangeBegins = method.Parameters.Where(IsRecordPointerRangeBegin).ToArray();
+        var rangeBegins = method.Parameters.Where(static parameter => IsRecordPointerRangeBegin(parameter) || IsStringPointerRangeBegin(parameter)).ToArray();
         var hasRangeBegin = method.Parameters.Any(IsPointerRangeBegin);
 
         var callbackPointerFieldName = $"{GetVirtualCallbackDispatchName(method)}Pointer";
@@ -4838,14 +4901,20 @@ public static partial class BindingOutputRenderer
             var itemsName = $"__{baseName}_items";
             var indexName = $"__{baseName}_i";
             var handleName = $"__{baseName}_handle";
-            var elementTypeName = GetManagedPublicReturnTypeName(begin.Type, compilation);
+            // A string range is copied into managed strings (null for a null element); a record
+            // range wraps its handles.
+            var isStringRange = IsInputStringArrayParameter(begin);
+            var elementTypeName = isStringRange ? "string" : GetManagedPublicReturnTypeName(begin.Type, compilation);
+            var elementExpression = isStringRange
+                ? $"global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8({handleName})"
+                : $"{handleName} != 0 ? {BuildManagedHandleWrap(compilation, begin.Type, handleName, ownsHandle: false)} : null";
             writer.Write($$"""
                 var {{countName}} = (int)(({{end.ManagedName}} - {{begin.ManagedName}}) / sizeof(nint));
                 var {{itemsName}} = {{countName}} == 0 ? global::System.Array.Empty<{{elementTypeName}}?>() : new {{elementTypeName}}?[{{countName}}];
                 for (var {{indexName}} = 0; {{indexName}} < {{countName}}; {{indexName}}++)
                 {
                     var {{handleName}} = ((nint*){{begin.ManagedName}})[{{indexName}}];
-                    {{itemsName}}[{{indexName}}] = {{handleName}} != 0 ? {{BuildManagedHandleWrap(compilation, begin.Type, handleName, ownsHandle: false)}} : null;
+                    {{itemsName}}[{{indexName}}] = {{elementExpression}};
                 }
                 """);
         }
@@ -7712,7 +7781,7 @@ public static partial class BindingOutputRenderer
     {
         ValidateVirtualCallbackSupport(parameter);
 
-        if (IsRecordPointerRangeBegin(parameter))
+        if (IsRecordPointerRangeBegin(parameter) || IsStringPointerRangeBegin(parameter))
         {
             return $"new {GetManagedPublicArrayTypeName(parameter, compilation)}(__{parameter.ManagedName.TrimStart('@')}_items)";
         }
@@ -9294,9 +9363,26 @@ public static partial class BindingOutputRenderer
                 string.Equals(parameter.Type.ManagedTypeName, "global::System.IntPtr", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// True for an input string array or range (<c>char**</c>, <c>const char* const*</c>): bound as
+    /// <c>ReadOnlySpan&lt;string?&gt;</c> and marshalled to NUL-terminated UTF-8 by the wrapper.
+    /// </summary>
+    private static bool IsInputStringArrayParameter(ParameterBinding parameter)
+    {
+        ArgumentNullException.ThrowIfNull(parameter);
+
+        return parameter.PointerPointer == PointerPointerKind.Chars &&
+            IsInputRawPointerArrayParameter(parameter);
+    }
+
     /// <summary>The span type an input pointer array or range binds as in a public signature.</summary>
     private static string GetManagedPublicArrayTypeName(ParameterBinding parameter, BindingCompilation compilation)
     {
+        if (IsInputStringArrayParameter(parameter))
+        {
+            return "global::System.ReadOnlySpan<string?>";
+        }
+
         var elementTypeName = GetManagedPublicReturnTypeName(parameter.Type, compilation);
         if (IsInputRawPointerArrayParameter(parameter))
         {
@@ -9320,6 +9406,10 @@ public static partial class BindingOutputRenderer
 
     private static bool IsRecordPointerRangeBegin(ParameterBinding parameter) =>
         parameter.GetPointerRangeBeginKind() == PointerRangeBeginKind.Record;
+
+    /// <summary>The begin of an <c>ended_by</c> string range (a counted string array has no end parameter).</summary>
+    private static bool IsStringPointerRangeBegin(ParameterBinding parameter) =>
+        IsPointerRangeBegin(parameter) && IsInputStringArrayParameter(parameter);
 
     private static ParameterBinding GetPointerRangeEnd(FunctionBinding method, ParameterBinding begin) =>
         method.Parameters.First(candidate =>
@@ -9393,6 +9483,11 @@ public static partial class BindingOutputRenderer
     private static string GetPointerArrayAbiSpanName(ParameterBinding parameter)
     {
         return $"__abi_{parameter.ManagedName.TrimStart('@')}";
+    }
+
+    private static string GetPointerArrayOwnedSpanName(ParameterBinding parameter)
+    {
+        return $"__own_{parameter.ManagedName.TrimStart('@')}";
     }
 
     private static string GetPointerArrayPointerName(ParameterBinding parameter)
