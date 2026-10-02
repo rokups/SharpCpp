@@ -130,7 +130,7 @@ public static class BindingMetadataExporter
             IsFixedArray: record.GetMetadata<bool>(MetadataKeys.FixedArrayRecord),
             IsDynamicArray: record.GetMetadata<bool>(MetadataKeys.DynamicArrayRecord),
             Members: record.Members
-                .Where(static member => !member.IsIgnored())
+                .Where(static member => !member.IsIgnored() && !member.HasMetadata(MetadataKeys.ExplicitInterfaceImplementation))
                 .Select(member => CreateRecordMember(compilation, member))
                 .OrderBy(static member => member.ManagedName, StringComparer.Ordinal)
             .ToArray(),

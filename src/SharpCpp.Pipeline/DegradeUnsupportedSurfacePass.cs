@@ -93,8 +93,9 @@ public static class DegradeUnsupportedSurfacePass
 
             foreach (var record in compilation.Records)
             {
+                // An explicit interface implementation shares its signature with the hiding member by design.
                 var duplicateGroups = record.Members.OfType<FunctionBinding>()
-                    .Where(static function => !function.IsIgnored())
+                    .Where(static function => !function.IsIgnored() && !function.HasMetadata(MetadataKeys.ExplicitInterfaceImplementation))
                     .GroupBy(GetManagedPublicCallableSignatureKey, StringComparer.Ordinal)
                     .Where(static group => group.Count() > 1)
                     .ToArray();

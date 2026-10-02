@@ -50,6 +50,7 @@ public static class BindingCompilationBootstrapPipeline
         RunTimed("RefreshGenericInstantiations", () => BindingCompilationGenericInstantiationPass.RefreshInferred(compilation));
         RunTimed("DegradeCovariantSecondaryBaseOverrides", () => DegradeCovariantSecondaryBaseOverridesPass.Apply(compilation));
         RunTimed("Inheritance", () => BindingCompilationInheritancePass.Apply(compilation));
+        RunTimed("SatisfySecondaryBaseInterfaceMembers", () => SatisfySecondaryBaseInterfaceMembersPass.Apply(compilation));
         RunTimed("InheritManagedRuntimePolicy", () => InheritManagedRuntimePolicyPass.Apply(compilation));
         RunTimed("Polymorphism", () => BindingCompilationPolymorphismPass.Apply(compilation));
         RunTimed("ValidateBootstrap", () => ValidateBootstrapSurfacePass.Apply(compilation));

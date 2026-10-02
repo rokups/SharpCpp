@@ -272,7 +272,9 @@ public static class RecordBindingExtensions
         {
             foreach (var method in candidateRecord.Members.OfType<FunctionBinding>())
             {
-                if (method.IsConstructor || method.IsStatic || method.AccessModifier != BindingAccessModifier.Public || method.IsIgnored())
+                // An explicit interface implementation is not part of the interface it implements.
+                if (method.IsConstructor || method.IsStatic || method.AccessModifier != BindingAccessModifier.Public || method.IsIgnored() ||
+                    method.HasMetadata(MetadataKeys.ExplicitInterfaceImplementation))
                 {
                     continue;
                 }
@@ -290,7 +292,10 @@ public static class RecordBindingExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(managedName);
 
         // Ignored functions emit nothing under their managed name, so they cannot clash.
-        var functions = record.Members.OfType<FunctionBinding>().Where(static function => !function.IsIgnored()).ToArray();
+        // Explicit interface implementations are not named members of the class.
+        var functions = record.Members.OfType<FunctionBinding>()
+            .Where(static function => !function.IsIgnored() && !function.HasMetadata(MetadataKeys.ExplicitInterfaceImplementation))
+            .ToArray();
         return functions.Any(function => string.Equals(function.ManagedName, managedName, StringComparison.Ordinal))
             || functions
                 .Select(function => function.GetMetadata<AccessorPropertyAnnotation>(MetadataKeys.AccessorProperty))

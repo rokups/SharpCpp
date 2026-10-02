@@ -267,4 +267,40 @@ inline int tick_via_labelled(labelled* value)
     return value->tick();
 }
 
+/// Non-virtual hiding of a secondary-base method with another return type: the interface keeps the
+/// base return type, so the classes implement it explicitly through the base declaration.
+struct rate_source
+{
+    int rate() const
+    {
+        return 5;
+    }
+};
+
+class rate_meter : public primary, public rate_source
+{
+public:
+    double rate() const
+    {
+        return 2.5;
+    }
+};
+
+struct rate_scaler : public label_base, public rate_source
+{
+    double rate() const
+    {
+        return 2.5;
+    }
+};
+
+class rate_panel : public primary, public rate_scaler
+{
+};
+
+inline int rate_via_source(rate_source* source)
+{
+    return source->rate();
+}
+
 }

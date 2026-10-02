@@ -3489,7 +3489,7 @@ public static partial class BindingOutputRenderer
             {
                 var isDirectorVirtual = requiresDirector && method.IsVirtual;
                 writer.Write(RenderManagedInstanceMethod(compilation, record, method, isDirectorVirtual));
-                if (!method.IsVirtual && TryGetRecordBufferOverloadParameters(method, out _, out _))
+                if (!method.IsVirtual && !method.HasMetadata(MetadataKeys.ExplicitInterfaceImplementation) && TryGetRecordBufferOverloadParameters(method, out _, out _))
                 {
                     writer.WriteLine();
                     writer.WriteLine();
@@ -3885,13 +3885,23 @@ public static partial class BindingOutputRenderer
             !function.IsSilentlyExcluded());
     }
 
+    private static RecordBinding? GetExplicitInterfaceImplementationRecord(BindingCompilation compilation, FunctionBinding function)
+    {
+        return function.TryGetMetadata<string>(MetadataKeys.ExplicitInterfaceImplementation, out var interfaceRecordId)
+            ? compilation.FindRecordBySymbolId(interfaceRecordId)
+            : null;
+    }
+
     // A native override (nativeOverride) renders a managed abstract member as an override that
     // calls the declaring record's native entry point; the hidden concrete wrapper of a
     // director-less abstract record uses it.
     private static string RenderManagedInstanceMethod(BindingCompilation compilation, RecordBinding record, FunctionBinding function, bool useCallbase = false, bool nativeOverride = false)
     {
         var writer = new CodeWriter();
-        if (!nativeOverride)
+        // A clone of a hidden secondary-base interface member implements that interface member
+        // explicitly: no docs, visibility or modifier, and no convenience overloads.
+        var explicitInterface = GetExplicitInterfaceImplementationRecord(compilation, function);
+        if (!nativeOverride && explicitInterface is null)
         {
             WriteDocumentationComment(writer, function);
         }
@@ -3900,7 +3910,9 @@ public static partial class BindingOutputRenderer
         var importMethodName = useCallbase
             ? GetManagedCallbaseImportMethodName(function)
             : GetManagedImportMethodName(function);
-        var memberModifier = nativeOverride ? "override " : GetManagedInstanceMethodModifier(compilation, record, function);
+        var memberModifier = explicitInterface is not null
+            ? string.Empty
+            : nativeOverride ? "override " : GetManagedInstanceMethodModifier(compilation, record, function);
 
         if (memberModifier.Contains("abstract ", StringComparison.Ordinal))
         {
@@ -3923,7 +3935,7 @@ public static partial class BindingOutputRenderer
             return writer.ToString();
         }
 
-        if (function.Parameters.Any(IsInputPointerArrayParameter))
+        if (explicitInterface is null && function.Parameters.Any(IsInputPointerArrayParameter))
         {
             writer.Write(RenderManagedPointerArrayFunction(
                 compilation,
@@ -3935,13 +3947,13 @@ public static partial class BindingOutputRenderer
             return writer.ToString();
         }
 
-        if (HasUndefaultableParams(function))
+        if (explicitInterface is null && HasUndefaultableParams(function))
         {
             WriteUndefaultableOverloads(compilation, writer, function, importMethodName, ["this"]);
             return writer.ToString();
         }
 
-        if (!nativeOverride && HasUnexpressibleDefaultParams(function))
+        if (!nativeOverride && explicitInterface is null && HasUnexpressibleDefaultParams(function))
         {
             WriteManagedUnexpressibleDefaultConvenienceOverloads(
                 writer,
@@ -3954,10 +3966,21 @@ public static partial class BindingOutputRenderer
                 isConstructor: false);
         }
 
-        var parameterListFull = RenderManagedInstancePublicParameterList(compilation, record, function);
+        string signature;
+        if (explicitInterface is not null)
+        {
+            // An explicit implementation cannot declare default values; the interface member does.
+            var explicitParameters = string.Join(", ", GetPublicManagedParameters(function.Parameters).Select(parameter => RenderManagedPublicParameterRequired(parameter, compilation)));
+            signature = $"{returnTypeName} {GetManagedInterfaceTypeName(compilation, explicitInterface, function.ReturnType)}.{function.ManagedName}({explicitParameters})";
+        }
+        else
+        {
+            var parameterListFull = RenderManagedInstancePublicParameterList(compilation, record, function);
+            signature = $"{GetManagedVisibilityNormalized(compilation, record, function)} {memberModifier}{returnTypeName} {function.ManagedName}({parameterListFull})";
+        }
 
         writer.Write($$"""
-            {{GetManagedVisibilityNormalized(compilation, record, function)}} {{memberModifier}}{{returnTypeName}} {{function.ManagedName}}({{parameterListFull}})
+            {{signature}}
             {
             """);
 
@@ -8222,7 +8245,8 @@ public static partial class BindingOutputRenderer
                 .ToHashSet(StringComparer.Ordinal);
             foreach (var method in declaringRecord.Members.OfType<FunctionBinding>())
             {
-                if (method.IsConstructor || method.IsStatic || method.IsSilentlyExcluded() || method.HasMetadata(MetadataKeys.IgnoreReason))
+                if (method.IsConstructor || method.IsStatic || method.IsSilentlyExcluded() || method.HasMetadata(MetadataKeys.IgnoreReason) ||
+                    method.HasMetadata(MetadataKeys.ExplicitInterfaceImplementation))
                 {
                     continue;
                 }

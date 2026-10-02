@@ -25,6 +25,10 @@ public static class MetadataKeys
     // override shadows it; it keeps the declared return type so it still implements the interface.
     public const string CovariantProjectedBaseMethod = "covariant_projected_base_method";
     public const string ProjectedSecondaryBaseMethod = "projected_secondary_base_method";
+    // Set on a non-virtual clone of a secondary-base interface member that a derived record hides
+    // with another return type; the value is the SymbolId of the record whose interface declares
+    // the member. The class renders it as an explicit implementation of that interface member.
+    public const string ExplicitInterfaceImplementation = "explicit_interface_implementation";
     public const string Warnings = "warnings";
     public const string DocumentationComment = "documentation_comment";
     public const string DeclarationDisplayText = "declaration_display_text";

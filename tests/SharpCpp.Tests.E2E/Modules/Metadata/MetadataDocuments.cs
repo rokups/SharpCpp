@@ -42,6 +42,14 @@ public sealed class MetadataDocumentTests
     }
 
     [Fact]
+    public void Explicit_interface_implementations_are_not_exported_as_members()
+    {
+        // rate_meter binds the hidden rate_source::rate as an explicit interface implementation.
+        var rates = Type(Main, "RateMeter").GetProperty("members").EnumerateArray().Where(static member => Name(member) == "Rate").ToArray();
+        Assert.Single(rates);
+    }
+
+    [Fact]
     public void Enums_carry_flags_and_values()
     {
         var permissions = Type(DependencyDocument, "DependencyPermissions");

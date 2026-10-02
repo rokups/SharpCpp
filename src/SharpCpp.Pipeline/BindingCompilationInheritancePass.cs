@@ -115,7 +115,7 @@ public static class BindingCompilationInheritancePass
         return null;
     }
 
-    private static string ResolveDeclaringRecordCppTypeName(FunctionBinding sourceMethod, string dispatchRecordCppTypeName)
+    internal static string ResolveDeclaringRecordCppTypeName(FunctionBinding sourceMethod, string dispatchRecordCppTypeName)
     {
         if (!string.IsNullOrWhiteSpace(sourceMethod.NativeDeclaringRecordCppTypeName))
         {
@@ -131,7 +131,7 @@ public static class BindingCompilationInheritancePass
         return owner is null || owner.IsGeneric ? dispatchRecordCppTypeName : owner.CppQualifiedName;
     }
 
-    private static FunctionBinding CloneProjectedMethod(
+    internal static FunctionBinding CloneProjectedMethod(
         BindingCompilation compilation,
         RecordBinding targetRecord,
         RecordBinding dispatchRecord,

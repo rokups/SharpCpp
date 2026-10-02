@@ -53,8 +53,8 @@ public static class SecondaryBaseViewPass
                 if (!ReturnTypesMatch(method.ReturnType, inherited.ReturnType))
                 {
                     record.SetWarning(
-                        $"'{method.CppQualifiedName}' redeclares '{inherited.ManagedName}' with a covariant return type; " +
-                        "the interface exposes the base return type");
+                        $"'{method.CppQualifiedName}' redeclares '{inherited.ManagedName}' with a different return type; " +
+                        "the interface exposes the base return type, and implementing classes bind the base declaration as an explicit interface implementation");
                 }
             }
         }
@@ -153,7 +153,7 @@ public static class SecondaryBaseViewPass
            string.IsNullOrWhiteSpace(record.GetMetadata<string>(MetadataKeys.ManagedWrapperAssembly)) &&
            !record.GetMetadata<bool>(MetadataKeys.NativeInterfaceWrapper);
 
-    private static IEnumerable<RecordBinding> CollectInterfaceReach(RecordBinding record, BindingCompilation compilation)
+    internal static IEnumerable<RecordBinding> CollectInterfaceReach(RecordBinding record, BindingCompilation compilation)
     {
         var visited = new HashSet<string>(StringComparer.Ordinal);
         var pending = new Stack<RecordBinding>(record.GetSecondaryBaseRecords(compilation));
@@ -169,7 +169,7 @@ public static class SecondaryBaseViewPass
         }
     }
 
-    private static int CountBasePaths(RecordBinding record, string targetId, BindingCompilation compilation, int depth)
+    internal static int CountBasePaths(RecordBinding record, string targetId, BindingCompilation compilation, int depth)
     {
         if (depth > 64)
             return 2;

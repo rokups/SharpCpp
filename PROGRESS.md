@@ -65,12 +65,16 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   projected into a base record (`MetadataKeys.ProjectedSecondaryBaseMethod`). A covariant override
   on the secondary base's own primary chain is therefore projected with its covariant return type
   and dispatch cast (fixture `origin_user`), and a non-virtual hiding declaration carries the
-  hiding declaration's docs, defaults and return type (fixture `scale_holder`). Known gaps:
-  non-virtual hiding with a different return type across a secondary base still only warns
-  (`SecondaryBaseViewPass.WarnOnRedeclaredInterfaceMethods`) and gives CS0738; so does a covariant
-  override on a secondary base's primary chain when the overridden base is itself a rendered
-  interface (the class member cannot implicitly implement the inherited base-typed member, so no
-  fixture exists); projection through a virtual-base diamond does not apply the C++ dominance
+  hiding declaration's docs, defaults and return type (fixture `scale_holder`). Non-virtual hiding
+  with a different return type across a secondary base is bound by
+  `SatisfySecondaryBaseInterfaceMembersPass`, which adds a non-virtual clone of the hidden base
+  declaration rendered as an explicit interface implementation that calls the base declaration
+  (fixtures `rate_meter` and `rate_panel`). Known gaps: the cases that pass has to leave
+  unbound, a generic declaring interface, an accessor-promoted member, an ambiguous base path and
+  convenience-overload parameters, are only warned about and still give CS0738 in the generated C#;
+  a covariant override on a secondary base's primary chain when the overridden base is itself a
+  rendered interface gives CS0738 (the class member cannot implicitly implement the inherited
+  base-typed member, so no fixture exists); projection through a virtual-base diamond does not apply the C++ dominance
   rule (the shared virtual base is enumerated before the second path's hiding declaration); and
   a hiding declaration with a different parameter list still gets the base overloads projected,
   although C++ lookup through the hiding record cannot find them (last two found by reading, no

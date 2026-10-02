@@ -40,6 +40,15 @@ public sealed class DiagnosticLogTests
     }
 
     [Fact]
+    public void Hiding_a_secondary_base_method_with_a_different_return_type_is_warned_about()
+    {
+        Assert.Contains(Lines, static line =>
+            line.StartsWith("WARNING\tRecord\t", StringComparison.Ordinal) &&
+            line.Contains("\tsecondary_bases::rate_scaler\t", StringComparison.Ordinal) &&
+            line.Contains("with a different return type", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Silent_exclusions_and_warnings_are_logged()
     {
         Assert.Contains(Lines, static line => line.StartsWith("EXCLUDED\tRecord\t(unknown)\tstd::locale\t", StringComparison.Ordinal));

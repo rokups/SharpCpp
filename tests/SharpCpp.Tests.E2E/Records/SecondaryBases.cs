@@ -195,4 +195,31 @@ public sealed class SecondaryBaseTests
         Assert.DoesNotContain("Scales by the base factor.", holderText, StringComparison.Ordinal);
         Assert.DoesNotContain("factor = 2", holderText, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Non_virtual_hiding_of_a_secondary_base_method_with_a_different_return_type_implements_the_base_interface_explicitly()
+    {
+        using var meter = new RateMeter();
+        using var scaler = new RateScaler();
+        using var panel = new RatePanel();
+        AssertExplicitRateImplementation(meter, meter);
+        AssertExplicitRateImplementation(scaler, scaler);
+        AssertExplicitRateImplementation(panel, panel);
+
+        Assert.Equal(typeof(double), typeof(RateMeter).GetMethod("Rate")!.ReturnType);
+        Assert.Equal(typeof(double), typeof(RateScaler).GetMethod("Rate")!.ReturnType);
+        Assert.Equal(typeof(double), typeof(RatePanel).GetMethod("Rate")!.ReturnType);
+        Assert.Null(typeof(IRateScaler).GetMethod("Rate", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly));
+    }
+
+    private static void AssertExplicitRateImplementation(IRateSource source, object instance)
+    {
+        var type = instance.GetType();
+        Assert.Equal(2.5, (double)type.GetMethod("Rate")!.Invoke(instance, null)!);
+        Assert.Equal(5, source.Rate());
+        var map = type.GetInterfaceMap(typeof(IRateSource));
+        var index = Array.FindIndex(map.InterfaceMethods, static method => method.Name == "Rate");
+        Assert.False(map.TargetMethods[index].IsPublic);
+        Assert.Equal(5, SharpCpp.Tests.E2E.Generated.E2EBindings.RateViaSource(source));
+    }
 }
