@@ -155,7 +155,7 @@ public sealed class OwnedStringTests
     }
 
     [Theory]
-    [InlineData("MakeUnfreedText", "make_unfreed_text", "return value is freed by 'no_such_release', which is not a free function of the compilation")]
+    [InlineData("MakeUnfreedText", "make_unfreed_text", "return value is freed by 'no_such_release', which is not a free function of the compilation or of an imported module")]
     [InlineData("MakeTwoArgFreedText", "make_two_arg_freed_text", "return value is freed by 'release_two_args', which does not take one pointer parameter")]
     [InlineData("MakeNonPointerOwned", "make_non_pointer_owned", "return value is freed by 'release_owned_text' but does not return a char pointer")]
     [InlineData("MeasureInFreed", "measure_in_freed", "parameter 'names' is freed by 'release_owned_text' but is not an output string")]

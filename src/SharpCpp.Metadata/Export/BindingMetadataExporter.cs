@@ -75,6 +75,15 @@ public static class BindingMetadataExporter
                 CreateTypeReference(compilation, alias.TargetType, fullyQualifyConcrete: true)))
             .ToArray();
 
+        var stringFreeFunctions = OwnedStringFunctions.CollectFreeFunctions(compilation)
+            .Where(static free => !free.IsImported)
+            .Select(free => new BindingMetadataStringFreeExport(
+                free.NativeName,
+                free.CppQualifiedName,
+                free.ParameterCppTypeName,
+                OwnedStringFunctions.GetFreeEntryPointName(compilation, free)))
+            .ToArray();
+
         var imports = (options.Imports ?? Array.Empty<BindingMetadataImport>())
             .OrderBy(static importItem => importItem.Package, StringComparer.Ordinal)
             .ThenBy(static importItem => importItem.Hash, StringComparer.Ordinal)
@@ -97,7 +106,8 @@ public static class BindingMetadataExporter
             fingerprint,
             types,
             functions,
-            aliases);
+            aliases,
+            stringFreeFunctions.Length == 0 ? null : stringFreeFunctions);
     }
 
     private static BindingMetadataType CreateRecordType(BindingCompilation compilation, RecordBinding record)

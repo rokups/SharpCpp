@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstring>
 #include <functional>
 #include <vector>
 
@@ -416,5 +417,31 @@ struct dependency_tag_reading : dependency_value, dependency_tag_reader
     {
     }
 };
+
+/// Owned-string release owned by this module: a consumer tags its own `char*` results with
+/// it, and the exported metadata lets the consumer reuse this module's release thunk.
+inline int& dependency_release_count()
+{
+    static int releases = 0;
+    return releases;
+}
+
+inline void release_dependency_text(char* text)
+{
+    ++dependency_release_count();
+    delete[] text;
+}
+
+[[sharpcpp::freed_by(release_dependency_text)]] inline char* make_dependency_text()
+{
+    char* text = new char[16];
+    std::memcpy(text, "dependency text", 16);
+    return text;
+}
+
+inline int read_dependency_release_count()
+{
+    return dependency_release_count();
+}
 }
 

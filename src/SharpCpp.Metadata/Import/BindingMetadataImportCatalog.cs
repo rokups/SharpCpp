@@ -122,6 +122,25 @@ public sealed class BindingMetadataImportCatalog
                 SeedAlias(compilation, recordsByName, enumsByName, document, alias);
             }
         }
+
+        // Release thunks the dependencies export for their owned-string free functions. The same
+        // document can be loaded more than once, so identical entries are added once.
+        foreach (var document in _documents)
+        {
+            foreach (var export in (document.StringFreeFunctions ?? Array.Empty<BindingMetadataStringFreeExport>())
+                .OrderBy(static item => item.NativeName, StringComparer.Ordinal))
+            {
+                var imported = new StringFreeFunction(
+                    export.NativeName,
+                    export.CppQualifiedName,
+                    export.ParameterCppTypeName,
+                    new StringFreeFunctionImport(document.Source.NativeLibrary, export.EntryPoint));
+                if (!compilation.ImportedStringFreeFunctions.Contains(imported))
+                {
+                    compilation.ImportedStringFreeFunctions.Add(imported);
+                }
+            }
+        }
     }
 
     private static void SeedRecord(BindingCompilation compilation, IDictionary<string, RecordBinding> recordsByName, BindingMetadataDocument document, BindingMetadataType importedType)

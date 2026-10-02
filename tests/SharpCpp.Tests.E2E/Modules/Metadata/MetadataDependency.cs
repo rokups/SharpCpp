@@ -118,4 +118,32 @@ public sealed class MetadataDependencyTests
         using var values = new global::Std.Vector<int>(new[] { 11, 14, 17 });
         Assert.Equal(42, ConsumerBindings.ConsumeDependencyDynamicAlias(values));
     }
+
+    // Limit: every E2E module links into one native library, so this proves thunk identity (the
+    // consumer's managed import targets the dependency's entry point, and no consumer thunk
+    // exists) and that the dependency's release function ran. It cannot show cross-DLL behaviour.
+    [Fact]
+    public void Imported_owned_string_release_runs_the_dependencys_free_function()
+    {
+        var before = DependencyBindings.ReadDependencyReleaseCount();
+
+        Assert.Equal("consumer text", ConsumerBindings.MakeConsumerDependencyText());
+        ConsumerBindings.GetConsumerDependencyLabel(out var label);
+        Assert.Equal("consumer label", label);
+        Assert.Equal(before + 2, DependencyBindings.ReadDependencyReleaseCount());
+
+        Assert.Equal("dependency text", DependencyBindings.MakeDependencyText());
+        Assert.Equal(before + 3, DependencyBindings.ReadDependencyReleaseCount());
+
+        const string dependencyFree = "sharpcpp_metadata_dependency_free_release_dependency_text";
+        Assert.Contains(
+            $"EntryPoint = \"{dependencyFree}\"",
+            Diagnostics.GeneratedArtifacts.ReadText("SharpCppMetadataConsumer.Bindings.Aliases.g.cs"));
+        var consumerNative = Diagnostics.GeneratedArtifacts.ReadText("SharpCppMetadataConsumer.Bindings.g.cpp");
+        Assert.DoesNotContain("sharpcpp_metadata_consumer_free_", consumerNative);
+        Assert.DoesNotContain("_free_release_dependency_text", consumerNative);
+        Assert.Contains(
+            $"SHARPCPP_EXPORT_NAMED({dependencyFree})",
+            Diagnostics.GeneratedArtifacts.ReadText("SharpCppMetadataDependency.Bindings.g.cpp"));
+    }
 }

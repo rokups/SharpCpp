@@ -3,6 +3,7 @@ namespace SharpCpp.Model.Ast;
 public sealed class BindingCompilation : BindingContainerNode
 {
     private readonly List<BindingTypeAlias> _typeAliases = new();
+    private readonly List<StringFreeFunction> _importedStringFreeFunctions = new();
 
     public BindingCompilation(
         string projectName,
@@ -43,6 +44,8 @@ public sealed class BindingCompilation : BindingContainerNode
     public IList<string> NativeSupportHeaders { get; }
 
     public IList<BindingTypeAlias> TypeAliases => _typeAliases;
+
+    public IList<StringFreeFunction> ImportedStringFreeFunctions => _importedStringFreeFunctions;
 
     public IReadOnlyDictionary<string, string> NamespaceMappings { get; set; } = new Dictionary<string, string>();
 

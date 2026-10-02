@@ -1726,32 +1726,10 @@ public static partial class BindingOutputRenderer
         => $"__free_{SanitizeNativeEntrypointName(free.NativeName)}";
 
     private static string GetStringFreeEntryPointName(BindingCompilation compilation, StringFreeFunction free)
-        => $"{compilation.EntryPointPrefix}_free_{SanitizeNativeEntrypointName(free.NativeName)}";
+        => OwnedStringFunctions.GetFreeEntryPointName(compilation, free);
 
-    /// <summary>
-    /// The distinct free functions of live owned strings (returns and output parameters), in
-    /// ordinal order. Each gets one native thunk and one managed import for the whole module.
-    /// </summary>
     private static StringFreeFunction[] CollectStringFreeFunctions(BindingCompilation compilation)
-    {
-        var found = new Dictionary<string, StringFreeFunction>(StringComparer.Ordinal);
-        foreach (var function in compilation.Functions)
-        {
-            if (function.IsIgnored() || function.IsSilentlyExcluded())
-                continue;
-
-            if (function.TryGetMetadata<StringFreeFunction>(MetadataKeys.StringFreeFunction, out var returnFree))
-                found.TryAdd(returnFree!.NativeName, returnFree);
-
-            foreach (var parameter in function.Parameters)
-            {
-                if (parameter.TryGetMetadata<StringFreeFunction>(MetadataKeys.StringFreeFunction, out var parameterFree))
-                    found.TryAdd(parameterFree!.NativeName, parameterFree);
-            }
-        }
-
-        return found.Values.OrderBy(static free => free.NativeName, StringComparer.Ordinal).ToArray();
-    }
+        => OwnedStringFunctions.CollectFreeFunctions(compilation);
 
     private static string RenderManagedWrapperMethod(BindingCompilation compilation, FunctionBinding function)
     {
@@ -2157,8 +2135,10 @@ public static partial class BindingOutputRenderer
             """);
         foreach (var free in frees)
         {
+            var libraryName = free.Import?.NativeLibraryName ?? compilation.NativeLibraryName;
+            var entryPointName = free.Import?.EntryPointName ?? GetStringFreeEntryPointName(compilation, free);
             writer.Write($$"""
-                [LibraryImport("{{compilation.NativeLibraryName}}", EntryPoint = "{{GetStringFreeEntryPointName(compilation, free)}}")]
+                [LibraryImport("{{libraryName}}", EntryPoint = "{{entryPointName}}")]
                 internal static partial void {{GetStringFreeImportName(free)}}(nint value);
                 """);
         }
@@ -5789,7 +5769,7 @@ public static partial class BindingOutputRenderer
         {
             // One release thunk per distinct free function of an owned string; the managed side
             // copies the text and then calls it, so the free runs in the native allocator's module.
-            foreach (var free in CollectStringFreeFunctions(compilation))
+            foreach (var free in CollectStringFreeFunctions(compilation).Where(static free => !free.IsImported))
             {
                 writer.Write($$"""
 
@@ -8011,18 +7991,7 @@ public static partial class BindingOutputRenderer
     }
 
     private static string SanitizeNativeEntrypointName(string value)
-    {
-        var sanitized = value.Replace("::", "_", StringComparison.Ordinal).ToCharArray();
-        for (var index = 0; index < sanitized.Length; ++index)
-        {
-            if (!char.IsAsciiLetterOrDigit(sanitized[index]) && sanitized[index] != '_')
-            {
-                sanitized[index] = '_';
-            }
-        }
-
-        return new string(sanitized);
-    }
+        => OwnedStringFunctions.SanitizeNativeEntrypointName(value);
 
     private static string GetNativeDeleteEntryPointName(BindingCompilation compilation, RecordBinding record)
         => $"{compilation.EntryPointPrefix}_{GetNativeRecordEntryPointToken(record)}_delete";

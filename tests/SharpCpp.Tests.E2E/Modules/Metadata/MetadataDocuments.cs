@@ -172,6 +172,29 @@ public sealed class MetadataDocumentTests
     }
 
     [Fact]
+    public void Owned_string_release_thunks_are_exported_by_the_module_that_owns_them()
+    {
+        var exports = Main.GetProperty("string_free_functions").EnumerateArray().ToArray();
+        Assert.Equal(["release_owned_memory", "release_owned_text"], exports.Select(static export => export.GetProperty("native_name").GetString()));
+
+        var text = Assert.Single(exports, static export => export.GetProperty("native_name").GetString() == "release_owned_text");
+        Assert.Equal("release_owned_text", text.GetProperty("cpp_qualified_name").GetString());
+        Assert.Equal("char*", text.GetProperty("parameter_cpp_type_name").GetString());
+        Assert.Equal("sharpcpp_e2e_free_release_owned_text", text.GetProperty("entry_point").GetString());
+
+        var memory = Assert.Single(exports, static export => export.GetProperty("native_name").GetString() == "release_owned_memory");
+        Assert.Equal("sharpcpp_e2e_free_release_owned_memory", memory.GetProperty("entry_point").GetString());
+
+        // The dependency owns release_dependency_text and exports its thunk; the consumer only
+        // uses it, so local-only export leaves the consumer's property out.
+        var dependencyExport = Assert.Single(DependencyDocument.GetProperty("string_free_functions").EnumerateArray());
+        Assert.Equal("release_dependency_text", dependencyExport.GetProperty("native_name").GetString());
+        Assert.Equal("sharpcpp_coverage::release_dependency_text", dependencyExport.GetProperty("cpp_qualified_name").GetString());
+        Assert.Equal("sharpcpp_metadata_dependency_free_release_dependency_text", dependencyExport.GetProperty("entry_point").GetString());
+        Assert.False(ConsumerDocument.TryGetProperty("string_free_functions", out _));
+    }
+
+    [Fact]
     public void Functions_without_freed_by_export_no_free_function()
     {
         // An ordinary char* return stays the raw address; an ordinary input string has no free either.
@@ -179,8 +202,8 @@ public sealed class MetadataDocumentTests
         Assert.Equal("global::System.IntPtr", plain.GetProperty("return_type").GetProperty("public_type").GetString());
         Assert.False(plain.TryGetProperty("return_string_free_function", out _));
 
-        // Only the validated freed_by functions carry the fields; every other function (and the
-        // dependency/consumer documents) omits them entirely.
+        // Only the validated freed_by functions carry the fields; every other function omits them
+        // entirely; the dependency and consumer fixtures list just their own tagged functions.
         static string[] WithFreeFunction(JsonElement document) => document.GetProperty("functions").EnumerateArray()
             .Where(static function => function.TryGetProperty("return_string_free_function", out _)
                 || function.GetProperty("parameters").EnumerateArray().Any(static parameter => parameter.TryGetProperty("string_free_function", out _)))
@@ -195,8 +218,8 @@ public sealed class MetadataDocumentTests
                 "MakeOwnedText", "MakeOwnedTextWithLabel",
             ];
         Assert.Equal(expected, WithFreeFunction(Main));
-        Assert.Empty(WithFreeFunction(DependencyDocument));
-        Assert.Empty(WithFreeFunction(ConsumerDocument));
+        Assert.Equal(new[] { "MakeDependencyText" }, WithFreeFunction(DependencyDocument));
+        Assert.Equal(new[] { "GetConsumerDependencyLabel", "MakeConsumerDependencyText" }, WithFreeFunction(ConsumerDocument));
     }
 
     private static string Name(JsonElement element) => element.GetProperty("managed_name").GetString()!;

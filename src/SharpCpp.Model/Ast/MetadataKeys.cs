@@ -142,8 +142,24 @@ public static class PointerPointerShapes
 /// The validated free function of an owned string (<see cref="MetadataKeys.StringFreeFunction"/>).
 /// <paramref name="NativeName"/> is the C++ name used in the thunk export; <paramref name="CppQualifiedName"/>
 /// is the call target and <paramref name="ParameterCppTypeName"/> the C++ type of its one parameter.
+/// <paramref name="Import"/> is <see langword="null"/> for a local free, whose library and entry point are
+/// derived from the compilation at render time; an imported free never gets a thunk in this module.
 /// </summary>
-public sealed record StringFreeFunction(string NativeName, string CppQualifiedName, string ParameterCppTypeName);
+public sealed record StringFreeFunction(
+    string NativeName,
+    string CppQualifiedName,
+    string ParameterCppTypeName,
+    StringFreeFunctionImport? Import = null)
+{
+    /// <summary>True when the release thunk lives in a dependency module (see <see cref="Import"/>).</summary>
+    public bool IsImported => Import is not null;
+}
+
+/// <summary>
+/// The release-thunk identity of an imported string free function: the native library that exports it
+/// and its entry point name there.
+/// </summary>
+public sealed record StringFreeFunctionImport(string NativeLibraryName, string EntryPointName);
 
 public sealed record NativeInterfaceQueryAnnotation(string SourceRecordCppQualifiedName, string InterfaceIdExpression);
 

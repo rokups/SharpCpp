@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstring>
+
 #include "Dependency.hpp"
 
 namespace sharpcpp_coverage
@@ -93,4 +95,18 @@ struct consumer_derived : dependency_base
         return get_base_value() * 2;
     }
 };
+
+/// Allocated with the dependency's `new char[]` convention and freed by its release function.
+[[sharpcpp::freed_by(release_dependency_text)]] inline char* make_consumer_dependency_text()
+{
+    char* text = new char[14];
+    std::memcpy(text, "consumer text", 14);
+    return text;
+}
+
+inline void get_consumer_dependency_label([[sharpcpp::freed_by(release_dependency_text)]] char** value)
+{
+    *value = new char[15];
+    std::memcpy(*value, "consumer label", 15);
+}
 }

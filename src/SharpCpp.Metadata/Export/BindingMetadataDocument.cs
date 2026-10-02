@@ -9,7 +9,10 @@ public sealed record BindingMetadataDocument(
     BindingMetadataFingerprint Fingerprint,
     IReadOnlyList<BindingMetadataType> Types,
     IReadOnlyList<BindingMetadataFunction> Functions,
-    IReadOnlyList<BindingMetadataAlias>? Aliases = null);
+    IReadOnlyList<BindingMetadataAlias>? Aliases = null,
+    // The release thunks this module exports for its own owned-string free functions, so a
+    // consumer can free a string freed_by a function of this module. Null when there are none.
+    IReadOnlyList<BindingMetadataStringFreeExport>? StringFreeFunctions = null);
 
 public sealed record BindingMetadataSource(string Package, string ManagedNamespace, string NativeLibrary);
 
@@ -93,6 +96,13 @@ public sealed record BindingMetadataFunction(
 
 /// <summary>The free function of an owned string (an owned return or an owned output parameter).</summary>
 public sealed record BindingMetadataStringFreeFunction(string NativeName, string CppQualifiedName);
+
+/// <summary>A release thunk exported by a module: the free function and the native entry point that calls it.</summary>
+public sealed record BindingMetadataStringFreeExport(
+    string NativeName,
+    string CppQualifiedName,
+    string ParameterCppTypeName,
+    string EntryPoint);
 
 public sealed record BindingMetadataAlias(
     string CppQualifiedName,

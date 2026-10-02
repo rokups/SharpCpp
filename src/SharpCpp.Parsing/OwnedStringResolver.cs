@@ -136,7 +136,21 @@ public static class OwnedStringResolver
             .ToArray();
         if (candidates.Length == 0)
         {
-            problem = $"{subject} is freed by '{name}', which is not a free function of the compilation";
+            // A free function of a dependency module: its exporting module validated it and
+            // published the release thunk, so it is used as exported.
+            var imported = compilation.ImportedStringFreeFunctions
+                .Where(candidate => string.Equals(candidate.NativeName, name, StringComparison.Ordinal))
+                .Distinct()
+                .ToArray();
+            if (imported.Length == 1)
+            {
+                free = imported[0];
+                return true;
+            }
+
+            problem = imported.Length > 1
+                ? $"{subject} is freed by '{name}', which is exported by more than one imported module"
+                : $"{subject} is freed by '{name}', which is not a free function of the compilation or of an imported module";
             return false;
         }
 

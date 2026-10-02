@@ -219,7 +219,9 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   (after the pointer-pointer shapes) validates the tag, records `MetadataKeys.StringFreeFunction`
   (the only key the renderer reads) and retypes an owned return to a raw address. It ignores the
   function with a reason in generator.log when: the attribute is empty; the free function is not
-  exactly one non-generic, non-member function of the compilation (missing or overloaded); the
+  exactly one non-generic, non-member function of the compilation and, when the compilation has
+  none, not exactly one imported release thunk of that name (missing, overloaded, or exported by
+  several imported modules); the
   free function does not take one pointer parameter (`void*` counts); a tagged parameter is not an
   output string (`[[sharpcpp::in]]`, a `counted_by` array, a value parameter); the return is not
   a `char` pointer; the tagged function is a member, virtual or generic (free functions only);
@@ -232,9 +234,22 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   free function as an optional `return_string_free_function` on the function entry and
   `string_free_function` on an owned output parameter (`native_name`, `cpp_qualified_name`; omitted
   when absent, so documents without `freed_by` are unchanged and the schema version stays 9).
-  Known gap (open): the importer rebuilds only records, enums, aliases and record members, never
-  free functions, and `freed_by` is limited to free functions, so an importing module still cannot
-  bind another module's owned-string functions.
+  A module also exports the identity of its own release thunks as an optional top-level
+  `string_free_functions` list (`native_name`, `cpp_qualified_name`, `parameter_cpp_type_name`,
+  `entry_point`; local frees only, omitted when empty, schema version unchanged). The importer
+  seeds them into `ImportedStringFreeFunctions` (deduplicated, with the dependency's native
+  library and entry point). `OwnedStringResolver` prefers a local free and falls back to an
+  imported one by native name only when there is no local candidate; an ambiguous import is a
+  logged problem. The renderer emits no thunk for an imported free: the consumer's
+  `[LibraryImport]` targets the dependency's library and entry point. The `Metadata` E2E fixture
+  (`Dependency.hpp`/`Consumer.hpp`, `MetadataDependency.cs`) proves it: a consumer's owned return
+  and output parameter are freed through `release_dependency_text`, the consumer `.g.cpp` has no
+  free thunk, and the dependency's release counter rises.
+  Still open: (i) a release function that no function of the dependency tags gets no thunk and
+  cannot be imported; (ii) `freed_by` on record members is still rejected and imported member
+  parameters do not carry `StringFreeFunction`; (iii) imported frees are not re-exported
+  transitively, so a third module must load every dependency document; (iv) the E2E fixture
+  cannot show cross-DLL behaviour (all modules share one native library).
 - Containers whose element is not copy-assignable, or whose allocator (a record declaring
   `allocate`) is not default-constructible, are degraded with a diagnostic. The element check
   uses the same coarse heuristic as the non-copyable one (the container has a member taking or
