@@ -222,4 +222,33 @@ public sealed class SecondaryBaseTests
         Assert.False(map.TargetMethods[index].IsPublic);
         Assert.Equal(5, SharpCpp.Tests.E2E.Generated.E2EBindings.RateViaSource(source));
     }
+
+    [Fact]
+    public void A_covariant_override_of_a_rendered_interface_member_on_a_secondary_bases_primary_chain_dispatches_through_the_view_interface()
+    {
+        using var user = new TrailUser();
+        Assert.Equal(typeof(TrailMid), typeof(TrailUser).GetMethod("Head")!.ReturnType);
+        // The covariant result is the trail_mid subobject, wrapped as a TrailMid view rather than the TrailUser.
+        Assert.Equal(2, user.Head().MidTag());
+        Assert.Equal(2, ((ITrailMid)user).Head().MidTag());
+        Assert.Equal(1, ((ITrailMid)user).BaseTag());
+        Assert.Equal(2, ((ITrailMid)user).MidTag());
+
+        // Known gap (PROGRESS.md, tracker RB-33): a class reaching a rendered interface only through a secondary
+        // base's primary chain does not implement it. Flip these when that is bound.
+        Assert.False(typeof(ITrailBase).IsAssignableFrom(typeof(TrailUser)));
+        Assert.False(typeof(ITrailBase).IsAssignableFrom(typeof(ITrailMid)));
+
+        using var mid = new TrailMid();
+        Assert.Same(mid, mid.Head());
+        Assert.Same(mid, ((ITrailBase)mid).Head());
+        Assert.Same(mid, SharpCpp.Tests.E2E.Generated.E2EBindings.TrailHeadViaBase(mid));
+
+        using var direct = new TrailDirect();
+        // trail_base is a secondary base of trail_direct, so the result is its subobject wrapped as a TrailBase view.
+        Assert.Equal(1, direct.Head().BaseTag());
+        Assert.Equal(1, ((ITrailBase)direct).Head().BaseTag());
+        Assert.Equal(1, SharpCpp.Tests.E2E.Generated.E2EBindings.TrailHeadViaBase(direct).BaseTag());
+        Assert.Same(direct, SharpCpp.Tests.E2E.Generated.E2EBindings.TrailHeadViaBase(direct));
+    }
 }

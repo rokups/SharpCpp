@@ -303,4 +303,46 @@ inline int rate_via_source(rate_source* source)
     return source->rate();
 }
 
+/// A covariant override on a secondary base's primary chain, where the overridden base is itself a
+/// rendered interface (trail_direct makes trail_base one).
+struct trail_base
+{
+    virtual ~trail_base() = default;
+    virtual trail_base* head()
+    {
+        return this;
+    }
+
+    int base_tag() const
+    {
+        return 1;
+    }
+};
+
+struct trail_mid : public trail_base
+{
+    trail_mid* head() override
+    {
+        return this;
+    }
+
+    int mid_tag() const
+    {
+        return 2;
+    }
+};
+
+class trail_user : public primary, public trail_mid
+{
+};
+
+class trail_direct : public primary, public trail_base
+{
+};
+
+inline trail_base* trail_head_via_base(trail_base* value)
+{
+    return value->head();
+}
+
 }

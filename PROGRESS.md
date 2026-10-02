@@ -72,9 +72,11 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   (fixtures `rate_meter` and `rate_panel`). Known gaps: the cases that pass has to leave
   unbound, a generic declaring interface, an accessor-promoted member, an ambiguous base path and
   convenience-overload parameters, are only warned about and still give CS0738 in the generated C#;
-  a covariant override on a secondary base's primary chain when the overridden base is itself a
-  rendered interface gives CS0738 (the class member cannot implicitly implement the inherited
-  base-typed member, so no fixture exists); projection through a virtual-base diamond does not apply the C++ dominance
+  a secondary base's interface never extends the interface of a record on its own primary chain,
+  even when that record is rendered as an interface elsewhere (`ITrailMid` is not an
+  `ITrailBase`), so a class that reaches it only that way cannot be passed where the base
+  interface is expected, while a covariant override on that chain itself binds (fixture
+  `trail_user`); projection through a virtual-base diamond does not apply the C++ dominance
   rule (the shared virtual base is enumerated before the second path's hiding declaration); and
   a hiding declaration with a different parameter list still gets the base overloads projected,
   although C++ lookup through the hiding record cannot find them (last two found by reading, no
