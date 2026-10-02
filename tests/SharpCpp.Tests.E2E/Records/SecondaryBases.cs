@@ -275,4 +275,25 @@ public sealed class SecondaryBaseTests
         Assert.Equal(1, root.Level());
         Assert.Equal(4, root.RootOnly());
     }
+
+    [Fact]
+    public void Base_overloads_hidden_by_another_parameter_list_are_projected_and_dispatched_through_their_declaring_record()
+    {
+        // span_mid::span(int, int) hides span_base::span() and span(int) for C++ lookup through span_mid;
+        // class inheritance still exposes them on SpanMid, so the projected surface of SpanUser matches it.
+        using var user = new SpanUser();
+        Assert.Equal(1, user.Span());
+        Assert.Equal(5, user.Span(5));
+        Assert.Equal(5, user.Span(2, 3));
+
+        var view = (ISpanMid)user;
+        Assert.Equal(1, view.Span());
+        Assert.Equal(5, view.Span(5));
+        Assert.Equal(5, view.Span(2, 3));
+
+        using var mid = new SpanMid();
+        Assert.Equal(1, mid.Span());
+        Assert.Equal(5, mid.Span(5));
+        Assert.Equal(5, mid.Span(2, 3));
+    }
 }

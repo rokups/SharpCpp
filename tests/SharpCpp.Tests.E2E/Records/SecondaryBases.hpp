@@ -390,4 +390,32 @@ inline int ridge_level_via_join(ridge_join* value)
     return value->level();
 }
 
+struct span_base
+{
+    virtual ~span_base() = default;
+
+    int span() const
+    {
+        return 1;
+    }
+
+    int span(int n) const
+    {
+        return n;
+    }
+};
+
+/// Hides both span_base::span overloads by declaring one with another parameter list.
+struct span_mid : public span_base
+{
+    int span(int a, int b) const
+    {
+        return a + b;
+    }
+};
+
+class span_user : public primary, public span_mid
+{
+};
+
 }

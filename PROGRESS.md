@@ -75,16 +75,17 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   the former pointer-to-member compile error). When the skip leaves the secondary base's
   interface without members, the derived wrapper does not implement it (`RidgeUser` is not an
   `IRidgeJoin`, and `SecondaryBaseViewPass` warns "no rendered members"), so it cannot be passed
-  where the base is expected. Known gaps: the cases that pass has to leave
+  where the base is expected. Projected methods declared behind the secondary base are named
+  through their declaring record, so a nearer hiding declaration of any kind or access cannot
+  break the thunk (fixture `span_user`; class inheritance exposes the hidden overloads on the
+  base wrapper, so they are still projected). Known gaps: the cases that pass has to leave
   unbound, a generic declaring interface, an accessor-promoted member, an ambiguous base path and
   convenience-overload parameters, are only warned about and still give CS0738 in the generated C#;
-  a secondary base's interface never extends the interface of a record on its own primary chain,
+  and a secondary base's interface never extends the interface of a record on its own primary chain,
   even when that record is rendered as an interface elsewhere (`ITrailMid` is not an
   `ITrailBase`), so a class that reaches it only that way cannot be passed where the base
   interface is expected, while a covariant override on that chain itself binds (fixture
-  `trail_user`); and a hiding declaration with a different parameter list still gets the base overloads projected,
-  although C++ lookup through the hiding record cannot find them (found by reading, no
-  fixture). A promoted accessor
+  `trail_user`). A promoted accessor
   owned by a non-view class that reaches an interface only through a secondary base lacked an
   explicit implementation (CS0535 when the class redeclared `get_x`/`set_x`, fixtures `gauge` and
   `meter`); `WriteSecondaryBaseViewAccessorForwarders` now also runs for non-view classes, and a

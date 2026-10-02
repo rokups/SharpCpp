@@ -65,6 +65,16 @@ public static class BindingCompilationInheritancePass
                     record.SetWarning($"'{method.CppQualifiedName}' is bound non-virtually on '{record.CppQualifiedName}' because '{covariantOverride.CppQualifiedName}' overrides it with a covariant return type");
                 }
 
+                // A method declared behind the secondary base is named through its declaring record:
+                // a nearer declaration of the same name, of any kind or access, hides it for lookup
+                // through the secondary base. The member-pointer conversion from the base is valid for
+                // the same accessible, unambiguous, non-virtual bases the old spelling needed, and a
+                // call through it still dispatches virtually.
+                if (method.FindOwningRecord() is { } declaringRecord && !ReferenceEquals(declaringRecord, secondaryBase))
+                {
+                    projected.NativeDeclaringRecordCppTypeName ??= ResolveDeclaringRecordCppTypeName(method, secondaryBaseBinding.CppQualifiedName);
+                }
+
                 record.Members.Add(projected);
             }
         }
