@@ -99,6 +99,23 @@ public sealed class DiagnosticLogTests
     }
 
     [Fact]
+    public void Secondary_base_members_reached_through_virtual_base_inheritance_are_warned_about()
+    {
+        foreach (var (target, skipped) in new[]
+        {
+            ("ridge_join", "ridge_right"),
+            ("ridge_user", "ridge_left"),
+            ("ridge_user", "ridge_right"),
+        })
+        {
+            Assert.Contains(Lines, line =>
+                line.StartsWith("WARNING\tRecord\t", StringComparison.Ordinal) &&
+                line.Contains($"\tsecondary_bases::{target}\t", StringComparison.Ordinal) &&
+                line.Contains($"members of base record 'secondary_bases::{skipped}' are not projected onto 'secondary_bases::{target}' because 'secondary_bases::{skipped}' uses virtual base inheritance", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
     public void Generic_instantiations_removed_by_validation_are_logged_with_their_type_arguments()
     {
         Assert.Contains(Lines, static line =>

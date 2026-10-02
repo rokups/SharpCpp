@@ -345,4 +345,49 @@ inline trail_base* trail_head_via_base(trail_base* value)
     return value->head();
 }
 
+struct ridge_root
+{
+    virtual ~ridge_root() = default;
+
+    int level() const
+    {
+        return 1;
+    }
+
+    int root_only() const
+    {
+        return 4;
+    }
+};
+
+struct ridge_left : public virtual ridge_root
+{
+    int left_tag() const
+    {
+        return 3;
+    }
+};
+
+/// Hides ridge_root::level, which wins over the declaration reached through ridge_left (dominance).
+struct ridge_right : public virtual ridge_root
+{
+    int level() const
+    {
+        return 2;
+    }
+};
+
+struct ridge_join : public ridge_left, public ridge_right
+{
+};
+
+class ridge_user : public primary, public ridge_join
+{
+};
+
+inline int ridge_level_via_join(ridge_join* value)
+{
+    return value->level();
+}
+
 }

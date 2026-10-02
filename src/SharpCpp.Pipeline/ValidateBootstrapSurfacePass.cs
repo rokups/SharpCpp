@@ -22,7 +22,7 @@ public static class ValidateBootstrapSurfacePass
                 continue;
             }
 
-            if (record.Bases.Any(static baseBinding => baseBinding.IsVirtual))
+            if (record.UsesVirtualBaseInheritance())
             {
                 record.SetIgnoreReason($"record uses virtual base inheritance, which is not supported in this bootstrap surface");
                 continue;

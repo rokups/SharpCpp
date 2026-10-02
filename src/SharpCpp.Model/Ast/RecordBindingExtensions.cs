@@ -28,6 +28,13 @@ public static class RecordBindingExtensions
             .ToArray();
     }
 
+    public static bool UsesVirtualBaseInheritance(this RecordBinding record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+
+        return record.Bases.Any(static baseBinding => baseBinding.IsVirtual);
+    }
+
     public static IReadOnlyList<RecordBinding> EnumerateAllBaseRecords(this RecordBinding record, BindingCompilation compilation)
     {
         ArgumentNullException.ThrowIfNull(record);

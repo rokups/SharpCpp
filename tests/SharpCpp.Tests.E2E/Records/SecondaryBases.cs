@@ -251,4 +251,28 @@ public sealed class SecondaryBaseTests
         Assert.Equal(1, SharpCpp.Tests.E2E.Generated.E2EBindings.TrailHeadViaBase(direct).BaseTag());
         Assert.Same(direct, SharpCpp.Tests.E2E.Generated.E2EBindings.TrailHeadViaBase(direct));
     }
+
+    [Fact]
+    public void Members_reached_through_a_record_that_uses_virtual_base_inheritance_are_not_projected()
+    {
+        // ridge_left and ridge_right are ignored for their virtual base, so nothing is projected through them
+        // (a clone of the hidden ridge_root::level would otherwise reach ridge_user).
+        foreach (var type in new[] { typeof(RidgeUser), typeof(RidgeJoin), typeof(IRidgeJoin) })
+        {
+            Assert.Null(type.GetMethod("Level"));
+            Assert.Null(type.GetMethod("LeftTag"));
+            Assert.Null(type.GetMethod("RootOnly"));
+        }
+
+        // ridge_join's interface has no rendered members, so ridge_user is not passed as a ridge_join.
+        using var join = new RidgeJoin();
+        Assert.Equal(2, SharpCpp.Tests.E2E.Generated.E2EBindings.RidgeLevelViaJoin(join));
+
+        // The skip leaves ridge_join's interface without members, so a class reaching it as a secondary base does not implement it.
+        Assert.False(typeof(IRidgeJoin).IsAssignableFrom(typeof(RidgeUser)));
+
+        using var root = new RidgeRoot();
+        Assert.Equal(1, root.Level());
+        Assert.Equal(4, root.RootOnly());
+    }
 }

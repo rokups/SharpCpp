@@ -32,7 +32,13 @@ public static class BindingCompilationInheritancePass
                 continue;
             }
 
-            foreach (var method in EnumerateProjectableMethods(compilation, secondaryBase))
+            if (secondaryBase.UsesVirtualBaseInheritance())
+            {
+                WarnVirtualBaseNotProjected(record, secondaryBase);
+                continue;
+            }
+
+            foreach (var method in EnumerateProjectableMethods(compilation, record, secondaryBase))
             {
                 if (method.IsIgnored())
                 {
@@ -64,23 +70,25 @@ public static class BindingCompilationInheritancePass
         }
     }
 
-    // Yields the record's own methods first, then those of its base records nearest-first, so the
-    // most-derived declaration of a method is projected and the hidden ones are deduplicated away.
+    // Yields the secondary base's own methods first, then those of its non-virtual bases
+    // nearest-first, so the most-derived declaration of a method is projected and the hidden ones
+    // are deduplicated away. A record that uses virtual-base inheritance is ignored later by
+    // ValidateBootstrapSurfacePass, so nothing is projected through it (its methods would be
+    // clones of declarations the record's own view does not have, and a member pointer to a
+    // virtual base's method does not convert); it is warned about on the target record instead.
     // Clones projected into a base record by an earlier iteration are skipped: the declaration they
     // were cloned from is reachable through the base chain, and a clone of a clone would lose
     // CovariantProjectedBaseMethod (it is not copied), so SecondaryBaseViewPass would retype its
     // return to the I{Base} view while the interface member keeps the declared type (CS0738).
     // GetRenderableInterfaceMethods still enumerates base-first with the later declaration
     // winning; the two must keep agreeing on which declaration a member comes from.
-    private static IEnumerable<FunctionBinding> EnumerateProjectableMethods(BindingCompilation compilation, RecordBinding record)
+    private static IEnumerable<FunctionBinding> EnumerateProjectableMethods(BindingCompilation compilation, RecordBinding targetRecord, RecordBinding record)
     {
-        foreach (var baseRecord in record.EnumerateAllBaseRecords(compilation).Prepend(record))
-        {
-            if (baseRecord.IsIgnored())
-            {
-                continue;
-            }
+        var records = new List<RecordBinding> { record };
+        CollectNonVirtualBases(compilation, targetRecord, record, records, new HashSet<string>(StringComparer.Ordinal) { record.SymbolId });
 
+        foreach (var baseRecord in records)
+        {
             foreach (var method in baseRecord.Members.OfType<FunctionBinding>())
             {
                 if (method.IsConstructor || method.IsStatic || method.OperatorToken is not null || method.IsConversionOperator ||
@@ -91,6 +99,46 @@ public static class BindingCompilationInheritancePass
 
                 yield return method;
             }
+        }
+    }
+
+    private static void CollectNonVirtualBases(
+        BindingCompilation compilation,
+        RecordBinding targetRecord,
+        RecordBinding record,
+        List<RecordBinding> results,
+        HashSet<string> visited)
+    {
+        foreach (var baseBinding in record.Bases.Where(static baseBinding => !baseBinding.IsVirtual))
+        {
+            var baseRecord = compilation.FindRecordBySymbolId(baseBinding.RecordId);
+            if (baseRecord is null || !visited.Add(baseRecord.SymbolId))
+            {
+                continue;
+            }
+
+            if (baseRecord.UsesVirtualBaseInheritance())
+            {
+                WarnVirtualBaseNotProjected(targetRecord, baseRecord);
+                continue;
+            }
+
+            // An ignored base contributes no methods, but the bases behind it are still reachable.
+            if (!baseRecord.IsIgnored())
+            {
+                results.Add(baseRecord);
+            }
+
+            CollectNonVirtualBases(compilation, targetRecord, baseRecord, results, visited);
+        }
+    }
+
+    private static void WarnVirtualBaseNotProjected(RecordBinding record, RecordBinding skippedBase)
+    {
+        var warning = $"members of base record '{skippedBase.CppQualifiedName}' are not projected onto '{record.CppQualifiedName}' because '{skippedBase.CppQualifiedName}' uses virtual base inheritance";
+        if (!record.GetWarnings().Contains(warning))
+        {
+            record.SetWarning(warning);
         }
     }
 
