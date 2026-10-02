@@ -5857,6 +5857,16 @@ public sealed partial class ClangSharpHeaderParser
         return match;
     }
 
+    /// <summary>True when the parameter carries the bodiless `[[sharpcpp::<paramref name="name"/>]]` attribute.</summary>
+    private static bool HasSharpCppAttribute(CXCursor functionCursor, CXCursor parameterCursor, string name)
+    {
+        if (FindSharpCppAttribute(GetSourceText(parameterCursor.TranslationUnit, parameterCursor.Extent), name) is not null)
+            return true;
+
+        return TryGetParameterDeclarationSourceText(functionCursor, parameterCursor, out var parameterSourceText) &&
+            FindSharpCppAttribute(parameterSourceText, name) is not null;
+    }
+
     private static bool TryGetPassKindOverride(CXCursor functionCursor, CXCursor parameterCursor, out BindingParameterDirection direction)
     {
         var match = FindSharpCppAttribute(GetSourceText(parameterCursor.TranslationUnit, parameterCursor.Extent), "in")
@@ -5890,7 +5900,7 @@ public sealed partial class ClangSharpHeaderParser
     /// Records what the parser knows about a pointer-to-pointer parameter: whether it is a
     /// `char**` or `T**` (T a record) whose binding is ambiguous, whether the pointed-to pointer
     /// is const, and the shape an explicit [[sharpcpp::in]] (array) or [[sharpcpp::out]] (single)
-    /// requests. The shape itself is applied by <see cref="PointerPointerShapeResolver"/>.
+    /// requests. It also reads the bodiless [[sharpcpp::null_terminated]] flag. The shape itself is applied by <see cref="PointerPointerShapeResolver"/>.
     /// </summary>
     private static void ApplyPointerPointerFacts(
         CXCursor functionCursor,
@@ -5899,6 +5909,12 @@ public sealed partial class ClangSharpHeaderParser
         ref string? ignoreReason)
     {
         var shapeAttribute = TryGetShapeAttribute(functionCursor, parameterCursor);
+        if (HasSharpCppAttribute(functionCursor, parameterCursor, "null_terminated"))
+        {
+            // Validated by PointerPointerShapeResolver.Apply, so consumer-set tags share the checks.
+            parameter.SetMetadata(MetadataKeys.NullTerminatedStringArray, true);
+        }
+
         var canonical = parameterCursor.Type.CanonicalType;
         var kind = PointerPointerKind.None;
         CXType pointee = default;

@@ -185,6 +185,15 @@ internal static class Program
             .SetMetadata(MetadataKeys.PointerPointerShape, shape);
     }
 
+    private static void SetNullTerminated(BindingCompilation compilation, string functionName, string parameterName)
+    {
+        compilation.Functions
+            .Single(function => string.Equals(function.CppQualifiedName, functionName, StringComparison.Ordinal))
+            .Parameters
+            .Single(parameter => string.Equals(parameter.NativeName, parameterName, StringComparison.Ordinal))
+            .SetMetadata(MetadataKeys.NullTerminatedStringArray, true);
+    }
+
     private static void SetCountedBy(BindingCompilation compilation, string functionName, string parameterName, string countName)
     {
         compilation.Functions
@@ -250,6 +259,8 @@ internal static class Program
         SetPointerPointerShape(compilation, "measure_configured_raw_names", "names", PointerPointerShapes.Pointers);
         SetPointerPointerShape(compilation, "measure_bad_shape", "names", PointerPointerShapes.Array);
         SetPointerPointerShape(compilation, "measure_bad_value", "names", "sideways");
+        // Consumers also mark a NULL-terminated string list by name.
+        SetNullTerminated(compilation, "measure_configured_terminated_names", "names");
         SetPointerPointerShape(compilation, "pick_const_item", "item", PointerPointerShapes.Single);
         SetPointerPointerShape(compilation, "get_const_label", "value", PointerPointerShapes.Single);
         // Consumers also name the count of an array parameter by name.

@@ -60,6 +60,12 @@ public static class MetadataKeys
     // the raw `ReadOnlySpan<nint>` binding (the caller owns the array and the strings) instead of
     // the default `ReadOnlySpan<string?>` the wrapper marshals and frees. Absent on every default path.
     public const string RawStringPointerArray = "raw_string_pointer_array";
+    // Set (bool) on an input `char**` string array by `[[sharpcpp::null_terminated]]` or a consumer
+    // pass: native reads the list up to a NULL element, with or without a count. The managed wrapper
+    // passes one extra zero element after the strings (the terminator is not counted). Valid only
+    // on a decoded input string array (PointerPointerShapeResolver.Apply ignores the function otherwise);
+    // an empty span still passes a null pointer.
+    public const string NullTerminatedStringArray = "null_terminated_string_array";
     public const string WritablePointerArray = "writable_pointer_array";
     // Value: native name of the capacity parameter that bounds this record output buffer.
     public const string RecordBufferCapacityParameter = "record_buffer_capacity_parameter";

@@ -187,8 +187,16 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   `Pointers/RawStringPointers.hpp`. A director callback with a `pointers` range begin has no fixture
   yet: by inspection it receives an in-place `ReadOnlySpan<nint>` over the native pointers,
   valid only during the callback, as a `void* const*` range does. `pointers` combined with an
-  explicit `counted_by` has no fixture either. A NULL-terminated list without a count (HarfBuzz `shaper_list`) is not detected:
-  the caller appends a `null` element, as it appended a zero pointer before. An
+  explicit `counted_by` has no fixture either. A NULL-terminated string list (HarfBuzz
+  `shaper_list`) is marked with `[[sharpcpp::null_terminated]]` on the parameter or a consumer-set
+  `MetadataKeys.NullTerminatedStringArray` flag: the wrapper allocates one extra zero element
+  after the strings (a count parameter is passed unchanged, the terminator is not counted). An
+  empty span still passes a null pointer, so an empty non-null list is not expressible. The flag
+  is valid only on a decoded input string array (not an `ended_by` range, a `pointers` array or
+  a single output; it never changes the shape, so a count-less mutable `char**` needs
+  `[[sharpcpp::in]]` too) or the function is ignored with a reason. There is no heuristic
+  detection, and a director callback receiving a NULL-terminated list without a count stays
+  unsupported (ignored: no count parameter). Fixtures: `Pointers/NullTerminatedStrings.hpp`. An
   output `char**` is `out string?`, copied from the native pointer, which is borrowed and never
   freed (this changed the ownership of the previous explicit `[[sharpcpp::out]] const char**`,
   which the LibraryImport marshaller freed). Element kinds other than char and records

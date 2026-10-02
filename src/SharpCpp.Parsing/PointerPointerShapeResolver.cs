@@ -263,7 +263,7 @@ public static class PointerPointerShapeResolver
         {
             MetadataKeys.PointerPointerShape, MetadataKeys.PointerPointerDefaultShape,
             MetadataKeys.InputPointerArray, MetadataKeys.RawStringPointerArray,
-            MetadataKeys.WritablePointerArray, MetadataKeys.StringArrayCount,
+            MetadataKeys.NullTerminatedStringArray, MetadataKeys.WritablePointerArray, MetadataKeys.StringArrayCount,
             MetadataKeys.UnexpressibleDefault, MetadataKeys.UndefaultableParam,
             MetadataKeys.NativeDefaultValueExpression
         })
@@ -393,6 +393,32 @@ public static class PointerPointerShapeResolver
 
             if (changed)
                 ClangSharpHeaderParser.ApplyTrailingInputPointerArrayMetadata(function);
+
+            ValidateNullTerminated(function);
+        }
+    }
+
+    /// <summary>
+    /// Validates every <see cref="MetadataKeys.NullTerminatedStringArray"/> flag of the function:
+    /// it is valid only on a decoded input string array, so the wrapper owns the pointer array it
+    /// appends the terminator to. Anything else ignores the function with a reason; the flag never
+    /// changes a parameter's shape. Runs after the shapes are applied.
+    /// </summary>
+    private static void ValidateNullTerminated(FunctionBinding function)
+    {
+        foreach (var parameter in function.Parameters)
+        {
+            if (!parameter.HasMetadata(MetadataKeys.NullTerminatedStringArray) || parameter.IsDecodedInputStringArray())
+                continue;
+
+            var name = parameter.NativeName;
+            var tag = $"parameter '{name}' is tagged NULL-terminated but";
+            function.SetIgnoreReason(
+                parameter.HasMetadata(MetadataKeys.EndedBy)
+                    ? $"{tag} is also ended_by, which bounds the array without a terminator"
+                    : parameter.HasMetadata(MetadataKeys.RawStringPointerArray)
+                        ? $"{tag} has the 'pointers' shape, which passes the caller-owned array unchanged"
+                        : $"{tag} is not an input string array");
         }
     }
 

@@ -4111,8 +4111,14 @@ public static partial class BindingOutputRenderer
             // Zeroed so the finally block frees only what was allocated, even when marshalling
             // throws part-way (a stackalloc span is not guaranteed to be zero).
             var abiSpanName = GetPointerArrayAbiSpanName(parameter);
+            // A NULL-terminated array gets one extra, never-written (zero) element after the strings.
+            // An empty span stays empty so a null pointer reaches native, as for an untagged array;
+            // the copy and free loops run over the managed Length only.
+            var abiLength = parameter.HasMetadata(MetadataKeys.NullTerminatedStringArray)
+                ? $"({parameter.ManagedName}.Length == 0 ? 0 : {parameter.ManagedName}.Length + 1)"
+                : $"{parameter.ManagedName}.Length";
             writer.Write($$"""
-                global::System.Span<nint> {{abiSpanName}} = {{parameter.ManagedName}}.Length <= 64 ? stackalloc nint[{{parameter.ManagedName}}.Length] : new nint[{{parameter.ManagedName}}.Length];
+                global::System.Span<nint> {{abiSpanName}} = {{parameter.ManagedName}}.Length <= 64 ? stackalloc nint[{{abiLength}}] : new nint[{{abiLength}}];
                 {{abiSpanName}}.Clear();
                 """);
             if (!parameter.PointeeIsConst)
