@@ -194,9 +194,14 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   which the LibraryImport marshaller freed). Element kinds other than char and records
   (`int**`, `void**`) keep their previous binding.
 - Open items for pointer-to-pointer shapes: (a) string arrays are done for direct calls and
-  non-director virtual methods, and a director callback with a char range receives managed
-  string copies; still open: a director callback taking a counted `char**` (ignores the
-  record: the parameter is not an in-value), string array fields (`Get{Field}At`), output
+  non-director virtual methods, and a director callback with a char range or a counted
+  `char**` receives managed string copies (`ReadOnlySpan<string?>`; the count stays a visible
+  parameter of the override). The resolver records the count's native name as
+  `StringArrayCount` (the `counted_by` count, else the adjacent count parameter the default
+  shape pairs with, before first); a decoded `char**` director parameter without one ignores
+  the director with a reason that asks for `counted_by`, and a raw `pointers` counted array
+  in a director stays unsupported (ignored: the parameter is not an in-value). Fixtures:
+  `Pointers/StringArrayVirtuals.hpp`. Still open: string array fields (`Get{Field}At`), output
   `char**` as `out string?` arrays. (b) The output-to-array flip uses a narrower count name set than the primitive-array heuristic
   (`argc`, `Num*`, `*Count*`; not `*Length`/`*Size`) and additionally requires the count name
   to relate to the parameter (see above), because a false positive silently changes

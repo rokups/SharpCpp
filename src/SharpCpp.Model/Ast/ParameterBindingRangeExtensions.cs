@@ -44,4 +44,48 @@ public static class ParameterBindingRangeExtensions
             ? PointerRangeBeginKind.Raw
             : PointerRangeBeginKind.None;
     }
+
+    /// <summary>
+    /// True when <paramref name="parameter"/> is a decoded input string array (<c>char**</c> bound
+    /// as <c>ReadOnlySpan&lt;string?&gt;</c>, not an <c>ended_by</c> range and not the raw
+    /// <c>pointers</c> shape) whose <see cref="MetadataKeys.StringArrayCount"/> names another
+    /// parameter of <paramref name="function"/>, returned in <paramref name="count"/>.
+    /// </summary>
+    public static bool TryGetCountedStringArrayCount(this ParameterBinding parameter, FunctionBinding function, out ParameterBinding count)
+    {
+        ArgumentNullException.ThrowIfNull(parameter);
+        ArgumentNullException.ThrowIfNull(function);
+
+        count = parameter;
+        if (!parameter.IsDecodedInputStringArray() ||
+            !parameter.TryGetMetadata<string>(MetadataKeys.StringArrayCount, out var name))
+        {
+            return false;
+        }
+
+        var named = function.Parameters.FirstOrDefault(candidate =>
+            !ReferenceEquals(candidate, parameter) && string.Equals(candidate.NativeName, name, StringComparison.Ordinal));
+        if (named is null)
+            return false;
+
+        count = named;
+        return true;
+    }
+
+    /// <summary>
+    /// True for an input <c>char**</c> array bound as <c>ReadOnlySpan&lt;string?&gt;</c> that is not
+    /// an <c>ended_by</c> range, so its length comes from a count parameter (when one is identifiable).
+    /// </summary>
+    public static bool IsDecodedInputStringArray(this ParameterBinding parameter)
+    {
+        ArgumentNullException.ThrowIfNull(parameter);
+
+        return parameter.PointerPointer == PointerPointerKind.Chars &&
+            parameter.HasMetadata(MetadataKeys.InputPointerArray) &&
+            !parameter.HasMetadata(MetadataKeys.RawStringPointerArray) &&
+            !parameter.HasMetadata(MetadataKeys.EndedBy) &&
+            !parameter.HasMetadata(MetadataKeys.DerivedArgument) &&
+            parameter.Direction == BindingParameterDirection.In &&
+            parameter.AbiKind == BindingParameterAbiKind.Pointer;
+    }
 }

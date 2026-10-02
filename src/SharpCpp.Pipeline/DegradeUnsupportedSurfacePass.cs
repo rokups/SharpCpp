@@ -602,6 +602,17 @@ public static class DegradeUnsupportedSurfacePass
                 return true;
             }
 
+            // A counted string array is decoded into a span of managed strings sized by its count
+            // parameter, which stays an ordinary in-value parameter; without a count it cannot be.
+            if (parameter.IsDecodedInputStringArray())
+            {
+                if (parameter.TryGetCountedStringArrayCount(function, out _))
+                    continue;
+
+                reason = $"parameter '{parameter.ManagedName}' is a string array without a count parameter; tag it with [[sharpcpp::counted_by(...)]] to bind it in a director callback";
+                return true;
+            }
+
             if (parameter.Direction is not BindingParameterDirection.In || parameter.AbiKind is not BindingParameterAbiKind.Value)
             {
                 reason = $"parameter '{parameter.ManagedName}' must be an in-value parameter";

@@ -2815,7 +2815,7 @@ public static partial class BindingOutputRenderer
         var method = slot.ManagedCallbackMethod;
         var callbackReturnType = GetManagedVirtualCallbackAbiTypeName(compilation, method.ReturnType);
         var callbackParameterList = string.Join(", ",
-            new[] { "nint self" }.Concat(method.Parameters.Select(parameter => RenderManagedCallbackParameter(compilation, parameter))));
+            new[] { "nint self" }.Concat(method.Parameters.Select(parameter => RenderManagedCallbackParameter(compilation, method, parameter))));
         var callbackFunctionPointerTypes = string.Join(", ",
             new[] { "nint" }
                 .Concat(method.Parameters.Select(parameter => GetManagedVirtualCallbackAbiTypeName(compilation, parameter)))
@@ -4840,7 +4840,7 @@ public static partial class BindingOutputRenderer
         var callbackReturnType = GetManagedVirtualCallbackAbiTypeName(compilation, method.ReturnType);
         var callbackParameterList = string.Join(
             ", ",
-            new[] { "nint self" }.Concat(method.Parameters.Select(parameter => RenderManagedCallbackParameter(compilation, parameter))));
+            new[] { "nint self" }.Concat(method.Parameters.Select(parameter => RenderManagedCallbackParameter(compilation, method, parameter))));
         var callbackFunctionPointerTypes = string.Join(
             ", ",
             new[] { "nint" }
@@ -4849,8 +4849,8 @@ public static partial class BindingOutputRenderer
         var invocationArguments = string.Join(
             ", ",
             GetPublicManagedParameters(method.Parameters).Select(parameter => BuildManagedCallbackInvocationArgument(compilation, method, parameter)));
-        var rangeBegins = method.Parameters.Where(static parameter => IsRecordPointerRangeBegin(parameter) || IsStringPointerRangeBegin(parameter)).ToArray();
-        var hasRangeBegin = method.Parameters.Any(IsPointerRangeBegin);
+        var rangeBegins = method.Parameters.Where(parameter => IsRecordPointerRangeBegin(parameter) || IsStringPointerRangeBegin(parameter) || IsCountedStringArray(method, parameter)).ToArray();
+        var hasRangeBegin = method.Parameters.Any(parameter => IsPointerRangeBegin(parameter) || IsCountedStringArray(method, parameter));
 
         var callbackPointerFieldName = $"{GetVirtualCallbackDispatchName(method)}Pointer";
         writer.Write($$"""
@@ -4875,7 +4875,6 @@ public static partial class BindingOutputRenderer
         foreach (var begin in rangeBegins)
         {
             // The native range is borrowed: the wrappers never own or free their elements.
-            var end = GetPointerRangeEnd(method, begin);
             var baseName = begin.ManagedName.TrimStart('@');
             var countName = $"__{baseName}_count";
             var itemsName = $"__{baseName}_items";
@@ -4884,12 +4883,18 @@ public static partial class BindingOutputRenderer
             // A string range is copied into managed strings (null for a null element); a record
             // range wraps its handles.
             var isStringRange = IsInputStringArrayParameter(begin);
+            // A range counts its elements from its end pointer; a counted string array from its
+            // count parameter (a null array or a non-positive count is empty; a count beyond int
+            // throws rather than wrapping).
+            var countExpression = begin.TryGetCountedStringArrayCount(method, out var countParameter)
+                ? $"{begin.ManagedName} == 0 || {countParameter.ManagedName} <= 0 ? 0 : checked((int){countParameter.ManagedName})"
+                : $"(int)(({GetPointerRangeEnd(method, begin).ManagedName} - {begin.ManagedName}) / sizeof(nint))";
             var elementTypeName = isStringRange ? "string" : GetManagedPublicReturnTypeName(begin.Type, compilation);
             var elementExpression = isStringRange
                 ? $"global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8({handleName})"
                 : $"{handleName} != 0 ? {BuildManagedHandleWrap(compilation, begin.Type, handleName, ownsHandle: false)} : null";
             writer.Write($$"""
-                var {{countName}} = (int)(({{end.ManagedName}} - {{begin.ManagedName}}) / sizeof(nint));
+                var {{countName}} = {{countExpression}};
                 var {{itemsName}} = {{countName}} == 0 ? global::System.Array.Empty<{{elementTypeName}}?>() : new {{elementTypeName}}?[{{countName}}];
                 for (var {{indexName}} = 0; {{indexName}} < {{countName}}; {{indexName}}++)
                 {
@@ -7751,17 +7756,17 @@ public static partial class BindingOutputRenderer
         return null;
     }
 
-    private static string RenderManagedCallbackParameter(BindingCompilation compilation, ParameterBinding parameter)
+    private static string RenderManagedCallbackParameter(BindingCompilation compilation, FunctionBinding method, ParameterBinding parameter)
     {
-        ValidateVirtualCallbackSupport(parameter);
+        ValidateVirtualCallbackSupport(method, parameter);
         return $"{GetManagedVirtualCallbackAbiTypeName(compilation, parameter)} {parameter.ManagedName}";
     }
 
     private static string BuildManagedCallbackInvocationArgument(BindingCompilation compilation, FunctionBinding method, ParameterBinding parameter)
     {
-        ValidateVirtualCallbackSupport(parameter);
+        ValidateVirtualCallbackSupport(method, parameter);
 
-        if (IsRecordPointerRangeBegin(parameter) || IsStringPointerRangeBegin(parameter))
+        if (IsRecordPointerRangeBegin(parameter) || IsStringPointerRangeBegin(parameter) || IsCountedStringArray(method, parameter))
         {
             return $"new {GetManagedPublicArrayTypeName(parameter, compilation)}(__{parameter.ManagedName.TrimStart('@')}_items)";
         }
@@ -7785,7 +7790,7 @@ public static partial class BindingOutputRenderer
     /// <summary>A range begin and its derived end cross a director callback as raw native pointers.</summary>
     private static string GetManagedVirtualCallbackAbiTypeName(BindingCompilation compilation, ParameterBinding parameter)
     {
-        return IsPointerRangeBegin(parameter) || IsDerivedParameter(parameter)
+        return IsPointerRangeBegin(parameter) || IsInputStringArrayParameter(parameter) || IsDerivedParameter(parameter)
             ? "nint"
             : GetManagedVirtualCallbackAbiTypeName(compilation, parameter.Type);
     }
@@ -7802,7 +7807,7 @@ public static partial class BindingOutputRenderer
         var parameters = GetPublicManagedParameters(method.Parameters).ToArray();
         return parameters.Length == 0
             ? "System.Array.Empty<global::System.Type>()"
-            : $"new global::System.Type[] {{ {string.Join(", ", parameters.Select(parameter => IsPointerRangeBegin(parameter) ? $"typeof({GetManagedPublicArrayTypeName(parameter, compilation)})" : $"typeof({GetManagedWrapperTypeName(parameter.Type, compilation)})"))} }}";
+            : $"new global::System.Type[] {{ {string.Join(", ", parameters.Select(parameter => IsPointerRangeBegin(parameter) || IsCountedStringArray(method, parameter) ? $"typeof({GetManagedPublicArrayTypeName(parameter, compilation)})" : $"typeof({GetManagedWrapperTypeName(parameter.Type, compilation)})"))} }}";
     }
 
     private static string GetVirtualCallbackPointerAccessorName(FunctionBinding method)
@@ -7842,14 +7847,14 @@ public static partial class BindingOutputRenderer
     {
         foreach (var parameter in method.Parameters)
         {
-            ValidateVirtualCallbackSupport(parameter);
+            ValidateVirtualCallbackSupport(method, parameter);
         }
 
     }
 
-    private static void ValidateVirtualCallbackSupport(ParameterBinding parameter)
+    private static void ValidateVirtualCallbackSupport(FunctionBinding method, ParameterBinding parameter)
     {
-        if (IsPointerRangeBegin(parameter) || IsDerivedParameter(parameter))
+        if (IsPointerRangeBegin(parameter) || IsDerivedParameter(parameter) || IsCountedStringArray(method, parameter))
         {
             return;
         }
@@ -9381,6 +9386,14 @@ public static partial class BindingOutputRenderer
     /// <summary>The begin of an <c>ended_by</c> string range (a counted string array has no end parameter).</summary>
     private static bool IsStringPointerRangeBegin(ParameterBinding parameter) =>
         IsPointerRangeBegin(parameter) && IsInputStringArrayParameter(parameter);
+
+    /// <summary>
+    /// A decoded input <c>char**</c> sized by a count parameter (see
+    /// <see cref="MetadataKeys.StringArrayCount"/>): a director callback receives it as a raw
+    /// pointer and rebuilds a span of managed strings from the count.
+    /// </summary>
+    private static bool IsCountedStringArray(FunctionBinding method, ParameterBinding parameter) =>
+        IsInputStringArrayParameter(parameter) && parameter.TryGetCountedStringArrayCount(method, out _);
 
     private static ParameterBinding GetPointerRangeEnd(FunctionBinding method, ParameterBinding begin) =>
         method.Parameters.First(candidate =>

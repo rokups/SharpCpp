@@ -4,7 +4,9 @@
 
 // String ranges through virtual methods. A director callback receives the range as managed copies
 // (null for a null element); a non-director virtual method forwards through the vtable like any
-// direct call. A counted char** director callback is not supported (its parameter is not an in-value).
+// direct call. A counted char** director callback receives the array as managed copies too; its count
+// (counted_by, or the adjacent count parameter) stays an ordinary parameter. A char** director callback
+// without an identifiable count, or a raw `pointers` array, ignores the director with a reason.
 struct [[sharpcpp::director]] string_range_visitor
 {
     virtual ~string_range_visitor() = default;
@@ -51,3 +53,45 @@ inline names_shape* create_total_length_names_shape()
 {
     return new total_length_names_shape();
 }
+
+struct [[sharpcpp::director]] counted_string_visitor
+{
+    virtual ~counted_string_visitor() = default;
+
+    virtual int after(const char* const* names, unsigned int count) = 0;
+    virtual int before(int count, const char* const* names) = 0;
+    virtual int tagged([[sharpcpp::counted_by(total)]] const char* const* names, int tag, int total) = 0;
+};
+
+inline int invoke_counted_string_visitor(counted_string_visitor* visitor)
+{
+    const char* const items[3] = { "ab", nullptr, "cde" };
+    return visitor->after(items, 3) + visitor->before(3, items) + visitor->tagged(items, 7, 3);
+}
+
+inline int invoke_empty_counted_string_visitor(counted_string_visitor* visitor)
+{
+    return visitor->after(nullptr, 0) + visitor->before(0, nullptr) + visitor->tagged(nullptr, 7, 0);
+}
+
+// Directors that cannot bind a char** callback: no identifiable count, and a raw `pointers` array.
+struct [[sharpcpp::director]] uncounted_string_visitor
+{
+    virtual ~uncounted_string_visitor() = default;
+
+    virtual int visit(const char* const* names) = 0;
+};
+
+struct [[sharpcpp::director]] unrelated_count_string_visitor
+{
+    virtual ~unrelated_count_string_visitor() = default;
+
+    virtual int visit(const char* const* names, int flags) = 0;
+};
+
+struct [[sharpcpp::director]] raw_counted_string_visitor
+{
+    virtual ~raw_counted_string_visitor() = default;
+
+    virtual int visit([[sharpcpp::shape(pointers)]] const char* const* names, unsigned int count) = 0;
+};

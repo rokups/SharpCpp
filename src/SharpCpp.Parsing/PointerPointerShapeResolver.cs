@@ -263,7 +263,7 @@ public static class PointerPointerShapeResolver
         {
             MetadataKeys.PointerPointerShape, MetadataKeys.PointerPointerDefaultShape,
             MetadataKeys.InputPointerArray, MetadataKeys.RawStringPointerArray,
-            MetadataKeys.WritablePointerArray,
+            MetadataKeys.WritablePointerArray, MetadataKeys.StringArrayCount,
             MetadataKeys.UnexpressibleDefault, MetadataKeys.UndefaultableParam,
             MetadataKeys.NativeDefaultValueExpression
         })
@@ -387,6 +387,7 @@ public static class PointerPointerShapeResolver
                 }
 
                 ApplyShape(parameter, shape!);
+                RecordStringArrayCount(function, parameter, shape!);
                 changed = true;
             }
 
@@ -440,6 +441,40 @@ public static class PointerPointerShapeResolver
             default:
                 return "the parameter is not a char** or a pointer-to-pointer to a record";
         }
+    }
+
+    /// <summary>
+    /// Records on a `char**` input array the native name of the integer value parameter that counts
+    /// it (<see cref="MetadataKeys.StringArrayCount"/>): the explicit count when the parameter is
+    /// counted_by, otherwise the adjacent parameter the default shape pairs it with, checking the
+    /// one before first. A parameter that is not such an array (a single output, an ended_by range)
+    /// or has no identifiable count carries no key.
+    /// </summary>
+    private static void RecordStringArrayCount(FunctionBinding function, ParameterBinding parameter, string shape)
+    {
+        parameter.RemoveMetadata(MetadataKeys.StringArrayCount);
+        if (parameter.PointerPointer != PointerPointerKind.Chars ||
+            shape is not (PointerPointerShapes.Array or PointerPointerShapes.Pointers) ||
+            parameter.HasMetadata(MetadataKeys.EndedBy))
+        {
+            return;
+        }
+
+        ParameterBinding? count;
+        if (parameter.HasMetadata(MetadataKeys.CountedBy))
+        {
+            count = TryGetExplicitCount(function, parameter);
+        }
+        else
+        {
+            var index = function.Parameters.IndexOf(parameter);
+            count = CountPairsWith(function, index, index - 1) ? function.Parameters[index - 1]
+                : CountPairsWith(function, index, index + 1) ? function.Parameters[index + 1]
+                : null;
+        }
+
+        if (count is not null)
+            parameter.SetMetadata(MetadataKeys.StringArrayCount, count.NativeName);
     }
 
     private static void ApplyShape(ParameterBinding parameter, string shape)

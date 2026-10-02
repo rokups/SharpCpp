@@ -83,6 +83,12 @@ public static class MetadataKeys
     // arrays. On a char** or record T** it selects the array shape unless an explicit shape is
     // present; on a primitive or handle pointer it makes the parameter an input array.
     public const string CountedBy = "counted_by";
+    // Value: native name of the integer value parameter that counts this input `char**` array
+    // (decoded to ReadOnlySpan<string?>): the explicit CountedBy count, or else the adjacent
+    // count parameter the shape default pairs it with. Set by PointerPointerShapeResolver; absent
+    // when the array has no identifiable count or is an ended_by range. A director callback uses
+    // it to size the received span.
+    public const string StringArrayCount = "string_array_count";
     // Value: native name of the end parameter of a `(T* begin, T* end)` pair
     // (`[[sharpcpp::ended_by(end)]]` on begin, mirroring Clang `__ended_by`, or set by a
     // consumer). Binds the pair as ONE managed span parameter: `ReadOnlySpan<T>` for a const

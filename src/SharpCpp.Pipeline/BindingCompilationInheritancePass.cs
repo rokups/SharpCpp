@@ -226,6 +226,7 @@ public static class BindingCompilationInheritancePass
     private static readonly string[] ProjectedParameterStringKeys =
     [
         MetadataKeys.CountedBy,
+        MetadataKeys.StringArrayCount,
         MetadataKeys.EndedBy,
         MetadataKeys.DerivedArgument,
         MetadataKeys.DerivedFromParameter
