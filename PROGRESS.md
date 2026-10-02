@@ -175,8 +175,19 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   pointee, formerly `Span<nint>`) is also input-only: native may rewrite its elements, so the
   wrapper frees its own separately kept pointers and native writes are not read back. Native
   code must not retain the array or its strings after the call returns (they are freed in the
-  `finally`), and no attribute or metadata value keeps the previous raw `ReadOnlySpan<nint>`
-  binding yet. A NULL-terminated list without a count (HarfBuzz `shaper_list`) is not detected:
+  `finally`). The `pointers` shape keeps the previous raw `ReadOnlySpan<nint>` binding for a
+  function that retains them: `[[sharpcpp::shape(pointers)]]` on the parameter (also on an
+  `ended_by` range begin; `shape(array|single|pointers)` is the general form, validated like a
+  consumer value, and a conflict with `[[sharpcpp::in]]`/`out`/`ref`, an unknown value or a
+  non-`char**`/`T**` parameter ignores the function with a reason) or a consumer-set
+  `MetadataKeys.PointerPointerShape` value `pointers` (`PointerPointerShapes.Pointers`, `char**`
+  only). It sets `RawStringPointerArray`, which makes the renderer take the generic raw array
+  path: the caller owns the array and the UTF-8 strings (nothing is allocated or freed), and a
+  mutable `char**` binds as `ReadOnlySpan<nint>` with no writability handling. Fixtures:
+  `Pointers/RawStringPointers.hpp`. A director callback with a `pointers` range begin has no fixture
+  yet: by inspection it receives an in-place `ReadOnlySpan<nint>` over the native pointers,
+  valid only during the callback, as a `void* const*` range does. `pointers` combined with an
+  explicit `counted_by` has no fixture either. A NULL-terminated list without a count (HarfBuzz `shaper_list`) is not detected:
   the caller appends a `null` element, as it appended a zero pointer before. An
   output `char**` is `out string?`, copied from the native pointer, which is borrowed and never
   freed (this changed the ownership of the previous explicit `[[sharpcpp::out]] const char**`,
@@ -186,8 +197,7 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   non-director virtual methods, and a director callback with a char range receives managed
   string copies; still open: a director callback taking a counted `char**` (ignores the
   record: the parameter is not an in-value), string array fields (`Get{Field}At`), output
-  `char**` as `out string?` arrays, and an override that keeps raw UTF-8 pointers for a function
-  that retains them. (b) The output-to-array flip uses a narrower count name set than the primitive-array heuristic
+  `char**` as `out string?` arrays. (b) The output-to-array flip uses a narrower count name set than the primitive-array heuristic
   (`argc`, `Num*`, `*Count*`; not `*Length`/`*Size`) and additionally requires the count name
   to relate to the parameter (see above), because a false positive silently changes
   an output into an array; an explicit `[[sharpcpp::in]]`/`[[sharpcpp::out]]` that cannot be

@@ -56,16 +56,21 @@ public static class MetadataKeys
     public const string NativeDefaultValueExpression = "native_default_value_expression";
     public const string NativeDefaultArgumentAdapter = "native_default_argument_adapter";
     public const string InputPointerArray = "input_pointer_array";
+    // Set (bool) on an input `char**` array or range by the `pointers` shape. Such a parameter keeps
+    // the raw `ReadOnlySpan<nint>` binding (the caller owns the array and the strings) instead of
+    // the default `ReadOnlySpan<string?>` the wrapper marshals and frees. Absent on every default path.
+    public const string RawStringPointerArray = "raw_string_pointer_array";
     public const string WritablePointerArray = "writable_pointer_array";
     // Value: native name of the capacity parameter that bounds this record output buffer.
     public const string RecordBufferCapacityParameter = "record_buffer_capacity_parameter";
     // Value: minimum element count (int) a span parameter must have; the managed wrapper throws
     // ArgumentException before the native call when the span is shorter.
     public const string MinimumSpanLength = "minimum_span_length";
-    // Value: "array" or "single" (PointerPointerShapes). Selects how a pointer-to-pointer
-    // parameter to char or a record is bound: as an input array (a span of strings or pointers)
-    // or as one output value. The parser sets the default from an adjacent value count and the
-    // [[sharpcpp::in]] / [[sharpcpp::out]] attributes; a consumer overwrites it before the
+    // Value: "array", "single" or "pointers" (PointerPointerShapes). Selects how a pointer-to-pointer
+    // parameter to char or a record is bound: as an input array (a span of strings or pointers),
+    // as one output value, or (char** only) as an input array of raw caller-owned UTF-8 pointers.
+    // The parser sets the default from an adjacent value count and the [[sharpcpp::in]] /
+    // [[sharpcpp::out]] / [[sharpcpp::shape(...)]] attributes; a consumer overwrites it before the
     // ResolvePointerPointerShapes pipeline step (any configuration hook, or right after parsing).
     public const string PointerPointerShape = "pointer_pointer_shape";
     // Value: the shape the parser tagged as a default (not an explicit [[sharpcpp::in]] /
@@ -129,6 +134,8 @@ public static class PointerPointerShapes
 {
     public const string Array = "array";
     public const string Single = "single";
+    /// <summary>`char**` only: an input array of raw UTF-8 pointers the caller owns (`ReadOnlySpan&lt;nint&gt;`).</summary>
+    public const string Pointers = "pointers";
 }
 
 /// <summary>

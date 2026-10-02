@@ -298,7 +298,7 @@ public sealed class PointerPointerTests
 
     [Theory]
     [InlineData("MeasureBadShape", "measure_bad_shape", "the parameter is not a char** or a pointer-to-pointer to a record")]
-    [InlineData("MeasureBadValue", "measure_bad_value", "the value must be 'array' or 'single'")]
+    [InlineData("MeasureBadValue", "measure_bad_value", "the value must be 'array', 'single' or 'pointers'")]
     [InlineData("PickConstItem", "pick_const_item", "the record pointer is const and cannot be written")]
     [InlineData("GetConstLabel", "get_const_label", "the string pointer is const and cannot be written")]
     [InlineData("GetAttributedConstLabel", "get_attributed_const_label", "the string pointer is const and cannot be written")]

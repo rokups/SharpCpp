@@ -247,6 +247,7 @@ internal static class Program
         SetPointerPointerShape(compilation, "get_configured_label", "value", PointerPointerShapes.Single);
         SetPointerPointerShape(compilation, "sum_configured_items", "items", PointerPointerShapes.Array);
         SetPointerPointerShape(compilation, "pick_configured_item", "item", PointerPointerShapes.Single);
+        SetPointerPointerShape(compilation, "measure_configured_raw_names", "names", PointerPointerShapes.Pointers);
         SetPointerPointerShape(compilation, "measure_bad_shape", "names", PointerPointerShapes.Array);
         SetPointerPointerShape(compilation, "measure_bad_value", "names", "sideways");
         SetPointerPointerShape(compilation, "pick_const_item", "item", PointerPointerShapes.Single);

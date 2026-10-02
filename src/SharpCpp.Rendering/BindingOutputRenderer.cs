@@ -9365,13 +9365,15 @@ public static partial class BindingOutputRenderer
 
     /// <summary>
     /// True for an input string array or range (<c>char**</c>, <c>const char* const*</c>): bound as
-    /// <c>ReadOnlySpan&lt;string?&gt;</c> and marshalled to NUL-terminated UTF-8 by the wrapper.
+    /// <c>ReadOnlySpan&lt;string?&gt;</c> and marshalled to NUL-terminated UTF-8 by the wrapper. False for
+    /// the <c>pointers</c> shape, which keeps raw caller-owned <c>ReadOnlySpan&lt;nint&gt;</c>.
     /// </summary>
     private static bool IsInputStringArrayParameter(ParameterBinding parameter)
     {
         ArgumentNullException.ThrowIfNull(parameter);
 
         return parameter.PointerPointer == PointerPointerKind.Chars &&
+            !parameter.HasMetadata(MetadataKeys.RawStringPointerArray) &&
             IsInputRawPointerArrayParameter(parameter);
     }
 

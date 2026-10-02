@@ -168,8 +168,13 @@ public static class PointerPointerShapeResolver
             {
                 // A char** / record T** range is an input array, like a counted one; the shape
                 // loop in Apply validates it (and reports a problem) for the tagged begin.
-                begin.SetMetadata(MetadataKeys.PointerPointerShape, PointerPointerShapes.Array);
-                ApplyShape(begin, PointerPointerShapes.Array);
+                // An explicit `pointers` shape keeps the raw binding for the range.
+                var rangeShape = begin.TryGetMetadata<string>(MetadataKeys.PointerPointerShape, out var requested) &&
+                    requested == PointerPointerShapes.Pointers
+                        ? PointerPointerShapes.Pointers
+                        : PointerPointerShapes.Array;
+                begin.SetMetadata(MetadataKeys.PointerPointerShape, rangeShape);
+                ApplyShape(begin, rangeShape);
             }
             else
             {
@@ -230,14 +235,14 @@ public static class PointerPointerShapeResolver
 
     /// <summary>
     /// True when the parameter carries a pointer-pointer shape that is not the parser's default
-    /// (an explicit [[sharpcpp::in]]/[[sharpcpp::out]] or a consumer-set shape); the array shape
-    /// is acceptable when <paramref name="allowArray"/> (begin already wants an array).
+    /// (an explicit [[sharpcpp::in]]/[[sharpcpp::out]] or a consumer-set shape); the array and
+    /// pointers shapes are acceptable when <paramref name="allowArray"/> (begin already wants an array).
     /// </summary>
     private static bool HasExplicitShape(ParameterBinding parameter, bool allowArray)
     {
         parameter.TryGetMetadata<string>(MetadataKeys.PointerPointerShape, out var shape);
         parameter.TryGetMetadata<string>(MetadataKeys.PointerPointerDefaultShape, out var defaultShape);
-        return shape is not null && shape != defaultShape && !(allowArray && shape == PointerPointerShapes.Array);
+        return shape is not null && shape != defaultShape && !(allowArray && shape is PointerPointerShapes.Array or PointerPointerShapes.Pointers);
     }
 
     private static bool HasSamePointerFacts(ParameterBinding begin, ParameterBinding end) =>
@@ -257,7 +262,8 @@ public static class PointerPointerShapeResolver
         foreach (var key in new[]
         {
             MetadataKeys.PointerPointerShape, MetadataKeys.PointerPointerDefaultShape,
-            MetadataKeys.InputPointerArray, MetadataKeys.WritablePointerArray,
+            MetadataKeys.InputPointerArray, MetadataKeys.RawStringPointerArray,
+            MetadataKeys.WritablePointerArray,
             MetadataKeys.UnexpressibleDefault, MetadataKeys.UndefaultableParam,
             MetadataKeys.NativeDefaultValueExpression
         })
@@ -394,8 +400,11 @@ public static class PointerPointerShapeResolver
 
     internal static string? TryGetProblem(ParameterBinding parameter, string? shape)
     {
-        if (shape is not (PointerPointerShapes.Array or PointerPointerShapes.Single))
-            return $"the value must be '{PointerPointerShapes.Array}' or '{PointerPointerShapes.Single}'";
+        if (shape is not (PointerPointerShapes.Array or PointerPointerShapes.Single or PointerPointerShapes.Pointers))
+        {
+            return $"the value must be '{PointerPointerShapes.Array}', '{PointerPointerShapes.Single}' " +
+                $"or '{PointerPointerShapes.Pointers}'";
+        }
 
         switch (parameter.PointerPointer)
         {
@@ -406,13 +415,15 @@ public static class PointerPointerShapeResolver
                     parameter.Type.Kind == BindingTypeKind.Handle &&
                     string.IsNullOrEmpty(parameter.Type.RecordId) &&
                     parameter.Type.ManagedTypeName == BindingType.IntPtr.ManagedTypeName;
-                if (shape == PointerPointerShapes.Array)
+                if (shape is PointerPointerShapes.Array or PointerPointerShapes.Pointers)
                     return isString || isRawPointer ? null : "the parameter is not projected as a string";
                 if (parameter.PointeeIsConst)
                     return "the string pointer is const and cannot be written";
                 return isString ? null : "the parameter is not projected as a string";
 
             case PointerPointerKind.Handles:
+                if (shape == PointerPointerShapes.Pointers)
+                    return "the 'pointers' shape applies to char** only";
                 if (parameter.Type.Kind != BindingTypeKind.Handle ||
                     string.IsNullOrEmpty(parameter.Type.RecordId) ||
                     parameter.Type.IsCallback ||
@@ -433,7 +444,7 @@ public static class PointerPointerShapeResolver
 
     private static void ApplyShape(ParameterBinding parameter, string shape)
     {
-        var array = shape == PointerPointerShapes.Array;
+        var array = shape is PointerPointerShapes.Array or PointerPointerShapes.Pointers;
         if (parameter.PointerPointer == PointerPointerKind.Chars)
         {
             if (array)
@@ -450,6 +461,8 @@ public static class PointerPointerShapeResolver
                 parameter.Direction = BindingParameterDirection.In;
                 parameter.AbiKind = BindingParameterAbiKind.Pointer;
                 parameter.SetMetadata(MetadataKeys.InputPointerArray, true);
+                if (shape == PointerPointerShapes.Pointers)
+                    parameter.SetMetadata(MetadataKeys.RawStringPointerArray, true);
             }
             else
             {

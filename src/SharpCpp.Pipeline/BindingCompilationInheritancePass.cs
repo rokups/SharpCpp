@@ -219,6 +219,7 @@ public static class BindingCompilationInheritancePass
     [
         MetadataKeys.BorrowedStringOutput,
         MetadataKeys.InputPointerArray,
+        MetadataKeys.RawStringPointerArray,
         MetadataKeys.WritablePointerArray
     ];
 

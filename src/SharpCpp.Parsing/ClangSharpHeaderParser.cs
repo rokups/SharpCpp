@@ -5845,6 +5845,18 @@ public sealed partial class ClangSharpHeaderParser
         };
     }
 
+    /// <summary>The `[[sharpcpp::shape(array|single|pointers)]]` attribute of a parameter, or null.</summary>
+    private static SharpCppAttributeScanner.AttributeMatch? TryGetShapeAttribute(CXCursor functionCursor, CXCursor parameterCursor)
+    {
+        var match = FindSharpCppAttribute(GetSourceText(parameterCursor.TranslationUnit, parameterCursor.Extent), "shape");
+        if (match is null && TryGetParameterDeclarationSourceText(functionCursor, parameterCursor, out var parameterSourceText))
+        {
+            match = FindSharpCppAttribute(parameterSourceText, "shape");
+        }
+
+        return match;
+    }
+
     private static bool TryGetPassKindOverride(CXCursor functionCursor, CXCursor parameterCursor, out BindingParameterDirection direction)
     {
         var match = FindSharpCppAttribute(GetSourceText(parameterCursor.TranslationUnit, parameterCursor.Extent), "in")
@@ -5886,31 +5898,61 @@ public sealed partial class ClangSharpHeaderParser
         ParameterBinding parameter,
         ref string? ignoreReason)
     {
+        var shapeAttribute = TryGetShapeAttribute(functionCursor, parameterCursor);
         var canonical = parameterCursor.Type.CanonicalType;
-        if (!TypeIsPointer(canonical) || !TypeIsPointer(canonical.PointeeType.CanonicalType))
-            return;
+        var kind = PointerPointerKind.None;
+        CXType pointee = default;
+        CXType element = default;
+        if (TypeIsPointer(canonical) && TypeIsPointer(canonical.PointeeType.CanonicalType))
+        {
+            pointee = canonical.PointeeType;
+            element = pointee.CanonicalType.PointeeType.CanonicalType;
+            kind = element.kind is CXTypeKind.CXType_Char_S or CXTypeKind.CXType_Char_U
+                ? PointerPointerKind.Chars
+                : TypeIsRecord(element) ? PointerPointerKind.Handles : PointerPointerKind.None;
+        }
 
-        var pointee = canonical.PointeeType;
-        var element = pointee.CanonicalType.PointeeType.CanonicalType;
-        var kind = element.kind is CXTypeKind.CXType_Char_S or CXTypeKind.CXType_Char_U
-            ? PointerPointerKind.Chars
-            : TypeIsRecord(element) ? PointerPointerKind.Handles : PointerPointerKind.None;
         if (kind == PointerPointerKind.None)
+        {
+            if (shapeAttribute is not null)
+            {
+                ignoreReason ??= $"parameter '{parameter.NativeName}' has [[sharpcpp::shape({shapeAttribute.Body.Trim()})]] " +
+                    "but is not a char** or a pointer-to-pointer to a record";
+            }
+
             return;
+        }
 
         parameter.PointerPointer = kind;
         parameter.PointeeIsConst = pointee.IsConstQualified;
         parameter.PointerElementIsConst = element.IsConstQualified;
-        if (!TryGetPassKindOverride(functionCursor, parameterCursor, out var direction))
+        var hasPassKind = TryGetPassKindOverride(functionCursor, parameterCursor, out var direction);
+        if (!hasPassKind && shapeAttribute is null)
             return;
 
         // An explicit ref keeps the by-reference binding; in/out select the shape.
-        var shape = direction switch
+        var shape = hasPassKind
+            ? direction switch
+            {
+                BindingParameterDirection.In => PointerPointerShapes.Array,
+                BindingParameterDirection.Out => PointerPointerShapes.Single,
+                _ => null
+            }
+            : null;
+        if (shapeAttribute is not null)
         {
-            BindingParameterDirection.In => PointerPointerShapes.Array,
-            BindingParameterDirection.Out => PointerPointerShapes.Single,
-            _ => null
-        };
+            var requested = shapeAttribute.Body.Trim();
+            if (hasPassKind && shape != requested)
+            {
+                ignoreReason ??= $"parameter '{parameter.NativeName}' has both [[sharpcpp::{direction.ToString().ToLowerInvariant()}]] " +
+                    $"and [[sharpcpp::shape({requested})]], which request different pointer-pointer shapes";
+                parameter.PointerPointer = PointerPointerKind.None;
+                return;
+            }
+
+            shape = requested;
+        }
+
         if (shape is null)
         {
             parameter.PointerPointer = PointerPointerKind.None;
