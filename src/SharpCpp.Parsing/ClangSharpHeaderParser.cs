@@ -3333,11 +3333,87 @@ public sealed partial class ClangSharpHeaderParser
             record.SetMetadata(MetadataKeys.DestructorLinkDependencies, destructorDependencies.ToArray());
         }
 
+        var defaultConstructorDependencies = new SortedSet<string>(StringComparer.Ordinal);
+        if (HasImplicitOrDefaultedDefaultConstructor(definition))
+        {
+            CollectDefaultConstructorLinkDependencies(definition, new HashSet<CXXRecordDecl>(), defaultConstructorDependencies);
+        }
+
+        if (defaultConstructorDependencies.Count > 0)
+        {
+            record.SetMetadata(MetadataKeys.DefaultConstructorLinkDependencies, defaultConstructorDependencies.ToArray());
+        }
+
         var virtualTableDependencies = new SortedSet<string>(StringComparer.Ordinal);
         CollectVirtualTableLinkDependencies(definition, new HashSet<CXXRecordDecl>(), new HashSet<string>(StringComparer.Ordinal), virtualTableDependencies);
         if (virtualTableDependencies.Count > 0)
         {
             record.SetMetadata(MetadataKeys.VirtualTableLinkDependencies, virtualTableDependencies.ToArray());
+        }
+    }
+
+    // True when the record has no user-provided default constructor: the compiler generates it
+    // (also for `= default`) and it calls the default constructors of the bases and the fields.
+    private static bool HasImplicitOrDefaultedDefaultConstructor(CXXRecordDecl definition)
+    {
+        foreach (var constructor in definition.Ctors)
+        {
+            if (constructor.IsDefaultConstructor)
+            {
+                return constructor.IsDefaulted && !constructor.IsDeleted;
+            }
+        }
+
+        return !definition.HasUserDeclaredConstructor;
+    }
+
+    // The default constructor of a template is in a header, so a specialization gets no examination.
+    private static void CollectDefaultConstructorLinkDependencies(CXXRecordDecl record, HashSet<CXXRecordDecl> visited, SortedSet<string> dependencies)
+    {
+        var definition = record.Definition as CXXRecordDecl ?? record;
+        if (!visited.Add(definition) || definition is ClassTemplateSpecializationDecl)
+        {
+            return;
+        }
+
+        foreach (var baseSpecifier in definition.Bases)
+        {
+            if (baseSpecifier.Type.CanonicalType.AsCXXRecordDecl is { } baseRecord)
+            {
+                CollectMemberDefaultConstructorLinkDependency(baseRecord, visited, dependencies);
+            }
+        }
+
+        foreach (var field in definition.Fields)
+        {
+            var fieldType = field.Type.CanonicalType;
+            while (fieldType is ArrayType arrayType)
+            {
+                fieldType = arrayType.ElementType.CanonicalType;
+            }
+
+            if (fieldType is RecordType && fieldType.AsCXXRecordDecl is { } fieldRecord)
+            {
+                CollectMemberDefaultConstructorLinkDependency(fieldRecord, visited, dependencies);
+            }
+        }
+    }
+
+    // A default constructor without a definition here is in the library. An implicit or defaulted
+    // one calls the default constructors of the bases and the fields of the record.
+    private static void CollectMemberDefaultConstructorLinkDependency(CXXRecordDecl record, HashSet<CXXRecordDecl> visited, SortedSet<string> dependencies)
+    {
+        var definition = record.Definition as CXXRecordDecl ?? record;
+        if (definition.Ctors.FirstOrDefault(static constructor => constructor.IsDefaultConstructor) is { } constructor &&
+            IsDeclaredOnlyFunction(constructor))
+        {
+            dependencies.Add(GetCppQualifiedName(constructor));
+            return;
+        }
+
+        if (HasImplicitOrDefaultedDefaultConstructor(definition))
+        {
+            CollectDefaultConstructorLinkDependencies(definition, visited, dependencies);
         }
     }
 

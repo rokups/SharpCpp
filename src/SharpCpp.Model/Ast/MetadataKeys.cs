@@ -57,6 +57,11 @@ public static class MetadataKeys
     // the virtual table of the record (the final overriders, of any access) that have no definition
     // in the parsed translation unit. Absent when the list is empty.
     public const string VirtualTableLinkDependencies = "virtual_table_link_dependencies";
+    // Set (string[]) on a record by the parser, only when the default constructor of the record is
+    // implicit or defaulted. The C++ qualified names of the default constructors that the
+    // implicit one references and that have no definition in the parsed translation unit: the
+    // default constructors of its bases and of its by-value fields. Absent when the list is empty.
+    public const string DefaultConstructorLinkDependencies = "default_constructor_link_dependencies";
     public const string UnexpressibleDefault = "unexpressible_default";
     public const string MarshallerExposedMethod = "marshaller_exposed_method";
     public const string MarshallerConfiguredRecord = "marshaller_configured_record";
