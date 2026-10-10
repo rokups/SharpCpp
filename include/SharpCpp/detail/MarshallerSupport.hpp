@@ -412,13 +412,27 @@ auto ConstructImpl(std::index_sequence<TIndices...>, TAbiArgs&&... abiArguments)
         new T(std::get<TIndices>(marshallers).ConvertToCpp(std::forward<TAbiArgs>(abiArguments))...));
 }
 
+// Function pointer parameter of invoke_as. The converting constructor gives an overloaded function
+// name its target type. A callable object does not convert, so the compiler does not instantiate the
+// conversion operator of a generic lambda (GCC 13 fails in that instantiation).
+template <typename FT>
+struct FunctionPointerArgument
+{
+    FunctionPointerArgument(std::add_pointer_t<FT> value) noexcept // NOLINT(google-explicit-constructor)
+        : value(value)
+    {
+    }
+
+    std::add_pointer_t<FT> value;
+};
+
 struct [[maybe_unused]] MarshallerInvokerImpl;
 }
 
 struct MarshallerInvoker
 {
     template <typename FT, typename TCppArgumentTuple = typename detail::FunctionTraits<FT>::argument_tuple, typename... TAbiArgs>
-    static decltype(auto) invoke_as(typename std::add_pointer_t<FT> callable, TAbiArgs&&... abiArguments)
+    static decltype(auto) invoke_as(detail::FunctionPointerArgument<FT> callable, TAbiArgs&&... abiArguments)
     {
         using traits = detail::FunctionTraits<FT>;
         using result_type = typename traits::return_type;
@@ -431,14 +445,14 @@ struct MarshallerInvoker
 
         detail::marshaller_tuple_t<arg_tuple> marshallers;
         return detail::InvokeWithMarshallersImpl<result_type, arg_tuple>(
-            callable,
+            callable.value,
             marshallers,
             std::make_index_sequence<std::tuple_size_v<arg_tuple>>{},
             std::forward<TAbiArgs>(abiArguments)...);
     }
 
     template <typename FT, typename TCppArgumentTuple = typename detail::FunctionTraits<FT>::argument_tuple, typename... TAbiArgs>
-    static auto invoke_owned_as(typename std::add_pointer_t<FT> callable, TAbiArgs&&... abiArguments)
+    static auto invoke_owned_as(detail::FunctionPointerArgument<FT> callable, TAbiArgs&&... abiArguments)
     {
         using traits = detail::FunctionTraits<FT>;
         using result_type = typename traits::return_type;
@@ -451,14 +465,14 @@ struct MarshallerInvoker
 
         detail::marshaller_tuple_t<arg_tuple> marshallers;
         return detail::InvokeWithMarshallersOwnedImpl<result_type, arg_tuple>(
-            callable,
+            callable.value,
             marshallers,
             std::make_index_sequence<std::tuple_size_v<arg_tuple>>{},
             std::forward<TAbiArgs>(abiArguments)...);
     }
 
     template <typename FT, typename TCppArgumentTuple = typename detail::FunctionTraits<FT>::argument_tuple, typename... TAbiArgs>
-    static auto invoke_value_as(typename std::add_pointer_t<FT> callable, TAbiArgs&&... abiArguments)
+    static auto invoke_value_as(detail::FunctionPointerArgument<FT> callable, TAbiArgs&&... abiArguments)
     {
         using traits = detail::FunctionTraits<FT>;
         using result_type = typename traits::return_type;
@@ -471,7 +485,7 @@ struct MarshallerInvoker
 
         detail::marshaller_tuple_t<arg_tuple> marshallers;
         return detail::InvokeWithMarshallersValueImpl<result_type, arg_tuple>(
-            callable,
+            callable.value,
             marshallers,
             std::make_index_sequence<std::tuple_size_v<arg_tuple>>{},
             std::forward<TAbiArgs>(abiArguments)...);
