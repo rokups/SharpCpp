@@ -4061,7 +4061,7 @@ public static partial class BindingOutputRenderer
             SHARPCPP_EXPORT_NAMED({{entryPointName}}) {{GetNativeGenericEntrypointReturnType(concreteReturnType)}} {{entryPointName}}({{parameterList}})
             {
             using FT = auto({{signatureParameterList}}) -> {{concreteReturnType.CppTypeName}};
-            auto fn = []({{lambdaParameterList}}) -> decltype(auto)
+            auto fn = [&]({{lambdaParameterList}}) -> decltype(auto)
             {
                 {{(concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? invocation + ";" : "return " + invocation + ";")}}
             };
@@ -4112,7 +4112,7 @@ public static partial class BindingOutputRenderer
             SHARPCPP_EXPORT_NAMED({{entryPointName}}) {{GetNativeGenericEntrypointReturnType(concreteReturnType)}} {{entryPointName}}({{parameterList}})
             {
             using FT = auto({{signatureParameterList}}) -> {{concreteReturnType.CppTypeName}};
-            auto fn = []({{lambdaParameterList}}) -> decltype(auto)
+            auto fn = [&]({{lambdaParameterList}}) -> decltype(auto)
             {
                 {{(concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? invocation + ";" : "return " + invocation + ";")}}
             };

@@ -9101,7 +9101,7 @@ public static partial class BindingOutputRenderer
             SHARPCPP_EXPORT_NAMED({{entrypointName}}) {{GetNativeEntrypointReturnType(function)}} {{entrypointName}}({{parameterList}})
             {
                 using FT = {{signature}};
-                auto fn = []({{cppParamDecls}}) -> decltype(auto)
+                auto fn = [&]({{cppParamDecls}}) -> decltype(auto)
                 {
                     {{invocation}}
                 };

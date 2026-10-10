@@ -2047,8 +2047,19 @@ struct Marshaller<std::unordered_map<TKey, TValue, THash, TKeyEqual, TAllocator>
 template <typename TKey, typename TValue, typename THash, typename TKeyEqual, typename TAllocator>
 struct Marshaller<const std::unordered_map<TKey, TValue, THash, TKeyEqual, TAllocator>*> : OwnedHandleConstPointerMarshallerBase<std::unordered_map<TKey, TValue, THash, TKeyEqual, TAllocator>> {};
 
+namespace detail
+{
+// Forces instantiation of a class type. MSVC reports C2526 for a C linkage function that
+// returns a class that is not yet instantiated.
+template <typename T, typename = void>
+struct CompleteType { using type = T; };
+
+template <typename T>
+struct CompleteType<T, std::void_t<decltype(sizeof(T))>> { using type = T; };
+}
+
 template <class T>
-using arg_t = typename Marshaller<T>::abi_type;
+using arg_t = typename detail::CompleteType<typename Marshaller<T>::abi_type>::type;
 
 template <class T>
 using field_t = T*;
@@ -2190,7 +2201,7 @@ T* TryClone(T*, long)
 }
 
 template <class T>
-using ret_t = typename ReturnMarshaller<T>::abi_type;
+using ret_t = typename detail::CompleteType<typename ReturnMarshaller<T>::abi_type>::type;
 
 static_assert(std::is_same_v<arg_t<int>, int>);
 static_assert(std::is_same_v<arg_t<int*>, int*>);
