@@ -627,6 +627,7 @@ public sealed partial class ClangSharpHeaderParser
         compilation.Members.Add(record);
 
         ApplyDestructorMetadata(cxxRecord, record);
+        ApplyLinkDependencyMetadata(cxxRecord, record);
         PopulateRecordBases(cxxRecord, record, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters);
         PopulateRecordMembers(recordDecl, record, recordsByName, enumsByName, managedTypeOverrides, EmptyGenericParameters, entryPointPrefix, compilation, headerIncludePath);
         AddSyntheticDefaultConstructor(recordDecl, record, entryPointPrefix);
@@ -1162,6 +1163,8 @@ public sealed partial class ClangSharpHeaderParser
                         CheckAndApplyIgnoreAttribute(variableDecl, field);
                         TryApplyRename(variableDecl, field);
                         ApplyDeclarationFacts(variableDecl, field);
+                        field.SetMetadata(MetadataKeys.HasNativeDefinition, variableDecl.HasInit || variableDecl.Handle.IsThisDeclarationADefinition);
+                        field.SetMetadata(MetadataKeys.DeclaredOnly, !variableDecl.HasInit && variableDecl.Definition is null);
                         record.Members.Add(field);
                         break;
                     }
@@ -3289,6 +3292,7 @@ public sealed partial class ClangSharpHeaderParser
     private static void ApplyCallableDefinitionMetadata(Decl decl, FunctionBinding function)
     {
         function.SetMetadata(MetadataKeys.HasNativeDefinition, (decl as FunctionDecl)?.IsThisDeclarationADefinition ?? false);
+        function.SetMetadata(MetadataKeys.DeclaredOnly, decl is FunctionDecl functionDecl && IsDeclaredOnlyFunction(functionDecl));
 
         if (function.IsIgnored())
         {
@@ -3309,6 +3313,143 @@ public sealed partial class ClangSharpHeaderParser
         {
             record.SetMetadata(MetadataKeys.NonPublicDestructor, true);
         }
+    }
+
+    // Records the functions without a definition in the translation unit that the destructor and
+    // the virtual table of a record reference. A consumer that links against a library with an
+    // explicit export list (a Windows DLL) uses them to find a record that the wrapper cannot
+    // construct, copy or destroy. A template record gets no metadata: its members are in headers.
+    private static void ApplyLinkDependencyMetadata(CXXRecordDecl? cxxRecord, RecordBinding record)
+    {
+        if (cxxRecord?.Definition is not CXXRecordDecl definition || definition is ClassTemplateSpecializationDecl)
+        {
+            return;
+        }
+
+        var destructorDependencies = new SortedSet<string>(StringComparer.Ordinal);
+        CollectDestructorLinkDependencies(definition, new HashSet<CXXRecordDecl>(), destructorDependencies);
+        if (destructorDependencies.Count > 0)
+        {
+            record.SetMetadata(MetadataKeys.DestructorLinkDependencies, destructorDependencies.ToArray());
+        }
+
+        var virtualTableDependencies = new SortedSet<string>(StringComparer.Ordinal);
+        CollectVirtualTableLinkDependencies(definition, new HashSet<CXXRecordDecl>(), new HashSet<string>(StringComparer.Ordinal), virtualTableDependencies);
+        if (virtualTableDependencies.Count > 0)
+        {
+            record.SetMetadata(MetadataKeys.VirtualTableLinkDependencies, virtualTableDependencies.ToArray());
+        }
+    }
+
+    private static void CollectDestructorLinkDependencies(CXXRecordDecl record, HashSet<CXXRecordDecl> visited, SortedSet<string> dependencies)
+    {
+        var definition = record.Definition as CXXRecordDecl ?? record;
+        if (!visited.Add(definition))
+        {
+            return;
+        }
+
+        if (definition is ClassTemplateSpecializationDecl specialization)
+        {
+            // The destructor of a template is in a header. It can destroy a type argument (the
+            // element of a container) and call one (the deleter of a unique_ptr).
+            foreach (var argument in specialization.TemplateArgs)
+            {
+                if (argument.Kind != CXTemplateArgumentKind.CXTemplateArgumentKind_Type ||
+                    argument.AsType.CanonicalType is not RecordType ||
+                    argument.AsType.CanonicalType.AsCXXRecordDecl is not { } argumentRecord)
+                {
+                    continue;
+                }
+
+                CollectDestructorLinkDependencies(argumentRecord, visited, dependencies);
+                foreach (var method in (argumentRecord.Definition as CXXRecordDecl ?? argumentRecord).Methods)
+                {
+                    if (method.Name == "operator()" && IsDeclaredOnlyFunction(method))
+                    {
+                        dependencies.Add(GetCppQualifiedName(method));
+                    }
+                }
+            }
+
+            return;
+        }
+
+        // A destructor without a definition here destroys the bases and the fields in its library.
+        if (definition.Destructor is { } destructor && IsDeclaredOnlyFunction(destructor))
+        {
+            dependencies.Add(GetCppQualifiedName(destructor));
+            return;
+        }
+
+        foreach (var baseSpecifier in definition.Bases)
+        {
+            if (baseSpecifier.Type.CanonicalType.AsCXXRecordDecl is { } baseRecord)
+            {
+                CollectDestructorLinkDependencies(baseRecord, visited, dependencies);
+            }
+        }
+
+        foreach (var field in definition.Fields)
+        {
+            var fieldType = field.Type.CanonicalType;
+            while (fieldType is ArrayType arrayType)
+            {
+                fieldType = arrayType.ElementType.CanonicalType;
+            }
+
+            if (fieldType is RecordType && fieldType.AsCXXRecordDecl is { } fieldRecord)
+            {
+                CollectDestructorLinkDependencies(fieldRecord, visited, dependencies);
+            }
+        }
+    }
+
+    // `slots` holds the signatures that a more derived record declares: such a declaration
+    // overrides (or hides) the base function, so the virtual table does not reference the base one.
+    private static void CollectVirtualTableLinkDependencies(CXXRecordDecl record, HashSet<CXXRecordDecl> visited, HashSet<string> slots, SortedSet<string> dependencies)
+    {
+        var definition = record.Definition as CXXRecordDecl ?? record;
+        if (!visited.Add(definition))
+        {
+            return;
+        }
+
+        foreach (var method in definition.Methods)
+        {
+            if (method is CXXConstructorDecl or CXXDestructorDecl || method.IsStatic)
+            {
+                continue;
+            }
+
+            var slot = $"{method.Name}({string.Join(",", method.Parameters.Select(static parameter => parameter.Type.CanonicalType.AsString))}){(method.IsConst ? " const" : string.Empty)}";
+            if (slots.Add(slot) && method.IsVirtual && !method.IsPure && IsDeclaredOnlyFunction(method))
+            {
+                dependencies.Add(GetCppQualifiedName(method));
+            }
+        }
+
+        foreach (var baseSpecifier in definition.Bases)
+        {
+            if (baseSpecifier.Type.CanonicalType.AsCXXRecordDecl is { } baseRecord)
+            {
+                // Each direct base gets a copy: a sibling base does not override the functions of this base.
+                CollectVirtualTableLinkDependencies(baseRecord, visited, new HashSet<string>(slots, StringComparer.Ordinal), dependencies);
+            }
+        }
+    }
+
+    // True when the function needs a symbol from a different binary: the user declares it and the
+    // translation unit has no definition of it. A member of a template instantiation is not such a
+    // function: its definition is in a header and the compiler instantiates it on use.
+    private static bool IsDeclaredOnlyFunction(FunctionDecl function)
+    {
+        // An implicit special member is defaulted, so no separate test for an implicit declaration is necessary.
+        return !function.IsDeleted &&
+            !function.IsDefaulted &&
+            !function.IsDefined &&
+            function.InstantiatedFromMemberFunction is null &&
+            function.SemanticParentCursor is not ClassTemplateSpecializationDecl;
     }
 
     private static int s_entrypointCounter;

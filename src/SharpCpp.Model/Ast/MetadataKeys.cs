@@ -41,8 +41,22 @@ public static class MetadataKeys
     public const string PlaceholderRecord = "placeholder_record";
     public const string SuppressEmission = "suppress_emission";
     public const string HasNativeDefinition = "has_native_definition";
+    // Set (bool) on a function, a method or a static data member by the parser. True when the
+    // declaration needs a symbol from a different binary: the translation unit has no definition,
+    // not even an inline one that follows the declaration.
+    public const string DeclaredOnly = "declared_only";
     public const string NativeCallableDeleted = "native_callable_deleted";
     public const string NonPublicDestructor = "non_public_destructor";
+    // Set (string[]) on a record by the parser. The C++ qualified names of the functions that the
+    // destructor of the record references and that have no definition in the parsed translation
+    // unit: the destructors of the record, its bases and its by-value fields, and the destructors
+    // and call operators of the type arguments of a template field. A consumer compares the names
+    // with the symbols that the linked library exports. Absent when the list is empty.
+    public const string DestructorLinkDependencies = "destructor_link_dependencies";
+    // Set (string[]) on a record by the parser. The C++ qualified names of the virtual functions in
+    // the virtual table of the record (the final overriders, of any access) that have no definition
+    // in the parsed translation unit. Absent when the list is empty.
+    public const string VirtualTableLinkDependencies = "virtual_table_link_dependencies";
     public const string UnexpressibleDefault = "unexpressible_default";
     public const string MarshallerExposedMethod = "marshaller_exposed_method";
     public const string MarshallerConfiguredRecord = "marshaller_configured_record";
