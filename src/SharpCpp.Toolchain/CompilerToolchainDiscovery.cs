@@ -6,15 +6,19 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 
 /// <summary>
 /// Discovers system include directories, target triple and a compatible Clang resource
 /// directory by querying the compiler a native project is built with, so generator parses
-/// see the same headers as the native build on every host and target.
+/// see the same headers as the native build on every host and target. For MSVC <c>cl.exe</c>
+/// the target triple comes from the compiler directory and the include directories come from
+/// the <c>INCLUDE</c> environment variable.
 /// </summary>
 public static class CompilerToolchainDiscovery
 {
     private const string FrameworkDirectorySuffix = " (framework directory)";
+    private static readonly TimeSpan DefaultProcessTimeout = TimeSpan.FromSeconds(30);
 
     /// <param name="clangResourceDirectoryOverride">
     /// Resource directory to use instead of the compiler's (callers typically read it from
@@ -31,8 +35,9 @@ public static class CompilerToolchainDiscovery
 
         var parserClangMajorVersion = DiscoverParserClangMajorVersion();
         var toolchainClangCompilerPath = ResolveToolchainCompiler(compilerPath, parserClangMajorVersion);
+        var isMsvcCompiler = LooksLikeMsvcCompiler(compilerPath);
         var targetTriple = string.IsNullOrWhiteSpace(targetTripleOverride)
-            ? DiscoverTargetTriple(compilerPath)
+            ? (isMsvcCompiler ? DeriveMsvcTargetTriple(compilerPath) : DiscoverTargetTriple(compilerPath))
             : targetTripleOverride;
         var requiresTargetToolchainResourceDirectory =
             targetTriple?.Contains("android", StringComparison.OrdinalIgnoreCase) == true;
@@ -44,7 +49,9 @@ public static class CompilerToolchainDiscovery
         var includeCompilerPath = useRequestedCompilerIncludes
             ? compilerPath
             : toolchainClangCompilerPath;
-        var includeDirectories = DiscoverVerboseSearchPaths(includeCompilerPath, targetTriple, sysroot);
+        var includeDirectories = isMsvcCompiler
+            ? ReadMsvcIncludeEnvironment()
+            : DiscoverVerboseSearchPaths(includeCompilerPath, targetTriple, sysroot);
         var clangResourceDirectory = NormalizeExistingDirectory(clangResourceDirectoryOverride);
         var usesResourceDirectoryOverride = clangResourceDirectory is not null;
         var resourceCompilerPath = requiresTargetToolchainResourceDirectory
@@ -66,7 +73,8 @@ public static class CompilerToolchainDiscovery
             clangResourceDirectory = null;
         }
 
-        if (clangResourceDirectory is null &&
+        if (!isMsvcCompiler &&
+            clangResourceDirectory is null &&
             !string.Equals(includeCompilerPath, compilerPath, StringComparison.Ordinal))
         {
             includeDirectories = DiscoverVerboseSearchPaths(compilerPath, targetTriple, sysroot);
@@ -184,16 +192,11 @@ public static class CompilerToolchainDiscovery
             startInfo.ArgumentList.Add("-");
             startInfo.ArgumentList.Add("-v");
 
-            using var process = Process.Start(startInfo);
-            if (process is null)
+            var result = RunProcess(startInfo);
+            if (result is not { ExitCode: 0 } completed)
                 return Array.Empty<string>();
 
-            process.StandardInput.Close();
-            _ = process.StandardOutput.ReadToEnd();
-            var errorOutput = process.StandardError.ReadToEnd();
-            process.WaitForExit();
-            if (process.ExitCode != 0)
-                return Array.Empty<string>();
+            var errorOutput = completed.StandardError;
 
             var includeDirectories = new List<string>();
             var capture = false;
@@ -251,14 +254,12 @@ public static class CompilerToolchainDiscovery
             };
             startInfo.ArgumentList.Add("-print-resource-dir");
 
-            using var process = Process.Start(startInfo);
-            if (process is null)
+            var result = RunProcess(startInfo);
+            if (result is not { ExitCode: 0 } completed)
                 return null;
 
-            var standardOutput = process.StandardOutput.ReadToEnd().Trim();
-            _ = process.StandardError.ReadToEnd();
-            process.WaitForExit();
-            if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(standardOutput))
+            var standardOutput = completed.StandardOutput.Trim();
+            if (string.IsNullOrWhiteSpace(standardOutput))
                 return null;
 
             var resourceDirectory = NormalizeResourceDirectory(standardOutput);
@@ -283,14 +284,12 @@ public static class CompilerToolchainDiscovery
             };
             startInfo.ArgumentList.Add("-dumpmachine");
 
-            using var process = Process.Start(startInfo);
-            if (process is null)
+            var result = RunProcess(startInfo);
+            if (result is not { ExitCode: 0 } completed)
                 return null;
 
-            var standardOutput = process.StandardOutput.ReadToEnd().Trim();
-            _ = process.StandardError.ReadToEnd();
-            process.WaitForExit();
-            return process.ExitCode == 0 && !string.IsNullOrWhiteSpace(standardOutput) ? standardOutput : null;
+            var standardOutput = completed.StandardOutput.Trim();
+            return !string.IsNullOrWhiteSpace(standardOutput) ? standardOutput : null;
         }
         catch
         {
@@ -415,14 +414,7 @@ public static class CompilerToolchainDiscovery
             };
             startInfo.ArgumentList.Add("--version");
 
-            using var process = Process.Start(startInfo);
-            if (process is null)
-                return false;
-
-            _ = process.StandardOutput.ReadToEnd();
-            _ = process.StandardError.ReadToEnd();
-            process.WaitForExit();
-            return true;
+            return RunProcess(startInfo) is not null;
         }
         catch
         {
@@ -430,10 +422,81 @@ public static class CompilerToolchainDiscovery
         }
     }
 
+    private static (int ExitCode, string StandardOutput, string StandardError)? RunProcess(
+        ProcessStartInfo startInfo,
+        TimeSpan? timeout = null)
+    {
+        startInfo.RedirectStandardInput = true;
+        startInfo.RedirectStandardOutput = true;
+        startInfo.RedirectStandardError = true;
+        startInfo.UseShellExecute = false;
+
+        try
+        {
+            using var process = Process.Start(startInfo);
+            if (process is null)
+                return null;
+
+            process.StandardInput.Close();
+            var standardOutputTask = process.StandardOutput.ReadToEndAsync();
+            var standardErrorTask = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(timeout ?? DefaultProcessTimeout))
+            {
+                process.Kill(entireProcessTree: true);
+                return null;
+            }
+
+            return (process.ExitCode, standardOutputTask.GetAwaiter().GetResult(), standardErrorTask.GetAwaiter().GetResult());
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static bool LooksLikeClangCompiler(string compilerPath)
     {
         var fileName = Path.GetFileNameWithoutExtension(compilerPath);
         return fileName.Contains("clang", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool LooksLikeMsvcCompiler(string compilerPath)
+    {
+        var fileName = Path.GetFileNameWithoutExtension(compilerPath);
+        return string.Equals(fileName, "cl", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string DeriveMsvcTargetTriple(string compilerPath)
+    {
+        var directoryName = Path.GetFileName(
+            Path.GetDirectoryName(compilerPath)?.TrimEnd('/', '\\') ?? string.Empty);
+
+        if (string.Equals(directoryName, "x64", StringComparison.OrdinalIgnoreCase))
+            return "x86_64-pc-windows-msvc";
+        if (string.Equals(directoryName, "x86", StringComparison.OrdinalIgnoreCase))
+            return "i686-pc-windows-msvc";
+        if (string.Equals(directoryName, "arm64", StringComparison.OrdinalIgnoreCase))
+            return "aarch64-pc-windows-msvc";
+
+        return RuntimeInformation.ProcessArchitecture switch
+        {
+            Architecture.X86 => "i686-pc-windows-msvc",
+            Architecture.Arm64 => "aarch64-pc-windows-msvc",
+            _ => "x86_64-pc-windows-msvc",
+        };
+    }
+
+    private static IReadOnlyList<string> ReadMsvcIncludeEnvironment()
+    {
+        var include = Environment.GetEnvironmentVariable("INCLUDE");
+        if (string.IsNullOrWhiteSpace(include))
+            return Array.Empty<string>();
+
+        return include
+            .Split(';')
+            .Select(static entry => entry.Trim())
+            .Where(static entry => entry.Length > 0)
+            .ToArray();
     }
 
     private static string NormalizeSearchPath(string path)
@@ -462,8 +525,13 @@ public sealed record CompilerToolchainInfo(
     string? AppleSdkRoot = null)
 {
     public bool IsMinGwTarget =>
-        TargetTriple?.Contains("windows", StringComparison.OrdinalIgnoreCase) == true ||
+        TargetTriple?.Contains("windows-gnu", StringComparison.OrdinalIgnoreCase) == true ||
         TargetTriple?.Contains("mingw", StringComparison.OrdinalIgnoreCase) == true;
+
+    public bool IsMsvcTarget => IsMsvcTriple(TargetTriple);
+
+    internal static bool IsMsvcTriple(string? targetTriple) =>
+        targetTriple?.Contains("windows-msvc", StringComparison.OrdinalIgnoreCase) == true;
 
     public bool IsAppleTarget => IsAppleTriple(TargetTriple);
 
