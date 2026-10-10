@@ -2049,13 +2049,13 @@ struct Marshaller<const std::unordered_map<TKey, TValue, THash, TKeyEqual, TAllo
 
 namespace detail
 {
-// Forces instantiation of a class type. MSVC reports C2526 for a C linkage function that
+// Forces instantiation of a class type that is not a reference. MSVC reports C2526 for a C linkage function that
 // returns a class that is not yet instantiated.
 template <typename T, typename = void>
 struct CompleteType { using type = T; };
 
 template <typename T>
-struct CompleteType<T, std::void_t<decltype(sizeof(T))>> { using type = T; };
+struct CompleteType<T, std::void_t<decltype(sizeof(std::enable_if_t<!std::is_reference_v<T>, T>))>> { using type = T; };
 }
 
 template <class T>

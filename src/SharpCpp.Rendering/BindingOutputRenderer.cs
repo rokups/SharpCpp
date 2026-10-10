@@ -5856,7 +5856,7 @@ public static partial class BindingOutputRenderer
                     writer.Write($$"""
                         SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(method)}} {{GetNativeCallbaseEntrypointName(compilation, record, method)}}({{parameterList}})
                         {
-                        using FT = {{method.CppReturnTypeName}}({{record.CppQualifiedName}}*{{(parameterCppList.Length > 0 ? $", {parameterCppList}" : string.Empty)}});
+                        using FT = {{RenderCompleteReturnType(method.CppReturnTypeName)}}({{record.CppQualifiedName}}*{{(parameterCppList.Length > 0 ? $", {parameterCppList}" : string.Empty)}});
                         {{(RequiresOwnedRecordValueReturn(method)
                             ? $"return MarshallerInvoker::invoke_owned_as<{marshallerTemplateArguments}>(&{directorName}::{helperName}, self{(callbaseArguments.Length > 0 ? $", {callbaseArguments}" : string.Empty)});"
                             : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(&{directorName}::{helperName}, self{(callbaseArguments.Length > 0 ? $", {callbaseArguments}" : string.Empty)});")}}
@@ -7294,9 +7294,18 @@ public static partial class BindingOutputRenderer
         return $"{functionTypeName}, std::tuple<{tupleTypes}>";
     }
 
+    // MSVC reports C2526 for a C linkage function type whose class return type is not yet instantiated.
+    // CompleteType<R>::type is exactly R and forces the instantiation.
+    private static string RenderCompleteReturnType(string cppReturnTypeName)
+    {
+        return cppReturnTypeName == "void"
+            ? cppReturnTypeName
+            : $"::SharpCpp::detail::CompleteType<{cppReturnTypeName}>::type";
+    }
+
     private static string BuildNativeFunctionSignature(FunctionBinding function)
     {
-        var returnTypeName = function.CppReturnTypeName;
+        var returnTypeName = RenderCompleteReturnType(function.CppReturnTypeName);
         var parameterTypes = string.Join(", ", function.Parameters.Select(static p => p.CppTypeName));
         return $"auto({parameterTypes}) -> {returnTypeName}";
     }
@@ -8665,7 +8674,7 @@ public static partial class BindingOutputRenderer
             : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(__invoke, {callArguments});";
 
         return $$"""
-            using FT = {{method.CppReturnTypeName}}({{signatureParameters}});
+            using FT = {{RenderCompleteReturnType(method.CppReturnTypeName)}}({{signatureParameters}});
             auto __invoke = []({{lambdaParameters}}) -> {{method.CppReturnTypeName}}
             {
             {{returnStatement}}
@@ -9090,7 +9099,7 @@ public static partial class BindingOutputRenderer
             : variantParams.Select(static p => $"auto&& {p.NativeName}");
         var cppParamDecls = string.Join(", ", paramDeclParts);
 
-        var signature = $"{function.CppReturnTypeName}({cppTypeNames})";
+        var signature = $"{RenderCompleteReturnType(function.CppReturnTypeName)}({cppTypeNames})";
         var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", cppTypeParts);
 
         var invokeAsArgs = isSelf

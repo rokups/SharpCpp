@@ -3811,7 +3811,7 @@ public static partial class BindingOutputRenderer
         var abiArguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
         var signatureReturnType = SubstituteCppGenericParameters(
             method.CppReturnTypeName, record.GenericParameters, GetNativeTypeArguments(instantiation));
-        var signature = $"auto({string.Join(", ", signatureParameterTypes)}) -> {signatureReturnType}";
+        var signature = $"auto({string.Join(", ", signatureParameterTypes)}) -> {RenderCompleteReturnType(signatureReturnType)}";
         var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", signatureParameterTypes);
 
         return $$"""
@@ -3847,7 +3847,7 @@ public static partial class BindingOutputRenderer
         var abiArguments = string.Join(", ", function.Parameters.Select(static parameter => parameter.NativeName));
         var signatureReturnType = SubstituteCppGenericParameters(
             function.CppReturnTypeName, function.GenericParameters, GetNativeTypeArguments(instantiation));
-        var signature = $"auto({string.Join(", ", signatureParameterTypes)}) -> {signatureReturnType}";
+        var signature = $"auto({string.Join(", ", signatureParameterTypes)}) -> {RenderCompleteReturnType(signatureReturnType)}";
         var methodCppTypeArgs = string.Join(", ", GetNativeTypeArguments(instantiation).Select(RecordBinding.FormatCppTemplateArgument));
         var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", signatureParameterTypes);
 
@@ -3983,7 +3983,7 @@ public static partial class BindingOutputRenderer
         var signatureReturnType = SubstituteCppGenericParameters(
             SubstituteCppGenericParameters(method.CppReturnTypeName, record.GenericParameters, GetNativeTypeArguments(recordInstantiation)),
             method.GenericParameters, GetNativeTypeArguments(methodInstantiation));
-        var signature = $"auto({string.Join(", ", signatureParameterTypes)}) -> {signatureReturnType}";
+        var signature = $"auto({string.Join(", ", signatureParameterTypes)}) -> {RenderCompleteReturnType(signatureReturnType)}";
         var methodCppTypeArgs = string.Join(", ", GetNativeTypeArguments(methodInstantiation).Select(RecordBinding.FormatCppTemplateArgument));
         var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", signatureParameterTypes);
         var methodPointer = $"&{concreteRecordType}::{method.NativeName}<{methodCppTypeArgs}>";
@@ -4060,7 +4060,7 @@ public static partial class BindingOutputRenderer
         return $$"""
             SHARPCPP_EXPORT_NAMED({{entryPointName}}) {{GetNativeGenericEntrypointReturnType(concreteReturnType)}} {{entryPointName}}({{parameterList}})
             {
-            using FT = auto({{signatureParameterList}}) -> {{concreteReturnType.CppTypeName}};
+            using FT = auto({{signatureParameterList}}) -> {{RenderCompleteReturnType(concreteReturnType.CppTypeName)}};
             auto fn = [&]({{lambdaParameterList}}) -> decltype(auto)
             {
                 {{(concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? invocation + ";" : "return " + invocation + ";")}}
@@ -4111,7 +4111,7 @@ public static partial class BindingOutputRenderer
         return $$"""
             SHARPCPP_EXPORT_NAMED({{entryPointName}}) {{GetNativeGenericEntrypointReturnType(concreteReturnType)}} {{entryPointName}}({{parameterList}})
             {
-            using FT = auto({{signatureParameterList}}) -> {{concreteReturnType.CppTypeName}};
+            using FT = auto({{signatureParameterList}}) -> {{RenderCompleteReturnType(concreteReturnType.CppTypeName)}};
             auto fn = [&]({{lambdaParameterList}}) -> decltype(auto)
             {
                 {{(concreteReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? invocation + ";" : "return " + invocation + ";")}}
@@ -4220,7 +4220,7 @@ public static partial class BindingOutputRenderer
                 : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(__invoke, {callArguments});";
 
         return $$"""
-            using FT = auto({{signatureParameters}}) -> {{concreteReturnType.CppTypeName}};
+            using FT = auto({{signatureParameters}}) -> {{RenderCompleteReturnType(concreteReturnType.CppTypeName)}};
             auto __invoke = []({{lambdaParameters}}) -> {{concreteReturnType.CppTypeName}}
             {
             {{returnStatement}}
