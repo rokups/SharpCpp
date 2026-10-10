@@ -8,11 +8,14 @@
     <ProjectReference Include="../SharpCpp.Model/SharpCpp.Model.csproj" />
     <ProjectReference Include="../SharpCpp.Metadata/SharpCpp.Metadata.csproj" />
     <PackageReference Include="ClangSharp" Version="20.1.2.4" />
-    <PackageReference Include="libClang.runtime.linux-x64"
-                      Version="20.1.2"
-                      Condition="'$(NETCoreSdkPortableRuntimeIdentifier)' == 'linux-x64'" />
-    <PackageReference Include="libClangSharp.runtime.linux-x64"
-                      Version="20.1.2"
-                      Condition="'$(NETCoreSdkPortableRuntimeIdentifier)' == 'linux-x64'" />
+  </ItemGroup>
+
+  <!-- Native libclang for the host. These are the RIDs that have 20.1.2 runtime packages. -->
+  <PropertyGroup>
+    <SharpCppClangRuntimeIdentifiers>;linux-x64;linux-arm64;osx-arm64;win-x64;win-arm64;</SharpCppClangRuntimeIdentifiers>
+  </PropertyGroup>
+  <ItemGroup Condition="$(SharpCppClangRuntimeIdentifiers.Contains(';$(NETCoreSdkPortableRuntimeIdentifier);'))">
+    <PackageReference Include="libClang.runtime.$(NETCoreSdkPortableRuntimeIdentifier)" Version="20.1.2" />
+    <PackageReference Include="libClangSharp.runtime.$(NETCoreSdkPortableRuntimeIdentifier)" Version="20.1.2" />
   </ItemGroup>
 </Project>
