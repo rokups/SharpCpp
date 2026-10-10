@@ -14,6 +14,8 @@ using System.Reflection;
 /// </summary>
 public static class CompilerToolchainDiscovery
 {
+    private const string FrameworkDirectorySuffix = " (framework directory)";
+
     /// <param name="clangResourceDirectoryOverride">
     /// Resource directory to use instead of the compiler's (callers typically read it from
     /// an environment variable of their own).
@@ -75,12 +77,38 @@ public static class CompilerToolchainDiscovery
             clangResourceDirectory,
             ignoredClangResourceDirectory);
 
+        var existingIncludeDirectories = includeDirectories.Where(Directory.Exists).Distinct(StringComparer.Ordinal).ToArray();
         return new CompilerToolchainInfo(
-            includeDirectories.Where(Directory.Exists).Distinct(StringComparer.Ordinal).ToArray(),
+            existingIncludeDirectories,
             targetTriple,
             clangResourceDirectory,
             parserClangMajorVersion,
-            ignoredClangResourceDirectory);
+            ignoredClangResourceDirectory,
+            CompilerToolchainInfo.IsAppleTriple(targetTriple)
+                ? DiscoverAppleSdkRoot(existingIncludeDirectories, sysroot)
+                : null);
+    }
+
+    /// <summary>
+    /// Finds the Apple SDK root: an explicit sysroot has priority, otherwise the root is derived
+    /// from the discovered <c>*.sdk/usr/include</c> directory.
+    /// </summary>
+    private static string? DiscoverAppleSdkRoot(IReadOnlyList<string> includeDirectories, string? sysroot)
+    {
+        if (!string.IsNullOrWhiteSpace(sysroot))
+            return NormalizePath(sysroot);
+
+        const string sdkIncludeSuffix = ".sdk/usr/include";
+        foreach (var includeDirectory in includeDirectories)
+        {
+            var normalizedPath = NormalizePath(includeDirectory)
+                .Replace('\\', '/')
+                .TrimEnd('/');
+            if (normalizedPath.EndsWith(sdkIncludeSuffix, StringComparison.OrdinalIgnoreCase))
+                return normalizedPath[..^"/usr/include".Length];
+        }
+
+        return null;
     }
 
     private static string ResolveToolchainCompiler(string compilerPath, int? parserClangMajorVersion)
@@ -185,7 +213,7 @@ public static class CompilerToolchainDiscovery
                 if (line.StartsWith("End of search list.", StringComparison.Ordinal))
                     break;
 
-                if (line.StartsWith("(framework directory)", StringComparison.Ordinal))
+                if (line.EndsWith(FrameworkDirectorySuffix, StringComparison.Ordinal))
                     continue;
 
                 var normalizedPath = NormalizeSearchPath(line);
@@ -345,7 +373,7 @@ public static class CompilerToolchainDiscovery
         return segments.Length >= 3 && segments[2] is "include" or "include-fixed";
     }
 
-    private static bool IsPathUnderDirectory(string path, string candidateRoot)
+    internal static bool IsPathUnderDirectory(string path, string candidateRoot)
     {
         var normalizedPath = NormalizePath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var normalizedRoot = NormalizePath(candidateRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -410,11 +438,7 @@ public static class CompilerToolchainDiscovery
 
     private static string NormalizeSearchPath(string path)
     {
-        const string frameworkSuffix = " (framework directory)";
-        var normalizedPath = path.EndsWith(frameworkSuffix, StringComparison.Ordinal)
-            ? path[..^frameworkSuffix.Length]
-            : path;
-        return NormalizePath(normalizedPath);
+        return NormalizePath(path);
     }
 
     private static string NormalizeResourceDirectory(string resourceDirectory)
@@ -434,11 +458,18 @@ public sealed record CompilerToolchainInfo(
     string? TargetTriple,
     string? ClangResourceDirectory,
     int? ParserClangMajorVersion,
-    string? IgnoredClangResourceDirectory)
+    string? IgnoredClangResourceDirectory,
+    string? AppleSdkRoot = null)
 {
     public bool IsMinGwTarget =>
         TargetTriple?.Contains("windows", StringComparison.OrdinalIgnoreCase) == true ||
         TargetTriple?.Contains("mingw", StringComparison.OrdinalIgnoreCase) == true;
+
+    public bool IsAppleTarget => IsAppleTriple(TargetTriple);
+
+    internal static bool IsAppleTriple(string? targetTriple) =>
+        targetTriple?.Contains("apple", StringComparison.OrdinalIgnoreCase) == true ||
+        targetTriple?.Contains("darwin", StringComparison.OrdinalIgnoreCase) == true;
 
     /// <summary>
     /// Clang arguments that make a parse see the toolchain's target and system headers.
@@ -462,6 +493,17 @@ public sealed record CompilerToolchainInfo(
         if (!string.IsNullOrWhiteSpace(sysroot))
             arguments.Add($"--sysroot={sysroot}");
 
+        // The driver orders SDK headers after the builtin ones only when it derives them from the
+        // SDK root. A plain -isystem of the SDK include directory hides the builtin stddef.h.
+        var sdkRoot = IsAppleTarget ? AppleSdkRoot : null;
+        if (!string.IsNullOrWhiteSpace(sdkRoot) &&
+            string.IsNullOrWhiteSpace(sysroot) &&
+            !existingArguments.Any(static argument => argument.StartsWith("-isysroot", StringComparison.Ordinal) || argument.StartsWith("--sysroot", StringComparison.Ordinal)))
+        {
+            arguments.Add("-isysroot");
+            arguments.Add(sdkRoot);
+        }
+
         if (!string.IsNullOrWhiteSpace(ClangResourceDirectory) &&
             !existingArguments.Any(static argument => argument.StartsWith("-resource-dir=", StringComparison.Ordinal) || argument == "-resource-dir"))
         {
@@ -471,7 +513,12 @@ public sealed record CompilerToolchainInfo(
         }
 
         foreach (var includeDirectory in IncludeDirectories)
+        {
+            if (!string.IsNullOrWhiteSpace(sdkRoot) && CompilerToolchainDiscovery.IsPathUnderDirectory(includeDirectory, sdkRoot))
+                continue;
+
             arguments.Add($"-isystem{includeDirectory}");
+        }
 
         return arguments;
     }
