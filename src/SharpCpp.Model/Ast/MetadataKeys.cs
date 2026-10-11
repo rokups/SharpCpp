@@ -62,6 +62,14 @@ public static class MetadataKeys
     // implicit one references and that have no definition in the parsed translation unit: the
     // default constructors of its bases and of its by-value fields. Absent when the list is empty.
     public const string DefaultConstructorLinkDependencies = "default_constructor_link_dependencies";
+    // Set (long, bytes) on a record by the parser: the size and the alignment of the complete
+    // record type on the parse target. Absent when the record is not complete, for example a
+    // forward declaration or a class template.
+    public const string RecordSize = "record_size";
+    public const string RecordAlignment = "record_alignment";
+    // Set (long, bits) on a non-static field by the parser: the offset of the field in its record
+    // on the parse target. Absent when the layout is not known.
+    public const string FieldOffset = "field_offset";
     public const string UnexpressibleDefault = "unexpressible_default";
     public const string MarshallerExposedMethod = "marshaller_exposed_method";
     public const string MarshallerConfiguredRecord = "marshaller_configured_record";

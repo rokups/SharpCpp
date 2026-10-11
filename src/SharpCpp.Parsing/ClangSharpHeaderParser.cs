@@ -535,6 +535,24 @@ public sealed partial class ClangSharpHeaderParser
             directorRecordCppTypeNames?.Contains(cppQualifiedName) == true;
     }
 
+    /// <summary>
+    /// Records the size and the alignment of a complete record type. Clang reports a negative
+    /// value for an incomplete or dependent type; such a record gets no layout metadata.
+    /// </summary>
+    private static void ApplyRecordLayoutMetadata(RecordDecl recordDecl, RecordBinding record)
+    {
+        var recordType = recordDecl.Handle.Type;
+        var size = recordType.SizeOf;
+        var alignment = recordType.AlignOf;
+        if (size < 0 || alignment < 0)
+        {
+            return;
+        }
+
+        record.SetMetadata(MetadataKeys.RecordSize, size);
+        record.SetMetadata(MetadataKeys.RecordAlignment, alignment);
+    }
+
     private static void RegisterRecord(
         RecordDecl recordDecl,
         BindingCompilation compilation,
@@ -610,6 +628,7 @@ public sealed partial class ClangSharpHeaderParser
             record.SetMetadata(MetadataKeys.NativeInterfaceWrapper, true);
         }
         record.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(recordDecl));
+        ApplyRecordLayoutMetadata(recordDecl, record);
         if (isForwardDeclaration)
         {
             record.SetMetadata(MetadataKeys.ForwardDeclaration, true);
@@ -1701,6 +1720,11 @@ public sealed partial class ClangSharpHeaderParser
         if (isFunctionPointer)
         {
             field.SetMetadata(MetadataKeys.FunctionPointerField, true);
+        }
+        // Clang reports a negative value when the layout is not known (a dependent or incomplete type).
+        if (fieldDecl is FieldDecl { Handle.OffsetOfField: >= 0 and var fieldOffsetBits })
+        {
+            field.SetMetadata(MetadataKeys.FieldOffset, fieldOffsetBits);
         }
         if (fieldDecl is FieldDecl { IsBitField: true })
             field.SetMetadata(MetadataKeys.BitField, true);
