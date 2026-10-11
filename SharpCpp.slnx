@@ -11,6 +11,7 @@
     <Project Path="src/SharpCpp.Toolchain/SharpCpp.Toolchain.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/SharpCpp.Tests.ApiUnion/SharpCpp.Tests.ApiUnion.csproj" />
     <Project Path="tests/SharpCpp.Tests.E2E/SharpCpp.Tests.E2E.csproj" />
   </Folder>
   <Folder Name="/native/">

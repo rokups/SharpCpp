@@ -2,6 +2,19 @@
 
 History lives in git. This file lists only what is open.
 
+## Cross-platform managed API
+
+- `SharpCpp.ApiUnion` reads compiled platform assemblies, emits C# for a union
+  reference assembly and missing-member stubs, and prepares original sources for
+  recompilation. It preserves native implementations instead of rewriting DLLs.
+- Return-only scalar conflicts get typed aliases; parameter differences remain
+  overloads. Enum members are combined. Conflicting enum widths, constants, base types and absent data fields on
+  existing types fail explicitly. Signed assemblies require a future signing workflow.
+- `SharpCpp.Tests.ApiUnion` compiles fixtures and a consumer against the reference,
+  then runs the consumer against rebuilt implementations. It checks working APIs,
+  throwing stubs, interfaces, missing setters, nested generics and compiler-facing
+  extension/handler metadata. The rbfx consumer owns its CI packaging and ApiCompat checks.
+
 ## Stage 0: freeze the contract
 
 - [x] rbfx consumer split into its own repository (`SharpCpp.Rbfx`); its E2E suite
