@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/SharpCpp.ApiUnion/SharpCpp.ApiUnion.csproj" />
     <Project Path="src/SharpCpp.Metadata/SharpCpp.Metadata.csproj" />
     <Project Path="src/SharpCpp.Model/SharpCpp.Model.csproj" />
     <Project Path="src/SharpCpp.Parsing/SharpCpp.Parsing.csproj" />
