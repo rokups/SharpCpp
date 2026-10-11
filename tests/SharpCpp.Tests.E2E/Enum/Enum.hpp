@@ -66,3 +66,23 @@ inline permissions combine_permissions(permissions left, permissions right)
         static_cast<unsigned int>(left) |
         static_cast<unsigned int>(right));
 }
+
+// An unscoped enum without a fixed type: MSVC gives it `int`, GCC and Clang give it
+// `unsigned int`. The binding uses `int` on every platform.
+enum plain_level
+{
+    plain_low = 0,
+    plain_high = 2
+};
+
+// The values do not fit in `int`, so the binding keeps the compiler's choice.
+enum wide_level
+{
+    wide_low = 0,
+    wide_high = 0x80000000u
+};
+
+inline plain_level roundtrip_plain_level(plain_level value)
+{
+    return value;
+}

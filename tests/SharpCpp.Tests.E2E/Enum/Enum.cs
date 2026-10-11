@@ -23,6 +23,15 @@ public sealed class EnumTests
     }
 
     [Fact]
+    public void Unscoped_enum_without_fixed_type_uses_int_on_every_platform()
+    {
+        Assert.Equal(typeof(int), System.Enum.GetUnderlyingType(typeof(PlainLevel)));
+        Assert.Equal(PlainLevel.PlainHigh, E2EBindings.RoundtripPlainLevel(PlainLevel.PlainHigh));
+        Assert.Equal(typeof(uint), System.Enum.GetUnderlyingType(typeof(WideLevel)));
+        Assert.Equal(0x80000000u, (uint)WideLevel.WideHigh);
+    }
+
+    [Fact]
     public void Permissions_value_in_ref_and_out_bindings_roundtrip()
     {
         Assert.Equal(Permissions.ReadWrite, E2EBindings.RoundtripPermissions(Permissions.ReadWrite));

@@ -7176,16 +7176,18 @@ public sealed partial class ClangSharpHeaderParser
             return;
         }
 
+        var enumSourceText = GetSourceText(enumDecl.TranslationUnit.Handle, enumDecl.Extent);
+        var underlyingTypeName = GetPortableEnumUnderlyingTypeName(enumDecl, enumSourceText);
         var @enum = new EnumBinding(
             $"enum:{cppQualifiedName}",
             nativeName,
             GetManagedEnumName(enumDecl, nativeName),
-            NormalizeTypeName(enumDecl.IntegerType.CanonicalType.AsString),
+            underlyingTypeName,
             cppQualifiedName,
             // The underlying type may be spelled through a typedef (`enum E : uint64`).
-            underlyingPrimitiveKind: GetPrimitiveKindFromTypeSpelling(enumDecl.IntegerType.CanonicalType.AsString))
+            underlyingPrimitiveKind: GetPrimitiveKindFromTypeSpelling(underlyingTypeName))
         {
-            IsFlags = HasSharpCppAttribute(GetSourceText(enumDecl.TranslationUnit.Handle, enumDecl.Extent), "flags")
+            IsFlags = HasSharpCppAttribute(enumSourceText, "flags")
         };
         @enum.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(enumDecl));
 
@@ -7303,6 +7305,50 @@ public sealed partial class ClangSharpHeaderParser
         {
             dictionary.Add(key, value);
         }
+    }
+
+    /// <summary>
+    /// The underlying type of an unscoped enum without a fixed type is implementation-defined:
+    /// MSVC selects `int`, GCC and Clang select `unsigned int` when no value is negative. The
+    /// binding uses `int` on every platform when all values fit, so the managed type is the same.
+    /// </summary>
+    private static string GetPortableEnumUnderlyingTypeName(EnumDecl enumDecl, string enumSourceText)
+    {
+        var clangTypeName = NormalizeTypeName(enumDecl.IntegerType.CanonicalType.AsString);
+        if (enumDecl.IsScoped || HasFixedUnderlyingType(enumSourceText))
+        {
+            return clangTypeName;
+        }
+
+        // InitVal is sign-extended from the width of the clang type, so an unsigned type is
+        // examined through UnsignedInitVal.
+        var isUnsigned = clangTypeName.StartsWith("unsigned", StringComparison.Ordinal);
+        foreach (var child in enumDecl.Decls)
+        {
+            if (child is not EnumConstantDecl enumConstant)
+            {
+                continue;
+            }
+
+            var fits = isUnsigned
+                ? enumConstant.UnsignedInitVal <= int.MaxValue
+                : enumConstant.InitVal is >= int.MinValue and <= int.MaxValue;
+            if (!fits)
+            {
+                return clangTypeName;
+            }
+        }
+
+        return "int";
+    }
+
+    // `enum [[sharpcpp::flags]] E : unsigned` — the attribute has colons, so it is removed first.
+    private static bool HasFixedUnderlyingType(string enumSourceText)
+    {
+        var braceIndex = enumSourceText.IndexOf('{');
+        var head = braceIndex >= 0 ? enumSourceText[..braceIndex] : enumSourceText;
+        head = Regex.Replace(head, @"\[\[.*?\]\]", string.Empty);
+        return head.Contains(':', StringComparison.Ordinal);
     }
 
     private static string FormatEnumValue(string underlyingTypeName, EnumConstantDecl enumConstant)
