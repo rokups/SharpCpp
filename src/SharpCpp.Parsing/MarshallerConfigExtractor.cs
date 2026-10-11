@@ -274,12 +274,21 @@ internal static class MarshallerConfigExtractor
             // NOTE: No `using` on translationUnit — TranslationUnit.GetOrCreate() below
             // takes ownership of the native handle. Disposing the interop struct would
             // double-free: the managed TU's finalizer also calls clang_disposeTranslationUnit.
-            var translationUnit = CXTranslationUnit.Parse(
+            var parseError = CXTranslationUnit.TryParse(
                 index,
                 tempCppPath,
                 clangArgs.ToArray(),
                 Array.Empty<CXUnsavedFile>(),
-                CXTranslationUnit_Flags.CXTranslationUnit_None);
+                CXTranslationUnit_Flags.CXTranslationUnit_None,
+                out var translationUnit);
+
+            if (parseError != CXErrorCode.CXError_Success || translationUnit.Handle == IntPtr.Zero)
+            {
+                throw new InvalidOperationException(
+                    $"libclang failed to parse marshaller configuration headers " +
+                    $"(error: {parseError}, translation unit handle: 0x{translationUnit.Handle.ToInt64():X}). " +
+                    $"Arguments: {System.Text.Json.JsonSerializer.Serialize(clangArgs)}");
+            }
 
             if (translationUnit.NumDiagnostics > 0)
             {
