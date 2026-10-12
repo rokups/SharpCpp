@@ -490,7 +490,13 @@ internal static class Program
                 new AccessorPropertyPattern("Is", "Set", propertyNamePrefix: "Is", allowGetterOnly: true)
             ]);
         RemoveLocalConfiguredWrapperRecords(dependency);
-        ApplyModuleProjection(dependency);
+        ApplyModuleProjection(
+            dependency,
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["sharpcpp_coverage::alpha"] = "SharpCpp.Tests.E2E.Modules.Metadata.Dependency.Alpha",
+                ["sharpcpp_coverage::beta"] = "SharpCpp.Tests.E2E.Modules.Metadata.Dependency.Beta"
+            });
 
         var dependencyMetadata = BindingMetadataExporter.Export(
             dependency,
@@ -793,16 +799,38 @@ internal static class Program
         return compilation;
     }
 
-    private static void ApplyModuleProjection(BindingCompilation compilation)
+    // A module normally projects into one managed namespace. Types whose C++ namespace is listed
+    // move to their own managed namespace, so same-named types from different C++ namespaces
+    // do not collide.
+    private static string ResolveProjectedNamespace(
+        BindingCompilation compilation,
+        string cppQualifiedName,
+        IReadOnlyDictionary<string, string>? managedNamespaceByCppNamespace)
+    {
+        var separator = cppQualifiedName.LastIndexOf("::", StringComparison.Ordinal);
+        return managedNamespaceByCppNamespace is not null &&
+               separator > 0 &&
+               managedNamespaceByCppNamespace.TryGetValue(cppQualifiedName[..separator], out var managedNamespace)
+            ? managedNamespace
+            : compilation.ManagedNamespace;
+    }
+
+    private static void ApplyModuleProjection(
+        BindingCompilation compilation,
+        IReadOnlyDictionary<string, string>? managedNamespaceByCppNamespace = null)
     {
         var projection = new ManagedBindingProjection(compilation.ManagedNamespace);
         // Shared wrapper types belong to their wrapper assembly's namespace.
         foreach (var record in compilation.Records.Where(record =>
                      !record.GetMetadata<bool>(MetadataKeys.SuppressEmission) &&
                      !record.HasMetadata(MetadataKeys.ManagedWrapperAssembly)))
-            projection.AddDeclaration(compilation.ManagedNamespace, record);
+            projection.AddDeclaration(
+                ResolveProjectedNamespace(compilation, record.CppQualifiedName, managedNamespaceByCppNamespace),
+                record);
         foreach (var enumBinding in compilation.Enums.Where(enumBinding => !enumBinding.GetMetadata<bool>(MetadataKeys.SuppressEmission)))
-            projection.AddDeclaration(compilation.ManagedNamespace, enumBinding);
+            projection.AddDeclaration(
+                ResolveProjectedNamespace(compilation, enumBinding.CppQualifiedName, managedNamespaceByCppNamespace),
+                enumBinding);
         compilation.SetMetadata(MetadataKeys.ManagedBindingProjection, projection);
     }
 

@@ -29,6 +29,9 @@ History lives in git. This file lists only what is open.
       `tests/SharpCpp.Tests.E2E.Generator` driver; it no longer counts toward coverage.
 - [x] `SharpCpp.Tests.Model` / `SharpCpp.Tests.Metadata` deleted; their scenarios are
       E2E fixtures.
+- [x] Import catalog keys imported records/enums by qualified C++ name; the metadata
+      Dependency/Consumer E2E fixture covers same-short-name types in two namespaces. Field
+      setter ABI fix in `BindingOutputRenderer`.
 - [x] `AssignImportMethodNames` in one place; annotation caches reset per parse (the
       statics themselves go with the Stage 1 `ParseSession`).
 - [x] `SharpCpp.Toolchain`: compiler-driven toolchain discovery used by the E2E driver

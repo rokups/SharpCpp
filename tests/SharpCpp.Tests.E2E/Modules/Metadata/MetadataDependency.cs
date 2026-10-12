@@ -1,5 +1,7 @@
 using SharpCpp.Tests.E2E.Modules.Metadata.Consumer;
 using SharpCpp.Tests.E2E.Modules.Metadata.Dependency;
+using AlphaTypes = SharpCpp.Tests.E2E.Modules.Metadata.Dependency.Alpha;
+using BetaTypes = SharpCpp.Tests.E2E.Modules.Metadata.Dependency.Beta;
 using Xunit;
 
 namespace SharpCpp.Tests.E2E.Modules.Metadata;
@@ -117,6 +119,22 @@ public sealed class MetadataDependencyTests
     {
         using var values = new global::Std.Vector<int>(new[] { 11, 14, 17 });
         Assert.Equal(42, ConsumerBindings.ConsumeDependencyDynamicAlias(values));
+    }
+
+    // Two dependency records and two enums share one short name in different C++ namespaces.
+    // The importing module must resolve each one by its qualified C++ name.
+    [Fact]
+    public void Imported_same_short_name_types_resolve_by_qualified_name()
+    {
+        using var alpha = new AlphaTypes.Context(5);
+        using var beta = new BetaTypes.Context(6);
+
+        Assert.Equal(5, alpha.Value);
+        Assert.Equal(6, beta.Value);
+        Assert.Equal(5, ConsumerBindings.ConsumeAlphaContext(alpha));
+        Assert.Equal(1006, ConsumerBindings.ConsumeBetaContext(beta));
+        Assert.Equal(1, ConsumerBindings.ConsumeAlphaMode(AlphaTypes.Mode.On));
+        Assert.Equal(7, ConsumerBindings.ConsumeBetaMode(BetaTypes.Mode.On));
     }
 
     // Limit: every E2E module links into one native library, so this proves thunk identity (the

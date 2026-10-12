@@ -443,5 +443,41 @@ inline int read_dependency_release_count()
 {
     return dependency_release_count();
 }
+
+// Same short names in two nested namespaces: imports must keep them apart by qualified name.
+namespace alpha
+{
+enum class mode : int { off = 0, on = 1 };
+
+struct context
+{
+    explicit context(int value)
+        : value_(value)
+    {
+    }
+
+    int get_value() const { return value_; }
+
+private:
+    int value_{};
+};
 }
 
+namespace beta
+{
+enum class mode : int { off = 0, on = 7 };
+
+struct context
+{
+    explicit context(int value)
+        : value_(value)
+    {
+    }
+
+    int get_value() const { return value_; }
+
+private:
+    int value_{};
+};
+}
+}

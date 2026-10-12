@@ -109,4 +109,24 @@ inline void get_consumer_dependency_label([[sharpcpp::freed_by(release_dependenc
     *value = new char[15];
     std::memcpy(*value, "consumer label", 15);
 }
+
+inline int consume_alpha_context(const alpha::context* value)
+{
+    return value == nullptr ? -1 : value->get_value();
+}
+
+inline int consume_beta_context(const beta::context* value)
+{
+    return value == nullptr ? -1 : value->get_value() + 1000;
+}
+
+inline int consume_alpha_mode(alpha::mode value)
+{
+    return static_cast<int>(value);
+}
+
+inline int consume_beta_mode(beta::mode value)
+{
+    return static_cast<int>(value);
+}
 }
