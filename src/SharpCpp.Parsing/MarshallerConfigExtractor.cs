@@ -1517,8 +1517,7 @@ internal static class MarshallerConfigExtractor
 
     internal static string NormalizeTypeName(string spelling)
     {
-        return Regex.Replace(spelling.Trim(), @"\s+", " ")
-            .Replace("__cxx11::", string.Empty, StringComparison.Ordinal)
+        return ClangSharpHeaderParser.StripInlineNamespaces(Regex.Replace(spelling.Trim(), @"\s+", " "))
             .Replace(" *", "*", StringComparison.Ordinal)
             .Replace(" &", "&", StringComparison.Ordinal)
             .Replace(":: ", "::", StringComparison.Ordinal)

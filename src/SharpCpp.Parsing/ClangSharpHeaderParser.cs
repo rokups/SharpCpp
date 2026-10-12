@@ -6042,8 +6042,7 @@ public sealed partial class ClangSharpHeaderParser
 
     private static string NormalizeNamedTypeName(string spelling)
     {
-        return spelling
-            .Replace("__cxx11::", string.Empty, StringComparison.Ordinal)
+        return StripInlineNamespaces(spelling)
             .Replace("enum class ", string.Empty, StringComparison.Ordinal)
             .Replace("enum ", string.Empty, StringComparison.Ordinal)
             .Replace("const ", string.Empty, StringComparison.Ordinal)
@@ -6125,10 +6124,22 @@ public sealed partial class ClangSharpHeaderParser
         return originNames.FirstOrDefault(n => n.Contains("::", StringComparison.Ordinal)) ?? originNames[0];
     }
 
+    private static readonly Regex s_inlineNamespaceExpression = new(
+        @"\b__[A-Za-z0-9]+::",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Removes standard library inline namespaces such as libstdc++ "__cxx11::"
+    /// and libc++ "__1::" or "__ndk1::" from a C++ type spelling.
+    /// </summary>
+    internal static string StripInlineNamespaces(string spelling)
+    {
+        return s_inlineNamespaceExpression.Replace(spelling, string.Empty);
+    }
+
     internal static string NormalizeTypeName(string spelling)
     {
-        return Regex.Replace(spelling.Trim(), @"\s+", " ")
-            .Replace("__cxx11::", string.Empty, StringComparison.Ordinal)
+        return StripInlineNamespaces(Regex.Replace(spelling.Trim(), @"\s+", " "))
             .Replace(" *", "*", StringComparison.Ordinal)
             .Replace(" &", "&", StringComparison.Ordinal)
             .Replace(":: ", "::", StringComparison.Ordinal)
@@ -8635,6 +8646,8 @@ public sealed partial class ClangSharpHeaderParser
         {
             return;
         }
+
+        underlyingTypeName = NormalizeTypeName(underlyingTypeName);
 
         s_typeAliases[normalizedAlias] = underlyingTypeName;
         if (!s_typeAliasOriginNames.TryGetValue(underlyingTypeName, out var originNames))
