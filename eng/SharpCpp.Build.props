@@ -7,9 +7,10 @@
     <SharpCppBuildRoot Condition="'$(SharpCppBuildRoot)' == '' and '$(SolutionDir)' != ''">$([System.IO.Path]::GetFullPath('$(SolutionDir)/build'))</SharpCppBuildRoot>
     <SharpCppBuildRoot Condition="'$(SharpCppBuildRoot)' == ''">$([System.IO.Path]::GetFullPath('$(SharpCppRoot)/build'))</SharpCppBuildRoot>
     <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
-    <SharpCppManagedOutputRoot Condition="'$(SharpCppManagedOutputRoot)' == '' and '$(BuildingSolutionFile)' == 'true' and '$(SolutionDir)' != '$(SharpCppRoot)/'">$(SharpCppBuildRoot)/bin/$(Configuration)/host/extern</SharpCppManagedOutputRoot>
-    <SharpCppOutputDir Condition="'$(SharpCppOutputDir)' == '' and '$(BuildingSolutionFile)' == 'true' and '$(SolutionDir)' != '$(SharpCppRoot)/'">$(SharpCppManagedOutputRoot)</SharpCppOutputDir>
-    <SharpCppIntermediateRoot Condition="'$(SharpCppIntermediateRoot)' == '' and '$(BuildingSolutionFile)' == 'true' and '$(SolutionDir)' != '$(SharpCppRoot)/'">$(SharpCppBuildRoot)/obj/managed/tools</SharpCppIntermediateRoot>
+    <SharpCppSolutionIsRoot Condition="'$(SolutionDir)' != '' and $([MSBuild]::NormalizeDirectory('$(SolutionDir)')) == $([MSBuild]::NormalizeDirectory('$(SharpCppRoot)'))">true</SharpCppSolutionIsRoot>
+    <SharpCppManagedOutputRoot Condition="'$(SharpCppManagedOutputRoot)' == '' and '$(BuildingSolutionFile)' == 'true' and '$(SharpCppSolutionIsRoot)' != 'true'">$(SharpCppBuildRoot)/bin/$(Configuration)/host/extern</SharpCppManagedOutputRoot>
+    <SharpCppOutputDir Condition="'$(SharpCppOutputDir)' == '' and '$(BuildingSolutionFile)' == 'true' and '$(SharpCppSolutionIsRoot)' != 'true'">$(SharpCppManagedOutputRoot)</SharpCppOutputDir>
+    <SharpCppIntermediateRoot Condition="'$(SharpCppIntermediateRoot)' == '' and '$(BuildingSolutionFile)' == 'true' and '$(SharpCppSolutionIsRoot)' != 'true'">$(SharpCppBuildRoot)/obj/managed/tools</SharpCppIntermediateRoot>
 
     <SharpCppNativePreset Condition="'$(SharpCppNativePreset)' == ''">dev</SharpCppNativePreset>
     <SharpCppCMakeCommand Condition="'$(SharpCppCMakeCommand)' == ''">cmake</SharpCppCMakeCommand>

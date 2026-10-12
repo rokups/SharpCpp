@@ -117,3 +117,14 @@ jobs:
           name: test-results-${{ matrix.name }}
           path: build/test-results/**
           if-no-files-found: ignore
+
+      - name: Upload generated bindings
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: generated-${{ matrix.name }}
+          path: |
+            build/native/dev/generated/sharpcpp-e2e/generator.log
+            build/native/dev/generated/sharpcpp-e2e/*.json
+            build/native/dev/generated/sharpcpp-e2e/*ContainerAliases*
+          if-no-files-found: ignore
