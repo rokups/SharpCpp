@@ -1404,6 +1404,10 @@ public static partial class BindingOutputRenderer
                 ? FieldSetterMode.ValueAbi
             : field.Type.Kind == BindingTypeKind.Handle
                 ? FieldSetterMode.HandleAbi
+                : field.Type.ManagedMarshaller is not null
+                    // The managed import passes a configured marshaller's native struct by value
+                    // (no "in" modifier), so the native setter takes arg_t<T> by value as well.
+                    ? FieldSetterMode.ValueAbi
                 : RequiresNativeFieldValueConversion(compilation, field)
                     ? FieldSetterMode.ProjectedValuePointer
                     : FieldSetterMode.ValuePointer;
