@@ -185,7 +185,9 @@ internal static class MarshallerConfigExtractor
         bool IsConst,
         string Shape,
         bool Exposed,
-        IReadOnlyList<(string Name, string CppType)> Parameters);
+        IReadOnlyList<(string Name, string CppType)> Parameters,
+        long ReturnTypeSize,
+        IReadOnlyList<long> ParameterTypeSizes);
 
     /// <summary>
     /// Full attribute body + extracted exposed member info for a Marshaller specialization.
@@ -693,10 +695,12 @@ internal static class MarshallerConfigExtractor
 
         var methodName = methodDecl.Name ?? methodDecl.Spelling.ToString();
         var parameters = new List<(string Name, string CppType)>();
+        var parameterTypeSizes = new List<long>();
         foreach (var param in methodDecl.Parameters)
         {
             var paramName = param.Name ?? param.Spelling.ToString();
             parameters.Add((paramName, NormalizeTypeName(param.Type.AsString)));
+            parameterTypeSizes.Add(param.Type.Handle.SizeOf);
         }
 
         member = new ExposedMemberInfo(
@@ -705,7 +709,9 @@ internal static class MarshallerConfigExtractor
             IsConst: methodDecl.IsConst,
             Shape: shape,
             Exposed: exposed,
-            Parameters: parameters.AsReadOnly());
+            Parameters: parameters.AsReadOnly(),
+            ReturnTypeSize: methodDecl.ReturnType.Handle.SizeOf,
+            ParameterTypeSizes: parameterTypeSizes.AsReadOnly());
         return true;
     }
 

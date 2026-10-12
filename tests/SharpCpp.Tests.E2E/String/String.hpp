@@ -5,6 +5,8 @@
 #include <string>
 #include <string_view>
 
+#include <SharpCpp/TaskMemory.hpp>
+
 #include "ExternalText.h"
 
 namespace e2e_std
@@ -98,9 +100,10 @@ inline void get_name([[sharpcpp::out]] const char** value)
 inline void replace_name([[sharpcpp::ref]] char** value)
 {
     const char* source = "replaced";
-    auto* buf = (char*)std::malloc(std::strlen(source) + 1);
+    // The managed side allocates and frees a `ref` string with the task allocator.
+    auto* buf = static_cast<char*>(SharpCpp::AllocateTaskMemory(std::strlen(source) + 1));
     std::strcpy(buf, source);
-    std::free(*value);
+    SharpCpp::FreeTaskMemory(*value);
     *value = buf;
 }
 

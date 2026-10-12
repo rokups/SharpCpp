@@ -391,7 +391,7 @@ public static class MarshallerMetadataPhase2
                 .ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
             foreach (var member in config.ExposedMembers)
             {
-                var managedReturnType = MapExposedMemberType(member.CppReturnType, record, recordsByNativeName) ?? BindingType.Void;
+                var managedReturnType = MapExposedMemberType(member.CppReturnType, member.ReturnTypeSize, record, recordsByNativeName) ?? BindingType.Void;
                 var memberSignature = BuildExposedMemberSignature(member);
                 var functionSymbolId = $"method:{record.CppQualifiedName}:{memberSignature}";
                 var entryPointRecordToken = GetMarshallerEntrypointRecordToken(record);
@@ -419,13 +419,14 @@ public static class MarshallerMetadataPhase2
                 function.SetMetadata(MetadataKeys.MarshallerExposedMethod, cppTypeName);
 
                 // Skip the first parameter (self-reference passed by the Marshaller infrastructure).
-                foreach (var (paramName, paramCppType) in member.Parameters.Skip(1))
+                for (var parameterIndex = 1; parameterIndex < member.Parameters.Count; parameterIndex++)
                 {
+                    var (paramName, paramCppType) = member.Parameters[parameterIndex];
                     function.Parameters.Add(new ParameterBinding(
                         $"parameter:{record.NativeName}:{member.MethodName}:{paramName}",
                         paramName,
                         paramName,
-                        MapExposedMemberType(paramCppType, record, recordsByNativeName) ?? BindingType.Void,
+                        MapExposedMemberType(paramCppType, member.ParameterTypeSizes[parameterIndex], record, recordsByNativeName) ?? BindingType.Void,
                         BindingParameterDirection.In,
                         BindingParameterAbiKind.Value,
                         paramCppType));
@@ -907,6 +908,7 @@ public static class MarshallerMetadataPhase2
 
     private static BindingType? MapExposedMemberType(
         string cppType,
+        long cppTypeSize,
         RecordBinding record,
         IDictionary<string, RecordBinding> recordsByNativeName)
     {
@@ -943,7 +945,7 @@ public static class MarshallerMetadataPhase2
             return BindingType.IntPtr;
         }
 
-        var primitiveType = MapManagedPrimitiveType(stripped);
+        var primitiveType = MapManagedPrimitiveType(stripped, cppTypeSize);
         if (primitiveType is not null)
         {
             return primitiveType;
@@ -968,7 +970,7 @@ public static class MarshallerMetadataPhase2
         return stripped;
     }
 
-    private static BindingType? MapManagedPrimitiveType(string cppType)
+    private static BindingType? MapManagedPrimitiveType(string cppType, long cppTypeSize)
     {
         var normalized = MarshallerConfigExtractor.NormalizeTypeName(cppType);
         return normalized switch
@@ -981,8 +983,9 @@ public static class MarshallerMetadataPhase2
             "unsigned short" => BindingType.UInt16,
             "int" => BindingType.Int32,
             "unsigned int" => BindingType.UInt32,
-            "long" => BindingType.Int64,
-            "unsigned long" => BindingType.UInt64,
+            // `long` is 32 bits wide on LLP64 targets such as Windows.
+            "long" => cppTypeSize == sizeof(int) ? BindingType.Int32 : BindingType.Int64,
+            "unsigned long" => cppTypeSize == sizeof(int) ? BindingType.UInt32 : BindingType.UInt64,
             "long long" => BindingType.Int64,
             "unsigned long long" => BindingType.UInt64,
             "float" => BindingType.Single,

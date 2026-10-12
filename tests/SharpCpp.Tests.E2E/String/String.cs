@@ -147,8 +147,12 @@ public sealed class StringTests
         Assert.Equal((short)-1234, created.EchoShort(-1234));
         Assert.Equal((ushort)54321, created.EchoUShort(54321));
         Assert.Equal(4_000_000_000u, created.EchoUInt(4_000_000_000u));
-        Assert.Equal((long)-5_000_000_000, created.EchoLong(-5_000_000_000));
-        Assert.Equal((ulong)10_000_000_000, created.EchoULong(10_000_000_000));
+        // C long is 32 bits on Windows and 64 bits elsewhere, so the managed width differs.
+        dynamic wide = created;
+        long longValue = OperatingSystem.IsWindows() ? -2_000_000_000 : -5_000_000_000;
+        ulong ulongValue = OperatingSystem.IsWindows() ? 4_000_000_000UL : 10_000_000_000UL;
+        Assert.Equal(longValue, (long)wide.EchoLong((dynamic)(OperatingSystem.IsWindows() ? (object)(int)longValue : longValue)));
+        Assert.Equal(ulongValue, (ulong)wide.EchoULong((dynamic)(OperatingSystem.IsWindows() ? (object)(uint)ulongValue : ulongValue)));
         Assert.Equal((long)-6_000_000_000, created.EchoLongLong(-6_000_000_000));
         Assert.Equal((ulong)11_000_000_000, created.EchoULongLong(11_000_000_000));
         Assert.Equal(1.25f, created.EchoFloat(1.25f));

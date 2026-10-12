@@ -2,11 +2,13 @@ using System.Runtime.InteropServices;
 
 namespace SharpCpp.Support;
 
+// The native side allocates the same memory with SharpCpp::AllocateTaskMemory, so both sides share
+// one process-wide heap even when the managed runtime and the native module use different CRTs.
 public static unsafe class IndirectValueMarshaller<T> where T : unmanaged
 {
     public static nint ConvertToUnmanaged(T managed)
     {
-        var unmanaged = (T*)NativeMemory.Alloc((nuint)sizeof(T));
+        var unmanaged = (T*)Marshal.AllocCoTaskMem(sizeof(T));
         *unmanaged = managed;
         return (nint)unmanaged;
     }
@@ -19,5 +21,5 @@ public static unsafe class IndirectValueMarshaller<T> where T : unmanaged
         return *(T*)unmanaged;
     }
 
-    public static void Free(nint unmanaged) => NativeMemory.Free((void*)unmanaged);
+    public static void Free(nint unmanaged) => Marshal.FreeCoTaskMem(unmanaged);
 }

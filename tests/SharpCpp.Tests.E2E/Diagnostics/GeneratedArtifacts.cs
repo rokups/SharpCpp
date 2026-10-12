@@ -10,5 +10,7 @@ internal static class GeneratedArtifacts
         .Single(static attribute => attribute.Key == "SharpCppGeneratedDir")
         .Value!;
 
-    public static string ReadText(string fileName) => File.ReadAllText(Path.Combine(Directory, fileName));
+    // Generated files carry the line endings of the platform that wrote them; tests split on '\n'.
+    public static string ReadText(string fileName) =>
+        File.ReadAllText(Path.Combine(Directory, fileName)).Replace("\r\n", "\n", StringComparison.Ordinal);
 }

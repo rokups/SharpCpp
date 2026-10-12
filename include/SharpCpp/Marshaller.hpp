@@ -20,6 +20,8 @@
 #include <utility>
 #include <vector>
 
+#include "TaskMemory.hpp"
+
 namespace SharpCpp
 {
 struct ManagedCallbackHandleAbi
@@ -990,7 +992,7 @@ struct IndirectValueMarshallerBase
 
     abi_type ConvertToAbi(const cpp_type& value) noexcept
     {
-        auto* storage = static_cast<T*>(std::malloc(sizeof(T)));
+        auto* storage = static_cast<T*>(AllocateTaskMemory(sizeof(T)));
         if (storage == nullptr)
             std::terminate();
 
@@ -1016,7 +1018,7 @@ struct IndirectConstReferenceValueMarshallerBase
 
     abi_type ConvertToAbi(cpp_type value) noexcept
     {
-        auto* storage = static_cast<T*>(std::malloc(sizeof(T)));
+        auto* storage = static_cast<T*>(AllocateTaskMemory(sizeof(T)));
         if (storage == nullptr)
             std::terminate();
 

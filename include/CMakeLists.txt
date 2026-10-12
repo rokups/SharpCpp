@@ -6,6 +6,9 @@ target_include_directories(
   sharpcpp-native-support
   INTERFACE
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>")
+if(WIN32)
+  target_link_libraries(sharpcpp-native-support INTERFACE ole32)
+endif()
 set_target_properties(
   sharpcpp-native-support
   PROPERTIES INTERFACE_CXX_SCAN_FOR_MODULES OFF)
