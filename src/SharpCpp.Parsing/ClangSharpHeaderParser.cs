@@ -3872,8 +3872,8 @@ public sealed partial class ClangSharpHeaderParser
 
     private static bool ConcreteTypePrefixMatches(string candidateTypeName, string configuredTypeName)
     {
-        if (!TryGetTopLevelTemplateArguments(candidateTypeName, out var candidateHead, out var candidateArguments) ||
-            !TryGetTopLevelTemplateArguments(configuredTypeName, out var configuredHead, out var configuredArguments))
+        if (!TryGetTopLevelTemplateArguments(ExpandStandardStringTypedefs(candidateTypeName), out var candidateHead, out var candidateArguments) ||
+            !TryGetTopLevelTemplateArguments(ExpandStandardStringTypedefs(configuredTypeName), out var configuredHead, out var configuredArguments))
         {
             return false;
         }
@@ -3902,7 +3902,7 @@ public sealed partial class ClangSharpHeaderParser
         IReadOnlyList<string> templateParameterNames,
         int visibleArgumentCount)
     {
-        if (!TryGetTopLevelTemplateArguments(patternTypeName, out var patternHead, out var patternArguments))
+        if (!TryGetTopLevelTemplateArguments(ExpandStandardStringTypedefs(patternTypeName), out var patternHead, out var patternArguments))
         {
             return false;
         }
@@ -3911,7 +3911,7 @@ public sealed partial class ClangSharpHeaderParser
                      .Where(static candidateTypeName => !string.IsNullOrWhiteSpace(candidateTypeName))
                      .Distinct(StringComparer.Ordinal))
         {
-            if (!TryGetTopLevelTemplateArguments(candidateTypeName, out var candidateHead, out var candidateArguments))
+            if (!TryGetTopLevelTemplateArguments(ExpandStandardStringTypedefs(candidateTypeName), out var candidateHead, out var candidateArguments))
             {
                 continue;
             }
@@ -4073,6 +4073,12 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         yield return typeName;
+        var expandedTypeName = ExpandStandardStringTypedefs(typeName);
+        if (!string.Equals(expandedTypeName, typeName, StringComparison.Ordinal))
+        {
+            yield return expandedTypeName;
+        }
+
         if (typeName.StartsWith("const ", StringComparison.Ordinal))
         {
             yield return typeName["const ".Length..].TrimStart();
@@ -6159,6 +6165,27 @@ public sealed partial class ClangSharpHeaderParser
     internal static string StripInlineNamespaces(string spelling)
     {
         return s_inlineNamespaceExpression.Replace(spelling, string.Empty);
+    }
+
+    // libc++ declares "typedef basic_string<char> string" and clang prints that typedef for the canonical type, so the
+    // canonical text is "std::string" there. libstdc++ prints "std::__cxx11::basic_string<char, ...>". The marshaller
+    // keys use "std::basic_string<char>". Expand a whole "std::string" token (not "std::string::npos", "std::string_view",
+    // "my_std::string" or "ns::std::string") so that both library spellings compare equal when type overrides match.
+    // NormalizeTypeName does not expand: symbol ids and generated names keep the spelling that clang prints.
+    private static readonly Regex s_standardStringTypedefExpression = new(
+        @"(?<![A-Za-z0-9_])(?<![A-Za-z0-9_]::)std::(?<name>string|wstring|u8string|u16string|u32string)(?![A-Za-z0-9_:<])",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    internal static string ExpandStandardStringTypedefs(string spelling)
+    {
+        return s_standardStringTypedefExpression.Replace(spelling, static match => match.Groups["name"].Value switch
+        {
+            "string" => "std::basic_string<char>",
+            "wstring" => "std::basic_string<wchar_t>",
+            "u8string" => "std::basic_string<char8_t>",
+            "u16string" => "std::basic_string<char16_t>",
+            _ => "std::basic_string<char32_t>"
+        });
     }
 
     internal static string NormalizeTypeName(string spelling)

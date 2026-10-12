@@ -2057,11 +2057,28 @@ struct CompleteType { using type = T; };
 template <typename T>
 struct CompleteType<T, std::void_t<decltype(sizeof(std::enable_if_t<!std::is_reference_v<T>, T>))>> { using type = T; };
 
-// Spells a function type outside of any extern "C" scope. MSVC gives a function type written directly (or through
-// an alias template) inside an extern "C" function body C linkage and then rejects class return types (C2526).
-// A member typedef of a class template specialization has C++ linkage.
+// Names a function type outside of any extern "C" scope. MSVC gives C linkage to a function type named by a typedef
+// or alias (also one that comes from a class member) inside an extern "C" function body and then rejects class
+// return types (C2526). Generated code names this holder class instead, and MarshallerInvoker unwraps it in C++ scope.
 template <typename R, typename... A>
 struct FunctionTypeHolder { using type = R(A...); };
+
+template <typename T>
+struct UnwrapFunctionType { using type = T; };
+
+template <typename R, typename... A>
+struct UnwrapFunctionType<FunctionTypeHolder<R, A...>> { using type = R(A...); };
+
+template <typename T>
+using UnwrapFunctionType_t = typename UnwrapFunctionType<T>::type;
+
+// Selects the overload of a function name that matches FT and returns its address. Generated code calls this
+// instead of a static_cast to a function pointer type, so the function type is never named in the extern "C" body.
+template <typename FT>
+constexpr std::add_pointer_t<UnwrapFunctionType_t<FT>> AsFunctionPointer(std::add_pointer_t<UnwrapFunctionType_t<FT>> pointer) noexcept
+{
+    return pointer;
+}
 }
 
 template <class T>

@@ -418,12 +418,12 @@ auto ConstructImpl(std::index_sequence<TIndices...>, TAbiArgs&&... abiArguments)
 template <typename FT>
 struct FunctionPointerArgument
 {
-    FunctionPointerArgument(std::add_pointer_t<FT> value) noexcept // NOLINT(google-explicit-constructor)
+    FunctionPointerArgument(std::add_pointer_t<UnwrapFunctionType_t<FT>> value) noexcept // NOLINT(google-explicit-constructor)
         : value(value)
     {
     }
 
-    std::add_pointer_t<FT> value;
+    std::add_pointer_t<UnwrapFunctionType_t<FT>> value;
 };
 
 struct [[maybe_unused]] MarshallerInvokerImpl;
@@ -431,10 +431,10 @@ struct [[maybe_unused]] MarshallerInvokerImpl;
 
 struct MarshallerInvoker
 {
-    template <typename FT, typename TCppArgumentTuple = typename detail::FunctionTraits<FT>::argument_tuple, typename... TAbiArgs>
+    template <typename FT, typename TCppArgumentTuple = typename detail::FunctionTraits<detail::UnwrapFunctionType_t<FT>>::argument_tuple, typename... TAbiArgs>
     static decltype(auto) invoke_as(detail::FunctionPointerArgument<FT> callable, TAbiArgs&&... abiArguments)
     {
-        using traits = detail::FunctionTraits<FT>;
+        using traits = detail::FunctionTraits<detail::UnwrapFunctionType_t<FT>>;
         using result_type = typename traits::return_type;
         using signature_arg_tuple = typename traits::argument_tuple;
         using arg_tuple = TCppArgumentTuple;
@@ -451,10 +451,10 @@ struct MarshallerInvoker
             std::forward<TAbiArgs>(abiArguments)...);
     }
 
-    template <typename FT, typename TCppArgumentTuple = typename detail::FunctionTraits<FT>::argument_tuple, typename... TAbiArgs>
+    template <typename FT, typename TCppArgumentTuple = typename detail::FunctionTraits<detail::UnwrapFunctionType_t<FT>>::argument_tuple, typename... TAbiArgs>
     static auto invoke_owned_as(detail::FunctionPointerArgument<FT> callable, TAbiArgs&&... abiArguments)
     {
-        using traits = detail::FunctionTraits<FT>;
+        using traits = detail::FunctionTraits<detail::UnwrapFunctionType_t<FT>>;
         using result_type = typename traits::return_type;
         using signature_arg_tuple = typename traits::argument_tuple;
         using arg_tuple = TCppArgumentTuple;
@@ -471,10 +471,10 @@ struct MarshallerInvoker
             std::forward<TAbiArgs>(abiArguments)...);
     }
 
-    template <typename FT, typename TCppArgumentTuple = typename detail::FunctionTraits<FT>::argument_tuple, typename... TAbiArgs>
+    template <typename FT, typename TCppArgumentTuple = typename detail::FunctionTraits<detail::UnwrapFunctionType_t<FT>>::argument_tuple, typename... TAbiArgs>
     static auto invoke_value_as(detail::FunctionPointerArgument<FT> callable, TAbiArgs&&... abiArguments)
     {
-        using traits = detail::FunctionTraits<FT>;
+        using traits = detail::FunctionTraits<detail::UnwrapFunctionType_t<FT>>;
         using result_type = typename traits::return_type;
         using signature_arg_tuple = typename traits::argument_tuple;
         using arg_tuple = TCppArgumentTuple;
@@ -491,11 +491,11 @@ struct MarshallerInvoker
             std::forward<TAbiArgs>(abiArguments)...);
     }
 
-    template <typename FT, typename TCppArgumentTuple = typename detail::FunctionTraits<FT>::argument_tuple, typename TCallable, typename... TAbiArgs>
-        requires(!std::is_same_v<std::remove_cvref_t<TCallable>, std::add_pointer_t<FT>>)
+    template <typename FT, typename TCppArgumentTuple = typename detail::FunctionTraits<detail::UnwrapFunctionType_t<FT>>::argument_tuple, typename TCallable, typename... TAbiArgs>
+        requires(!std::is_same_v<std::remove_cvref_t<TCallable>, std::add_pointer_t<detail::UnwrapFunctionType_t<FT>>>)
     static auto invoke_value_as(TCallable&& callable, TAbiArgs&&... abiArguments)
     {
-        using traits = detail::FunctionTraits<FT>;
+        using traits = detail::FunctionTraits<detail::UnwrapFunctionType_t<FT>>;
         using result_type = typename traits::return_type;
         using signature_arg_tuple = typename traits::argument_tuple;
         using arg_tuple = TCppArgumentTuple;
@@ -512,8 +512,8 @@ struct MarshallerInvoker
             std::forward<TAbiArgs>(abiArguments)...);
     }
 
-    template <typename FT, typename TCppArgumentTuple = typename detail::FunctionTraits<FT>::argument_tuple, typename TCallable, typename... TAbiArgs>
-        requires(!std::is_same_v<std::remove_cvref_t<TCallable>, std::add_pointer_t<FT>>)
+    template <typename FT, typename TCppArgumentTuple = typename detail::FunctionTraits<detail::UnwrapFunctionType_t<FT>>::argument_tuple, typename TCallable, typename... TAbiArgs>
+        requires(!std::is_same_v<std::remove_cvref_t<TCallable>, std::add_pointer_t<detail::UnwrapFunctionType_t<FT>>>)
     static auto invoke_owned_as(TCallable&& callable, TAbiArgs&&... abiArguments)
     {
         if constexpr (std::is_member_function_pointer_v<std::remove_reference_t<TCallable>>)
@@ -538,7 +538,7 @@ struct MarshallerInvoker
         }
         else
         {
-            using traits = detail::FunctionTraits<FT>;
+            using traits = detail::FunctionTraits<detail::UnwrapFunctionType_t<FT>>;
             using result_type = typename traits::return_type;
             using signature_arg_tuple = typename traits::argument_tuple;
             using arg_tuple = TCppArgumentTuple;
@@ -556,8 +556,8 @@ struct MarshallerInvoker
         }
     }
 
-    template <typename FT, typename TCppArgumentTuple = typename detail::FunctionTraits<FT>::argument_tuple, typename TCallable, typename... TAbiArgs>
-        requires(!std::is_same_v<std::remove_cvref_t<TCallable>, std::add_pointer_t<FT>>)
+    template <typename FT, typename TCppArgumentTuple = typename detail::FunctionTraits<detail::UnwrapFunctionType_t<FT>>::argument_tuple, typename TCallable, typename... TAbiArgs>
+        requires(!std::is_same_v<std::remove_cvref_t<TCallable>, std::add_pointer_t<detail::UnwrapFunctionType_t<FT>>>)
     static decltype(auto) invoke_as(TCallable&& callable, TAbiArgs&&... abiArguments)
     {
         // Detect member function pointers and route to the member-path.
@@ -591,7 +591,7 @@ struct MarshallerInvoker
         }
         else
         {
-            using traits = detail::FunctionTraits<FT>;
+            using traits = detail::FunctionTraits<detail::UnwrapFunctionType_t<FT>>;
             using result_type = typename traits::return_type;
             using signature_arg_tuple = typename traits::argument_tuple;
             using arg_tuple = TCppArgumentTuple;

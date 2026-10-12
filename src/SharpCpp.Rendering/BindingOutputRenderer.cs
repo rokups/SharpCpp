@@ -1142,7 +1142,7 @@ public static partial class BindingOutputRenderer
             ? BuildNativeFunctionSignature(method)
             : BuildNativeMethodSignature(method).Replace(method.OwningRecordCppTypeName + "::*", directorName + "::*", StringComparison.Ordinal);
         var callable = method.IsStatic
-            ? $"static_cast<std::add_pointer_t<FT>>(&{directorName}::{method.NativeName})"
+            ? $"::SharpCpp::detail::AsFunctionPointer<FT>(&{directorName}::{method.NativeName})"
             : $"static_cast<FT>(&{directorName}::{method.NativeName})";
         var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", method.Parameters.Select(static parameter => parameter.CppTypeName));
         var invocation = method.IsStatic
@@ -6002,15 +6002,15 @@ public static partial class BindingOutputRenderer
             else if (function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
             {
                 writer.Write($$"""
-                    MarshallerInvoker::invoke_as<{{marshallerTemplateArguments}}>(static_cast<std::add_pointer_t<FT>>(&{{function.CppQualifiedName}}){{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
+                    MarshallerInvoker::invoke_as<{{marshallerTemplateArguments}}>(::SharpCpp::detail::AsFunctionPointer<FT>(&{{function.CppQualifiedName}}){{(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)}});
                     """);
             }
             else
             {
                 writer.Write($$"""
                     {{(RequiresOwnedRecordValueReturn(function)
-                        ? $"return MarshallerInvoker::invoke_owned_as<{marshallerTemplateArguments}>(static_cast<std::add_pointer_t<FT>>(&{function.CppQualifiedName}){(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
-                        : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(static_cast<std::add_pointer_t<FT>>(&{function.CppQualifiedName}){(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
+                        ? $"return MarshallerInvoker::invoke_owned_as<{marshallerTemplateArguments}>(::SharpCpp::detail::AsFunctionPointer<FT>(&{function.CppQualifiedName}){(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});"
+                        : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(::SharpCpp::detail::AsFunctionPointer<FT>(&{function.CppQualifiedName}){(abiArguments.Length > 0 ? $", {abiArguments}" : string.Empty)});")}}
                     """);
             }
 
@@ -6025,7 +6025,7 @@ public static partial class BindingOutputRenderer
                     SHARPCPP_EXPORT ret_t<void*> {{function.EntryPointName}}_function_pointer()
                     {
                     using FT = {{signature}};
-                    return reinterpret_cast<void*>(static_cast<std::add_pointer_t<FT>>(&{{function.CppQualifiedName}}));
+                    return reinterpret_cast<void*>(::SharpCpp::detail::AsFunctionPointer<FT>(&{{function.CppQualifiedName}}));
                     }
                     """);
             }
@@ -7320,14 +7320,14 @@ public static partial class BindingOutputRenderer
         return BuildFunctionTypeAlias(returnTypeName, parameterTypes);
     }
 
-    // Spell function types through a member typedef of a class template that lives outside extern "C". MSVC gives
-    // a function type written directly (or through an alias template) inside an extern "C" function body C linkage
-    // and then rejects class return types (C2526). A member typedef of a class template specialization keeps C++ linkage.
+    // Name the function type through the FunctionTypeHolder class, not the plain function type. MSVC gives a function
+    // type named by a typedef inside an extern "C" function body C linkage and then rejects class return types (C2526).
+    // MarshallerInvoker unwraps the holder outside extern "C".
     private static string BuildFunctionTypeAlias(string returnTypeName, string parameterTypes)
     {
         return string.IsNullOrEmpty(parameterTypes)
-            ? $"typename ::SharpCpp::detail::FunctionTypeHolder<{returnTypeName}>::type"
-            : $"typename ::SharpCpp::detail::FunctionTypeHolder<{returnTypeName}, {parameterTypes}>::type";
+            ? $"::SharpCpp::detail::FunctionTypeHolder<{returnTypeName}>"
+            : $"::SharpCpp::detail::FunctionTypeHolder<{returnTypeName}, {parameterTypes}>";
     }
 
     private static string BuildNativeMethodSignature(FunctionBinding method)
