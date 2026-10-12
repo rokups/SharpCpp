@@ -4221,7 +4221,7 @@ public static partial class BindingOutputRenderer
 
         return $$"""
             using FT = {{BuildFunctionTypeAlias(RenderCompleteReturnType(concreteReturnType.CppTypeName), signatureParameters)}};
-            auto __invoke = []({{lambdaParameters}}) -> {{concreteReturnType.CppTypeName}}
+            auto __invoke = [&]({{lambdaParameters}}) -> {{concreteReturnType.CppTypeName}}
             {
             {{returnStatement}}
             };

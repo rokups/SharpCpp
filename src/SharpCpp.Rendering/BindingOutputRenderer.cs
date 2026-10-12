@@ -5988,7 +5988,7 @@ public static partial class BindingOutputRenderer
                 var cppParameterList = string.Join(", ", function.Parameters.Select(
                     static parameter => $"{parameter.CppTypeName} {parameter.NativeName}"));
                 writer.Write($$"""
-                    auto fn = []({{cppParameterList}}) -> decltype(auto)
+                    auto fn = [&]({{cppParameterList}}) -> decltype(auto)
                     {
                     return {{function.CppQualifiedName}}({{abiArguments}});
                     };
@@ -8709,7 +8709,7 @@ public static partial class BindingOutputRenderer
 
         return $$"""
             using FT = {{BuildFunctionTypeAlias(RenderCompleteReturnType(method.CppReturnTypeName), signatureParameters)}};
-            auto __invoke = []({{lambdaParameters}}) -> {{method.CppReturnTypeName}}
+            auto __invoke = [&]({{lambdaParameters}}) -> {{method.CppReturnTypeName}}
             {
             {{returnStatement}}
             };

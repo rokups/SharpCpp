@@ -4204,15 +4204,32 @@ public sealed partial class ClangSharpHeaderParser
                 primitiveKind: BindingPrimitiveKind.IntPtr);
         }
 
+        // libc++ prints the canonical type as "std::string" while the alias chain resolves an alias
+        // template allocator ("allocator<char>") to a spelling no marshaller key contains. The
+        // canonical spelling is then the only one that expands to the configured string type.
+        var standardStringCanonicalTypeName =
+            !string.Equals(ExpandStandardStringTypedefs(canonicalTypeName), canonicalTypeName, StringComparison.Ordinal)
+                ? canonicalTypeName
+                : null;
+
         if (isReturn &&
-            TryGetManagedTypeOverride(
+            (TryGetManagedTypeOverride(
                 overrideLookupTypeName,
                 managedOverrideTypeName,
                 qualifiedSpelledTypeName,
                 managedTypeOverrides,
                 isReturn: true,
                 candidate => MarshallerConfigExtractor.MatchesManagedTypeOverride(candidate, type),
-                out var returnOverride) &&
+                out var returnOverride) ||
+             standardStringCanonicalTypeName is not null &&
+             TryGetManagedTypeOverride(
+                standardStringCanonicalTypeName,
+                standardStringCanonicalTypeName,
+                qualifiedSpelledTypeName,
+                managedTypeOverrides,
+                isReturn: true,
+                candidate => MarshallerConfigExtractor.MatchesManagedTypeOverride(candidate, type),
+                out returnOverride)) &&
             returnOverride!.HasPublicTypeMapping)
         {
             var mapped = CreateConfiguredOrWrapperType(returnOverride!, recordsByName, enumsByName, managedTypeOverrides, genericParameters, surfaceCppTypeName)
@@ -4223,14 +4240,25 @@ public sealed partial class ClangSharpHeaderParser
                 : mapped;
         }
 
-        TryGetManagedTypeOverride(
-            overrideLookupTypeName,
-            managedOverrideTypeName,
-            qualifiedSpelledTypeName,
-            managedTypeOverrides,
-            isReturn: false,
-            candidate => MarshallerConfigExtractor.MatchesManagedTypeOverride(candidate, type),
-            out var managedTypeOverride);
+        if (!TryGetManagedTypeOverride(
+                overrideLookupTypeName,
+                managedOverrideTypeName,
+                qualifiedSpelledTypeName,
+                managedTypeOverrides,
+                isReturn: false,
+                candidate => MarshallerConfigExtractor.MatchesManagedTypeOverride(candidate, type),
+                out var managedTypeOverride) &&
+            standardStringCanonicalTypeName is not null)
+        {
+            TryGetManagedTypeOverride(
+                standardStringCanonicalTypeName,
+                standardStringCanonicalTypeName,
+                qualifiedSpelledTypeName,
+                managedTypeOverrides,
+                isReturn: false,
+                candidate => MarshallerConfigExtractor.MatchesManagedTypeOverride(candidate, type),
+                out managedTypeOverride);
+        }
 
         if (managedTypeOverride is { HasPublicTypeMapping: true })
         {
