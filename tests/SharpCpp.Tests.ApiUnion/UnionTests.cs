@@ -170,6 +170,23 @@ public sealed class UnionTests
             Assert.True(result.Success, string.Join("\n", result.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)));
             return path;
         }
-        public void Dispose() => Directory.Delete(root, recursive: true);
+        public void Dispose()
+        {
+            // Windows keeps loaded assemblies locked until the collectible context is collected.
+            for (var attempt = 0; attempt < 10; attempt++)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                try
+                {
+                    Directory.Delete(root, recursive: true);
+                    return;
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    Thread.Sleep(100);
+                }
+            }
+        }
     }
 }
