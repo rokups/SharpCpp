@@ -95,16 +95,23 @@ public sealed class BindingMetadataImportCatalog
                 .Where(static item => item.Kind is MetadataTypeKind.Handle or MetadataTypeKind.Record)
                 .OrderBy(static item => item.SymbolId, StringComparer.Ordinal))
             {
-                var cppQualifiedName = GetQualifiedCppTypeName(importedType.Projection.CppType);
-                if (!recordsByName.TryGetValue(importedType.NativeName, out var record) &&
-                    !recordsByName.TryGetValue(cppQualifiedName, out record))
+                // The qualified C++ name is the identity. The short name key is only a
+                // convenience key for the first record that used it, so verify the SymbolId.
+                var importedSymbolId = $"import:{document.Source.Package}:{importedType.SymbolId}";
+                var cppQualifiedName = GetImportedRecordCppName(importedType);
+                if (!recordsByName.TryGetValue(cppQualifiedName, out var record) ||
+                    !string.Equals(record.SymbolId, importedSymbolId, StringComparison.Ordinal))
                 {
-                    record = recordsByName.Values.FirstOrDefault(candidate =>
-                        string.Equals(candidate.SymbolId, $"import:{document.Source.Package}:{importedType.SymbolId}", StringComparison.Ordinal));
+                    if (!recordsByName.TryGetValue(importedType.NativeName, out record) ||
+                        !string.Equals(record.SymbolId, importedSymbolId, StringComparison.Ordinal))
+                    {
+                        record = recordsByName.Values.FirstOrDefault(candidate =>
+                            string.Equals(candidate.SymbolId, importedSymbolId, StringComparison.Ordinal));
+                    }
                 }
 
                 if (record is not null &&
-                    string.Equals(record.SymbolId, $"import:{document.Source.Package}:{importedType.SymbolId}", StringComparison.Ordinal))
+                    string.Equals(record.SymbolId, importedSymbolId, StringComparison.Ordinal))
                 {
                     SeedRecordMembers(compilation, recordsByName, enumsByName, document, importedType, record);
                 }
@@ -147,11 +154,13 @@ public sealed class BindingMetadataImportCatalog
     {
         // Generic records re-apply their arguments per instantiation; a full
         // specialization (Marshaller<basic_string<char>>) is only valid spelled with them.
-        var qualifiedCppTypeName = GetQualifiedCppTypeName(importedType.Projection.CppType);
-        var cppQualifiedName = importedType.Projection.GenericArguments is { Count: > 0 } || importedType.IsFixedArray || importedType.IsDynamicArray
-            ? StripGenericArguments(qualifiedCppTypeName)
-            : qualifiedCppTypeName;
-        if (recordsByName.ContainsKey(importedType.NativeName) || recordsByName.ContainsKey(cppQualifiedName))
+        var cppQualifiedName = GetImportedRecordCppName(importedType);
+
+        // The qualified C++ name is the identity. A short name hit only counts as a
+        // duplicate when it names the same qualified type ("Rml::Context" is not "Urho3D::Context").
+        if (recordsByName.ContainsKey(cppQualifiedName) ||
+            (recordsByName.TryGetValue(importedType.NativeName, out var sameShortName) &&
+             string.Equals(sameShortName.CppQualifiedName, cppQualifiedName, StringComparison.Ordinal)))
         {
             return;
         }
@@ -243,6 +252,14 @@ public sealed class BindingMetadataImportCatalog
 
         SeedRecordKeys(recordsByName, record);
         compilation.Members.Add(record);
+    }
+
+    private static string GetImportedRecordCppName(BindingMetadataType importedType)
+    {
+        var qualifiedCppTypeName = GetQualifiedCppTypeName(importedType.Projection.CppType);
+        return importedType.Projection.GenericArguments is { Count: > 0 } || importedType.IsFixedArray || importedType.IsDynamicArray
+            ? StripGenericArguments(qualifiedCppTypeName)
+            : qualifiedCppTypeName;
     }
 
     private static void SeedRecordMembers(
@@ -438,7 +455,9 @@ public sealed class BindingMetadataImportCatalog
 
     private static void SeedEnum(BindingCompilation compilation, IDictionary<string, EnumBinding> enumsByName, BindingMetadataDocument document, BindingMetadataType importedType)
     {
-        if (enumsByName.ContainsKey(importedType.NativeName) || enumsByName.ContainsKey(importedType.Projection.CppType))
+        if (enumsByName.ContainsKey(importedType.Projection.CppType) ||
+            (enumsByName.TryGetValue(importedType.NativeName, out var sameShortName) &&
+             string.Equals(sameShortName.CppQualifiedName, importedType.Projection.CppType, StringComparison.Ordinal)))
         {
             return;
         }
@@ -448,6 +467,7 @@ public sealed class BindingMetadataImportCatalog
             importedType.NativeName,
             GetQualifiedManagedTypeName(importedType.ManagedNamespace ?? document.Source.ManagedNamespace, importedType.ManagedName),
             importedType.Projection.CppType,
+            cppQualifiedName: importedType.Projection.CppType,
             underlyingPrimitiveKind: BindingType.PrimitiveKindFromCppName(importedType.Projection.CppType))
         {
             ManagedNamespace = importedType.ManagedNamespace ?? document.Source.ManagedNamespace,
@@ -468,7 +488,8 @@ public sealed class BindingMetadataImportCatalog
     {
         if (compilation.TypeAliases.Any(existing =>
                 string.Equals(existing.CppQualifiedName, alias.CppQualifiedName, StringComparison.Ordinal) ||
-                string.Equals(existing.ManagedName, alias.ManagedName, StringComparison.Ordinal)))
+                (string.Equals(existing.ManagedName, alias.ManagedName, StringComparison.Ordinal) &&
+                 string.Equals(existing.ManagedNamespace, alias.ManagedNamespace ?? document.Source.ManagedNamespace, StringComparison.Ordinal))))
         {
             return;
         }
@@ -521,7 +542,7 @@ public sealed class BindingMetadataImportCatalog
 
         var result = typeReference.Kind switch
         {
-            MetadataTypeKind.Handle => CreateAliasHandleTargetType(recordsByName, typeReference, genericArguments),
+            MetadataTypeKind.Handle => CreateAliasHandleTargetType(recordsByName, document, typeReference, genericArguments),
             MetadataTypeKind.Enum => CreateAliasEnumTargetType(enumsByName, document, typeReference, genericArguments),
             "genericparameter" => BindingType.CreateGenericParameter(
                 string.IsNullOrWhiteSpace(typeReference.PublicType) ? typeReference.CppType : typeReference.PublicType),
@@ -590,6 +611,7 @@ public sealed class BindingMetadataImportCatalog
 
     private static BindingType CreateAliasHandleTargetType(
         IDictionary<string, RecordBinding> recordsByName,
+        BindingMetadataDocument document,
         BindingMetadataTypeReference typeReference,
         IReadOnlyList<BindingType>? genericArguments)
     {
@@ -606,10 +628,26 @@ public sealed class BindingMetadataImportCatalog
                 string.Equals(StripGenericArguments(candidate.CppQualifiedName), unparameterizedCppTypeName, StringComparison.Ordinal));
         }
 
+        if (record is null && !string.IsNullOrWhiteSpace(typeReference.RecordId))
+        {
+            var importedRecordId = $"import:{document.Source.Package}:{typeReference.RecordId}";
+            record = recordsByName.Values.FirstOrDefault(candidate =>
+                string.Equals(candidate.SymbolId, importedRecordId, StringComparison.Ordinal));
+        }
+
         if (record is null && !string.IsNullOrWhiteSpace(typeReference.PublicType))
         {
-            record = recordsByName.Values.FirstOrDefault(candidate =>
-                string.Equals(candidate.ManagedName, GetConcreteManagedTypeHead(typeReference), StringComparison.Ordinal));
+            // Managed names are not unique across namespaces: use the name only when it is unambiguous.
+            var managedHead = GetConcreteManagedTypeHead(typeReference);
+            var candidates = recordsByName.Values
+                .Where(candidate => string.Equals(candidate.ManagedName, managedHead, StringComparison.Ordinal))
+                .Distinct()
+                .Take(2)
+                .ToArray();
+            if (candidates.Length == 1)
+            {
+                record = candidates[0];
+            }
         }
 
         return record is not null
