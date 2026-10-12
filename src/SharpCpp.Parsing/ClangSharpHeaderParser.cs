@@ -4514,11 +4514,64 @@ public sealed partial class ClangSharpHeaderParser
             CXTypeKind.CXType_ULongLong => BindingType.UInt64,
             CXTypeKind.CXType_Float => BindingType.Single,
             CXTypeKind.CXType_Double => BindingType.Double,
-            CXTypeKind.CXType_Long => BindingType.NativeInt,
-            CXTypeKind.CXType_ULong => BindingType.NativeUInt,
+            CXTypeKind.CXType_Long => MapCLongType(normalizedType, isSigned: true),
+            CXTypeKind.CXType_ULong => MapCLongType(normalizedType, isSigned: false),
             _ => throw new NotSupportedException($"ClangSharp sample parser does not support '{normalizedType.kind}' ({normalizedType.Spelling}).")
         };
+        if (IsPointerSizedIntegerTypedef(type))
+        {
+            primitiveType = BindingType.CreateNativeInteger(
+                primitiveType.Marshaller.CppTypeName,
+                isSigned: primitiveType.PrimitiveKind is BindingPrimitiveKind.Int8 or BindingPrimitiveKind.Int16 or
+                    BindingPrimitiveKind.Int32 or BindingPrimitiveKind.Int64 or BindingPrimitiveKind.NativeInt);
+        }
+
         return TryApplyManagedAliasSurface(type, primitiveType, preserveAliasSurface, enumsByName);
+    }
+
+    /// <summary>
+    /// C `long` is as wide as a pointer on LP64 targets (`nint`) but 32 bits wide on LLP64
+    /// targets such as Windows, where it must stay a 32-bit managed integer.
+    /// </summary>
+    private static BindingType MapCLongType(CXType canonicalType, bool isSigned)
+    {
+        if (canonicalType.SizeOf == sizeof(int))
+        {
+            return isSigned ? BindingType.CLong32 : BindingType.CULong32;
+        }
+
+        return isSigned ? BindingType.NativeInt : BindingType.NativeUInt;
+    }
+
+    /// <summary>
+    /// `size_t`, `ptrdiff_t` and friends are pointer sized by definition, but their underlying C
+    /// type differs per platform (`unsigned long` on LP64, `unsigned long long` on Windows). They
+    /// map to `nint`/`nuint` everywhere so the managed surface does not depend on the platform.
+    /// </summary>
+    private static bool IsPointerSizedIntegerTypedef(CXType type)
+    {
+        for (var depth = 0; depth < 16; depth++)
+        {
+            switch (type.kind)
+            {
+                case CXTypeKind.CXType_Elaborated:
+                    type = type.NamedType;
+                    continue;
+                case CXTypeKind.CXType_Typedef:
+                    var declaration = type.Declaration;
+                    if (declaration.Spelling.ToString() is "size_t" or "ssize_t" or "ptrdiff_t" or "intptr_t" or "uintptr_t")
+                    {
+                        return true;
+                    }
+
+                    type = clang.getTypedefDeclUnderlyingType(declaration);
+                    continue;
+                default:
+                    return false;
+            }
+        }
+
+        return false;
     }
 
     private static BindingType CreateConfiguredOrWrapperType(

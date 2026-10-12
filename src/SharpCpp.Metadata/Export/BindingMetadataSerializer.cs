@@ -9,6 +9,8 @@ public static class BindingMetadataSerializer
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         WriteIndented = true,
+        // Documents are hashed and compared, so every platform writes the same line endings.
+        NewLine = "\n",
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
@@ -17,7 +19,7 @@ public static class BindingMetadataSerializer
         ArgumentNullException.ThrowIfNull(document);
 
         var json = JsonSerializer.Serialize(document, SerializerOptions);
-        return json + Environment.NewLine;
+        return json + "\n";
     }
 
     public static BindingMetadataDocument Deserialize(string json)

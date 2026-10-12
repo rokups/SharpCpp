@@ -2,6 +2,15 @@ using SharpCpp.Tests.E2E.Generated;
 
 using Xunit;
 
+#if NATIVE_C_LONG_32
+// C `long` is 32 bits wide on LLP64 targets such as Windows.
+using CLong = System.Int32;
+using CULong = System.UInt32;
+#else
+using CLong = System.IntPtr;
+using CULong = System.UIntPtr;
+#endif
+
 namespace SharpCpp.Tests.E2E.Builtin;
 
 public sealed class BuiltinTests
@@ -315,61 +324,61 @@ public sealed class BuiltinTests
     [Fact]
     public void NativeInt_value_in_ref_and_out_bindings_roundtrip()
     {
-        Assert.Equal((nint)24681012, E2EBindings.RoundtripNativeInt((nint)24681012));
+        Assert.Equal((CLong)24681012, E2EBindings.RoundtripNativeInt((CLong)24681012));
 
-        nint inValue = 7654321;
-        Assert.Equal((nint)7654321, E2EBindings.EchoInNativeInt(in inValue));
+        CLong inValue = 7654321;
+        Assert.Equal((CLong)7654321, E2EBindings.EchoInNativeInt(in inValue));
 
-        nint refValue = 41;
+        CLong refValue = 41;
         E2EBindings.IncrementRefNativeInt(ref refValue);
-        Assert.Equal((nint)42, refValue);
+        Assert.Equal((CLong)42, refValue);
 
         E2EBindings.WriteOutNativeInt(out var outValue);
-        Assert.Equal((nint)24681012, outValue);
+        Assert.Equal((CLong)24681012, outValue);
     }
 
     [Fact]
     public void NativeInt_marked_pointer_in_ref_and_out_bindings_roundtrip()
     {
-        nint inValue = 7654321;
-        Assert.Equal((nint)7654321, E2EBindings.EchoMarkedInNativeInt(in inValue));
+        CLong inValue = 7654321;
+        Assert.Equal((CLong)7654321, E2EBindings.EchoMarkedInNativeInt(in inValue));
 
-        nint refValue = 41;
+        CLong refValue = 41;
         E2EBindings.ReplaceMarkedRefNativeInt(ref refValue);
-        Assert.Equal((nint)42, refValue);
+        Assert.Equal((CLong)42, refValue);
 
         E2EBindings.WriteMarkedOutNativeInt(out var outValue);
-        Assert.Equal((nint)24681012, outValue);
+        Assert.Equal((CLong)24681012, outValue);
     }
 
     [Fact]
     public void NativeUint_value_in_ref_and_out_bindings_roundtrip()
     {
-        Assert.Equal((nuint)1357911, E2EBindings.RoundtripNativeUint((nuint)1357911));
+        Assert.Equal((CULong)1357911, E2EBindings.RoundtripNativeUint((CULong)1357911));
 
-        nuint inValue = 24681012;
-        Assert.Equal((nuint)24681012, E2EBindings.EchoInNativeUint(in inValue));
+        CULong inValue = 24681012;
+        Assert.Equal((CULong)24681012, E2EBindings.EchoInNativeUint(in inValue));
 
-        nuint refValue = 41;
+        CULong refValue = 41;
         E2EBindings.IncrementRefNativeUint(ref refValue);
-        Assert.Equal((nuint)42, refValue);
+        Assert.Equal((CULong)42, refValue);
 
         E2EBindings.WriteOutNativeUint(out var outValue);
-        Assert.Equal((nuint)1357911, outValue);
+        Assert.Equal((CULong)1357911, outValue);
     }
 
     [Fact]
     public void NativeUint_marked_pointer_in_ref_and_out_bindings_roundtrip()
     {
-        nuint inValue = 24681012;
-        Assert.Equal((nuint)24681012, E2EBindings.EchoMarkedInNativeUint(in inValue));
+        CULong inValue = 24681012;
+        Assert.Equal((CULong)24681012, E2EBindings.EchoMarkedInNativeUint(in inValue));
 
-        nuint refValue = 41;
+        CULong refValue = 41;
         E2EBindings.ReplaceMarkedRefNativeUint(ref refValue);
-        Assert.Equal((nuint)42, refValue);
+        Assert.Equal((CULong)42, refValue);
 
         E2EBindings.WriteMarkedOutNativeUint(out var outValue);
-        Assert.Equal((nuint)1357911, outValue);
+        Assert.Equal((CULong)1357911, outValue);
     }
 
     [Fact]

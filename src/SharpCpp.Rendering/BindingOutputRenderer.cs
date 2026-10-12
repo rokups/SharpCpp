@@ -2359,8 +2359,29 @@ public static partial class BindingOutputRenderer
     private static bool IsManagedCallbackValueReference(BindingType type) =>
         type.Marshaller.CppIsReference && type.Kind == BindingTypeKind.Primitive && !type.Marshaller.IsRefStruct;
 
+    // A fixed array crosses the callback ABI as the two-field NativeArrayAbi struct, which the C
+    // ABI passes in registers on System V but by hidden pointer on Windows x64. Declaring the
+    // parameter as that struct keeps both sides in agreement; a bare nint would read the pointer
+    // to the struct as the array address on Windows.
+    private static bool IsManagedCallbackFixedArrayAbi(BindingCompilation compilation, BindingType type)
+    {
+        if (type.Kind != BindingTypeKind.Handle || ResolveRecord(compilation, type) is not { } record)
+        {
+            return false;
+        }
+
+        return IsGenericArrayRecord(record) &&
+            !IsGenericDynamicArrayRecord(record) &&
+            type.NativeTemplateArguments.Any(static argument => argument.Kind == BindingTemplateArgumentKind.Integral);
+    }
+
     private static string GetManagedCallbackParameterAbiTypeName(BindingCompilation compilation, BindingType type)
     {
+        if (IsManagedCallbackFixedArrayAbi(compilation, type))
+        {
+            return "global::SharpCpp.Support.NativeArrayAbi";
+        }
+
         var abiType = GetManagedImportTypeName(type, compilation);
         return IsManagedCallbackValueReference(type) ? $"{abiType}*" : abiType;
     }
@@ -2368,7 +2389,7 @@ public static partial class BindingOutputRenderer
     private static string BuildManagedCallbackInvocationArgument(BindingCompilation compilation, BindingType type, string valueExpression)
     {
         return type.Kind == BindingTypeKind.Handle
-            ? BuildManagedHandleWrap(compilation, type, valueExpression, ownsHandle: false)
+            ? BuildManagedHandleWrap(compilation, type, valueExpression, ownsHandle: false, handleIsArrayAbi: IsManagedCallbackFixedArrayAbi(compilation, type))
             : BuildManagedImportToPublicExpression(compilation, type, valueExpression);
     }
 
@@ -7921,7 +7942,7 @@ public static partial class BindingOutputRenderer
         }
     }
 
-    private static string BuildManagedHandleWrap(BindingCompilation compilation, BindingType type, string handleExpression, bool ownsHandle)
+    private static string BuildManagedHandleWrap(BindingCompilation compilation, BindingType type, string handleExpression, bool ownsHandle, bool handleIsArrayAbi = false)
     {
         var record = ResolveRecord(compilation, type);
         if (record is not null && type.Marshaller.ManagedIsSecondaryBaseView)
@@ -7936,9 +7957,9 @@ public static partial class BindingOutputRenderer
             var nativeTemplateArgument = HasNativeNonTypeTemplateArguments(type) && !IsSharedManagedWrapper(record)
                 ? $", nativeTemplateKey: \"{EscapeCSharpString(GetNativeTemplateArgumentKey(type.NativeTemplateArguments))}\""
                 : string.Empty;
-            // Fixed arrays cross as NativeArrayAbi; a bare pointer (callback argument) is
-            // paired with the compile-time length.
-            if (IsGenericArrayRecord(record) && !IsGenericDynamicArrayRecord(record) &&
+            // Fixed arrays cross as NativeArrayAbi; a bare pointer is paired with the
+            // compile-time length unless the caller already holds the ABI struct.
+            if (!handleIsArrayAbi && IsGenericArrayRecord(record) && !IsGenericDynamicArrayRecord(record) &&
                 type.NativeTemplateArguments.FirstOrDefault(static argument => argument.Kind == BindingTemplateArgumentKind.Integral) is { } lengthArgument)
             {
                 handleExpression = $"new global::SharpCpp.Support.NativeArrayAbi({handleExpression}, {lengthArgument.IntegralValue.ToString(System.Globalization.CultureInfo.InvariantCulture)})";

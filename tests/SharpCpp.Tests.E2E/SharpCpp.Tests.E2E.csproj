@@ -9,6 +9,11 @@
     <SharpCppBuildRbfx>false</SharpCppBuildRbfx>
   </PropertyGroup>
 
+  <!-- C `long` is 32 bits wide on LLP64 targets, so the generated bindings expose int and uint. -->
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <DefineConstants>$(DefineConstants);NATIVE_C_LONG_32</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\SharpCpp.Support\SharpCpp.Support.csproj" />
     <ProjectReference Include="..\..\src\SharpCpp.Std\SharpCpp.Std.csproj" />

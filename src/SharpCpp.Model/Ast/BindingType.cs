@@ -140,6 +140,17 @@ public sealed class BindingType
 
     public static BindingType NativeUInt { get; } = Primitive(BindingPrimitiveKind.NativeUInt, "unsigned long", "nuint");
 
+    /// <summary>C `long` where it is 32 bits wide (LLP64 targets such as Windows).</summary>
+    public static BindingType CLong32 { get; } = Primitive(BindingPrimitiveKind.Int32, "long", "int");
+
+    /// <summary>C `unsigned long` where it is 32 bits wide (LLP64 targets such as Windows).</summary>
+    public static BindingType CULong32 { get; } = Primitive(BindingPrimitiveKind.UInt32, "unsigned long", "uint");
+
+    /// <summary>A pointer-sized managed integer that keeps the native spelling of its C type.</summary>
+    public static BindingType CreateNativeInteger(string cppTypeName, bool isSigned) => isSigned
+        ? Primitive(BindingPrimitiveKind.NativeInt, cppTypeName, "nint")
+        : Primitive(BindingPrimitiveKind.NativeUInt, cppTypeName, "nuint");
+
     public static BindingType IntPtr { get; } = Primitive(BindingPrimitiveKind.IntPtr, "void*", "global::System.IntPtr");
 
     public static BindingPrimitiveKind PrimitiveKindFromCppName(string cppTypeName) => cppTypeName switch

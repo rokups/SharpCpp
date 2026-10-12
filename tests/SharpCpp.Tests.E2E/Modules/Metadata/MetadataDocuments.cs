@@ -20,7 +20,7 @@ public sealed class MetadataDocumentTests
     public void Documents_are_versioned_and_sorted_deterministically()
     {
         Assert.Equal(9, Main.GetProperty("schema_version").GetInt32());
-        Assert.EndsWith(Environment.NewLine, MainText, StringComparison.Ordinal);
+        Assert.EndsWith("\n", MainText, StringComparison.Ordinal);
 
         // Records, then enums, each ordered by managed name.
         var types = Main.GetProperty("types").EnumerateArray().ToArray();
