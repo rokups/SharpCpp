@@ -88,6 +88,7 @@ jobs:
 
       - name: Run E2E tests
         shell: bash
+        timeout-minutes: 20
         run: |
           if [[ "$RUNNER_OS" == 'Windows' ]]; then
             unset Platform
@@ -95,7 +96,9 @@ jobs:
           dotnet test tests/SharpCpp.Tests.E2E \
             --no-build --configuration Debug \
             --blame-crash \
+            --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type none \
             --logger trx \
+            --logger "console;verbosity=detailed" \
             --results-directory build/test-results
 
       - name: Run ApiUnion tests
