@@ -6561,6 +6561,11 @@ public static partial class BindingOutputRenderer
 
     private static string GetManagedImportReturnAttribute(BindingCompilation compilation, BindingType type, bool ownsHandle)
     {
+        if (type.ManagedMarshaller is not null)
+        {
+            return GetManagedReturnAttribute(type, compilation);
+        }
+
         if (type.IsFixedArray)
         {
             return $"[return: MarshalUsing(typeof({GetManagedFixedArrayReturnMarshallerTypeName(compilation, type, ownsHandle)}))]";
@@ -6571,12 +6576,13 @@ public static partial class BindingOutputRenderer
             return $"[return: MarshalUsing(typeof({GetManagedHandleReturnMarshallerTypeName(compilation, type, ownsHandle)}))]";
         }
 
-        return GetManagedReturnAttribute(type);
+        return GetManagedReturnAttribute(type, compilation);
     }
 
     private static bool CanUseManagedHandleReturnMarshaller(BindingCompilation compilation, BindingType type)
     {
         if (type.IsFixedArray ||
+            type.ManagedMarshaller is not null ||
             type.Marshaller.ManagedIsSecondaryBaseView ||
             HasNativeNonTypeTemplateArguments(type) ||
             type.Kind != BindingTypeKind.Handle)
@@ -6605,7 +6611,7 @@ public static partial class BindingOutputRenderer
 
     private static string BuildManagedHandleReturnResultExpression(BindingCompilation compilation, BindingType type, string resultExpression, bool ownsHandle)
     {
-        if (type.IsFixedArray)
+        if (type.IsFixedArray || type.ManagedMarshaller is not null)
         {
             return resultExpression;
         }
@@ -6802,7 +6808,7 @@ public static partial class BindingOutputRenderer
         {
             var modifier = parameter.Direction switch
             {
-                BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => "in ",
+                BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value && type.ManagedMarshaller is null => "in ",
                 _ => string.Empty
             };
             var attribute = GetManagedParameterAttribute(parameter, type, compilation);
@@ -6816,7 +6822,7 @@ public static partial class BindingOutputRenderer
 
         var modifierFallback = parameter.Direction switch
         {
-            BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => "in ",
+            BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value && type.ManagedMarshaller is null => "in ",
             BindingParameterDirection.Ref => "ref ",
             BindingParameterDirection.Out => "out ",
             _ => string.Empty
@@ -7199,7 +7205,7 @@ public static partial class BindingOutputRenderer
 
         var modifier = parameter.Direction switch
         {
-            BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => "in ",
+            BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value && parameter.Type.ManagedMarshaller is null => "in ",
             BindingParameterDirection.Ref => "ref ",
             BindingParameterDirection.Out => "out ",
             _ => string.Empty
@@ -7389,7 +7395,7 @@ public static partial class BindingOutputRenderer
             var importExpression = BuildManagedPublicToImportExpression(compilation, parameter.Type, valueExpression);
             return parameter.Direction switch
             {
-                BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => $"in {valueExpression}",
+                BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value && parameter.Type.ManagedMarshaller is null => $"in {valueExpression}",
                 BindingParameterDirection.Ref => $"ref {valueExpression}",
                 BindingParameterDirection.Out => $"out {valueExpression}",
                 _ => importExpression
@@ -7409,7 +7415,7 @@ public static partial class BindingOutputRenderer
     {
         return parameter.Direction switch
         {
-            BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => $"in {parameter.ManagedName}",
+            BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value && parameter.Type.ManagedMarshaller is null => $"in {parameter.ManagedName}",
             BindingParameterDirection.Ref => $"ref {parameter.ManagedName}",
             BindingParameterDirection.Out => $"out {parameter.ManagedName}",
             _ => parameter.ManagedName
@@ -7946,7 +7952,7 @@ public static partial class BindingOutputRenderer
     {
         return parameter.Direction switch
         {
-            BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value => $"in {parameter.ManagedName}",
+            BindingParameterDirection.In when parameter.AbiKind != BindingParameterAbiKind.Value && parameter.Type.ManagedMarshaller is null => $"in {parameter.ManagedName}",
             BindingParameterDirection.Ref => $"ref {parameter.ManagedName}",
             BindingParameterDirection.Out => $"out {parameter.ManagedName}",
             _ => parameter.ManagedName
@@ -8080,7 +8086,7 @@ public static partial class BindingOutputRenderer
     {
         if (type.ManagedMarshaller is not null)
         {
-            return $"[MarshalUsing(typeof({type.ManagedMarshaller}))] ";
+            return $"[MarshalUsing(typeof({GetManagedMarshallerTypeName(type, compilation)}))] ";
         }
 
         if (type.IsCallback)
@@ -8093,16 +8099,30 @@ public static partial class BindingOutputRenderer
             : string.Empty;
     }
 
-    private static string GetManagedReturnAttribute(BindingType type)
+    private static string GetManagedReturnAttribute(BindingType type, BindingCompilation compilation)
     {
         if (type.ManagedMarshaller is not null)
         {
-            return $"[return: MarshalUsing(typeof({type.ManagedMarshaller}))]";
+            return $"[return: MarshalUsing(typeof({GetManagedMarshallerTypeName(type, compilation)}))]";
         }
 
         return type.PrimitiveKind == BindingPrimitiveKind.Boolean
             ? "[return: MarshalAs(UnmanagedType.I1)]"
             : string.Empty;
+    }
+
+    private static string GetManagedMarshallerTypeName(BindingType type, BindingCompilation compilation)
+    {
+        var managedMarshaller = type.ManagedMarshaller!;
+        for (var index = 0; index < type.GenericArguments.Count; ++index)
+        {
+            managedMarshaller = managedMarshaller.Replace(
+                $"{{{index}}}",
+                FormatGlobalTypeName(type.GenericArguments[index], compilation),
+                StringComparison.Ordinal);
+        }
+
+        return managedMarshaller;
     }
 
     private static string GetManagedEnumUnderlyingTypeName(EnumBinding @enum)

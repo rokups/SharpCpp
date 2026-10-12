@@ -1080,7 +1080,7 @@ public static partial class BindingOutputRenderer
                 : "nint";
             var getReturnAttribute = usesImportAbi
                 ? GetManagedImportReturnAttribute(compilation, elementType, ownsHandle: false)
-                : GetManagedReturnAttribute(elementType);
+                : GetManagedReturnAttribute(elementType, compilation);
             var setParameter = usesImportAbi
                 ? RenderManagedImportParameter(
                     new ParameterBinding(

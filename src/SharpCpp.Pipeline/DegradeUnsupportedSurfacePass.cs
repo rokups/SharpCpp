@@ -502,6 +502,13 @@ public static class DegradeUnsupportedSurfacePass
 
         foreach (var parameter in function.Parameters)
         {
+            if (parameter.Type.ManagedMarshaller is not null &&
+                parameter.Direction is BindingParameterDirection.Ref or BindingParameterDirection.Out)
+            {
+                reason = $"parameter '{parameter.ManagedName}' is unsupported in this bootstrap surface: custom marshaller-backed types do not support mutable by-reference parameters";
+                return true;
+            }
+
             if (!functionAllowsOpenGenericTypes && parameter.Type.ContainsGenericParameters)
             {
                 reason = $"parameter '{parameter.ManagedName}' is unsupported in this bootstrap surface: open generic parameter usage is not renderer-ready in a non-generic callable";
@@ -1168,7 +1175,9 @@ public static class DegradeUnsupportedSurfacePass
             return true;
         }
 
-        if (type.GenericArguments.Count > 0 && !IsSupportedGenericHandleType(type, recordsById))
+        if (type.GenericArguments.Count > 0 &&
+            type.ManagedMarshaller is null &&
+            !IsSupportedGenericHandleType(type, recordsById))
         {
             reason = $"template/container type '{rawCppTypeName}' is not yet supported";
             return true;
