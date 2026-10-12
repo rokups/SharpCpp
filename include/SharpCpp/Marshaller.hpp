@@ -2057,10 +2057,11 @@ struct CompleteType { using type = T; };
 template <typename T>
 struct CompleteType<T, std::void_t<decltype(sizeof(std::enable_if_t<!std::is_reference_v<T>, T>))>> { using type = T; };
 
-// Spells a function type outside of any extern "C" scope. MSVC gives a function type written directly inside an
-// extern "C" function body C linkage and then rejects class return types (C2526).
+// Spells a function type outside of any extern "C" scope. MSVC gives a function type written directly (or through
+// an alias template) inside an extern "C" function body C linkage and then rejects class return types (C2526).
+// A member typedef of a class template specialization has C++ linkage.
 template <typename R, typename... A>
-using FunctionType = R(A...);
+struct FunctionTypeHolder { using type = R(A...); };
 }
 
 template <class T>

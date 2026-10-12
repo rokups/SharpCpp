@@ -5850,7 +5850,7 @@ public static partial class BindingOutputRenderer
                     writer.Write($$"""
                         SHARPCPP_EXPORT ret_t<void> {{GetNativeCallbaseEntrypointName(compilation, record, method)}}({{parameterList}})
                         {
-                        using FT = ::SharpCpp::detail::FunctionType<void, {{record.CppQualifiedName}}*{{(parameterCppList.Length > 0 ? $", {parameterCppList}" : string.Empty)}}>;
+                        using FT = {{BuildFunctionTypeAlias("void", $"{record.CppQualifiedName}*{(parameterCppList.Length > 0 ? $", {parameterCppList}" : string.Empty)}")}};
                         MarshallerInvoker::invoke_as<{{marshallerTemplateArguments}}>(&{{directorName}}::{{helperName}}, self{{(callbaseArguments.Length > 0 ? $", {callbaseArguments}" : string.Empty)}});
                         }
                         """);
@@ -5860,7 +5860,7 @@ public static partial class BindingOutputRenderer
                     writer.Write($$"""
                         SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(method)}} {{GetNativeCallbaseEntrypointName(compilation, record, method)}}({{parameterList}})
                         {
-                        using FT = ::SharpCpp::detail::FunctionType<{{RenderCompleteReturnType(method.CppReturnTypeName)}}, {{record.CppQualifiedName}}*{{(parameterCppList.Length > 0 ? $", {parameterCppList}" : string.Empty)}}>;
+                        using FT = {{BuildFunctionTypeAlias(RenderCompleteReturnType(method.CppReturnTypeName), $"{record.CppQualifiedName}*{(parameterCppList.Length > 0 ? $", {parameterCppList}" : string.Empty)}")}};
                         {{(RequiresOwnedRecordValueReturn(method)
                             ? $"return MarshallerInvoker::invoke_owned_as<{marshallerTemplateArguments}>(&{directorName}::{helperName}, self{(callbaseArguments.Length > 0 ? $", {callbaseArguments}" : string.Empty)});"
                             : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(&{directorName}::{helperName}, self{(callbaseArguments.Length > 0 ? $", {callbaseArguments}" : string.Empty)});")}}
@@ -7320,13 +7320,14 @@ public static partial class BindingOutputRenderer
         return BuildFunctionTypeAlias(returnTypeName, parameterTypes);
     }
 
-    // Spell function types through a template alias that lives outside extern "C". MSVC gives a function type
-    // written directly inside an extern "C" function body C linkage and then rejects class return types (C2526).
+    // Spell function types through a member typedef of a class template that lives outside extern "C". MSVC gives
+    // a function type written directly (or through an alias template) inside an extern "C" function body C linkage
+    // and then rejects class return types (C2526). A member typedef of a class template specialization keeps C++ linkage.
     private static string BuildFunctionTypeAlias(string returnTypeName, string parameterTypes)
     {
         return string.IsNullOrEmpty(parameterTypes)
-            ? $"::SharpCpp::detail::FunctionType<{returnTypeName}>"
-            : $"::SharpCpp::detail::FunctionType<{returnTypeName}, {parameterTypes}>";
+            ? $"typename ::SharpCpp::detail::FunctionTypeHolder<{returnTypeName}>::type"
+            : $"typename ::SharpCpp::detail::FunctionTypeHolder<{returnTypeName}, {parameterTypes}>::type";
     }
 
     private static string BuildNativeMethodSignature(FunctionBinding method)

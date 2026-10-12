@@ -12,7 +12,9 @@ public static class SilentlyExcludeExternalDeclarationsPass
         {
             if (ShouldSilentlyExcludeRecord(record))
             {
-                record.SetSilentExclusionReason($"record '{record.CppQualifiedName}' is defined outside headers owned by this compilation");
+                var origins = record.GetMetadata<string[]>(MetadataKeys.PlaceholderTypeOrigins);
+                var detail = origins is { Length: > 0 } ? $" (types: {string.Join("; ", origins)})" : string.Empty;
+                record.SetSilentExclusionReason($"record '{record.CppQualifiedName}' is defined outside headers owned by this compilation{detail}");
             }
         }
 

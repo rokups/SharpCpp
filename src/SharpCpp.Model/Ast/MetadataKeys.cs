@@ -39,6 +39,9 @@ public static class MetadataKeys
     public const string NativeInterfaceQuery = "native_interface_query";
     public const string NativeInterfaceReleaseMethod = "native_interface_release_method";
     public const string PlaceholderRecord = "placeholder_record";
+    // Set (string[]) on a placeholder record by the parser. The spelled, canonical and normalized
+    // canonical text of the first clang types that mapped to the placeholder. Diagnostics only.
+    public const string PlaceholderTypeOrigins = "placeholder_type_origins";
     public const string SuppressEmission = "suppress_emission";
     public const string HasNativeDefinition = "has_native_definition";
     // Set (bool) on a function, a method or a static data member by the parser. True when the

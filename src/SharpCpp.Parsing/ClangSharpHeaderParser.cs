@@ -4352,6 +4352,7 @@ public sealed partial class ClangSharpHeaderParser
                     IndexRecordKeys(recordsByName, record);
                 }
 
+                NoteExternalRecordOrigin(record, type);
                 var genericArguments = record.HasMetadata(MetadataKeys.PlaceholderRecord)
                     ? Array.Empty<BindingType>()
                     : ParseVisibleRecordTemplateArguments(record, concretePointeeTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
@@ -4383,6 +4384,7 @@ public sealed partial class ClangSharpHeaderParser
                     IndexRecordKeys(recordsByName, record);
                 }
 
+                NoteExternalRecordOrigin(record, type);
                 return TryApplyManagedAliasSurface(
                     type,
                     record.HandleType,
@@ -4429,6 +4431,7 @@ public sealed partial class ClangSharpHeaderParser
                 IndexRecordKeys(recordsByName, record);
             }
 
+            NoteExternalRecordOrigin(record, type);
             var genericArguments = record.HasMetadata(MetadataKeys.PlaceholderRecord)
                 ? Array.Empty<BindingType>()
                 : ParseVisibleRecordTemplateArguments(record, concreteRecordTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
@@ -5969,6 +5972,27 @@ public sealed partial class ClangSharpHeaderParser
     /// only resolve inside that namespace; rebuild template specializations from their
     /// canonical arguments instead.
     /// </summary>
+    /// <summary>
+    /// Records the spelled, canonical and normalized canonical text of a clang type that mapped to a
+    /// placeholder record. The pipeline appends the text to the exclusion reason as a diagnostic.
+    /// </summary>
+    private static void NoteExternalRecordOrigin(RecordBinding record, CXType type)
+    {
+        if (!record.GetMetadata<bool>(MetadataKeys.PlaceholderRecord))
+        {
+            return;
+        }
+
+        var origin = $"spelled='{type.Spelling}', canonical='{type.CanonicalType.Spelling}', normalized='{FormatCanonicalCxTypeName(type)}'";
+        var origins = record.GetMetadata<string[]>(MetadataKeys.PlaceholderTypeOrigins) ?? [];
+        if (origins.Length >= 3 || Array.IndexOf(origins, origin) >= 0)
+        {
+            return;
+        }
+
+        record.SetMetadata(MetadataKeys.PlaceholderTypeOrigins, origins.Append(origin).ToArray());
+    }
+
     private static string FormatCanonicalCxTypeName(CXType type)
     {
         var canonical = type.CanonicalType;
