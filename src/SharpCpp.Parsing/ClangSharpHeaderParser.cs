@@ -3845,19 +3845,19 @@ public sealed partial class ClangSharpHeaderParser
             }
         }
 
-        foreach (var (key, candidateOverride) in managedTypeOverrides)
+        foreach (var (key, candidateOverride) in managedTypeOverrides
+                     .Where(pair => pair.Key.StartsWith("return:", StringComparison.Ordinal) == isReturn)
+                     .Where(pair => pair.Value.TemplateParameterNames.Count > 0)
+                     .OrderBy(pair => pair.Value.TemplateParameterNames.Count)
+                     .ThenByDescending(pair => GetFixedTemplateArgumentCount(
+                         pair.Value.CppTypeName,
+                         pair.Value.TemplateParameterNames)))
         {
-            var isCandidateReturn = key.StartsWith("return:", StringComparison.Ordinal);
-            if (isCandidateReturn != isReturn || candidateOverride.TemplateParameterNames.Count == 0)
-            {
-                continue;
-            }
-
             if (GenericTypePatternMatches(
                     spelledTypeName,
                     canonicalTypeName,
                     candidateOverride.CppTypeName,
-                    candidateOverride.TemplateParameterNames.Count,
+                    candidateOverride.TemplateParameterNames,
                     GetVisibleTemplateArgumentCount(candidateOverride, managedTypeOverrides)) &&
                 (predicate is null || predicate(candidateOverride)))
             {
@@ -3899,7 +3899,7 @@ public sealed partial class ClangSharpHeaderParser
         string spelledTypeName,
         string canonicalTypeName,
         string patternTypeName,
-        int expectedArgumentCount,
+        IReadOnlyList<string> templateParameterNames,
         int visibleArgumentCount)
     {
         if (!TryGetTopLevelTemplateArguments(patternTypeName, out var patternHead, out var patternArguments))
@@ -3917,11 +3917,85 @@ public sealed partial class ClangSharpHeaderParser
             }
 
             if (TemplateHeadsEquivalent(candidateHead, patternHead) &&
-                patternArguments.Count >= expectedArgumentCount &&
                 candidateArguments.Count >= visibleArgumentCount &&
-                candidateArguments.Count <= patternArguments.Count)
+                candidateArguments.Count >= GetMinimumRequiredTemplateArgumentCount(patternArguments, templateParameterNames) &&
+                candidateArguments.Count <= patternArguments.Count &&
+                TemplateArgumentsMatch(patternArguments, candidateArguments, templateParameterNames))
             {
                 return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static int GetFixedTemplateArgumentCount(
+        string patternTypeName,
+        IReadOnlyList<string> templateParameterNames)
+    {
+        if (!TryGetTopLevelTemplateArguments(patternTypeName, out _, out var patternArguments))
+        {
+            return 0;
+        }
+
+        return patternArguments.Count(argument => !ContainsTemplateParameter(argument, templateParameterNames));
+    }
+
+    private static int GetMinimumRequiredTemplateArgumentCount(
+        IReadOnlyList<string> patternArguments,
+        IReadOnlyList<string> templateParameterNames)
+    {
+        for (var index = patternArguments.Count - 1; index >= 0; index--)
+        {
+            if (!ContainsTemplateParameter(patternArguments[index], templateParameterNames))
+            {
+                return index + 1;
+            }
+        }
+
+        return 0;
+    }
+
+    private static bool TemplateArgumentsMatch(
+        IReadOnlyList<string> patternArguments,
+        IReadOnlyList<string> candidateArguments,
+        IReadOnlyList<string> templateParameterNames)
+    {
+        for (var index = 0; index < candidateArguments.Count; index++)
+        {
+            var patternArgument = patternArguments[index];
+            if (ContainsTemplateParameter(patternArgument, templateParameterNames))
+            {
+                continue;
+            }
+
+            var normalizedPattern = NormalizeTypeName(ResolveAliasTypeName(patternArgument));
+            var normalizedCandidate = NormalizeTypeName(ResolveAliasTypeName(candidateArguments[index]));
+            if (!string.Equals(normalizedPattern, normalizedCandidate, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool ContainsTemplateParameter(string typeName, IReadOnlyList<string> templateParameterNames)
+    {
+        foreach (var parameterName in templateParameterNames)
+        {
+            var index = typeName.IndexOf(parameterName, StringComparison.Ordinal);
+            while (index >= 0)
+            {
+                var beforeIsIdentifier = index > 0 && (char.IsLetterOrDigit(typeName[index - 1]) || typeName[index - 1] == '_');
+                var end = index + parameterName.Length;
+                var afterIsIdentifier = end < typeName.Length && (char.IsLetterOrDigit(typeName[end]) || typeName[end] == '_');
+                if (!beforeIsIdentifier && !afterIsIdentifier)
+                {
+                    return true;
+                }
+
+                index = typeName.IndexOf(parameterName, end, StringComparison.Ordinal);
             }
         }
 

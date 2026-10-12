@@ -423,19 +423,23 @@ internal static class MarshallerConfigExtractor
         var hasManagedBaseType = body.Contains("managed_base_type", StringComparison.Ordinal);
         var hasExposedMembers = ExtractExposedMembersFromDecl(decl, declIndex).Count > 0;
         var templateParameterNames = ExtractTemplateParameterNames(decl);
+        var nativeTypePattern = decl is ClassTemplateSpecializationDecl { TemplateArgs: { Count: > 0 } configured } &&
+            configured[0].Kind == CXTemplateArgumentKind.CXTemplateArgumentKind_Type
+                ? CreateCppTypePattern(configured[0].AsType)
+                : null;
+        var visibleArgumentCount = Math.Max(
+            templateParameterNames.Count,
+            nativeTypePattern?.TemplateArguments?.Count ?? 0);
         var publicTypeName = publicTypeMatch.Success ? publicTypeMatch.Groups["value"].Value : cppTypeName;
         var visibleTemplateParameterIndices = publicTypeMatch.Success
-            ? ExtractVisibleTemplateParameterIndices(publicTypeName, templateParameterNames.Count)
+            ? ExtractVisibleTemplateParameterIndices(publicTypeName, visibleArgumentCount)
             : Enumerable.Range(0, templateParameterNames.Count).ToArray();
 
         result[key] = new ManagedTypeOverride(
             cppTypeName,
             publicTypeName)
         {
-            NativeTypePattern = decl is ClassTemplateSpecializationDecl { TemplateArgs: { Count: > 0 } configured } &&
-                configured[0].Kind == CXTemplateArgumentKind.CXTemplateArgumentKind_Type
-                    ? CreateCppTypePattern(configured[0].AsType)
-                    : null,
+            NativeTypePattern = nativeTypePattern,
             Undefaultable = undefaultableMatch.Success &&
                 string.Equals(undefaultableMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase),
             ByReference = ByReferenceExpression.Match(body) is { Success: true } byReferenceMatch &&
