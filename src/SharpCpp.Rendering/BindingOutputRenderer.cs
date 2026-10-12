@@ -5850,7 +5850,7 @@ public static partial class BindingOutputRenderer
                     writer.Write($$"""
                         SHARPCPP_EXPORT ret_t<void> {{GetNativeCallbaseEntrypointName(compilation, record, method)}}({{parameterList}})
                         {
-                        using FT = void({{record.CppQualifiedName}}*{{(parameterCppList.Length > 0 ? $", {parameterCppList}" : string.Empty)}});
+                        using FT = ::SharpCpp::detail::FunctionType<void, {{record.CppQualifiedName}}*{{(parameterCppList.Length > 0 ? $", {parameterCppList}" : string.Empty)}}>;
                         MarshallerInvoker::invoke_as<{{marshallerTemplateArguments}}>(&{{directorName}}::{{helperName}}, self{{(callbaseArguments.Length > 0 ? $", {callbaseArguments}" : string.Empty)}});
                         }
                         """);
@@ -5860,7 +5860,7 @@ public static partial class BindingOutputRenderer
                     writer.Write($$"""
                         SHARPCPP_EXPORT {{GetNativeEntrypointReturnType(method)}} {{GetNativeCallbaseEntrypointName(compilation, record, method)}}({{parameterList}})
                         {
-                        using FT = {{RenderCompleteReturnType(method.CppReturnTypeName)}}({{record.CppQualifiedName}}*{{(parameterCppList.Length > 0 ? $", {parameterCppList}" : string.Empty)}});
+                        using FT = ::SharpCpp::detail::FunctionType<{{RenderCompleteReturnType(method.CppReturnTypeName)}}, {{record.CppQualifiedName}}*{{(parameterCppList.Length > 0 ? $", {parameterCppList}" : string.Empty)}}>;
                         {{(RequiresOwnedRecordValueReturn(method)
                             ? $"return MarshallerInvoker::invoke_owned_as<{marshallerTemplateArguments}>(&{directorName}::{helperName}, self{(callbaseArguments.Length > 0 ? $", {callbaseArguments}" : string.Empty)});"
                             : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(&{directorName}::{helperName}, self{(callbaseArguments.Length > 0 ? $", {callbaseArguments}" : string.Empty)});")}}
@@ -7317,7 +7317,16 @@ public static partial class BindingOutputRenderer
     {
         var returnTypeName = RenderCompleteReturnType(function.CppReturnTypeName);
         var parameterTypes = string.Join(", ", function.Parameters.Select(static p => p.CppTypeName));
-        return $"auto({parameterTypes}) -> {returnTypeName}";
+        return BuildFunctionTypeAlias(returnTypeName, parameterTypes);
+    }
+
+    // Spell function types through a template alias that lives outside extern "C". MSVC gives a function type
+    // written directly inside an extern "C" function body C linkage and then rejects class return types (C2526).
+    private static string BuildFunctionTypeAlias(string returnTypeName, string parameterTypes)
+    {
+        return string.IsNullOrEmpty(parameterTypes)
+            ? $"::SharpCpp::detail::FunctionType<{returnTypeName}>"
+            : $"::SharpCpp::detail::FunctionType<{returnTypeName}, {parameterTypes}>";
     }
 
     private static string BuildNativeMethodSignature(FunctionBinding method)
@@ -8698,7 +8707,7 @@ public static partial class BindingOutputRenderer
             : $"return MarshallerInvoker::invoke_as<{marshallerTemplateArguments}>(__invoke, {callArguments});";
 
         return $$"""
-            using FT = {{RenderCompleteReturnType(method.CppReturnTypeName)}}({{signatureParameters}});
+            using FT = {{BuildFunctionTypeAlias(RenderCompleteReturnType(method.CppReturnTypeName), signatureParameters)}};
             auto __invoke = []({{lambdaParameters}}) -> {{method.CppReturnTypeName}}
             {
             {{returnStatement}}
@@ -9123,7 +9132,7 @@ public static partial class BindingOutputRenderer
             : variantParams.Select(static p => $"auto&& {p.NativeName}");
         var cppParamDecls = string.Join(", ", paramDeclParts);
 
-        var signature = $"{RenderCompleteReturnType(function.CppReturnTypeName)}({cppTypeNames})";
+        var signature = BuildFunctionTypeAlias(RenderCompleteReturnType(function.CppReturnTypeName), cppTypeNames);
         var marshallerTemplateArguments = BuildMarshallerInvokerTemplateArguments("FT", cppTypeParts);
 
         var invokeAsArgs = isSelf
