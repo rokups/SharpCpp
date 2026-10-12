@@ -4559,7 +4559,8 @@ public sealed partial class ClangSharpHeaderParser
                     continue;
                 case CXTypeKind.CXType_Typedef:
                     var declaration = type.Declaration;
-                    if (declaration.Spelling.ToString() is "size_t" or "ssize_t" or "ptrdiff_t" or "intptr_t" or "uintptr_t")
+                    if (IsPointerSizedIntegerName(declaration.Spelling.ToString()) ||
+                        IsPointerSizedIntegerName(type.Spelling.ToString()))
                     {
                         return true;
                     }
@@ -4567,11 +4568,38 @@ public sealed partial class ClangSharpHeaderParser
                     type = clang.getTypedefDeclUnderlyingType(declaration);
                     continue;
                 default:
-                    return false;
+                    // `using ::size_t;` inside `namespace std` (MSVC) yields a using type that
+                    // libclang reports as unexposed, so the typedef walk cannot see through it.
+                    return IsPointerSizedIntegerName(type.Spelling.ToString());
             }
         }
 
         return false;
+    }
+
+    private static bool IsPointerSizedIntegerName(string spelling)
+    {
+        var name = spelling.Trim();
+        var changed = true;
+        while (changed)
+        {
+            changed = false;
+            foreach (var prefix in new[] { "const ", "volatile ", "::", "std::" })
+            {
+                if (name.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    name = name[prefix.Length..].TrimStart();
+                    changed = true;
+                }
+            }
+        }
+
+        while (name.EndsWith(" const", StringComparison.Ordinal) || name.EndsWith(" volatile", StringComparison.Ordinal))
+        {
+            name = name[..name.LastIndexOf(' ')].TrimEnd();
+        }
+
+        return name is "size_t" or "ssize_t" or "ptrdiff_t" or "intptr_t" or "uintptr_t";
     }
 
     private static BindingType CreateConfiguredOrWrapperType(
