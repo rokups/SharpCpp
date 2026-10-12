@@ -27,8 +27,10 @@ public sealed class EnumTests
     {
         Assert.Equal(typeof(int), System.Enum.GetUnderlyingType(typeof(PlainLevel)));
         Assert.Equal(PlainLevel.PlainHigh, E2EBindings.RoundtripPlainLevel(PlainLevel.PlainHigh));
-        Assert.Equal(typeof(uint), System.Enum.GetUnderlyingType(typeof(WideLevel)));
-        Assert.Equal(0x80000000u, (uint)WideLevel.WideHigh);
+        // MSVC always picks int for an enum without a fixed type. GCC and Clang pick uint for a 0x80000000u value.
+        var wideType = System.Enum.GetUnderlyingType(typeof(WideLevel));
+        Assert.Equal(OperatingSystem.IsWindows() ? typeof(int) : typeof(uint), wideType);
+        Assert.Equal(0x80000000L, System.Convert.ToInt64(WideLevel.WideHigh) & 0xFFFFFFFFL);
     }
 
     [Fact]
