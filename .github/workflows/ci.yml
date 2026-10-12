@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  Test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            runs_on: ubuntu-latest
+          - name: osx-arm64
+            runs_on: macos-latest
+          - name: win-x64
+            runs_on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      # The SDK major version selects the TargetFramework (eng/SharpCpp.Build.props).
+      # There is no packages.lock.json file, so the NuGet cache stays off.
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      # The E2E native library uses the default C++ compiler (g++ on Linux).
+      # CMake and git are on the runner image. Git fetches the Clang builtin headers.
+      - name: Install Dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+
+      # Xcode Apple Clang and CMake are on the runner image.
+      - name: Install Dependencies
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      # The toolchain discovery reads the INCLUDE variable of cl.exe.
+      - name: Setup MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Ninja
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+            choco install ninja -y
+          }
+
+      # The build runs the CMake preset "dev" through the SharpCpp.Native project.
+      # It does not need the rbfx engine. CC and CXX force cl.exe on Windows,
+      # because the image also has gcc and clang on PATH.
+      - name: Build
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == 'Windows' ]]; then
+            export CC=cl CXX=cl
+          fi
+          dotnet build SharpCpp.slnx --configuration Debug
+
+      - name: Run E2E tests
+        shell: bash
+        run: >-
+          dotnet test tests/SharpCpp.Tests.E2E
+          --no-build --configuration Debug
+          --blame-crash
+          --logger trx
+          --results-directory build/test-results
+
+      - name: Run ApiUnion tests
+        shell: bash
+        run: >-
+          dotnet test tests/SharpCpp.Tests.ApiUnion
+          --no-build --configuration Debug
+          --logger trx
+          --results-directory build/test-results
+
+      # The blame-crash dumps and sequence files are in the same directory as the trx files.
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-${{ matrix.name }}
+          path: build/test-results/**
+          if-no-files-found: ignore
