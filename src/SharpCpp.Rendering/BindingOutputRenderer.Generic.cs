@@ -1562,7 +1562,7 @@ public static partial class BindingOutputRenderer
         return $$"""
             SHARPCPP_EXPORT NativeArrayAbi {{GetDynamicNativeArrayEntryPoint(compilation, token, "create")}}(arg_t<std::size_t> length)
             {
-                auto* value = length != 0 ? new {{elementCppType}}[length]{} : nullptr;
+                auto* value = length != 0 ? new {{elementCppType}}[length]() : nullptr;
                 return { value, length };
             }
 
@@ -3493,7 +3493,7 @@ public static partial class BindingOutputRenderer
                     writer.Write($$"""
                         SHARPCPP_EXPORT NativeArrayAbi {{GetFixedArrayCreateEntryPointName(compilation, record, instantiation)}}()
                         {
-                            auto* value = new {{elementCppType}}[{{length}}][{{nestedLength}}]{};
+                            auto* value = new {{elementCppType}}[{{length}}][{{nestedLength}}]();
                             return { value, {{length}} };
                         }
 
@@ -3513,7 +3513,7 @@ public static partial class BindingOutputRenderer
                             }
 
                             auto* source = static_cast<{{elementCppType}} (*)[{{nestedLength}}]>(self.handle);
-                            auto* value = new {{elementCppType}}[{{length}}][{{nestedLength}}]{};
+                            auto* value = new {{elementCppType}}[{{length}}][{{nestedLength}}]();
                             for (std::size_t outerIndex = 0; outerIndex < {{length}}; ++outerIndex)
                             {
                                 for (std::size_t nestedIndex = 0; nestedIndex < {{nestedLength}}; ++nestedIndex)
@@ -3561,7 +3561,7 @@ public static partial class BindingOutputRenderer
                 writer.Write($$"""
                     SHARPCPP_EXPORT NativeArrayAbi {{GetFixedArrayCreateEntryPointName(compilation, record, instantiation)}}()
                     {
-                        auto* value = new {{elementCppType}}[{{length}}]{};
+                        auto* value = new {{elementCppType}}[{{length}}]();
                         return { value, {{length}} };
                     }
 
@@ -3581,7 +3581,7 @@ public static partial class BindingOutputRenderer
                         }
 
                         auto* source = static_cast<{{elementCppType}}*>(self.handle);
-                        auto* value = new {{elementCppType}}[{{length}}]{};
+                        auto* value = new {{elementCppType}}[{{length}}]();
                         for (std::size_t index = 0; index < {{length}}; ++index)
                         {
                             value[index] = source[index];
@@ -3619,7 +3619,7 @@ public static partial class BindingOutputRenderer
             writer.Write($$"""
                 SHARPCPP_EXPORT NativeArrayAbi {{GetFixedArrayCreateEntryPointName(compilation, record, instantiation)}}()
                 {
-                    auto* value = new {{concreteArrayType}}{};
+                    auto* value = new {{concreteArrayType}}();
                     return { value, {{length}} };
                 }
 
@@ -3690,7 +3690,7 @@ public static partial class BindingOutputRenderer
             writer.Write($$"""
                 SHARPCPP_EXPORT ret_t<{{concreteArrayType}}*> {{GetDynamicArrayCreateEntryPointName(compilation, record, instantiation)}}(arg_t<std::size_t> length)
                 {
-                    return new {{concreteArrayType}}(new {{elementCppType}}[length]{});
+                    return new {{concreteArrayType}}(new {{elementCppType}}[length]());
                 }
 
                 SHARPCPP_EXPORT ret_t<void> {{GetDynamicArrayDeleteEntryPointName(compilation, record, instantiation)}}(arg_t<{{concreteArrayType}}*> self)

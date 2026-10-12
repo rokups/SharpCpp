@@ -73,31 +73,41 @@ jobs:
 
       # The build runs the CMake preset "dev" through the SharpCpp.Native project.
       # It does not need the rbfx engine. CC and CXX force cl.exe on Windows,
-      # because the image also has gcc and clang on PATH.
+      # because the image also has gcc and clang on PATH. The msvc-dev-cmd action sets
+      # the Platform variable to x64. MSBuild reads it as the solution platform and
+      # rejects the solution configuration Debug|x64. The step removes only that variable.
+      # The compiler variables (PATH, INCLUDE, LIB) stay in place for CMake.
       - name: Build
         shell: bash
         run: |
           if [[ "$RUNNER_OS" == 'Windows' ]]; then
             export CC=cl CXX=cl
+            unset Platform
           fi
           dotnet build SharpCpp.slnx --configuration Debug
 
       - name: Run E2E tests
         shell: bash
-        run: >-
-          dotnet test tests/SharpCpp.Tests.E2E
-          --no-build --configuration Debug
-          --blame-crash
-          --logger trx
-          --results-directory build/test-results
+        run: |
+          if [[ "$RUNNER_OS" == 'Windows' ]]; then
+            unset Platform
+          fi
+          dotnet test tests/SharpCpp.Tests.E2E \
+            --no-build --configuration Debug \
+            --blame-crash \
+            --logger trx \
+            --results-directory build/test-results
 
       - name: Run ApiUnion tests
         shell: bash
-        run: >-
-          dotnet test tests/SharpCpp.Tests.ApiUnion
-          --no-build --configuration Debug
-          --logger trx
-          --results-directory build/test-results
+        run: |
+          if [[ "$RUNNER_OS" == 'Windows' ]]; then
+            unset Platform
+          fi
+          dotnet test tests/SharpCpp.Tests.ApiUnion \
+            --no-build --configuration Debug \
+            --logger trx \
+            --results-directory build/test-results
 
       # The blame-crash dumps and sequence files are in the same directory as the trx files.
       - name: Upload test results
