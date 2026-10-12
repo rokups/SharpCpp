@@ -66,6 +66,8 @@ add_custom_target(sharpcpp-generate-e2e DEPENDS "${SHARPCPP_E2E_GENERATED_STAMP}
 # neither configure nor the build graph depends on individual generated file names.
 add_library(SharpCppTestsE2E_Native SHARED ${SHARPCPP_E2E_UNITY_SOURCES})
 add_dependencies(SharpCppTestsE2E_Native sharpcpp-generate-e2e)
+# Test-only: turns CRT assert/abort dialogs into stderr output on MSVC Debug builds (see the file).
+target_sources(SharpCppTestsE2E_Native PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/CrtDiagnostics.cpp")
 target_compile_features(SharpCppTestsE2E_Native PRIVATE cxx_std_20)
 set_target_properties(
   SharpCppTestsE2E_Native

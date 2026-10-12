@@ -485,7 +485,7 @@ template <class TFunction, class TSignature>
 struct ManagedCallbackMarshallerBase
 {
     using cpp_type = TFunction;
-    using abi_type = ManagedCallbackHandleAbi*;
+    using abi_type = ManagedCallbackHandleAbi;
 
     template <class T = cpp_type>
     abi_type ConvertToAbi(const T&) noexcept
@@ -497,12 +497,8 @@ struct ManagedCallbackMarshallerBase
 
     cpp_type ConvertToCpp(abi_type value) noexcept
     {
-        if (value == nullptr)
-            return {};
-
-        const auto handle = *value;
-        std::free(value);
-        return detail::CreateManagedCallbackWrapper<cpp_type, TSignature>(handle);
+        // The handle crosses by value, so no memory is allocated in one module and freed in another.
+        return detail::CreateManagedCallbackWrapper<cpp_type, TSignature>(value);
     }
 };
 
@@ -510,7 +506,7 @@ template <class TFunction, class TSignature>
 struct ManagedCallbackConstReferenceMarshallerBase
 {
     using cpp_type = const TFunction&;
-    using abi_type = ManagedCallbackHandleAbi*;
+    using abi_type = ManagedCallbackHandleAbi;
 
     template <class T = cpp_type>
     abi_type ConvertToAbi(T) noexcept
@@ -522,15 +518,7 @@ struct ManagedCallbackConstReferenceMarshallerBase
 
     cpp_type ConvertToCpp(abi_type value) noexcept
     {
-        if (value == nullptr)
-        {
-            storage_ = {};
-            return storage_;
-        }
-
-        const auto handle = *value;
-        std::free(value);
-        storage_ = detail::CreateManagedCallbackWrapper<TFunction, TSignature>(handle);
+        storage_ = detail::CreateManagedCallbackWrapper<TFunction, TSignature>(value);
         return storage_;
     }
 

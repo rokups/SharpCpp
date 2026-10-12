@@ -2317,20 +2317,18 @@ public static partial class BindingOutputRenderer
                 private static readonly nint __Invoke =
                     (nint)(delegate* unmanaged[Cdecl]<{{invokeFunctionPointerTypes}}>)&global::{{compilation.ManagedNamespace}}.{{compilation.ManagedClassName}}.{{invokeMethodName}};
 
-                public static nint ConvertToUnmanaged({{callbackManagedType}}? managed)
+                // The handle crosses by value, so no memory is allocated in one module and freed in another.
+                public static __SharpCppManagedCallbackHandleAbi ConvertToUnmanaged({{callbackManagedType}}? managed)
                 {
                     if (managed is null)
                     {
-                        return 0;
+                        return default;
                     }
 
                     var handle = global::System.Runtime.InteropServices.GCHandle.Alloc(managed);
-                    var callback = (__SharpCppManagedCallbackHandleAbi*)global::System.Runtime.InteropServices.NativeMemory.Alloc(
-                        (nuint)sizeof(__SharpCppManagedCallbackHandleAbi));
-                    *callback = new __SharpCppManagedCallbackHandleAbi(
+                    return new __SharpCppManagedCallbackHandleAbi(
                         global::System.Runtime.InteropServices.GCHandle.ToIntPtr(handle),
                         __Invoke);
-                    return (nint)callback;
                 }
 
             }
