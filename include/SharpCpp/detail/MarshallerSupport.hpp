@@ -205,6 +205,22 @@ TFunction CreateManagedCallbackWrapper(SharpCpp::ManagedCallbackHandleAbi handle
     return ManagedCallbackWrapperFactory<TFunction, remove_cvref_t<TSignature>>::Create(handle);
 }
 
+// Converts a by-value result that the invoker keeps in a local. The result goes in as an
+// rvalue when the marshaller accepts one, the same as a direct call on the prvalue.
+// Owning marshallers that take only cpp_type& get the lvalue and steal from it.
+template <typename TMarshaller, typename TValue>
+constexpr decltype(auto) ConvertByValueResultToAbi(TMarshaller& marshaller, TValue& result)
+{
+    if constexpr (requires { std::declval<TMarshaller&>().ConvertToAbi(std::declval<TValue&&>()); })
+    {
+        return marshaller.ConvertToAbi(std::move(result));
+    }
+    else
+    {
+        return marshaller.ConvertToAbi(result);
+    }
+}
+
 template <typename TResult, typename TCppArgumentTuple, typename TCallable, typename TMarshallerTuple, typename... TAbiArgs, std::size_t... TIndices>
 constexpr decltype(auto) InvokeWithMarshallersImpl(
     TCallable&& callable,
@@ -228,7 +244,14 @@ constexpr decltype(auto) InvokeWithMarshallersImpl(
     {
         ReturnMarshaller<TResult> ret_marshaller;
         decltype(auto) result = invoke_fn();
-        return ret_marshaller.ConvertToAbi(result);
+        if constexpr (std::is_reference_v<TResult>)
+        {
+            return ret_marshaller.ConvertToAbi(result);
+        }
+        else
+        {
+            return ConvertByValueResultToAbi(ret_marshaller, result);
+        }
     }
 }
 
@@ -307,7 +330,7 @@ constexpr decltype(auto) InvokeMemberWithMarshallersImpl(
             auto result =
                 (std::forward<TObject>(instance).*m)(
                     std::get<TIndices>(marshallers).ConvertToCpp(std::forward<TAbiArgs>(abiArguments))...);
-            return ret_marshaller.ConvertToAbi(result);
+            return ConvertByValueResultToAbi(ret_marshaller, result);
         }
     }
 }
