@@ -39,6 +39,14 @@ public abstract class NativeObject : SafeHandle
     public bool OwnsNativeHandle => _ownsNativeHandle;
 
     /// <summary>
+    /// Gets whether a native call that returns an owning handle for an object that already has an owning wrapper
+    /// hands over a counted reference that the registry must release again.
+    /// Families whose owning wrappers acquire their own reference on registration return <see langword="false"/>,
+    /// because the native call returns an uncounted pointer.
+    /// </summary>
+    public virtual bool OwningReturnHandsOverReference => true;
+
+    /// <summary>
     /// Gets whether this instance manages its own registration in the instance cache.
     /// Defaults to <see langword="false"/>; generated wrappers override with <see langword="true"/>.
     /// </summary>

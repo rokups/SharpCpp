@@ -157,7 +157,11 @@ public abstract class NativeObjectRegistry
                 {
                     // The wrapper already holds a reference (a shared or intrusive object);
                     // release the one this call was handed instead of leaking it.
-                    factory?.Invoke(handle, true).Dispose();
+                    // Some families return an uncounted pointer, so nothing was handed over.
+                    if (existing.OwningReturnHandsOverReference)
+                    {
+                        factory?.Invoke(handle, true).Dispose();
+                    }
                 }
                 else
                 {
