@@ -201,6 +201,6 @@ public sealed class FieldTests
 
         box.Payload = null!;
 
-        Assert.True(box.Payload.IsNull);
+        Assert.Null(box.Payload);
     }
 }

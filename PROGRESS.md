@@ -42,6 +42,8 @@ History lives in git. This file lists only what is open.
 - [x] Unit tests brought up to date with the fully-qualified managed-callback entry
       point, `char**` fields projected as `IntPtr`, and abstract constructors degraded in
       `DegradeUnsupportedSurfacePass`; the Model suite passes.
+- [x] A null native pointer gives a null managed reference from `CreateManagedWrapper`
+      for every record kind (returns and director arguments). No wrapper with handle 0.
 - [x] Coverage gate: 95.21% line coverage (`eng/collect_coverage.sh`, minimum 95%).
 
 ## Later stages

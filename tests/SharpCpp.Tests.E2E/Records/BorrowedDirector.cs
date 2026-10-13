@@ -17,12 +17,31 @@ public sealed class BorrowedDirectorBreadthTests
 
         public int CallbackCount { get; private set; }
 
+        public bool ReceivedNull { get; private set; }
+
         public override BorrowedDirectorPayload ChoosePayload(BorrowedDirectorPayload fallback)
         {
             CallbackCount++;
+            if (fallback is null)
+            {
+                ReceivedNull = true;
+                return null!;
+            }
+
             Assert.Equal(19, fallback.GetValue());
             return _selected;
         }
+    }
+
+    [Fact]
+    public void Null_pointer_argument_reaches_the_managed_director_as_null()
+    {
+        using var selected = new BorrowedDirectorPayload(42);
+        using var source = new ManagedBorrowedDirectorSource(selected);
+
+        Assert.Equal(-1, source.ReadChosenPayload(null!));
+        Assert.Equal(1, source.CallbackCount);
+        Assert.True(source.ReceivedNull);
     }
 
     [Fact]

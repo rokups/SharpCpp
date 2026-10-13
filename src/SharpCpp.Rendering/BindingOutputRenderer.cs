@@ -3393,8 +3393,9 @@ public static partial class BindingOutputRenderer
 
             {{staticHelperModifier}}public static {{record.ManagedName}} CreateManagedWrapper(nint handle, bool ownsHandle)
             {
+            // A null native pointer is a null managed reference. It never reaches the native side.
             if (handle == 0)
-                {{(isEffectivelyAbstract ? "return null!;" : $"return new {record.ManagedName}(0, ownsHandle);")}}
+                return null!;
 
             return ({{record.ManagedName}})global::SharpCpp.Support.NativeObjectRegistry.Create<{{record.ManagedName}}>(handle, ownsHandle);
             }

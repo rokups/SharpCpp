@@ -22,7 +22,7 @@ public sealed class CompositionTests
     {
         var result = E2EBindings.EchoPayload(null!);
 
-        Assert.True(result.IsNull);
+        Assert.Null(result);
     }
 
     [Fact]
@@ -85,6 +85,6 @@ public sealed class CompositionTests
 
         Assert.Equal(first.Handle, previous.Handle);
         Assert.Equal(10, previous.GetValue());
-        Assert.True(owner.GetPayload().IsNull);
+        Assert.Null(owner.GetPayload());
     }
 }

@@ -110,6 +110,15 @@ public sealed class InheritanceTests
     }
 
     [Fact]
+    public void Null_polymorphic_pointer_return_is_a_null_reference()
+    {
+        using var owner = new DerivedCounter(10, 2);
+
+        Assert.Null(DerivedCounter.IdentityBase(null!));
+        Assert.Null(owner.EchoBase(null!));
+    }
+
+    [Fact]
     public void Instance_method_can_roundtrip_base_typed_wrapper()
     {
         using var owner = new DerivedCounter(10, 2);

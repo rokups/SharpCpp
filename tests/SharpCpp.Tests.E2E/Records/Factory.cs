@@ -45,7 +45,7 @@ public sealed class FactoryTests
     {
         var copy = FactoryBox.Identity(null!);
 
-        Assert.True(copy.IsNull);
+        Assert.Null(copy);
     }
 
     [Fact]

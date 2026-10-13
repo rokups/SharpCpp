@@ -165,7 +165,7 @@ public static partial class BindingOutputRenderer
                 ? RenderDefaultNativeTemplateWrapperDispatch(compilation, record, instantiations, isEffectivelyAbstract)
                 : $$"""
             if (handle == 0)
-                {{(isEffectivelyAbstract ? "return null!;" : $"return new {GetGenericRecordDeclarationName(record)}(0, ownsHandle);")}}
+                return null!;
 
             return ({{GetGenericRecordDeclarationName(record)}})global::SharpCpp.Support.NativeObjectRegistry.Create<{{GetGenericRecordDeclarationName(record)}}>(handle, ownsHandle);
             """)}}
@@ -438,7 +438,7 @@ public static partial class BindingOutputRenderer
             internal static {{declarationName}} CreateManagedWrapper(nint handle, bool ownsHandle, string nativeTemplateKey)
             {
             if (handle == 0)
-                return new {{declarationName}}(0, ownsHandle, nativeTemplateKey);
+                return null!;
 
             if (s_instanceCache.TryGetExisting(handle, ownsHandle, out var existing) && existing is {{declarationName}} cached)
                 return cached;
