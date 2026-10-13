@@ -21,6 +21,8 @@ public static class SilentlyExcludeUnusedSharedWrappersPass
     {
         ArgumentNullException.ThrowIfNull(compilation);
 
+        MarkUsedImportedHandleRecords(compilation);
+
         var candidates = compilation.Records
             .Where(IsCandidate)
             .ToArray();
@@ -40,6 +42,61 @@ public static class SilentlyExcludeUnusedSharedWrappersPass
                 candidate.SetSilentExclusionReason($"shared wrapper record '{candidate.CppQualifiedName}' is not used by this compilation");
             }
         }
+    }
+
+    /// <summary>
+    /// Sets <see cref="MetadataKeys.ImportedHandleMarshaller"/> on each imported handle record
+    /// that a callable or a field of this module uses as a handle type. The renderer emits a
+    /// marshaller for these records only. Members of imported records do not count.
+    /// </summary>
+    private static void MarkUsedImportedHandleRecords(BindingCompilation compilation)
+    {
+        var importedById = compilation.Records
+            .Where(static record => record.GetMetadata<bool>(MetadataKeys.ImportedHandleRecord))
+            .GroupBy(static record => record.SymbolId, StringComparer.Ordinal)
+            .ToDictionary(static group => group.Key, static group => group.First(), StringComparer.Ordinal);
+        if (importedById.Count == 0)
+        {
+            return;
+        }
+
+        var references = new List<Reference>();
+        void Add(BindingType? type, BindingNode owner)
+        {
+            if (type is not null)
+            {
+                Walk(type, owner, references, new HashSet<BindingType>(ReferenceEqualityComparer.Instance));
+            }
+        }
+
+        foreach (var function in compilation.Functions.Where(IsLocalActive))
+        {
+            Add(function.ReturnType, function);
+            foreach (var parameter in function.Parameters)
+            {
+                Add(parameter.Type, function);
+            }
+        }
+
+        foreach (var field in compilation.Descendants<FieldBinding>().Where(IsLocalActive))
+        {
+            Add(field.Type, field);
+        }
+
+        foreach (var reference in references)
+        {
+            if (importedById.TryGetValue(reference.RecordId, out var record))
+            {
+                record.SetMetadata(MetadataKeys.ImportedHandleMarshaller, true);
+            }
+        }
+    }
+
+    private static bool IsLocalActive(BindingNode node)
+    {
+        return IsActive(node) &&
+            !node.Ancestors().Any(static ancestor =>
+                ancestor is RecordBinding record && record.GetMetadata<bool>(MetadataKeys.SuppressEmission));
     }
 
     private static bool IsCandidate(RecordBinding record)

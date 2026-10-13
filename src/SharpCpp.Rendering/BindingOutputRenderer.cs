@@ -96,6 +96,16 @@ public static partial class BindingOutputRenderer
         => !string.IsNullOrWhiteSpace(record.GetMetadata<string>(MetadataKeys.ManagedWrapperAssembly));
 
     /// <summary>
+    /// An imported handle record that this module uses as a handle type. The module that wraps
+    /// the record keeps its marshaller internal, so this module emits its own marshaller for it,
+    /// under <c>{module namespace}.__ImportedMarshallers</c>, and nothing else.
+    /// </summary>
+    private static bool IsImportedHandleMarshallerRecord(RecordBinding record)
+        => record.GetMetadata<bool>(MetadataKeys.ImportedHandleMarshaller) &&
+            record.GetMetadata<bool>(MetadataKeys.SuppressEmission) &&
+            !IsSharedManagedWrapper(record);
+
+    /// <summary>
     /// Marshaller helpers for a shared wrapper are per module (they bind the module's
     /// providers), so they live under the module namespace; several modules can then
     /// share one assembly, and wrappers from different namespaces cannot collide.
@@ -146,13 +156,15 @@ public static partial class BindingOutputRenderer
     private static string GetMarshallerHelperNamespace(BindingCompilation compilation, RecordBinding record)
     {
         var ns = GetManagedNamespace(compilation, record);
-        if (!IsSharedManagedWrapper(record))
+        var isImportedHandle = IsImportedHandleMarshallerRecord(record);
+        if (!IsSharedManagedWrapper(record) && !isImportedHandle)
         {
             return ns;
         }
 
         var wrapperNamespace = ns.StartsWith("global::", StringComparison.Ordinal) ? ns["global::".Length..] : ns;
-        return $"{compilation.ManagedNamespace}.__SharedMarshallers.{wrapperNamespace}";
+        var helperRoot = isImportedHandle ? "__ImportedMarshallers" : "__SharedMarshallers";
+        return $"{compilation.ManagedNamespace}.{helperRoot}.{wrapperNamespace}";
     }
 
     private static string GetSharedModuleIdLiteral(BindingCompilation compilation)
@@ -222,7 +234,7 @@ public static partial class BindingOutputRenderer
 
         var groups = compilation.Members.OfType<BindingNode>()
             .Where(m => m is FunctionBinding ||
-                        m is RecordBinding record && (IsSharedManagedWrapper(record) || !record.GetMetadata<bool>(MetadataKeys.SuppressEmission)) ||
+                        m is RecordBinding record && (IsSharedManagedWrapper(record) || IsImportedHandleMarshallerRecord(record) || !record.GetMetadata<bool>(MetadataKeys.SuppressEmission)) ||
                         m is EnumBinding @enum && !@enum.GetMetadata<bool>(MetadataKeys.SuppressEmission) ||
                         m is ManagedClassBinding managedClass && managedClass.Parent is not ManagedClassBinding)
             .GroupBy(m => deriveGroupStem(string.IsNullOrEmpty(m.HeaderIncludePath) ? null : m.HeaderIncludePath), StringComparer.Ordinal)
@@ -265,7 +277,7 @@ public static partial class BindingOutputRenderer
         Func<BindingNode, bool>? memberFilter = null)
     {
         var writer = new CodeWriter();
-        var allRecords = compilation.Records.Where(record => (IsSharedManagedWrapper(record) || !record.GetMetadata<bool>(MetadataKeys.SuppressEmission)) && !record.IsSilentlyExcluded()).AsEnumerable();
+        var allRecords = compilation.Records.Where(record => (IsSharedManagedWrapper(record) || IsImportedHandleMarshallerRecord(record) || !record.GetMetadata<bool>(MetadataKeys.SuppressEmission)) && !record.IsSilentlyExcluded()).AsEnumerable();
         var allEnums = compilation.Enums.Where(static @enum => !@enum.GetMetadata<bool>(MetadataKeys.SuppressEmission) && !@enum.IsSilentlyExcluded()).AsEnumerable();
         var allFunctions = compilation.Functions.Where(static function => !function.IsSilentlyExcluded() &&
             (function.Parent is not RecordBinding parentRecord || !parentRecord.IsSilentlyExcluded())).AsEnumerable();
@@ -290,7 +302,7 @@ public static partial class BindingOutputRenderer
             .Select(static record => record.SymbolId)
             .ToHashSet(StringComparer.Ordinal);
         var interfaceRecords = records
-            .Where(record => interfaceRecordIds.Contains(record.SymbolId))
+            .Where(record => interfaceRecordIds.Contains(record.SymbolId) && !IsImportedHandleMarshallerRecord(record))
             .GroupBy(static record => record.SymbolId, StringComparer.Ordinal)
             .Select(static group => group.First())
             // Exclude concrete generic instantiations from interface rendering.
@@ -361,7 +373,11 @@ public static partial class BindingOutputRenderer
             foreach (var record in nsRecords)
             {
                 writer.WriteLine();
-                if (record.HasMetadata(MetadataKeys.IgnoreReason))
+                if (IsImportedHandleMarshallerRecord(record))
+                {
+                    writer.Write(RenderManagedHandleReturnMarshallerHelpers(compilation, record, GetManagedDeclarationName(record)));
+                }
+                else if (record.HasMetadata(MetadataKeys.IgnoreReason))
                 {
                     writer.Write(RenderIgnoredStub(record));
                 }
@@ -6654,8 +6670,15 @@ public static partial class BindingOutputRenderer
 
     private static string GetHandleMarshallerDeclarationName(RecordBinding record)
     {
-        return $"__{record.ManagedName}Marshaller<TOwnership>";
+        return $"__{GetHandleMarshallerRecordName(record)}Marshaller<TOwnership>";
     }
+
+    /// <summary>
+    /// The record name in the identifiers of handle marshaller helpers. An imported handle record
+    /// has its qualified managed type as its managed name; the helpers use the bare name.
+    /// </summary>
+    private static string GetHandleMarshallerRecordName(RecordBinding record)
+        => IsImportedHandleMarshallerRecord(record) ? GetManagedDeclarationName(record) : record.ManagedName;
 
     private static bool CanUseUnifiedHandleMarshaller(RecordBinding record)
     {
@@ -6674,7 +6697,7 @@ public static partial class BindingOutputRenderer
         var genericSuffix = visibleParameters.Count == 0
             ? string.Empty
             : $"<{string.Join(", ", visibleParameters.Select(static parameter => parameter.Name))}>";
-        return $"__{record.ManagedName}{(ownsHandle ? "Owned" : string.Empty)}ReturnMarshaller{genericSuffix}";
+        return $"__{GetHandleMarshallerRecordName(record)}{(ownsHandle ? "Owned" : string.Empty)}ReturnMarshaller{genericSuffix}";
     }
 
     private static string GetHandleInMarshallerDeclarationName(RecordBinding record)
@@ -6683,13 +6706,13 @@ public static partial class BindingOutputRenderer
         var genericSuffix = visibleParameters.Count == 0
             ? string.Empty
             : $"<{string.Join(", ", visibleParameters.Select(static parameter => parameter.Name))}>";
-        return $"__{record.ManagedName}InMarshaller{genericSuffix}";
+        return $"__{GetHandleMarshallerRecordName(record)}InMarshaller{genericSuffix}";
     }
 
     private static string GetQualifiedUnifiedHandleMarshallerTypeName(BindingCompilation compilation, RecordBinding record, string ownershipTypeName)
     {
         var ns = GetMarshallerHelperNamespace(compilation, record);
-        return $"global::{ns}.__{record.ManagedName}Marshaller<{ownershipTypeName}>";
+        return $"global::{ns}.__{GetHandleMarshallerRecordName(record)}Marshaller<{ownershipTypeName}>";
     }
 
     private static string GetQualifiedHandleReturnMarshallerTypeName(BindingCompilation compilation, RecordBinding record, bool ownsHandle)
@@ -6697,7 +6720,7 @@ public static partial class BindingOutputRenderer
         var ns = GetMarshallerHelperNamespace(compilation, record);
         var arity = GetManagedVisibleGenericParameters(record).Count;
         var openGenericSuffix = arity == 0 ? string.Empty : $"<{new string(',', arity - 1)}>";
-        return $"global::{ns}.__{record.ManagedName}{(ownsHandle ? "Owned" : string.Empty)}ReturnMarshaller{openGenericSuffix}";
+        return $"global::{ns}.__{GetHandleMarshallerRecordName(record)}{(ownsHandle ? "Owned" : string.Empty)}ReturnMarshaller{openGenericSuffix}";
     }
 
     private static string GetQualifiedHandleInMarshallerTypeName(BindingCompilation compilation, RecordBinding record)
@@ -6705,7 +6728,7 @@ public static partial class BindingOutputRenderer
         var ns = GetMarshallerHelperNamespace(compilation, record);
         var arity = GetManagedVisibleGenericParameters(record).Count;
         var openGenericSuffix = arity == 0 ? string.Empty : $"<{new string(',', arity - 1)}>";
-        return $"global::{ns}.__{record.ManagedName}InMarshaller{openGenericSuffix}";
+        return $"global::{ns}.__{GetHandleMarshallerRecordName(record)}InMarshaller{openGenericSuffix}";
     }
 
     private static string GetManagedFixedArrayReturnMarshallerTypeName(BindingCompilation compilation, BindingType type, bool ownsHandle)

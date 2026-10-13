@@ -1293,8 +1293,15 @@ public static class MarshallerMetadataPhase2
         // replaces the auto-generated wrapper), convert the Handle type to
         // a Primitive configured type so the renderer treats it as a
         // value type rather than a NativeObject-derived handle.
+        // A pointer or a reference to a record that a different module wraps as a native
+        // handle stays a handle: the importing module marshals it through its own handle
+        // marshaller (see MetadataKeys.ImportedHandleMarshaller). A by-value use keeps the
+        // configured projection below.
+        var isImportedHandle = record.GetMetadata<bool>(MetadataKeys.ImportedHandleRecord) &&
+            !type.Marshaller.CppIsRecordValue;
         if (record.GetMetadata<bool>(MetadataKeys.SuppressEmission) &&
-            !record.HasMetadata(MetadataKeys.ManagedWrapperAssembly))
+            !record.HasMetadata(MetadataKeys.ManagedWrapperAssembly) &&
+            !isImportedHandle)
         {
             var publicName = record.ManagedTypeFormat ?? record.ManagedName;
 

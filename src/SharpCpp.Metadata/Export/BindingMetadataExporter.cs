@@ -139,7 +139,21 @@ public static class BindingMetadataExporter
             ManagedWrapperProviderNamespace: record.GetMetadata<string>(MetadataKeys.ManagedWrapperProviderNamespace),
             ManagedWrapperCopyable: record.HasMetadata(MetadataKeys.ManagedWrapperCopyable)
                 ? record.GetMetadata<bool>(MetadataKeys.ManagedWrapperCopyable)
-                : null);
+                : null,
+            ManagedStaticInterfaces: GetEffectiveManagedStaticInterfaces(compilation, record),
+            ManagedStaticInterfacesAbstract: record.GetMetadata<bool>(MetadataKeys.ManagedStaticInterfacesAbstract) ? true : null);
+    }
+
+    // The importer has no base records, so a record carries the static interfaces of its bases.
+    private static IReadOnlyList<string>? GetEffectiveManagedStaticInterfaces(BindingCompilation compilation, RecordBinding record)
+    {
+        var interfaces = record.EnumerateAllBaseRecords(compilation)
+            .Append(record)
+            .SelectMany(static source => source.GetMetadata<IReadOnlyList<string>>(MetadataKeys.ManagedStaticInterfaces) ?? Array.Empty<string>())
+            .Where(static item => !string.IsNullOrWhiteSpace(item))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        return interfaces.Length == 0 ? null : interfaces;
     }
 
     private static BindingMetadataType CreateEnumType(BindingCompilation compilation, EnumBinding @enum)

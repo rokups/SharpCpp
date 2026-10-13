@@ -9,8 +9,33 @@ using Xunit;
 
 namespace SharpCpp.Tests.E2E.Modules.CrossModule;
 
+/// <summary>A static interface that the Library module declares for wrappers derived from library_widget.</summary>
+public interface IImportedStaticTag<TSelf>
+    where TSelf : class
+{
+}
+
 public sealed class CrossModuleTests
 {
+    private static readonly System.Text.Json.JsonElement LibraryDocument = System.Text.Json.JsonDocument.Parse(
+        global::SharpCpp.Tests.E2E.Diagnostics.GeneratedArtifacts.ReadText("SharpCppCrossModuleLibrary.Bindings.json")).RootElement;
+
+    [Fact]
+    public void Static_interfaces_round_trip_through_exported_metadata()
+    {
+        var widget = LibraryDocument.GetProperty("types").EnumerateArray()
+            .Single(static type => type.GetProperty("symbol_id").GetString() == "record:cross_library::library_widget");
+        Assert.Equal(
+            new[] { "global::SharpCpp.Tests.E2E.Modules.CrossModule.IImportedStaticTag<{managed_type}>" },
+            widget.GetProperty("managed_static_interfaces").EnumerateArray().Select(static item => item.GetString()).ToArray());
+        Assert.True(widget.GetProperty("managed_static_interfaces_abstract").GetBoolean());
+
+        // The abstract flag keeps the interface off the library wrapper; the importing module
+        // applies the imported interface to its derived wrapper.
+        Assert.DoesNotContain(typeof(IImportedStaticTag<LibraryWidget>), typeof(LibraryWidget).GetInterfaces());
+        Assert.Contains(typeof(IImportedStaticTag<AppWidget>), typeof(AppWidget).GetInterfaces());
+    }
+
     [Fact]
     public void Imported_records_with_standard_library_members_round_trip()
     {
@@ -22,6 +47,21 @@ public sealed class CrossModuleTests
         Assert.Equal(9, settings.Total());
         Assert.Equal("engine!", AppBindings.AppDescribe(settings).ToString());
         Assert.Equal(3, AppBindings.AppCount(settings.Values));
+    }
+
+    [Fact]
+    public void Imported_records_returned_by_pointer_and_reference_are_handles()
+    {
+        using var widget = new AppWidget();
+        var sameWidget = AppBindings.AppSameWidget(widget);
+        Assert.Equal(global::SharpCpp.Support.NativeObject.GetHandle(widget), global::SharpCpp.Support.NativeObject.GetHandle(sameWidget));
+        Assert.Equal("widget", sameWidget.Describe().ToString());
+
+        using var settings = new LibrarySettings();
+        settings.Values = new global::Std.Vector<int>(new[] { 4, 5 });
+        var sameSettings = AppBindings.AppSameSettings(settings);
+        Assert.Equal(global::SharpCpp.Support.NativeObject.GetHandle(settings), global::SharpCpp.Support.NativeObject.GetHandle(sameSettings));
+        Assert.Equal(9, sameSettings.Total());
     }
 
     [Fact]

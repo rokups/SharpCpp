@@ -438,6 +438,13 @@ internal static class Program
             clangArguments,
             marshallerConfigurationFiles);
         BindingCompilationBootstrapPipeline.Apply(library, marshallerConfigurationFiles, clangArguments);
+        // The library widget declares a static interface for derived wrappers only. The App
+        // module gets both facts from the exported metadata, not from its own configuration.
+        var libraryWidget = library.Records.Single(static record => record.CppQualifiedName == "cross_library::library_widget");
+        libraryWidget.SetMetadata(
+            MetadataKeys.ManagedStaticInterfaces,
+            (IReadOnlyList<string>)["global::SharpCpp.Tests.E2E.Modules.CrossModule.IImportedStaticTag<{managed_type}>"]);
+        libraryWidget.SetMetadata(MetadataKeys.ManagedStaticInterfacesAbstract, true);
         var libraryMetadataPath = Path.Combine(generatedRoot, "SharpCppCrossModuleLibrary.Bindings.json");
         Directory.CreateDirectory(generatedRoot);
         File.WriteAllText(

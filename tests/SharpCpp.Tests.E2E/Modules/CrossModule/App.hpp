@@ -7,6 +7,9 @@ namespace cross_app
 struct app_widget : cross_library::library_widget
 {
     int app_value() const { return 9; }
+
+    // A derived wrapper takes the static interfaces of its bases only when it has GetTypeStatic.
+    static int GetTypeStatic() { return 11; }
 };
 
 inline std::string app_describe(const cross_library::library_settings& settings)
@@ -35,5 +38,17 @@ inline void app_report(cross_library::library_widget* widget, cross_library::pro
 {
     widget->set_progress(std::move(callback));
     widget->report(value);
+}
+
+// Imported records returned by pointer and by reference. The library module keeps its handle
+// marshallers internal, so the app module emits its own.
+inline cross_library::library_widget* app_same_widget(cross_library::library_widget* widget)
+{
+    return widget;
+}
+
+inline const cross_library::library_settings& app_same_settings(const cross_library::library_settings& settings)
+{
+    return settings;
 }
 } // namespace cross_app

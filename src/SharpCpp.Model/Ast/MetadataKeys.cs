@@ -86,6 +86,14 @@ public static class MetadataKeys
     public const string ExplicitManagedRename = "explicit_managed_rename";
     public const string ManagedStaticInterfaces = "managed_static_interfaces";
     public const string ManagedStaticInterfacesAbstract = "managed_static_interfaces_abstract";
+    // Set (bool) by the metadata importer on a record that a different module wraps as a native
+    // handle (a NativeObject subclass). Pointers and references to it stay handle types in the
+    // importing module; they are not projected as configured value types.
+    public const string ImportedHandleRecord = "imported_handle_record";
+    // Set (bool) by SilentlyExcludeUnusedSharedWrappersPass on an imported handle record that the
+    // importing module uses as a handle type. The module emits its own handle marshaller for it,
+    // because the marshaller of the module that wraps the record is internal to that assembly.
+    public const string ImportedHandleMarshaller = "imported_handle_marshaller";
     public const string NativeFieldAccessExpression = "native_field_access_expression";
     public const string NativeDefaultValueExpression = "native_default_value_expression";
     public const string NativeDefaultArgumentAdapter = "native_default_argument_adapter";

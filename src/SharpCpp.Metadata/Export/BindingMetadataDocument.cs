@@ -49,7 +49,11 @@ public sealed record BindingMetadataType(
     bool? ManagedWrapperCopyable = null,
     // Managed generic shape ("Ea.Map<{0}, {1}>"): which native template parameters are
     // managed type arguments. The projection lists every native parameter.
-    string? ManagedTypeFormat = null);
+    string? ManagedTypeFormat = null,
+    // Static interfaces ("Ns.IFoo<{managed_type}>") that a wrapper of this record or of one of
+    // its bases declares. Importers lose the base chain, so the list carries the inherited entries.
+    IReadOnlyList<string>? ManagedStaticInterfaces = null,
+    bool? ManagedStaticInterfacesAbstract = null);
 
 public sealed record BindingMetadataEnumValue(string NativeName, string ManagedName, string ValueExpression);
 

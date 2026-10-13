@@ -227,6 +227,29 @@ public sealed class BindingMetadataImportCatalog
             record.SetMetadata(MetadataKeys.ManagedWrapperCopyable, importedType.ManagedWrapperCopyable.Value);
         }
 
+        if (importedType.ManagedStaticInterfaces is { Count: > 0 })
+        {
+            record.SetMetadata(MetadataKeys.ManagedStaticInterfaces, importedType.ManagedStaticInterfaces);
+        }
+
+        if (importedType.ManagedStaticInterfacesAbstract == true)
+        {
+            record.SetMetadata(MetadataKeys.ManagedStaticInterfacesAbstract, true);
+        }
+
+        // The exporting module wraps a non-generic handle record as a NativeObject subclass.
+        // Pointers and references to it stay handles here; shared wrappers, generic shapes and
+        // arrays keep their own projection.
+        if (!isSharedWrapper &&
+            string.Equals(importedType.Kind, MetadataTypeKind.Handle, StringComparison.Ordinal) &&
+            string.Equals(importedType.Projection.Kind, MetadataTypeKind.Handle, StringComparison.Ordinal) &&
+            importedType.Projection.GenericArguments is not { Count: > 0 } &&
+            !importedType.IsFixedArray &&
+            !importedType.IsDynamicArray)
+        {
+            record.SetMetadata(MetadataKeys.ImportedHandleRecord, true);
+        }
+
         if (importedType.IsFixedArray)
         {
             record.SetMetadata(MetadataKeys.FixedArrayRecord, true);
