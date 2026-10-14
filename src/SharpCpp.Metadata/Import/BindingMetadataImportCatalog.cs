@@ -56,9 +56,9 @@ public sealed class BindingMetadataImportCatalog
 
         // Native thunks for imported types (generic instantiations, shared helpers) need the
         // dependency's declarations in the consumer translation unit.
-        // Their marshaller specializations are needed as well.
-        foreach (var headerFile in _documents.SelectMany(static document =>
-                     document.Fingerprint.HeaderFiles.Concat(document.Fingerprint.NativeSupportHeaders ?? [])))
+        // The marshaller headers are not imported: the consumer adds its own, and the metadata of
+        // older exports holds absolute paths of the build machine.
+        foreach (var headerFile in _documents.SelectMany(static document => document.Fingerprint.HeaderFiles))
         {
             if (!compilation.NativeSupportHeaders.Contains(headerFile, StringComparer.Ordinal))
             {

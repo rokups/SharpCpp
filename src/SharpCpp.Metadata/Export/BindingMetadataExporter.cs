@@ -93,9 +93,9 @@ public static class BindingMetadataExporter
             options.Phase2ClosureHash,
             options.ClangArgsHash,
             options.AttributeVocabularyHash,
-            compilation.HeaderFiles.OrderBy(static header => header, StringComparer.Ordinal).ToArray(),
-            // Order is significant: marshaller specializations may depend on earlier headers.
-            compilation.NativeSupportHeaders.Distinct(StringComparer.Ordinal).ToArray());
+            // Only include-relative headers are exported. The marshaller headers are absolute paths of the
+            // build machine, and each consumer adds its own.
+            compilation.HeaderFiles.OrderBy(static header => header, StringComparer.Ordinal).ToArray());
 
         return new BindingMetadataDocument(
             BindingMetadataSchema.CurrentVersion,
