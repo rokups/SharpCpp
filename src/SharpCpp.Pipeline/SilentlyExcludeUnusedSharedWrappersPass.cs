@@ -76,11 +76,33 @@ public static class SilentlyExcludeUnusedSharedWrappersPass
             {
                 Add(parameter.Type, function);
             }
+
+            foreach (var instantiation in function.SupportedGenericInstantiations)
+            {
+                foreach (var argument in instantiation.TypeArguments)
+                {
+                    Add(argument, function);
+                }
+            }
         }
 
         foreach (var field in compilation.Descendants<FieldBinding>().Where(IsLocalActive))
         {
             Add(field.Type, field);
+        }
+
+        // The providers of a generic shared wrapper (for example an EA unordered_map) are
+        // emitted for every instantiation of the record. They marshal the handle type
+        // arguments through the marshaller of this module.
+        foreach (var record in compilation.Records.Where(static record => IsActive(record) && IsSharedWrapperGeneric(record)))
+        {
+            foreach (var instantiation in record.SupportedGenericInstantiations)
+            {
+                foreach (var argument in instantiation.TypeArguments)
+                {
+                    Add(argument, record);
+                }
+            }
         }
 
         foreach (var reference in references)
@@ -90,6 +112,12 @@ public static class SilentlyExcludeUnusedSharedWrappersPass
                 record.SetMetadata(MetadataKeys.ImportedHandleMarshaller, true);
             }
         }
+    }
+
+    private static bool IsSharedWrapperGeneric(RecordBinding record)
+    {
+        return record.IsGeneric &&
+            !string.IsNullOrWhiteSpace(record.GetMetadata<string>(MetadataKeys.ManagedWrapperAssembly));
     }
 
     private static bool IsLocalActive(BindingNode node)

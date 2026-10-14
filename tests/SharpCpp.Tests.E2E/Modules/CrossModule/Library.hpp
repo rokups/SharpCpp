@@ -40,9 +40,19 @@ inline float library_score(const score_map& scores, int key)
     return found == scores.end() ? -1.0f : found->second;
 }
 
+/// A handle record that only appears as the mapped type of a standard container returned by a
+/// member of library_widget. A module that derives from library_widget and never names the marker
+/// still emits the container provider, which marshals the handle through a marshaller of that module.
+struct library_marker
+{
+    int id() const { return 3; }
+};
+
 struct library_widget
 {
     virtual ~library_widget() = default;
+
+    const std::unordered_map<int, library_marker*>& markers() const { return markers_; }
 
     void set_progress(progress_callback callback) { progress_ = std::move(callback); }
 
@@ -56,6 +66,7 @@ struct library_widget
 
 private:
     progress_callback progress_;
+    std::unordered_map<int, library_marker*> markers_;
 };
 /// A hasher with a defaulted parameter (eastl::hash<T, Enable = void>): a map spelled with
 /// it written out and one taking it as a default are one specialization.

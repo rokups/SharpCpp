@@ -117,6 +117,19 @@ public sealed class CrossModuleTests
     }
 
     [Fact]
+    public void Imported_handle_in_a_provider_of_the_importing_module_has_a_well_formed_marshaller_name()
+    {
+        var generated = string.Concat(
+            Diagnostics.GeneratedArtifacts.ReadText("SharpCppCrossModuleApp.Bindings.g.cs"),
+            Diagnostics.GeneratedArtifacts.ReadText("SharpCppCrossModuleApp.Bindings.Aliases.g.cs"));
+
+        // The type argument of the library's container has a marshaller in the importing module,
+        // and the marshaller type name carries no second global:: prefix.
+        Assert.Contains("__ImportedMarshallers.Cross_library.__LibraryMarkerMarshaller<", generated);
+        Assert.DoesNotContain(".__global::", generated);
+    }
+
+    [Fact]
     public void Function_template_instantiations_keep_aliased_callback_parameters()
     {
         using var events = new LibraryEvents();
