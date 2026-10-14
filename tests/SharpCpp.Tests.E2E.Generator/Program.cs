@@ -619,11 +619,32 @@ internal static class Program
             });
         ApplyModuleProjection(owned);
 
+        // The same owned root spelled with a trailing separator must own the same files.
+        var ownedRootWithSeparator = ownedRootDirectory + Path.DirectorySeparatorChar;
+        var ownedTrailingSeparator = parser.Parse(new ClangSharpParseRequest(
+            "SharpCpp.Tests.E2E.Modules.OwnedFilesTrailingSeparator",
+            "SharpCpp.Tests.E2E.Modules.OwnedFilesTrailingSeparator.Generated",
+            "OwnedTrailingSeparatorBindings",
+            "SharpCppTestsE2E_Native",
+            Path.Combine(ownedRootDirectory, "OwnedUmbrella.hpp"),
+            "Modules/OwnedFiles/OwnedUmbrella.hpp",
+            clangArguments,
+            Array.Empty<string>(),
+            EntryPointPrefix: "sharpcpp_owned_files_trailing_separator",
+            OwnedFileRoots: [ownedRootWithSeparator],
+            OwnedFileRootIncludePrefixes: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [ownedRootWithSeparator] = "/Modules/OwnedFiles/"
+            }));
+        BindingCompilationBootstrapPipeline.Apply(ownedTrailingSeparator, Array.Empty<string>(), clangArguments);
+        ApplyModuleProjection(ownedTrailingSeparator);
+
         return BindingOutputRenderer.Render(dependency, "SharpCppMetadataDependency").Files
             .Concat(BindingOutputRenderer.Render(consumer, "SharpCppMetadataConsumer").Files)
             .Concat(BindingOutputRenderer.Render(namespaceMapping, "SharpCppNamespaceMapping").Files)
             .Concat(BindingOutputRenderer.Render(cModule, "SharpCppC").Files)
             .Concat(BindingOutputRenderer.Render(owned, "SharpCppOwnedFiles").Files)
+            .Concat(BindingOutputRenderer.Render(ownedTrailingSeparator, "SharpCppOwnedFilesTrailingSeparator").Files)
             .ToArray();
     }
 

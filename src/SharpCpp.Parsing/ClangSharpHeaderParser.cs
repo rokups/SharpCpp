@@ -382,7 +382,7 @@ public sealed partial class ClangSharpHeaderParser
                     continue;
                 }
 
-                normalizedRoots.Add(Path.GetFullPath(root));
+                normalizedRoots.Add(Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)));
             }
         }
 
@@ -404,7 +404,7 @@ public sealed partial class ClangSharpHeaderParser
                 continue;
             }
 
-            normalized[Path.GetFullPath(root)] = prefix.Replace('\\', '/').Trim('/');
+            normalized[Path.TrimEndingDirectorySeparator(Path.GetFullPath(root))] = prefix.Replace('\\', '/').Trim('/');
         }
 
         return normalized;
