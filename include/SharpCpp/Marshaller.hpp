@@ -580,9 +580,22 @@ private:
     mutable TStringView storage_{};
 };
 
+namespace detail
+{
+template <class TCollection>
+struct CollectionIndexType { using type = std::size_t; };
+
+template <class TCollection>
+    requires requires { typename TCollection::size_type; }
+struct CollectionIndexType<TCollection> { using type = typename TCollection::size_type; };
+} // namespace detail
+
 template <class TCollection, class T>
 struct SequenceCollectionMarshallerBase : OwnedHandleMarshallerBase<TCollection>
 {
+    // The index type of the collection avoids narrowing warnings for containers with a 32-bit size_type.
+    using index_type = typename detail::CollectionIndexType<TCollection>::type;
+
     using cpp_type = TCollection;
     using abi_type = typename OwnedHandleMarshallerBase<TCollection>::abi_type;
 
@@ -601,13 +614,13 @@ struct SequenceCollectionMarshallerBase : OwnedHandleMarshallerBase<TCollection>
     [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
     static T GetAtCore(const cpp_type& self, unsigned long long index)
     {
-        return self[static_cast<std::size_t>(index)];
+        return self[static_cast<index_type>(index)];
     }
 
     [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
     static void SetAtCore(cpp_type& self, unsigned long long index, const T& value)
     {
-        self[static_cast<std::size_t>(index)] = value;
+        self[static_cast<index_type>(index)] = value;
     }
 
     [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
@@ -701,13 +714,13 @@ struct IndexedSequenceCollectionMarshallerBase : OwnedHandleMarshallerBase<TSequ
     [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
     static T GetAtCore(const cpp_type& self, unsigned long long index)
     {
-        return self[static_cast<typename cpp_type::size_type>(index)];
+        return self[static_cast<std::size_t>(index)];
     }
 
     [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
     static void SetAtCore(cpp_type& self, unsigned long long index, const T& value)
     {
-        self[static_cast<typename cpp_type::size_type>(index)] = value;
+        self[static_cast<std::size_t>(index)] = value;
     }
 
     [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
@@ -720,7 +733,7 @@ struct IndexedSequenceCollectionMarshallerBase : OwnedHandleMarshallerBase<TSequ
     static void InsertAtCore(cpp_type& self, unsigned long long index, const T& value)
     {
         const auto size = self.size();
-        const auto position = static_cast<typename cpp_type::size_type>(index);
+        const auto position = static_cast<std::size_t>(index);
         if (position >= size)
         {
             self.push_back(value);
@@ -736,7 +749,7 @@ struct IndexedSequenceCollectionMarshallerBase : OwnedHandleMarshallerBase<TSequ
     [[sharpcpp::expose_member(shape = "protected_override", exposed = false)]]
     static void RemoveAtCore(cpp_type& self, unsigned long long index)
     {
-        self.erase(self.begin() + static_cast<typename cpp_type::size_type>(index));
+        self.erase(self.begin() + static_cast<std::size_t>(index));
     }
 };
 
