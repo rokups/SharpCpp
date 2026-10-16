@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <concepts>
+#include <cstdio>
 #include <cstdlib>
 #include <cstdint>
 #include <exception>
@@ -24,6 +25,15 @@
 
 namespace SharpCpp
 {
+// A C++ exception must not cross the exported C ABI boundary. Fatal paths print the message and abort.
+[[noreturn]] inline void FatalError(const char* message) noexcept
+{
+    std::fputs(message, stderr);
+    std::fputc('\n', stderr);
+    std::fflush(stderr);
+    std::abort();
+}
+
 struct ManagedCallbackHandleAbi
 {
     void* state{};
@@ -2047,6 +2057,22 @@ struct CompleteType { using type = T; };
 template <typename T>
 struct CompleteType<T, std::void_t<decltype(sizeof(std::enable_if_t<!std::is_reference_v<T>, T>))>> { using type = T; };
 
+// Opt-out for a class that is not trivially copyable but whose by-value return still matches the managed layout on
+// every supported target (for example a large aggregate that is always returned through a hidden pointer).
+// A specialization must be justified at its definition.
+template <typename T>
+inline constexpr bool AllowByValueReturnAbi = false;
+
+// A class returned by value from an extern "C" function has the C ABI only when it is trivially copyable and
+// trivially destructible. Any other class type is a compile error here.
+template <typename T>
+struct CheckedReturnAbi : CompleteType<T>
+{
+    static_assert(
+        !std::is_class_v<T> || AllowByValueReturnAbi<T> || (std::is_trivially_copyable_v<T> && std::is_trivially_destructible_v<T>),
+        "A class type returned by value from an exported function must be trivially copyable and trivially destructible.");
+};
+
 // Names a function type outside of any extern "C" scope. MSVC gives C linkage to a function type named by a typedef
 // or alias (also one that comes from a class member) inside an extern "C" function body and then rejects class
 // return types (C2526). Generated code names this holder class instead, and MarshallerInvoker unwraps it in C++ scope.
@@ -2214,7 +2240,7 @@ T* TryClone(T*, long)
 }
 
 template <class T>
-using ret_t = typename detail::CompleteType<typename ReturnMarshaller<T>::abi_type>::type;
+using ret_t = typename detail::CheckedReturnAbi<typename ReturnMarshaller<T>::abi_type>::type;
 
 static_assert(std::is_same_v<arg_t<int>, int>);
 static_assert(std::is_same_v<arg_t<int*>, int*>);

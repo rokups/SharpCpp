@@ -1574,7 +1574,7 @@ public static partial class BindingOutputRenderer
             SHARPCPP_EXPORT ret_t<{{getCppType}}> {{GetDynamicNativeArrayEntryPoint(compilation, token, "get")}}(NativeArrayAbi self, arg_t<std::size_t> index)
             {
                 if (self.handle == nullptr || index >= self.length)
-                    throw std::runtime_error("SharpCpp native array access out of range.");
+                    SharpCpp::FatalError("SharpCpp native array access out of range.");
                 ReturnMarshaller<{{getCppType}}> marshaller;
                 return marshaller.ConvertToAbi(static_cast<{{elementCppType}}*>(self.handle)[index]);
             }
@@ -1582,7 +1582,7 @@ public static partial class BindingOutputRenderer
             SHARPCPP_EXPORT ret_t<void> {{GetDynamicNativeArrayEntryPoint(compilation, token, "set")}}(NativeArrayAbi self, arg_t<std::size_t> index, arg_t<{{elementCppType}}> value)
             {
                 if (self.handle == nullptr || index >= self.length)
-                    throw std::runtime_error("SharpCpp native array access out of range.");
+                    SharpCpp::FatalError("SharpCpp native array access out of range.");
                 ParameterMarshaller<{{elementCppType}}> marshaller;
                 static_cast<{{elementCppType}}*>(self.handle)[index] = marshaller.ConvertToCpp(value);
             }
@@ -3509,7 +3509,7 @@ public static partial class BindingOutputRenderer
                         {
                             if (self.handle == nullptr || self.length != {{length}})
                             {
-                                throw std::runtime_error("SharpCpp fixed array clone on an invalid array.");
+                                SharpCpp::FatalError("SharpCpp fixed array clone on an invalid array.");
                             }
 
                             auto* source = static_cast<{{elementCppType}} (*)[{{nestedLength}}]>(self.handle);
@@ -3528,7 +3528,7 @@ public static partial class BindingOutputRenderer
                         {
                             if (self.handle == nullptr || self.length != {{length}} || index >= {{length}})
                             {
-                                throw std::runtime_error("SharpCpp fixed array access out of range.");
+                                SharpCpp::FatalError("SharpCpp fixed array access out of range.");
                             }
 
                             return { const_cast<void*>(static_cast<const void*>(static_cast<{{elementCppType}} (*)[{{nestedLength}}]>(self.handle)[index])), {{nestedLength}} };
@@ -3538,12 +3538,12 @@ public static partial class BindingOutputRenderer
                         {
                             if (self.handle == nullptr || self.length != {{length}} || index >= {{length}})
                             {
-                                throw std::runtime_error("SharpCpp fixed array access out of range.");
+                                SharpCpp::FatalError("SharpCpp fixed array access out of range.");
                             }
 
                             if (value.handle == nullptr || value.length != {{nestedLength}})
                             {
-                                throw std::runtime_error("SharpCpp fixed array element assignment length mismatch.");
+                                SharpCpp::FatalError("SharpCpp fixed array element assignment length mismatch.");
                             }
 
                             auto* target = static_cast<{{elementCppType}} (*)[{{nestedLength}}]>(self.handle);
@@ -3577,7 +3577,7 @@ public static partial class BindingOutputRenderer
                     {
                         if (self.handle == nullptr || self.length != {{length}})
                         {
-                            throw std::runtime_error("SharpCpp fixed array clone on an invalid array.");
+                            SharpCpp::FatalError("SharpCpp fixed array clone on an invalid array.");
                         }
 
                         auto* source = static_cast<{{elementCppType}}*>(self.handle);
@@ -3593,7 +3593,7 @@ public static partial class BindingOutputRenderer
                     {
                         if (self.handle == nullptr || self.length != {{length}} || index >= {{length}})
                         {
-                            throw std::runtime_error("SharpCpp fixed array access out of range.");
+                            SharpCpp::FatalError("SharpCpp fixed array access out of range.");
                         }
 
                         ReturnMarshaller<{{getMarshallerCppType}}> marshaller;
@@ -3604,7 +3604,7 @@ public static partial class BindingOutputRenderer
                     {
                         if (self.handle == nullptr || self.length != {{length}} || index >= {{length}})
                         {
-                            throw std::runtime_error("SharpCpp fixed array access out of range.");
+                            SharpCpp::FatalError("SharpCpp fixed array access out of range.");
                         }
 
                         ParameterMarshaller<{{elementCppType}}> marshaller;
@@ -3635,7 +3635,7 @@ public static partial class BindingOutputRenderer
                 {
                     if (self.handle == nullptr || self.length != {{length}})
                     {
-                        throw std::runtime_error("SharpCpp fixed array clone on an invalid array.");
+                        SharpCpp::FatalError("SharpCpp fixed array clone on an invalid array.");
                     }
 
                     auto* value = new {{concreteArrayType}}(*static_cast<{{concreteArrayType}}*>(self.handle));
@@ -3646,7 +3646,7 @@ public static partial class BindingOutputRenderer
                 {
                     if (self.handle == nullptr || self.length != {{length}} || index >= {{length}})
                     {
-                        throw std::runtime_error("SharpCpp fixed array access out of range.");
+                        SharpCpp::FatalError("SharpCpp fixed array access out of range.");
                     }
 
                     ReturnMarshaller<{{getMarshallerCppType}}> marshaller;
@@ -3657,7 +3657,7 @@ public static partial class BindingOutputRenderer
                 {
                     if (self.handle == nullptr || self.length != {{length}} || index >= {{length}})
                     {
-                        throw std::runtime_error("SharpCpp fixed array access out of range.");
+                        SharpCpp::FatalError("SharpCpp fixed array access out of range.");
                     }
 
                     ParameterMarshaller<{{elementCppType}}> marshaller;
@@ -3702,7 +3702,7 @@ public static partial class BindingOutputRenderer
                 {
                     if (self == nullptr)
                     {
-                        throw std::runtime_error("SharpCpp dynamic array access on null array.");
+                        SharpCpp::FatalError("SharpCpp dynamic array access on null array.");
                     }
 
                     ReturnMarshaller<{{getMarshallerCppType}}> marshaller;
@@ -3713,7 +3713,7 @@ public static partial class BindingOutputRenderer
                 {
                     if (self == nullptr)
                     {
-                        throw std::runtime_error("SharpCpp dynamic array access on null array.");
+                        SharpCpp::FatalError("SharpCpp dynamic array access on null array.");
                     }
 
                     ParameterMarshaller<{{elementCppType}}> marshaller;

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -14,6 +15,8 @@ public static class BindingMetadataSerializer
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
+    [UnconditionalSuppressMessage("Trimming", "IL2026",
+        Justification = "Only the binding generator and the generator tests call this method. They are build tools that are never trimmed. The document types are plain public records.")]
     public static string Serialize(BindingMetadataDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -22,6 +25,8 @@ public static class BindingMetadataSerializer
         return json + "\n";
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2026",
+        Justification = "Only the binding generator and the generator tests call this method. They are build tools that are never trimmed. The document types are plain public records.")]
     public static BindingMetadataDocument Deserialize(string json)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(json);

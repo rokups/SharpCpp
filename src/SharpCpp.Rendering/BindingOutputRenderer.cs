@@ -919,7 +919,7 @@ public static partial class BindingOutputRenderer
         writer.WriteLine("}");
         if (method.IsPureVirtual)
         {
-            writer.WriteLine($"throw std::runtime_error(\"SharpCpp callback for pure virtual '{slot.NativeImplementationRecord.NativeName}::{method.NativeName}' was not connected.\");");
+            writer.WriteLine($"SharpCpp::FatalError(\"SharpCpp callback for pure virtual '{slot.NativeImplementationRecord.NativeName}::{method.NativeName}' was not connected.\");");
         }
         else if (method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
         {
@@ -1031,7 +1031,7 @@ public static partial class BindingOutputRenderer
                 auto* dispatch = dynamic_cast<{{method.NativeDispatchRecordCppTypeName}}*>(instance);
                 if (dispatch == nullptr)
                 {
-                throw std::runtime_error("SharpCpp failed to adjust the native handle for secondary-base dispatch.");
+                SharpCpp::FatalError("SharpCpp failed to adjust the native handle for secondary-base dispatch.");
                 }
 
                 using DispatchFT = {{memberSignature.Replace(method.OwningRecordCppTypeName + "::*", method.NativeDispatchRecordCppTypeName + "::*", StringComparison.Ordinal)}};
@@ -1291,7 +1291,7 @@ public static partial class BindingOutputRenderer
 
             """);
 
-        writer.Write($"throw std::runtime_error(\"{errorMessage}\");");
+        writer.Write($"SharpCpp::FatalError(\"{errorMessage}\");");
         return writer.ToString();
     }
 
@@ -1501,7 +1501,7 @@ public static partial class BindingOutputRenderer
             return $$"""
                 if (value.handle == nullptr || value.length != {{length}})
                 {
-                    throw std::runtime_error("SharpCpp fixed array field assignment length mismatch.");
+                    SharpCpp::FatalError("SharpCpp fixed array field assignment length mismatch.");
                 }
 
                 auto* source = static_cast<{{elementCppType}}*>(value.handle);
@@ -1576,7 +1576,7 @@ public static partial class BindingOutputRenderer
             return $$"""
                 if (value.handle == nullptr || value.length != {{nestedLength}})
                 {
-                    throw std::runtime_error("SharpCpp fixed array element assignment length mismatch.");
+                    SharpCpp::FatalError("SharpCpp fixed array element assignment length mismatch.");
                 }
 
                 auto& target = {{arrayAccessExpression}}[index];
@@ -5825,6 +5825,22 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
+        // Exported functions may return trivially copyable C++ classes by value (ret_t checks this). That has the C ABI,
+        // but MSVC warns with C4190 and clang with -Wreturn-type-c-linkage.
+        writer.Write(
+            """
+
+
+            #if defined(_MSC_VER)
+            #pragma warning(push)
+            #pragma warning(disable: 4190)
+            #endif
+            #if defined(__clang__)
+            #pragma clang diagnostic push
+            #pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
+            #endif
+            """);
+
         if (includeCallbackReleaseRegistration)
         {
             writer.Write($$"""
@@ -6376,6 +6392,18 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
+        writer.Write(
+            """
+
+
+            #if defined(__clang__)
+            #pragma clang diagnostic pop
+            #endif
+            #if defined(_MSC_VER)
+            #pragma warning(pop)
+            #endif
+            """);
+
         return NativeExportDeclarationRegex.Replace(
             writer.ToString(),
             "$1#if defined(__EMSCRIPTEN__)\n" +
@@ -6396,7 +6424,7 @@ public static partial class BindingOutputRenderer
             return $$"""
                 if ({{pointerExpression}} == nullptr || index >= static_cast<std::size_t>({{countExpression}}))
                 {
-                    throw std::out_of_range("SharpCpp pointer-count field access is out of range.");
+                    SharpCpp::FatalError("SharpCpp pointer-count field access is out of range.");
                 }
 
                 return {{pointerExpression}}[index];
@@ -6410,7 +6438,7 @@ public static partial class BindingOutputRenderer
         return $$"""
             if ({{pointerExpression}} == nullptr || index >= static_cast<std::size_t>({{countExpression}}))
             {
-                throw std::out_of_range("SharpCpp pointer-count field access is out of range.");
+                SharpCpp::FatalError("SharpCpp pointer-count field access is out of range.");
             }
 
             ReturnMarshaller<{{itemCppTypeName}}> marshaller;
@@ -9290,7 +9318,7 @@ public static partial class BindingOutputRenderer
                     auto* dispatch = dynamic_cast<{{method.NativeDispatchRecordCppTypeName}}*>(std::forward<decltype(self)>(self));
                     if (dispatch == nullptr)
                     {
-                        throw std::runtime_error("SharpCpp failed to adjust the native handle for secondary-base dispatch.");
+                        SharpCpp::FatalError("SharpCpp failed to adjust the native handle for secondary-base dispatch.");
                     }
                     return dispatch->{{method.NativeName}}({{forwardedArgs}});
                     """;

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
@@ -72,6 +73,9 @@ public abstract class NativeObject : SafeHandle
     /// <see langword="true"/> if <paramref name="runtimeType"/> has an override of the specified method
     /// that is distinct from the implementation in <paramref name="declaringType"/>.
     /// </returns>
+    [UnconditionalSuppressMessage("Trimming", "IL2070",
+        Justification = "Annotating the type parameters makes every typeof(owner) argument in generated code mark all methods of the owner as reflected (IL2111), including the generated callback accessors. " +
+            "The lookup finds an override of a virtual method that the generated dispatch calls. The trimmer keeps such an override of an instantiated type, and keeps the declaring method.")]
     protected static bool HasManagedOverride(Type runtimeType, Type declaringType, string methodName, Type[] parameterTypes)
     {
         var method = runtimeType.GetMethod(

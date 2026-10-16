@@ -50,14 +50,14 @@ void AssignBorrowedStorage(T& target, T* value)
         if constexpr (has_clear_v<T>)
             target.clear();
         else
-            throw std::runtime_error("SharpCpp borrowed field setter cannot clear this field type.");
+            SharpCpp::FatalError("SharpCpp borrowed field setter cannot clear this field type.");
     }
     else if constexpr (std::is_assignable_v<T&, T&&>)
         target = std::move(*value);
     else if constexpr (std::is_assignable_v<T&, const T&>)
         target = *value;
     else
-        throw std::runtime_error("SharpCpp borrowed field setter cannot assign this field type.");
+        SharpCpp::FatalError("SharpCpp borrowed field setter cannot assign this field type.");
 }
 
 template <typename TTuple>
@@ -847,7 +847,7 @@ struct MarshallerInvoker
             }
             else
             {
-                throw std::runtime_error("SharpCpp borrowed field setter cannot clear this field type.");
+                SharpCpp::FatalError("SharpCpp borrowed field setter cannot clear this field type.");
             }
         }
 

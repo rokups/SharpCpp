@@ -2,6 +2,7 @@ using ClangSharp;
 using ClangSharp.Interop;
 using Microsoft.Extensions.Logging;
 using SharpCpp.Model.Logging;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Text.RegularExpressions;
 
@@ -19,6 +20,8 @@ namespace SharpCpp.Parsing;
 /// </summary>
 internal static class MarshallerConfigExtractor
 {
+    [UnconditionalSuppressMessage("Trimming", "IL2060",
+        Justification = "Only the binding generator runs this code. The generator is a build tool that is never trimmed.")]
     private static readonly MethodInfo GetOrCreateCursorMethod = typeof(TranslationUnit)
         .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
         .Single(static method => method.Name == "GetOrCreate" &&
@@ -263,6 +266,8 @@ internal static class MarshallerConfigExtractor
         return result;
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2026",
+        Justification = "Only the binding generator runs this code. The generator is a build tool that is never trimmed. The value is a string array.")]
     private static void PerformManagedClangParse(
         IReadOnlyList<string> marshallerFiles,
         IReadOnlyList<string> clangArgs,
