@@ -55,6 +55,11 @@ complete canonical arguments; the rest of type identity is still string-based.
 
 Known gaps (unbound or degraded today, with a diagnostic where the generator sees them):
 
+- Managed override detection is reflection-free. A director virtual method carries
+  `[ManagedVirtualSlot("{OwnerManagedType}.{ManagedName}({parameter types})")]`, and the callback accessor asks
+  `NativeObject.IsManagedOverride(key)` (default `false`; `IsManagedOverride` is a reserved member name).
+  Open: the Roslyn generator in SharpCpp.Rbfx that overrides `IsManagedOverride` in user subclasses. Until it
+  exists, managed overrides are not detected and the E2E director tests fail.
 - An abstract record without a director gets a hidden concrete wrapper
   (`__{Name}Native`) whose overrides call native code, so native pointers to unbound
   implementations wrap. The factory stays null (returning such a pointer throws) for generic
@@ -144,8 +149,8 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   share one replacement (`CloseOverloadedWindow()` and `CloseOverloadedWindow(int)`, never
   `CloseOverloadedWindow2`); if a member outside the overload set already uses the name, a non-virtual set
   gets a counter suffix (`CloseCounterWindow2`). The
-  four static `NativeObject` helpers (`GetObject(object?)`, `GetHandle(object?)`,
-  `TransferHandleOwnership(object?)` and `HasManagedOverride(Type, Type, string, Type[])`) are
+  three static `NativeObject` helpers (`GetObject(object?)`, `GetHandle(object?)` and
+  `TransferHandleOwnership(object?)`) are
   renamed only when the function has the helper's exact signature (same parameter count and the same
   by-value managed parameter types); any other signature, such as `GetObject(uint)`, is a plain
   overload and keeps its name. An overload set containing a virtual function whose `{Name}{ClassName}` is

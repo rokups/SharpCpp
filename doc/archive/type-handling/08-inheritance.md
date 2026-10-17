@@ -65,16 +65,15 @@ extern "C" void __Widget_ConnectDirector(void* self, void* slot0, void* slot1)
 ```csharp
 protected override void ConnectDirector()
 {
-    var runtimeType = ((object)this).GetType();
     _director = new __Widget_Director();
     __ConnectDirector(
         _handle,
-        OnUpdate_VirtualCallbackPointer(runtimeType),
-        GetPriority_VirtualCallbackPointer(runtimeType));
+        OnUpdate_VirtualCallbackPointer(this),
+        GetPriority_VirtualCallbackPointer(this));
 }
 ```
 
-Each `VirtualCallbackPointer` accessor uses `NativeObject.HasManagedOverride(runtimeType, declaringType, methodName, parameterTypes)` to check at runtime whether the managed subclass actually overrides the method. If not, the pointer is `0` — no callback wired, no overhead.
+Each `VirtualCallbackPointer` accessor calls `self.IsManagedOverride(slotKey)` (a `protected virtual` member of `NativeObject`, without reflection) to check whether the managed subclass overrides the method. The slot key is `{OwnerManagedType}.{ManagedName}({parameter managed types})`; the renderer also emits it as `[ManagedVirtualSlot(key)]` on the generated virtual method, and a source generator overrides `IsManagedOverride` in user subclasses. If not, the pointer is `0` — no callback wired, no overhead.
 
 ### 1.5 Director-aware construction
 

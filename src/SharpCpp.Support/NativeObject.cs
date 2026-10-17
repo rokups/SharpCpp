@@ -1,5 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
-using System.Reflection;
 using System.Runtime.InteropServices;
 
 namespace SharpCpp.Support;
@@ -62,50 +60,15 @@ public abstract class NativeObject : SafeHandle
     private bool _preparedOwnedRegistration;
 
     /// <summary>
-    /// Determines whether the runtime type has a managed override of the specified method.
-    /// Used by generated code to detect if a user-provided managed override exists for a virtual native method.
+    /// Determines whether this instance has a managed override of the virtual method with the given slot key.
+    /// Generated code calls it to decide whether to connect a native callback for the virtual method.
+    /// The key has the form <c>{OwnerManagedType}.{ManagedName}({parameter managed types})</c> and matches the
+    /// <see cref="ManagedVirtualSlotAttribute"/> on the generated virtual method. The base implementation does not
+    /// use reflection and returns <see langword="false"/>; a source generator overrides it in derived types.
     /// </summary>
-    /// <param name="runtimeType">The concrete runtime type to inspect.</param>
-    /// <param name="declaringType">The declaring type where the base virtual method is defined.</param>
-    /// <param name="methodName">The name of the method to check.</param>
-    /// <param name="parameterTypes">The parameter types of the method to check.</param>
-    /// <returns>
-    /// <see langword="true"/> if <paramref name="runtimeType"/> has an override of the specified method
-    /// that is distinct from the implementation in <paramref name="declaringType"/>.
-    /// </returns>
-    [UnconditionalSuppressMessage("Trimming", "IL2070",
-        Justification = "Annotating the type parameters makes every typeof(owner) argument in generated code mark all methods of the owner as reflected (IL2111), including the generated callback accessors. " +
-            "The lookup finds an override of a virtual method that the generated dispatch calls. The trimmer keeps such an override of an instantiated type, and keeps the declaring method.")]
-    protected static bool HasManagedOverride(Type runtimeType, Type declaringType, string methodName, Type[] parameterTypes)
-    {
-        var method = runtimeType.GetMethod(
-            methodName,
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-            binder: null,
-            types: parameterTypes,
-            modifiers: null);
-
-        if (method is null)
-        {
-            return false;
-        }
-
-        var declaringMethod = declaringType.GetMethod(
-            methodName,
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-            binder: null,
-            types: parameterTypes,
-            modifiers: null);
-
-        if (declaringMethod is null)
-        {
-            return false;
-        }
-
-        return method.DeclaringType is not null
-            && method.DeclaringType != declaringType
-            && method.GetBaseDefinition() == declaringMethod.GetBaseDefinition();
-    }
+    /// <param name="slotKey">The slot key of the virtual method.</param>
+    /// <returns><see langword="true"/> if the runtime type overrides the virtual method.</returns>
+    protected virtual bool IsManagedOverride(string slotKey) => false;
 
     /// <inheritdoc/>
     /// <remarks>

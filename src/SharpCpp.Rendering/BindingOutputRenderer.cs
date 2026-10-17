@@ -3953,25 +3953,29 @@ public static partial class BindingOutputRenderer
         var memberModifier = explicitInterface is not null
             ? string.Empty
             : nativeOverride ? "override " : GetManagedInstanceMethodModifier(compilation, record, function);
+        // A director virtual method carries its slot key for override detection.
+        var slotAttribute = useCallbase && !nativeOverride && explicitInterface is null
+            ? RenderManagedVirtualSlotAttribute(compilation, record, function)
+            : null;
 
         if (memberModifier.Contains("abstract ", StringComparison.Ordinal))
         {
             var parameterList = RenderManagedInstancePublicParameterList(compilation, record, function);
-            writer.Write($$"""
+            writer.Write(WithManagedAttribute(slotAttribute, $$"""
                 {{GetManagedVisibilityNormalized(compilation, record, function)}} {{memberModifier}}{{returnTypeName}} {{function.ManagedName}}({{parameterList}});
-                """);
+                """));
             return writer.ToString();
         }
 
         if (ShouldRenderPureVirtualManagedStub(function))
         {
             var parameterList = RenderManagedInstancePublicParameterList(compilation, record, function);
-            writer.Write($$"""
+            writer.Write(WithManagedAttribute(slotAttribute, $$"""
                 {{GetManagedVisibilityNormalized(compilation, record, function)}} {{memberModifier}}{{returnTypeName}} {{function.ManagedName}}({{parameterList}})
                 {
                 throw new global::System.InvalidOperationException("Native pure virtual method '{{function.ManagedName}}' is not callable from managed code.");
                 }
-                """);
+                """));
             return writer.ToString();
         }
 
@@ -3983,13 +3987,14 @@ public static partial class BindingOutputRenderer
                 $"{GetManagedVisibilityNormalized(compilation, record, function)} {memberModifier}".TrimEnd(),
                 returnTypeName,
                 importMethodName,
-                ["this"]));
+                ["this"],
+                slotAttribute));
             return writer.ToString();
         }
 
         if (explicitInterface is null && HasUndefaultableParams(function))
         {
-            WriteUndefaultableOverloads(compilation, writer, function, importMethodName, ["this"]);
+            WriteUndefaultableOverloads(compilation, writer, function, importMethodName, ["this"], fullOverloadAttribute: slotAttribute);
             return writer.ToString();
         }
 
@@ -4019,10 +4024,10 @@ public static partial class BindingOutputRenderer
             signature = $"{GetManagedVisibilityNormalized(compilation, record, function)} {memberModifier}{returnTypeName} {function.ManagedName}({parameterListFull})";
         }
 
-        writer.Write($$"""
+        writer.Write(WithManagedAttribute(slotAttribute, $$"""
             {{signature}}
             {
-            """);
+            """));
 
         if (HasNativeDefaultDispatchParams(function))
         {
@@ -4098,7 +4103,8 @@ public static partial class BindingOutputRenderer
         string declarationPrefix,
         string returnTypeName,
         string importMethodName,
-        IReadOnlyList<string> invocationPrefix)
+        IReadOnlyList<string> invocationPrefix,
+        string? fullOverloadAttribute = null)
     {
         if (function.ReturnType.MarshallerTypeName is not null)
         {
@@ -4126,7 +4132,7 @@ public static partial class BindingOutputRenderer
         writer.Write(RenderManagedPointerArrayFunctionCore(
             compilation,
             function,
-            declarationPrefix,
+            fullOverloadAttribute is null ? declarationPrefix : fullOverloadAttribute + "\n" + declarationPrefix,
             returnTypeName,
             importMethodName,
             importMethodName,
@@ -4882,12 +4888,11 @@ public static partial class BindingOutputRenderer
             ? string.Empty
             : ", " + string.Join(
                 ", ",
-                slots.Select(slot => $"{GetManagedRecordTypeName(compilation, record)}.{GetVirtualCallbackPointerAccessorName(slot.ManagedCallbackMethod)}(runtimeType)"));
+                slots.Select(slot => $"{GetManagedRecordTypeName(compilation, record)}.{GetVirtualCallbackPointerAccessorName(slot.ManagedCallbackMethod)}(this)"));
 
         return $$"""
             private void ConnectDirector()
             {
-            var runtimeType = ((object)this).GetType();
             __PInvoke.ConnectDirector(DangerousGetHandle(){{callbackArguments}});
             }
             """;
@@ -4900,11 +4905,8 @@ public static partial class BindingOutputRenderer
 
         var ownerRecord = slot.ManagedCallbackOwnerRecord;
         var dispatchRecord = method.AccessModifier == BindingAccessModifier.Protected ? record : ownerRecord;
-        var ownerTypeName = GetManagedRecordTypeName(compilation, ownerRecord);
         var dispatchTypeName = GetManagedRecordTypeName(compilation, dispatchRecord);
-        var methodNameExpression = method.AccessModifier == BindingAccessModifier.Protected
-            ? $"\"{method.ManagedName}\""
-            : $"nameof({ownerTypeName}.{method.ManagedName})";
+        var slotKey = BuildManagedVirtualSlotKey(compilation, ownerRecord, method);
         var writer = new CodeWriter();
         var callbackReturnType = GetManagedVirtualCallbackAbiTypeName(compilation, method.ReturnType);
         var callbackParameterList = string.Join(
@@ -4926,9 +4928,9 @@ public static partial class BindingOutputRenderer
             private static readonly unsafe nint {{callbackPointerFieldName}} =
                 global::{{compilation.ManagedNamespace}}.{{compilation.ManagedClassName}}.{{GetVirtualCallbackEntryPointName(record, method)}}Pointer;
 
-            internal static unsafe nint {{GetVirtualCallbackPointerAccessorName(method)}}(Type runtimeType)
+            internal static unsafe nint {{GetVirtualCallbackPointerAccessorName(method)}}({{GetManagedRecordTypeName(compilation, record)}} self)
             {
-            return HasManagedOverride(runtimeType, typeof({{ownerTypeName}}), {{methodNameExpression}}, {{FormatReflectionParameterTypes(compilation, method)}})
+            return self.IsManagedOverride("{{EscapeCSharpString(slotKey)}}")
                 ? {{callbackPointerFieldName}}
                 : 0;
             }
@@ -7931,12 +7933,28 @@ public static partial class BindingOutputRenderer
             : GetManagedImportTypeName(type, compilation);
     }
 
-    private static string FormatReflectionParameterTypes(BindingCompilation compilation, FunctionBinding method)
+    /// <summary>
+    /// Builds the stable key of a virtual slot: <c>{OwnerManagedType}.{ManagedName}({parameter managed types})</c>.
+    /// </summary>
+    private static string BuildManagedVirtualSlotKey(BindingCompilation compilation, RecordBinding ownerRecord, FunctionBinding method)
     {
-        var parameters = GetPublicManagedParameters(method.Parameters).ToArray();
-        return parameters.Length == 0
-            ? "System.Array.Empty<global::System.Type>()"
-            : $"new global::System.Type[] {{ {string.Join(", ", parameters.Select(parameter => IsPointerRangeBegin(parameter) || IsCountedStringArray(method, parameter) ? $"typeof({GetManagedPublicArrayTypeName(parameter, compilation)})" : $"typeof({GetManagedWrapperTypeName(parameter.Type, compilation)})"))} }}";
+        var parameterTypes = GetPublicManagedParameters(method.Parameters)
+            .Select(parameter => IsPointerRangeBegin(parameter) || IsCountedStringArray(method, parameter)
+                ? GetManagedPublicArrayTypeName(parameter, compilation)
+                : GetManagedWrapperTypeName(parameter.Type, compilation));
+        return $"{GetManagedRecordTypeName(compilation, ownerRecord)}.{method.ManagedName}({string.Join(",", parameterTypes)})"
+            .Replace("global::", string.Empty, StringComparison.Ordinal);
+    }
+
+    private static string RenderManagedVirtualSlotAttribute(BindingCompilation compilation, RecordBinding record, FunctionBinding method)
+    {
+        var ownerRecord = method.FindOwningRecord() ?? record;
+        return $"[global::SharpCpp.Support.ManagedVirtualSlot(\"{EscapeCSharpString(BuildManagedVirtualSlotKey(compilation, ownerRecord, method))}\")]";
+    }
+
+    private static string WithManagedAttribute(string? attribute, string declaration)
+    {
+        return attribute is null ? declaration : attribute + "\n" + declaration;
     }
 
     private static string GetVirtualCallbackPointerAccessorName(FunctionBinding method)
@@ -9640,7 +9658,8 @@ public static partial class BindingOutputRenderer
         FunctionBinding function,
         string importMethodName,
         IReadOnlyList<string> leadingArguments,
-        string? declarationPrefix = null)
+        string? declarationPrefix = null,
+        string? fullOverloadAttribute = null)
     {
         var firstU = GetFirstUndefaultableParamIndex(function);
         declarationPrefix ??= function.IsStatic
@@ -9759,10 +9778,10 @@ public static partial class BindingOutputRenderer
             }
             var bParamList = string.Join(", ", bParamParts);
 
-            writer.Write($$"""
+            writer.Write(WithManagedAttribute(fullOverloadAttribute, $$"""
                 {{declarationPrefix}} {{GetManagedPublicReturnTypeName(function.ReturnType, compilation)}} {{function.ManagedName}}({{bParamList}})
                 {
-                """);
+                """));
 
             // Emit pre-call statements
             foreach (var statement in fullPlan.PreCallStatements)

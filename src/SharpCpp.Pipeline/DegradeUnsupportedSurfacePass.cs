@@ -231,14 +231,13 @@ public static class DegradeUnsupportedSurfacePass
         "SetHandleAsInvalid", "SetHandle", "ReleaseHandle", "IsClosed", "IsInvalid",
         // NativeObject
         "OwnsNativeHandle", "ManagesInstanceCacheLifecycle", "InstanceCache",
-        "ReleaseNativeHandle", "PrepareForOwnedRegistration", "TryPromoteToOwningHandle",
+        "IsManagedOverride", "ReleaseNativeHandle", "PrepareForOwnedRegistration", "TryPromoteToOwningHandle",
         "AcquireOwningHandleCore", "DisposeFromNativeRuntimeCore",
     };
 
     /// <summary>
     /// The static <c>NativeObject</c> helpers with their parameter types (<c>GetObject(object?)</c>,
-    /// <c>GetHandle(object?)</c>, <c>TransferHandleOwnership(object?)</c> and
-    /// <c>HasManagedOverride(Type, Type, string, Type[])</c>). Only a generated function with the same name and
+    /// <c>GetHandle(object?)</c> and <c>TransferHandleOwnership(object?)</c>). Only a generated function with the same name and
     /// the same by-value parameter types has the same signature and would hide the helper; any other signature is
     /// a plain overload and keeps its name.
     /// </summary>
@@ -248,7 +247,6 @@ public static class DegradeUnsupportedSurfacePass
             ["GetObject"] = ["object"],
             ["GetHandle"] = ["object"],
             ["TransferHandleOwnership"] = ["object"],
-            ["HasManagedOverride"] = ["Type", "Type", "string", "Type[]"],
         };
 
     /// <summary>
