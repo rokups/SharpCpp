@@ -6,14 +6,14 @@ using Xunit;
 
 namespace SharpCpp.Tests.E2E.Degradation;
 
-public sealed class DegradationRuleTests
+public sealed partial class DegradationRuleTests
 {
     private sealed class ContextSubject : ContextObject
     {
         public void Attach(Context context) => Context = context;
     }
 
-    private sealed class UnsupportedSubject : UnsupportedAbstract
+    private sealed partial class UnsupportedSubject : UnsupportedAbstract
     {
         public override unsafe int Compute(nint value) => *(int*)value + 1;
     }

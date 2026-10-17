@@ -4,9 +4,9 @@ using Xunit;
 
 namespace SharpCpp.Tests.E2E.Records;
 
-public sealed class ProtectedTests
+public sealed partial class ProtectedTests
 {
-    private sealed class ManagedProtectedCounter : ProtectedCounter
+    private sealed partial class ManagedProtectedCounter : ProtectedCounter
     {
         public ManagedProtectedCounter(int seed)
             : base(seed)

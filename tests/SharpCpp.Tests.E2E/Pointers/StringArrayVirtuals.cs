@@ -9,7 +9,7 @@ using Xunit;
 
 namespace SharpCpp.Tests.E2E.Pointers;
 
-public sealed class StringArrayVirtualTests
+public sealed partial class StringArrayVirtualTests
 {
     [Fact]
     public void A_director_callback_with_a_string_range_receives_managed_strings()
@@ -79,7 +79,7 @@ public sealed class StringArrayVirtualTests
         Assert.Equal(typeof(ReadOnlySpan<string>), Assert.Single(typeof(NamesShape).GetMethod(nameof(NamesShape.SumRange))!.GetParameters()).ParameterType);
     }
 
-    private sealed class ManagedCountedStringVisitor : CountedStringVisitor
+    private sealed partial class ManagedCountedStringVisitor : CountedStringVisitor
     {
         public IReadOnlyList<string?> AfterNames { get; private set; } = [];
 
@@ -118,7 +118,7 @@ public sealed class StringArrayVirtualTests
         }
     }
 
-    private sealed class ManagedStringRangeVisitor : StringRangeVisitor
+    private sealed partial class ManagedStringRangeVisitor : StringRangeVisitor
     {
         public IReadOnlyList<string?> Seen { get; private set; } = [];
 

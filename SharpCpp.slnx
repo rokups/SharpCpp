@@ -8,11 +8,13 @@
     <Project Path="src/SharpCpp.Rendering/SharpCpp.Rendering.csproj" />
     <Project Path="src/SharpCpp.Std/SharpCpp.Std.csproj" />
     <Project Path="src/SharpCpp.Support/SharpCpp.Support.csproj" />
+    <Project Path="src/SharpCpp.Support.SourceGenerator/SharpCpp.Support.SourceGenerator.csproj" />
     <Project Path="src/SharpCpp.Toolchain/SharpCpp.Toolchain.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/SharpCpp.Tests.ApiUnion/SharpCpp.Tests.ApiUnion.csproj" />
     <Project Path="tests/SharpCpp.Tests.E2E/SharpCpp.Tests.E2E.csproj" />
+    <Project Path="tests/SharpCpp.Tests.SupportGenerator/SharpCpp.Tests.SupportGenerator.csproj" />
   </Folder>
   <Folder Name="/native/">
     <Project Path="native/SharpCpp.Native/SharpCpp.Native.csproj" />

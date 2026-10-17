@@ -4,7 +4,7 @@ using Xunit;
 
 namespace SharpCpp.Tests.E2E.Records;
 
-public sealed class DirectorTests
+public sealed partial class DirectorTests
 {
     private sealed class PassthroughCallbackCounter : CallbackCounter
     {
@@ -14,7 +14,7 @@ public sealed class DirectorTests
         }
     }
 
-    private sealed class ManagedCallbackCounter : CallbackCounter
+    private sealed partial class ManagedCallbackCounter : CallbackCounter
     {
         public ManagedCallbackCounter(int seed)
             : base(seed)

@@ -24,6 +24,7 @@ configured by `Marshaller<T>` specializations in C++ headers.
 | `src/SharpCpp.Rendering` | `BindingOutputRenderer`: C# and C++ emission, shared wrapper providers, generics |
 | `src/SharpCpp.Metadata` | Metadata document, export and import for cross-module composition |
 | `src/SharpCpp.Support` | Managed runtime: `NativeObject`, instance caches, provider registry, collection bases |
+| `src/SharpCpp.Support.SourceGenerator` | Roslyn incremental generator: `IsManagedOverride` for user overrides of `ManagedVirtualSlot` methods (SCPPSG001: type must be partial) |
 | `src/SharpCpp.Std` | Shared `Std.*` wrapper types (`Std.String`, `Std.Vector<T>`, ...) and their provider contracts |
 | `src/SharpCpp.Toolchain` | Compiler-driven Clang toolchain discovery |
 | `tests/SharpCpp.Tests.E2E.Generator` | E2E generator driver: parses the fixtures and applies test-only consumer wiring |

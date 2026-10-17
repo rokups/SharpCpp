@@ -4,9 +4,9 @@ using Xunit;
 
 namespace SharpCpp.Tests.E2E.Records;
 
-public sealed class BorrowedDirectorBreadthTests
+public sealed partial class BorrowedDirectorBreadthTests
 {
-    private sealed class ManagedBorrowedDirectorSource : BorrowedDirectorSource
+    private sealed partial class ManagedBorrowedDirectorSource : BorrowedDirectorSource
     {
         private readonly BorrowedDirectorPayload _selected;
 

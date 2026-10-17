@@ -15,7 +15,7 @@ public interface IConfig2NativeMarker<TSelf>
 {
 }
 
-public sealed class ConfigBreadthTests
+public sealed partial class ConfigBreadthTests
 {
     [Fact]
     public void Configured_nested_aliases_and_inherited_metadata_round_trip_through_native_code()
@@ -77,7 +77,7 @@ public sealed class ConfigBreadthTests
         Assert.Equal(14, rendered.InvokeTransform(7));
     }
 
-    private sealed class ManagedConfig2RenderRecord : Config2RenderRecord
+    private sealed partial class ManagedConfig2RenderRecord : Config2RenderRecord
     {
         public override int Transform(int value) => value * 2;
 

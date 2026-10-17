@@ -4,9 +4,9 @@ using Xunit;
 
 namespace SharpCpp.Tests.E2E.VirtualAdvanced;
 
-public sealed class VirtualAdvancedTests
+public sealed partial class VirtualAdvancedTests
 {
-    private sealed class ManagedAdvVirtualCounter : AdvVirtualCounter
+    private sealed partial class ManagedAdvVirtualCounter : AdvVirtualCounter
     {
         public ManagedAdvVirtualCounter(int seed)
             : base(seed)
@@ -31,7 +31,7 @@ public sealed class VirtualAdvancedTests
         }
     }
 
-    private sealed class ManagedAdvAccumulator : AdvAbstractAccumulator
+    private sealed partial class ManagedAdvAccumulator : AdvAbstractAccumulator
     {
         public ManagedAdvAccumulator(int baseValue)
             : base(baseValue)
@@ -117,7 +117,7 @@ public sealed class VirtualAdvancedTests
         Assert.Equal(35, E2EBindings.InvokeAdvFinalMidValue(leaf));
     }
 
-    private sealed class ManagedAdvVirtualCounterCallingBase : AdvVirtualCounter
+    private sealed partial class ManagedAdvVirtualCounterCallingBase : AdvVirtualCounter
     {
         public ManagedAdvVirtualCounterCallingBase(int seed)
             : base(seed)

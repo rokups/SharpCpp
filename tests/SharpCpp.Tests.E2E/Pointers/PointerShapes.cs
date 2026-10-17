@@ -6,9 +6,9 @@ using Xunit;
 
 namespace SharpCpp.Tests.E2E.Pointers;
 
-public sealed class PointerShapeTests
+public sealed partial class PointerShapeTests
 {
-    private sealed class ManagedRenderer : Renderer
+    private sealed partial class ManagedRenderer : Renderer
     {
         public override unsafe int Render(nint indices, Value translation, int count)
         {

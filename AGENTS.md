@@ -51,6 +51,8 @@ actual blockers without turning optional tools or reviews into approval gates.
 - `src/SharpCpp.Rendering/` - renderers
 - `src/SharpCpp.Toolchain/` - compiler-driven toolchain discovery
 - `src/SharpCpp.Support/` - managed runtime support
+- `src/SharpCpp.Support.SourceGenerator/` - Roslyn generator that emits `IsManagedOverride` for user overrides of generated virtual methods. A class with such overrides must be `partial` (error SCPPSG001). Each project with managed subclasses references it as an analyzer.
+- `tests/SharpCpp.Tests.SupportGenerator/` - unit tests of that generator
 - `include/SharpCpp/` - native support headers
 - `tests/SharpCpp.Tests.E2E/` - E2E fixtures (the behavioural specification)
 - `tests/SharpCpp.Tests.E2E.Generator/` - generator driver for the E2E fixtures

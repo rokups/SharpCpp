@@ -4,9 +4,9 @@ using Xunit;
 
 namespace SharpCpp.Tests.E2E.Marshallers;
 
-public sealed class ProjectionTests
+public sealed partial class ProjectionTests
 {
-    private sealed class ManagedProjectedOwnerDirector : ProjectedOwnerDirector
+    private sealed partial class ManagedProjectedOwnerDirector : ProjectedOwnerDirector
     {
         public int CallbackCount { get; private set; }
 

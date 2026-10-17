@@ -6,19 +6,19 @@ using Xunit;
 
 namespace SharpCpp.Tests.E2E.Records;
 
-public sealed class ForcedDirectorTests
+public sealed partial class ForcedDirectorTests
 {
-    private sealed class Seeded(int seed) : ForcedAbstract(seed)
+    private sealed partial class Seeded(int seed) : ForcedAbstract(seed)
     {
         public override int Compute() => 30;
     }
 
-    private sealed class Implicit : ForcedImplicitAbstract
+    private sealed partial class Implicit : ForcedImplicitAbstract
     {
         public override int Compute() => 7;
     }
 
-    private sealed class Derived : ForcedDerivedAbstract
+    private sealed partial class Derived : ForcedDerivedAbstract
     {
         public override int Compute() => 9;
     }

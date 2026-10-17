@@ -9,7 +9,7 @@ using Xunit;
 
 namespace SharpCpp.Tests.E2E.Pointers;
 
-public sealed class PointerRangeTests
+public sealed partial class PointerRangeTests
 {
     private static System.Reflection.MethodInfo Method(string name) => typeof(E2EBindings).GetMethod(name)!;
 
@@ -347,7 +347,7 @@ public sealed class PointerRangeTests
         Assert.DoesNotContain(lines, static line => line.Contains("the parameter is not a pointer", StringComparison.Ordinal));
     }
 
-    private sealed class ManagedIntRangeVisitor : IntRangeVisitor
+    private sealed partial class ManagedIntRangeVisitor : IntRangeVisitor
     {
         public int LastLength { get; private set; } = -1;
 
@@ -369,7 +369,7 @@ public sealed class PointerRangeTests
         }
     }
 
-    private sealed class ManagedAddressRangeVisitor : AddressRangeVisitor
+    private sealed partial class ManagedAddressRangeVisitor : AddressRangeVisitor
     {
         public IntPtr[] Seen { get; private set; } = [];
 
@@ -380,7 +380,7 @@ public sealed class PointerRangeTests
         }
     }
 
-    private sealed class ManagedColorRangeVisitor : ColorRangeVisitor
+    private sealed partial class ManagedColorRangeVisitor : ColorRangeVisitor
     {
         public RangeColor[] Seen { get; private set; } = [];
 
@@ -394,7 +394,7 @@ public sealed class PointerRangeTests
         }
     }
 
-    private class ManagedRangeVisitor : RangeVisitor
+    private partial class ManagedRangeVisitor : RangeVisitor
     {
         public int LastLength { get; protected set; } = -1;
 
@@ -408,12 +408,12 @@ public sealed class PointerRangeTests
         }
     }
 
-    private sealed class PassthroughRangeVisitor : RangeVisitor
+    private sealed partial class PassthroughRangeVisitor : RangeVisitor
     {
         public override int Visit(ReadOnlySpan<RangeWidget?> begin) => begin.Length;
     }
 
-    private sealed class CountingRangeVisitor : ManagedRangeVisitor
+    private sealed partial class CountingRangeVisitor : ManagedRangeVisitor
     {
         public override int Count(ReadOnlySpan<RangeWidget?> begin)
         {

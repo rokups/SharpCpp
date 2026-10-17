@@ -4,9 +4,9 @@ using Xunit;
 
 namespace SharpCpp.Tests.E2E.Records;
 
-public sealed class MultipleInheritanceTests
+public sealed partial class MultipleInheritanceTests
 {
-    private sealed class ManagedMiCounter : MiCounter
+    private sealed partial class ManagedMiCounter : MiCounter
     {
         public override int LeftValue()
         {

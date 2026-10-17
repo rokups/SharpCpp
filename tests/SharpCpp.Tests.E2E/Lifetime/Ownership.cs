@@ -29,9 +29,9 @@ public abstract class RuntimeBreadthManagedObject : NativeObject
     }
 }
 
-public sealed class RuntimeBreadthTests
+public sealed partial class RuntimeBreadthTests
 {
-    private sealed class ManagedLifecycle : RuntimeBreadthLifecycle
+    private sealed partial class ManagedLifecycle : RuntimeBreadthLifecycle
     {
         public ManagedLifecycle(int value)
             : base(value)
@@ -44,7 +44,7 @@ public sealed class RuntimeBreadthTests
         }
     }
 
-    private sealed class ManagedTransferDirector : RuntimeBreadthTransferDirector
+    private sealed partial class ManagedTransferDirector : RuntimeBreadthTransferDirector
     {
         private readonly bool _returnNull;
 

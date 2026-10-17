@@ -18,6 +18,9 @@
     <ProjectReference Include="..\..\src\SharpCpp.Support\SharpCpp.Support.csproj" />
     <ProjectReference Include="..\..\src\SharpCpp.Std\SharpCpp.Std.csproj" />
     <ProjectReference Include="..\..\src\SharpCpp.Metadata\SharpCpp.Metadata.csproj" />
+    <ProjectReference Include="..\..\src\SharpCpp.Support.SourceGenerator\SharpCpp.Support.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>

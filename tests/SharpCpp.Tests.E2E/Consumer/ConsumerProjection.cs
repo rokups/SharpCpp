@@ -4,9 +4,9 @@ using Xunit;
 
 namespace SharpCpp.Tests.E2E.Consumer;
 
-public sealed unsafe class ConsumerProjectionTests
+public sealed unsafe partial class ConsumerProjectionTests
 {
-    private sealed class ManagedDirector(int first, int second) : ConsumerProjectionDirector(first, second)
+    private sealed partial class ManagedDirector(int first, int second) : ConsumerProjectionDirector(first, second)
     {
         protected override int Transform(int value)
         {
