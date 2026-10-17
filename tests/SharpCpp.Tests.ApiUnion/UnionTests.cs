@@ -126,6 +126,41 @@ public sealed class UnionTests
             new Dictionary<string, string> { ["linux-x64"] = first, ["win-x64"] = second }, FrameworkReferences)).Message);
     }
 
+    [Fact]
+    public void Platform_stubs_leave_the_generated_IsManagedOverride_to_the_Support_generator()
+    {
+        const string support = """
+            namespace SharpCpp.Support { public abstract class NativeObject { protected virtual bool IsManagedOverride(string slotKey) => false; } }
+            namespace Fixture { public class Plain { protected virtual bool IsManagedOverride(string slotKey) => false; } }
+            """;
+        const string first = support + """
+            namespace Fixture { public partial class Shared : SharpCpp.Support.NativeObject { public virtual void Tick() {} } }
+            """;
+        const string second = support + """
+            namespace Fixture {
+                public partial class Shared : SharpCpp.Support.NativeObject { public virtual void Tick() {} protected override bool IsManagedOverride(string slotKey) => true; }
+                public partial class Headset : SharpCpp.Support.NativeObject { protected override bool IsManagedOverride(string slotKey) => true; }
+                public class PlainChild : Plain { protected override bool IsManagedOverride(string slotKey) => true; }
+            }
+            """;
+        using var fixture = new FixtureBuild(first, second);
+        var reference = ApiSurfaceReader.Read("ref", fixture.CompileReference());
+        Assert.Contains("M:Fixture.Headset.IsManagedOverride(string)", reference.MembersByKey.Keys);
+        // The stub keeps an IsManagedOverride override that does not come from NativeObject.
+        var linux = ApiSurfaceReader.Read("linux-x64", fixture.CompileImplementation("linux-x64", first));
+        Assert.Contains("M:Fixture.PlainChild.IsManagedOverride(string)", linux.MembersByKey.Keys);
+        Assert.DoesNotContain("M:Fixture.Headset.IsManagedOverride(string)", linux.MembersByKey.Keys);
+        Assert.DoesNotContain("M:Fixture.Shared.IsManagedOverride(string)", linux.MembersByKey.Keys);
+        // The Support generator adds these parts in a platform build. They must not collide with the stubs.
+        fixture.CompileImplementation("linux-x64", first + """
+            namespace Fixture {
+                partial class Shared { protected override bool IsManagedOverride(string slotKey) => true; }
+                partial class Headset { protected override bool IsManagedOverride(string slotKey) => true; }
+            }
+            """);
+    }
+
+
     private static object? Invoke(Type type, string name, params object[] arguments)
     {
         try { return type.GetMethod(name)!.Invoke(null, arguments); }
