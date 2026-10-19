@@ -12,8 +12,7 @@
                       Condition="'$(SharpCppBuildE2E)' == 'true'"
                       ReferenceOutputAssembly="false"
                       Private="false"
-                      PrivateAssets="all"
-                      GlobalPropertiesToRemove="SharpCppBuildE2E" />
+                      PrivateAssets="all" />
   </ItemGroup>
 
   <Target Name="SharpCppBuildNative" AfterTargets="Build">
@@ -23,7 +22,7 @@
            Text="SharpCppNativeTarget is not configured." />
     <Error Condition="'$(SharpCppCMakeSourceDir)' == ''"
            Text="SharpCppCMakeSourceDir is not configured." />
-    <MakeDir Directories="$(SharpCppBuildRoot);$(SharpCppOutputDir);$(SharpCppIntermediateRoot)" />
+    <MakeDir Directories="$(SharpCppBuildRoot);$(SharpCppOutputDir)" />
     <Exec WorkingDirectory="$(SharpCppCMakeSourceDir)"
           Command="&quot;$(SharpCppCMakeCommand)&quot; -DSHARPCPP_SOURCE_DIR=&quot;$(SharpCppCMakeSourceDir)&quot; -DSHARPCPP_NATIVE_PRESET=&quot;$(SharpCppNativePreset)&quot; -DSHARPCPP_NATIVE_BUILD_DIR=&quot;$(SharpCppNativeBuildDir)&quot; -DSHARPCPP_NATIVE_TARGET=&quot;$(SharpCppNativeTarget)&quot; -DSHARPCPP_CONFIGURATION=&quot;$(Configuration)&quot; -DSHARPCPP_CONFIGURE_NATIVE=$(SharpCppConfigureNative) -DSHARPCPP_BUILD_E2E=$(SharpCppBuildE2E) -DSHARPCPP_MANAGED_OUTPUT_ROOT=&quot;$(SharpCppManagedOutputRoot)&quot; -DSHARPCPP_NATIVE_OUTPUT_ROOT=&quot;$(SharpCppNativeOutputRoot)&quot; -DSHARPCPP_NATIVE_LOCK_FILE=&quot;$(SharpCppNativeLockFile)&quot; -DSHARPCPP_NATIVE_CONFIGURE_ARGUMENTS=&quot;$(SharpCppNativeConfigureArguments)&quot; -P &quot;$(MSBuildThisFileDirectory)BuildNative.cmake&quot;" />
   </Target>

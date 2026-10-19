@@ -19,8 +19,7 @@
     <ProjectReference Include="$(SharpCppRoot)/native/SharpCpp.Native/SharpCpp.Native.csproj"
                       ReferenceOutputAssembly="false"
                       PrivateAssets="all"
-                      SkipGetTargetFrameworkProperties="true"
-                      SharpCppProperties="SharpCppBuildE2E=$(SharpCppBuildE2E)" />
+                      SkipGetTargetFrameworkProperties="true" />
   </ItemGroup>
 
   <Target Name="SharpCppSetProjectReferenceProperties"
@@ -29,11 +28,6 @@
     <ItemGroup>
       <_MSBuildProjectReferenceExistent Update="@(_MSBuildProjectReferenceExistent)">
         <SetConfiguration>%(_MSBuildProjectReferenceExistent.SetConfiguration);Configuration=$(Configuration)</SetConfiguration>
-        <GlobalPropertiesToRemove>TargetFramework;RuntimeIdentifier;SelfContained;SharpCppBuildE2E</GlobalPropertiesToRemove>
-      </_MSBuildProjectReferenceExistent>
-      <_MSBuildProjectReferenceExistent Update="@(_MSBuildProjectReferenceExistent)"
-                                        Condition="'%(_MSBuildProjectReferenceExistent.SharpCppProperties)' != ''">
-        <SetConfiguration>%(_MSBuildProjectReferenceExistent.SetConfiguration);%(_MSBuildProjectReferenceExistent.SharpCppProperties)</SetConfiguration>
         <GlobalPropertiesToRemove>TargetFramework;RuntimeIdentifier;SelfContained</GlobalPropertiesToRemove>
       </_MSBuildProjectReferenceExistent>
     </ItemGroup>
@@ -62,25 +56,10 @@
            Text="SharpCpp E2E native build did not produce '$(SharpCppE2ENativeLibraryPath)'." />
   </Target>
 
-  <Target Name="SharpCppStageNativeTestRuntime"
-          AfterTargets="Build"
-          Condition="'$(MSBuildProjectName)' == 'SharpCpp.Tests.E2E'">
-    <ItemGroup>
-      <SharpCppNativeTestRuntime Include="$(SharpCppOutputDir)/*.so;$(SharpCppOutputDir)/*.so.*"
-                                 Condition="$([MSBuild]::IsOSPlatform('Linux'))" />
-      <SharpCppNativeTestRuntime Include="$(SharpCppOutputDir)/*.dylib"
-                                 Condition="$([MSBuild]::IsOSPlatform('OSX'))" />
-      <SharpCppNativeTestRuntime Include="$(SharpCppOutputDir)/*.dll"
-                                 Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
-    </ItemGroup>
-    <Copy SourceFiles="@(SharpCppNativeTestRuntime)"
-          DestinationFolder="$(OutputPath)"
-          SkipUnchangedFiles="true" />
-  </Target>
-
+  <!-- RedBolt compatibility (see SharpCppLegacyOutput). RedBolt reads the generator libraries from host/tools. -->
   <Target Name="SharpCppStageManagedGeneratorDependency"
           AfterTargets="Build"
-      Condition="'$(BuildingSolutionFile)' == 'true' and '$(OutputType)' == 'Library' and '$(CopyBuildOutputToOutputDirectory)' != 'false' and '$(SolutionDir)' != ''">
+          Condition="'$(SharpCppLegacyOutput)' == 'true' and '$(BuildingSolutionFile)' == 'true' and '$(OutputType)' == 'Library' and '$(CopyBuildOutputToOutputDirectory)' != 'false' and '$(SolutionDir)' != ''">
     <PropertyGroup>
       <SharpCppHostToolsOutputDir>$([System.IO.Path]::GetFullPath('$(SolutionDir)/build/bin/$(Configuration)/host/tools'))</SharpCppHostToolsOutputDir>
     </PropertyGroup>

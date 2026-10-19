@@ -3,14 +3,15 @@
     <SharpCppBuildPropsImported>true</SharpCppBuildPropsImported>
     <SharpCppRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</SharpCppRoot>
     <SharpCppPackageRoot Condition="'$(SharpCppPackageRoot)' == ''">$(SharpCppRoot)</SharpCppPackageRoot>
-    <SharpCppBuildRoot Condition="'$(SharpCppBuildRoot)' == '' and '$(RedBoltBuildRoot)' != ''">$(RedBoltBuildRoot)</SharpCppBuildRoot>
-    <SharpCppBuildRoot Condition="'$(SharpCppBuildRoot)' == '' and '$(SolutionDir)' != ''">$([System.IO.Path]::GetFullPath('$(SolutionDir)/build'))</SharpCppBuildRoot>
-    <SharpCppBuildRoot Condition="'$(SharpCppBuildRoot)' == ''">$([System.IO.Path]::GetFullPath('$(SharpCppRoot)/build'))</SharpCppBuildRoot>
-    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
-    <SharpCppSolutionIsRoot Condition="'$(SolutionDir)' != '' and $([MSBuild]::NormalizeDirectory('$(SolutionDir)')) == $([MSBuild]::NormalizeDirectory('$(SharpCppRoot)'))">true</SharpCppSolutionIsRoot>
-    <SharpCppManagedOutputRoot Condition="'$(SharpCppManagedOutputRoot)' == '' and '$(BuildingSolutionFile)' == 'true' and '$(SharpCppSolutionIsRoot)' != 'true'">$(SharpCppBuildRoot)/bin/$(Configuration)/host/extern</SharpCppManagedOutputRoot>
-    <SharpCppOutputDir Condition="'$(SharpCppOutputDir)' == '' and '$(BuildingSolutionFile)' == 'true' and '$(SharpCppSolutionIsRoot)' != 'true'">$(SharpCppManagedOutputRoot)</SharpCppOutputDir>
-    <SharpCppIntermediateRoot Condition="'$(SharpCppIntermediateRoot)' == '' and '$(BuildingSolutionFile)' == 'true' and '$(SharpCppSolutionIsRoot)' != 'true'">$(SharpCppBuildRoot)/obj/managed/tools</SharpCppIntermediateRoot>
+    <!-- RedBolt compatibility. RedBolt sends SharpCppBuildRoot, SharpCppOutputDir and SharpCppIntermediateRoot as global properties.
+         Then these properties select the output folders, not BuildOutput.props. Remove this case when RedBolt uses BuildOutput.props. -->
+    <SharpCppLegacyOutput Condition="'$(SharpCppOutputDir)' != ''">true</SharpCppLegacyOutput>
+    <!-- BuildOutput.props sets the build root. All outputs of this repository go below it.
+         A global property (for example from RedBolt) keeps its value. -->
+    <SharpCppBuildRoot>$([System.IO.Path]::GetDirectoryName('$(BuildOutputRoot)'))</SharpCppBuildRoot>
+    <SharpCppManagedOutputRoot>$(SharpCppBuildRoot)/bin</SharpCppManagedOutputRoot>
+    <SharpCppNativeOutputRoot>$(SharpCppBuildRoot)/bin</SharpCppNativeOutputRoot>
+    <SharpCppOutputDir>$(SharpCppManagedOutputRoot)/$(Configuration)</SharpCppOutputDir>
 
     <SharpCppNativePreset Condition="'$(SharpCppNativePreset)' == ''">dev</SharpCppNativePreset>
     <SharpCppCMakeCommand Condition="'$(SharpCppCMakeCommand)' == ''">cmake</SharpCppCMakeCommand>
@@ -21,10 +22,6 @@
     <SharpCppConfigureNative Condition="'$(SharpCppConfigureNative)' == '' and !Exists('$(SharpCppNativeBuildDir)/CMakeCache.txt')">true</SharpCppConfigureNative>
     <SharpCppConfigureNative Condition="'$(SharpCppConfigureNative)' == ''">false</SharpCppConfigureNative>
     <SharpCppBuildE2E Condition="'$(SharpCppBuildE2E)' == ''">true</SharpCppBuildE2E>
-    <SharpCppManagedOutputRoot Condition="'$(SharpCppManagedOutputRoot)' == ''">$(SharpCppBuildRoot)/bin</SharpCppManagedOutputRoot>
-    <SharpCppOutputDir Condition="'$(SharpCppOutputDir)' == ''">$(SharpCppManagedOutputRoot)/$(Configuration)</SharpCppOutputDir>
-    <SharpCppNativeOutputRoot Condition="'$(SharpCppNativeOutputRoot)' == ''">$(SharpCppBuildRoot)/bin</SharpCppNativeOutputRoot>
-    <SharpCppIntermediateRoot Condition="'$(SharpCppIntermediateRoot)' == ''">$(SharpCppBuildRoot)/obj/managed/$(Configuration)</SharpCppIntermediateRoot>
 
     <SharpCppGeneratedRoot>$(SharpCppNativeBuildDir)/generated</SharpCppGeneratedRoot>
     <SharpCppE2EGeneratedDir>$(SharpCppGeneratedRoot)/sharpcpp-e2e</SharpCppE2EGeneratedDir>
@@ -50,13 +47,16 @@
     <NuGetAudit>false</NuGetAudit>
 
     <SharpCppIsTestProject Condition="$([System.String]::Copy('$(MSBuildProjectName)').Contains('.Tests.'))">true</SharpCppIsTestProject>
+    <DefaultItemExcludes>$(DefaultItemExcludes);$(SharpCppBuildRoot)/**;$(MSBuildProjectDirectory)/bin/**;$(MSBuildProjectDirectory)/obj/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <!-- RedBolt compatibility (see SharpCppLegacyOutput above). -->
+  <PropertyGroup Condition="'$(SharpCppLegacyOutput)' == 'true'">
+    <SharpCppIntermediateRoot Condition="'$(SharpCppIntermediateRoot)' == ''">$(SharpCppBuildRoot)/obj/managed/$(Configuration)</SharpCppIntermediateRoot>
     <OutputPath Condition="'$(SharpCppIsTestProject)' != 'true'">$(SharpCppOutputDir)/</OutputPath>
     <OutputPath Condition="'$(SharpCppIsTestProject)' == 'true'">$(SharpCppOutputDir)/SharpCpp.Tests/$(MSBuildProjectName)/</OutputPath>
     <BaseIntermediateOutputPath>$(SharpCppIntermediateRoot)/$(MSBuildProjectName)/</BaseIntermediateOutputPath>
     <MSBuildProjectExtensionsPath>$(SharpCppBuildRoot)/obj/restore/$(MSBuildProjectName)/</MSBuildProjectExtensionsPath>
-    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
-    <DefaultItemExcludes>$(DefaultItemExcludes);$(SharpCppBuildRoot)/**;$(MSBuildProjectDirectory)/bin/**;$(MSBuildProjectDirectory)/obj/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'SharpCpp.Tests.E2E'">

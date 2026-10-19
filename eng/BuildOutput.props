@@ -1,0 +1,35 @@
+<Project>
+  <!-- Build output layout: one root for each build. All bin and obj folders come from it.
+       This is a copyable file. Keep all copies the same, byte for byte.
+       The importer sets BuildOutputOwnerDir to its own folder and imports this file before all other files.
+       The file applies only to .NET SDK projects. Thus the vcxproj files of CMake stay as they are. -->
+  <PropertyGroup Condition="'$(UsingMicrosoftNETSdk)' == 'true'">
+    <!-- The owner is the solution folder. Without a solution, the owner is the folder of the importer. -->
+    <BuildOwnerDir Condition="'$(SolutionDir)' != ''">$([MSBuild]::NormalizeDirectory('$(SolutionDir)'))</BuildOwnerDir>
+    <BuildOwnerDir Condition="'$(SolutionDir)' == '' and '$(BuildOutputOwnerDir)' != ''">$([MSBuild]::NormalizeDirectory('$(BuildOutputOwnerDir)'))</BuildOwnerDir>
+  </PropertyGroup>
+
+  <!-- The optional settings file of the owner can set BuildOutputRoot and BuildOutputPerTargetFramework.
+       CMake writes this file into CMAKE_BINARY_DIR. -->
+  <Import Project="$(BuildOwnerDir)BuildOutput.Settings.props"
+          Condition="'$(UsingMicrosoftNETSdk)' == 'true' and '$(BuildOwnerDir)' != '' and Exists('$(BuildOwnerDir)BuildOutput.Settings.props')" />
+
+  <PropertyGroup Condition="'$(UsingMicrosoftNETSdk)' == 'true' and '$(BuildOwnerDir)' != ''">
+    <BuildOutputRoot Condition="'$(BuildOutputRoot)' == ''">$(BuildOwnerDir)build</BuildOutputRoot>
+    <BuildOutputRoot>$([MSBuild]::NormalizeDirectory('$(BuildOutputRoot)'))</BuildOutputRoot>
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <BaseIntermediateOutputPath>$([MSBuild]::NormalizeDirectory('$(BuildOutputRoot)', 'obj', '$(MSBuildProjectName)'))</BaseIntermediateOutputPath>
+    <OutputPath>$([MSBuild]::NormalizeDirectory('$(BuildOutputRoot)', 'bin', '$(Configuration)'))</OutputPath>
+    <PublishDir>$([MSBuild]::NormalizeDirectory('$(BuildOutputRoot)', 'publish', '$(MSBuildProjectName)', '$(Configuration)'))</PublishDir>
+    <!-- Single-TFM mode (the default): bin/<Config>/. The inner builds of a multi-target project use bin/<Config>/<tfm>/.
+         Multi-TFM mode (BuildOutputPerTargetFramework=true): each project uses bin/<Config>/<tfm>/. -->
+    <AppendTargetFrameworkToOutputPath Condition="'$(BuildOutputPerTargetFramework)' != 'true' and '$(TargetFramework)' == ''">false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+  </PropertyGroup>
+
+  <!-- The SDK imports BuildOutput.targets after the project file and before it calculates the output paths.
+       Thus a project file can set BuildOutputPartition. -->
+  <PropertyGroup Condition="'$(UsingMicrosoftNETSdk)' == 'true'">
+    <BeforeMicrosoftNETSdkTargets>$(BeforeMicrosoftNETSdkTargets);$(MSBuildThisFileDirectory)BuildOutput.targets</BeforeMicrosoftNETSdkTargets>
+  </PropertyGroup>
+</Project>

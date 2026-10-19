@@ -1,3 +1,7 @@
 <Project>
+  <PropertyGroup>
+    <BuildOutputOwnerDir>$(MSBuildThisFileDirectory)</BuildOutputOwnerDir>
+  </PropertyGroup>
+  <Import Project="$(MSBuildThisFileDirectory)eng/BuildOutput.props" />
   <Import Project="$(MSBuildThisFileDirectory)eng/SharpCpp.Build.props" />
 </Project>
