@@ -2287,7 +2287,7 @@ public static partial class BindingOutputRenderer
             ? "void"
             : GetManagedCallbackDelegateValueTypeName(compilation, callbackReturnType);
         var parameters = declaration.CallbackType.CallbackParameterTypes
-            .Select((type, index) => $"{GetManagedCallbackDelegateValueTypeName(compilation, type)} arg{index}");
+            .Select((type, index) => $"{(type.IsCallbackRefParameter ? "ref " : string.Empty)}{GetManagedCallbackDelegateValueTypeName(compilation, type)} arg{index}");
         return $$"""
             public delegate {{returnType}} {{declaration.DeclarationName}}({{string.Join(", ", parameters)}});
             """;
@@ -2305,10 +2305,19 @@ public static partial class BindingOutputRenderer
         var parameters = callbackType.CallbackParameterTypes
             .Select((type, index) => (type, index, abiType: GetManagedCallbackParameterAbiTypeName(compilation, type)))
             .ToArray();
-        var invokeArguments = string.Join(", ", parameters.Select(item => BuildManagedCallbackInvocationArgument(
-            compilation,
-            item.type,
-            IsManagedCallbackValueReference(item.type) ? $"*arg{item.index}" : $"arg{item.index}")));
+        var invokeArguments = string.Join(", ", parameters.Select(item => item.type.IsCallbackRefParameter
+            ? $"ref __value{item.index}"
+            : BuildManagedCallbackInvocationArgument(
+                compilation,
+                item.type,
+                IsManagedCallbackValueReference(item.type) ? $"*arg{item.index}" : $"arg{item.index}")));
+        // A ref parameter goes to the delegate through a local in its public type. The local
+        // goes back to the native reference after a normal return.
+        var refParameters = parameters.Where(static item => item.type.IsCallbackRefParameter).ToArray();
+        var refLoads = string.Concat(refParameters.Select(item =>
+            $"var __value{item.index} = {BuildManagedImportToPublicExpression(compilation, item.type, $"*arg{item.index}")};\n"));
+        var refStores = string.Concat(refParameters.Select(item =>
+            $"*arg{item.index} = {BuildManagedPublicToImportExpression(compilation, item.type, $"__value{item.index}")};\n"));
         var invokeParameterList = string.Join(", ", new[] { "nint state" }.Concat(parameters.Select(static item => $"{item.abiType} arg{item.index}")));
         var invokeFunctionPointerTypes = string.Join(
             ", ",
@@ -2316,12 +2325,12 @@ public static partial class BindingOutputRenderer
         var invokeMethodName = $"__InvokeManagedCallback_{declarationName}";
         var invokeBody = callbackReturnType.PrimitiveKind == BindingPrimitiveKind.Void
             ? $$"""
-                      callback({{invokeArguments}});
-                      return;
+                      {{refLoads}}callback({{invokeArguments}});
+                      {{refStores}}return;
               """
             : $$"""
-                      var result = callback({{invokeArguments}});
-                      return {{BuildManagedCallbackReturnExpression(compilation, callbackReturnType, "result")}};
+                      {{refLoads}}var result = callback({{invokeArguments}});
+                      {{refStores}}return {{BuildManagedCallbackReturnExpression(compilation, callbackReturnType, "result")}};
               """;
 
         return $$"""
@@ -2375,8 +2384,7 @@ public static partial class BindingOutputRenderer
     }
 
     // A projected value passed by reference arrives as a pointer to its ABI value.
-    private static bool IsManagedCallbackValueReference(BindingType type) =>
-        type.Marshaller.CppIsReference && type.Kind == BindingTypeKind.Primitive && !type.Marshaller.IsRefStruct;
+    private static bool IsManagedCallbackValueReference(BindingType type) => type.IsCallbackValueReference;
 
     // A fixed array crosses the callback ABI as the two-field NativeArrayAbi struct, which the C
     // ABI passes in registers on System V but by hidden pointer on Windows x64. Declaring the
@@ -2506,12 +2514,7 @@ public static partial class BindingOutputRenderer
             : GetManagedPublicReturnTypeName(type, compilation);
     }
 
-    private static string GetCallbackSignatureKey(BindingType type)
-    {
-        var returnType = type.CallbackReturnType?.UnaliasedManagedTypeName ?? "void";
-        return string.Join("|", returnType, string.Join(";", type.CallbackParameterTypes.Select(static parameter =>
-            IsManagedCallbackValueReference(parameter) ? $"{parameter.UnaliasedManagedTypeName}&" : parameter.UnaliasedManagedTypeName)));
-    }
+    private static string GetCallbackSignatureKey(BindingType type) => type.CallbackSignatureKey;
 
     private static string GetManagedCallbackMarshallerDeclarationName(BindingCompilation compilation, BindingType type)
     {
@@ -2519,7 +2522,9 @@ public static partial class BindingOutputRenderer
         var parameterToken = type.CallbackParameterTypes.Count == 0
             ? "none"
             : string.Join("_", type.CallbackParameterTypes.Select(parameter =>
-                IsManagedCallbackValueReference(parameter)
+                parameter.IsCallbackRefParameter
+                    ? $"ref_{GetManagedPublicReturnTypeName(parameter, compilation)}"
+                    : IsManagedCallbackValueReference(parameter)
                     ? $"in_{GetManagedPublicReturnTypeName(parameter, compilation)}"
                     : GetManagedPublicReturnTypeName(parameter, compilation)));
         return $"__CallbackMarshaller_{SanitizeManagedToken(returnToken)}_{SanitizeManagedToken(parameterToken)}";

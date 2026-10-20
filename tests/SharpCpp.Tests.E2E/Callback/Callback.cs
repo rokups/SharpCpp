@@ -83,9 +83,16 @@ public sealed class CallbackTests
     }
 
     [Fact]
-    public unsafe void Primitive_reference_callback_receives_raw_pointer()
+    public void Primitive_reference_callback_receives_ref()
     {
-        var result = E2EBindings.InvokePrimitiveReferenceCallback(pointer => *(int*)pointer.ToPointer() = 42, 1);
+        var received = 0;
+        var result = E2EBindings.InvokePrimitiveReferenceCallback((ref int value) =>
+        {
+            received = value;
+            value = 42;
+        }, 1);
+
+        Assert.Equal(1, received);
 
         Assert.Equal(42, result);
     }

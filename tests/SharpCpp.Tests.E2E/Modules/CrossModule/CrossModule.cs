@@ -37,6 +37,13 @@ public sealed class CrossModuleTests
     }
 
     [Fact]
+    public void Imported_callback_alias_with_ref_parameter_writes_back()
+    {
+        Assert.Equal(5, Library.LibraryBindings.LibraryAdjust((ref int value) => value += 2, 3));
+        Assert.Equal(12, AppBindings.AppAdjust((ref int value) => value *= 4, 3));
+    }
+
+    [Fact]
     public void Imported_records_with_standard_library_members_round_trip()
     {
         using var settings = new LibrarySettings();

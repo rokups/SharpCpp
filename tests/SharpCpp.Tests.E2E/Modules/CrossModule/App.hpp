@@ -34,6 +34,13 @@ inline int app_score_count(const std::unordered_map<int, float, std::hash<int>>&
     return static_cast<int>(scores.size());
 }
 
+/// An imported callback alias with a ref parameter writes back to the native value.
+inline int app_adjust(cross_library::adjust_callback callback, int value)
+{
+    callback(value);
+    return value;
+}
+
 inline void app_report(cross_library::library_widget* widget, cross_library::progress_callback callback, int value)
 {
     widget->set_progress(std::move(callback));

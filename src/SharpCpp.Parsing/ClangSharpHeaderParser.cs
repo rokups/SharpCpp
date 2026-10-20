@@ -2789,14 +2789,46 @@ public sealed partial class ClangSharpHeaderParser
 
     // A reference to a record projected as a managed value crosses as a pointer to the
     // value, as for parameters (see MapParameter); ref-struct projections cross by value.
-    private static BindingType MarkProjectedValueReference(ClangSharp.Type sourceType, BindingType mappedType)
+    // A non-const reference to a primitive or a projected value is a managed ref parameter.
+    // A const reference to a primitive keeps the raw pointer projection.
+    private static BindingType MarkProjectedValueReference(
+        ClangSharp.Type sourceType,
+        BindingType mappedType,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        IReadOnlyDictionary<string, BindingType> genericParameters)
     {
-        return sourceType is LValueReferenceType referenceType &&
-            referenceType.PointeeType.CanonicalType is RecordType &&
+        if (sourceType is not LValueReferenceType referenceType)
+        {
+            return mappedType;
+        }
+
+        var pointeeType = referenceType.PointeeType;
+        var isMutable = !pointeeType.Handle.IsConstQualified;
+        if (pointeeType.CanonicalType is RecordType &&
             mappedType.Kind == BindingTypeKind.Primitive &&
-            !mappedType.Marshaller.IsRefStruct
-                ? mappedType.WithCppIsReference(true)
-                : mappedType;
+            !mappedType.Marshaller.IsRefStruct)
+        {
+            return mappedType.WithCppIsReference(true).WithCppIsMutableReference(isMutable);
+        }
+
+        if (isMutable &&
+            pointeeType.CanonicalType is BuiltinType &&
+            pointeeType.CanonicalType.Handle.kind != CXTypeKind.CXType_Void)
+        {
+            var primitiveType = MapType(pointeeType.Handle, recordsByName, enumsByName, managedTypeOverrides, genericParameters);
+            if (primitiveType.Kind == BindingTypeKind.Primitive &&
+                primitiveType.PrimitiveKind is not (BindingPrimitiveKind.Unsupported or BindingPrimitiveKind.Void))
+            {
+                return primitiveType
+                    .WithCppTypeName(mappedType.CppTypeName)
+                    .WithCppIsReference(true)
+                    .WithCppIsMutableReference(true);
+            }
+        }
+
+        return mappedType;
     }
 
     private static BindingType ApplyAstTemplateArguments(
@@ -2854,7 +2886,11 @@ public sealed partial class ClangSharpHeaderParser
                         recordsByName,
                         enumsByName,
                         managedTypeOverrides,
-                        genericParameters)))
+                        genericParameters),
+                    recordsByName,
+                    enumsByName,
+                    managedTypeOverrides,
+                    genericParameters))
                 .ToArray();
             mappedType = mappedType.WithCallbackSignature(callbackReturnType, callbackParameterTypes);
         }
@@ -5983,8 +6019,16 @@ public sealed partial class ClangSharpHeaderParser
         var parameterTypes = functionType.ParamTypes
             .Select(parameter => FormatCppTypeFromAst(parameter, recordsByName, genericParameters));
         var returnType = FormatCppTypeFromAst(functionType.ReturnType, recordsByName, genericParameters);
-        return $"{returnType}({string.Join(", ", parameterTypes)})";
+        // noexcept is part of the function type, so ManagedCallback<int(int) noexcept> must keep it.
+        var exceptionSpecification = IsNoexceptFunctionType(functionType) ? " noexcept" : string.Empty;
+        return $"{returnType}({string.Join(", ", parameterTypes)}){exceptionSpecification}";
     }
+
+    private static bool IsNoexceptFunctionType(FunctionProtoType functionType) =>
+        functionType.Handle.ExceptionSpecificationType is
+            CXCursor_ExceptionSpecificationKind.CXCursor_ExceptionSpecificationKind_BasicNoexcept or
+            CXCursor_ExceptionSpecificationKind.CXCursor_ExceptionSpecificationKind_DynamicNone or
+            CXCursor_ExceptionSpecificationKind.CXCursor_ExceptionSpecificationKind_NoThrow;
 
     private static bool TryFormatTemplateSpecializationFromAst(
         TemplateSpecializationType templateType,
@@ -7103,6 +7147,13 @@ public sealed partial class ClangSharpHeaderParser
         if (match is null && TryGetParameterDeclarationSourceText(functionCursor, parameterCursor, out var parameterSourceText))
         {
             match = FindSharpCppAttribute(parameterSourceText, "delegate");
+        }
+
+        // `ref` cannot be a generic type argument, so a callback with a ref parameter needs a
+        // declared delegate type.
+        if (parameter.Type.HasCallbackRefParameters)
+        {
+            parameter.UseCallbackDelegate = true;
         }
 
         if (match is null)

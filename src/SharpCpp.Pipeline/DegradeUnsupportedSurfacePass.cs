@@ -1216,11 +1216,8 @@ public static class DegradeUnsupportedSurfacePass
         return $"{SanitizeManagedToken(ownerName)}_{SanitizeManagedToken(functionName)}_{SanitizeManagedToken(parameter.ManagedName)}Callback";
     }
 
-    private static string GetCallbackSignatureKey(BindingType type)
-    {
-        var returnType = type.CallbackReturnType?.UnaliasedManagedTypeName ?? "void";
-        return string.Join("|", returnType, string.Join(";", type.CallbackParameterTypes.Select(static parameter => parameter.UnaliasedManagedTypeName)));
-    }
+    // The renderer uses the same key to find delegate declarations that do not agree.
+    private static string GetCallbackSignatureKey(BindingType type) => type.CallbackSignatureKey;
 
     private static bool IsGeneratedCallbackValueSupported(BindingType type, IReadOnlyDictionary<string, RecordBinding> recordsById)
     {

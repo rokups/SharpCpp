@@ -141,7 +141,11 @@ public sealed record BindingMetadataTypeReference(
     IReadOnlyList<BindingMetadataTypeReference>? CallbackParameterTypes = null,
     BindingMetadataTypeReference? FixedArrayElementType = null,
     int? FixedArrayLength = null,
-    BindingMetadataTypeReference? DynamicArrayElementType = null);
+    BindingMetadataTypeReference? DynamicArrayElementType = null,
+    // Set only on callback parameter types: the parameter crosses as a pointer to its ABI
+    // value, and a mutable one is a managed ref parameter.
+    bool? CppIsReference = null,
+    bool? CppIsMutableReference = null);
 
 public sealed record BindingMetadataExportOptions(
     string PackageId,

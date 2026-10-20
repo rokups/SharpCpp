@@ -604,7 +604,9 @@ public sealed class BindingMetadataImportCatalog
             ? BindingType.Void
             : CreateAliasTargetType(recordsByName, enumsByName, document, typeReference.CallbackReturnType);
         var parameterTypes = typeReference.CallbackParameterTypes?
-            .Select(argument => CreateAliasTargetType(recordsByName, enumsByName, document, argument))
+            .Select(argument => CreateAliasTargetType(recordsByName, enumsByName, document, argument)
+                .WithCppIsReference(argument.CppIsReference == true)
+                .WithCppIsMutableReference(argument.CppIsMutableReference == true))
             .ToArray() ?? Array.Empty<BindingType>();
 
         return BindingType.CreateCallback(

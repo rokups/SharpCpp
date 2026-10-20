@@ -41,6 +41,14 @@ inline int use_point_callback(std::function<int(const point2&)> callback)
     return callback(point2{3, 4});
 }
 
+/// A non-const reference to a configured value struct is a managed ref parameter.
+inline int invoke_point_ref_callback(std::function<void(point2&)> callback, int x, int y)
+{
+    point2 value{x, y};
+    callback(value);
+    return value.x * 1000 + value.y;
+}
+
 /// Configured value parameters and returns spelled unqualified inside their namespace.
 inline int point_sum(const point2& value)
 {

@@ -167,66 +167,131 @@ decltype(auto) InvokeCallbackWithExplicitSignature(TCallable&& callable, TCppArg
         std::forward<TCppArgs>(cppArguments)...);
 }
 
-template <typename TFunction, typename TSignature>
-struct ManagedCallbackWrapperFactory;
-
-template <typename TFunction, typename TResult, typename... TArgs>
-struct ManagedCallbackWrapperFactory<TFunction, TResult(TArgs...)>
+template <typename TSignature>
+struct ManagedCallbackSignature
 {
-    using invoke_pointer = managed_callback_invoke_pointer_t<TResult(TArgs...)>;
-    using argument_tuple = std::tuple<TArgs...>;
-
-    static TFunction Create(SharpCpp::ManagedCallbackHandleAbi handle)
-    {
-        if (handle.callback == nullptr)
-        {
-            ReleaseManagedCallbackState(handle.state);
-            return TFunction{};
-        }
-
-        auto lifetime = std::shared_ptr<void>(handle.state, [](void* state)
-        {
-            ReleaseManagedCallbackState(state);
-        });
-        auto callback = reinterpret_cast<invoke_pointer>(handle.callback);
-
-        return TFunction([callback, lifetime = std::move(lifetime)](TArgs... cppArguments) -> TResult
-        {
-            auto invoke = [callback, state = lifetime.get()](callback_parameter_abi_t<TArgs>... abiArguments) -> callback_return_abi_t<TResult>
-            {
-                return callback(state, abiArguments...);
-            };
-
-            if constexpr (std::is_void_v<TResult>)
-            {
-                InvokeCallbackWithExplicitSignature<argument_tuple>(
-                    invoke,
-                    std::forward<TArgs>(cppArguments)...);
-                return;
-            }
-            else
-            {
-                auto result = InvokeCallbackWithExplicitSignature<argument_tuple>(
-                    invoke,
-                    std::forward<TArgs>(cppArguments)...);
-                return ReturnMarshaller<TResult>{}.ConvertToCpp(result);
-            }
-        });
-    }
+    using type = TSignature;
 };
 
-template <typename TFunction, typename TResult, typename... TArgs>
-struct ManagedCallbackWrapperFactory<TFunction, TResult(TArgs...) noexcept>
-    : ManagedCallbackWrapperFactory<TFunction, TResult(TArgs...)>
+template <typename TResult, typename... TArgs>
+struct ManagedCallbackSignature<TResult(TArgs...) noexcept>
 {
+    using type = TResult(TArgs...);
 };
+
+template <typename T>
+inline constexpr bool is_managed_callback_v = false;
+
+template <typename TSignature>
+inline constexpr bool is_managed_callback_v<SharpCpp::ManagedCallback<TSignature>> = true;
 
 template <typename TFunction, typename TSignature>
 TFunction CreateManagedCallbackWrapper(SharpCpp::ManagedCallbackHandleAbi handle)
 {
-    return ManagedCallbackWrapperFactory<TFunction, remove_cvref_t<TSignature>>::Create(handle);
+    // The noexcept form is a separate class, so it takes the handle directly.
+    if constexpr (is_managed_callback_v<TFunction>)
+    {
+        return TFunction(handle);
+    }
+    else
+    {
+        using signature = typename ManagedCallbackSignature<remove_cvref_t<TSignature>>::type;
+        SharpCpp::ManagedCallback<signature> callback(handle);
+        if (!callback)
+        {
+            return TFunction{};
+        }
+
+        return TFunction(std::move(callback));
+    }
+}
 }
 
+// A copyable function object that calls a managed delegate. It holds only the trampoline
+// pointer and a shared reference to the GCHandle state, so it fits a 32-byte small buffer
+// (for example ea::fixed_function<4 * sizeof(void*), ...>). The last copy releases the
+// GCHandle when it is destroyed.
+template <typename TResult, typename... TArgs>
+class ManagedCallback<TResult(TArgs...)>
+{
+public:
+    using invoke_pointer = detail::managed_callback_invoke_pointer_t<TResult(TArgs...)>;
+
+    ManagedCallback() noexcept = default;
+
+    // Takes ownership of the handle state. A handle without a trampoline is empty, and its
+    // state is released immediately.
+    explicit ManagedCallback(ManagedCallbackHandleAbi handle)
+    {
+        if (handle.callback == nullptr)
+        {
+            detail::ReleaseManagedCallbackState(handle.state);
+            return;
+        }
+
+        lifetime_ = std::shared_ptr<void>(handle.state, [](void* state)
+        {
+            detail::ReleaseManagedCallbackState(state);
+        });
+        callback_ = reinterpret_cast<invoke_pointer>(handle.callback);
+    }
+
+    explicit operator bool() const noexcept
+    {
+        return callback_ != nullptr;
+    }
+
+    TResult operator()(TArgs... cppArguments) const
+    {
+        if (callback_ == nullptr)
+        {
+            FatalError("SharpCpp: an empty ManagedCallback was invoked.");
+        }
+
+        auto invoke = [callback = callback_, state = lifetime_.get()](detail::callback_parameter_abi_t<TArgs>... abiArguments)
+            -> detail::callback_return_abi_t<TResult>
+        {
+            return callback(state, abiArguments...);
+        };
+
+        if constexpr (std::is_void_v<TResult>)
+        {
+            detail::InvokeCallbackWithExplicitSignature<std::tuple<TArgs...>>(
+                invoke,
+                std::forward<TArgs>(cppArguments)...);
+        }
+        else
+        {
+            auto result = detail::InvokeCallbackWithExplicitSignature<std::tuple<TArgs...>>(
+                invoke,
+                std::forward<TArgs>(cppArguments)...);
+            return ReturnMarshaller<TResult>{}.ConvertToCpp(result);
+        }
+    }
+
+private:
+    invoke_pointer callback_{};
+    std::shared_ptr<void> lifetime_;
+};
+
+template <typename TResult, typename... TArgs>
+class ManagedCallback<TResult(TArgs...) noexcept> : public ManagedCallback<TResult(TArgs...)>
+{
+public:
+    using ManagedCallback<TResult(TArgs...)>::ManagedCallback;
+
+    // A managed exception ends the process (Environment.FailFast), so no exception leaves the call.
+    TResult operator()(TArgs... cppArguments) const noexcept
+    {
+        return ManagedCallback<TResult(TArgs...)>::operator()(std::forward<TArgs>(cppArguments)...);
+    }
+};
+
+static_assert(sizeof(ManagedCallback<void()>) == 3 * sizeof(void*),
+    "ManagedCallback must stay three pointers wide to fit a 4 * sizeof(void*) small buffer.");
+
+namespace detail
+{
 // Converts a by-value result that the invoker keeps in a local. The result goes in as an
 // rvalue when the marshaller accepts one, the same as a direct call on the prvalue.
 // Owning marshallers that take only cpp_type& get the lvalue and steal from it.

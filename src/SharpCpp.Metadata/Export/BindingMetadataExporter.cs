@@ -295,7 +295,7 @@ public static class BindingMetadataExporter
                 : CreateTypeReference(compilation, type.CallbackReturnType, fullyQualifyConcrete),
             type.CallbackParameterTypes.Count == 0
                 ? null
-                : type.CallbackParameterTypes.Select(argument => CreateTypeReference(compilation, argument, fullyQualifyConcrete)).ToArray(),
+                : type.CallbackParameterTypes.Select(argument => CreateCallbackParameterTypeReference(compilation, argument, fullyQualifyConcrete)).ToArray(),
             type.FixedArrayElementType is null
                 ? null
                 : CreateTypeReference(compilation, type.FixedArrayElementType, fullyQualifyConcrete),
@@ -303,6 +303,17 @@ public static class BindingMetadataExporter
             type.DynamicArrayElementType is null
                 ? null
                 : CreateTypeReference(compilation, type.DynamicArrayElementType, fullyQualifyConcrete));
+    }
+
+    // A dependent module needs the reference shape to render the callback trampoline.
+    private static BindingMetadataTypeReference CreateCallbackParameterTypeReference(BindingCompilation? compilation, BindingType type, bool fullyQualifyConcrete)
+    {
+        var reference = CreateTypeReference(compilation, type, fullyQualifyConcrete);
+        return reference with
+        {
+            CppIsReference = type.Marshaller.CppIsReference ? true : null,
+            CppIsMutableReference = type.Marshaller.CppIsMutableReference ? true : null
+        };
     }
 
     private static string FormatQualifiedConcreteManagedTypeName(BindingCompilation compilation, BindingType type)

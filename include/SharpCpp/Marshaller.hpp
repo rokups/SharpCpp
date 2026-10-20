@@ -43,6 +43,11 @@ struct ManagedCallbackHandleAbi
     void* callback{};
 };
 
+// A named, copyable function object over a managed delegate. SharpCpp/ManagedCallback.hpp
+// holds the definition.
+template <class TSignature>
+class ManagedCallback;
+
 struct NativeArrayAbi
 {
     void* handle{};
@@ -1740,6 +1745,30 @@ struct Marshaller<std::function<TSignature>&&>
 template <class TSignature>
 struct Marshaller<const std::function<TSignature>&>
     : ManagedCallbackConstReferenceMarshallerBase<std::function<TSignature>, TSignature>
+{
+};
+
+template <class TSignature>
+struct [[sharpcpp::managed_type(callback = true)]] Marshaller<ManagedCallback<TSignature>>
+    : ManagedCallbackMarshallerBase<ManagedCallback<TSignature>, TSignature>
+{
+};
+
+template <class TSignature>
+struct Marshaller<const ManagedCallback<TSignature>>
+    : ManagedCallbackMarshallerBase<ManagedCallback<TSignature>, TSignature>
+{
+};
+
+template <class TSignature>
+struct Marshaller<ManagedCallback<TSignature>&&>
+    : ManagedCallbackMarshallerBase<ManagedCallback<TSignature>, TSignature>
+{
+};
+
+template <class TSignature>
+struct Marshaller<const ManagedCallback<TSignature>&>
+    : ManagedCallbackConstReferenceMarshallerBase<ManagedCallback<TSignature>, TSignature>
 {
 };
 

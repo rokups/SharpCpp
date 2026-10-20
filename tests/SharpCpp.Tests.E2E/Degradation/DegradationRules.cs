@@ -88,6 +88,8 @@ public sealed partial class DegradationRuleTests
         Assert.Null(typeof(E2EBindings).GetMethod("InvokeViewCallback"));
         Assert.Null(typeof(E2EBindings).GetMethod("FirstSharedDelegate"));
         Assert.Null(typeof(E2EBindings).GetMethod("SecondSharedDelegate"));
+        Assert.Null(typeof(E2EBindings).GetMethod("RefSharedDelegate"));
+        Assert.Null(typeof(E2EBindings).GetMethod("ValueSharedDelegate"));
         Assert.Null(typeof(E2EBindings).GetMethod("ReplaceCallback"));
     }
 

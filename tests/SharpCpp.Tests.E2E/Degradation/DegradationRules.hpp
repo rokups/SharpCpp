@@ -213,6 +213,18 @@ inline void second_shared_delegate([[sharpcpp::delegate("SharedDelegate")]] std:
     callback(1.0f);
 }
 
+/// One delegate name requested for a ref parameter and for a by-value parameter of the same type.
+inline void ref_shared_delegate([[sharpcpp::delegate("RefSharedDelegate")]] std::function<void(int&)> callback)
+{
+    int value = 1;
+    callback(value);
+}
+
+inline void value_shared_delegate([[sharpcpp::delegate("RefSharedDelegate")]] std::function<void(int)> callback)
+{
+    callback(1);
+}
+
 /// A renamed assignment operator is a method.
 struct assignable
 {

@@ -12,6 +12,14 @@
 namespace cross_library
 {
 using progress_callback = std::function<void(int)>;
+/// The dependent module sees the ref parameter through the imported alias.
+using adjust_callback = std::function<void(int&)>;
+
+inline int library_adjust(adjust_callback callback, int value)
+{
+    callback(value);
+    return value;
+}
 
 struct library_settings
 {

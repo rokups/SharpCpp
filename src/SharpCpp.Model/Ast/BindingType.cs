@@ -40,6 +40,10 @@ public sealed record MarshallerDescriptor(
     public bool CppPointerIsRecordValueProjection { get; init; }
     public bool CppIsReference { get; init; }
 
+    // A non-const lvalue reference. A callback parameter of this kind is a managed ref
+    // parameter, and the callee writes the managed value back to the native reference.
+    public bool CppIsMutableReference { get; init; }
+
     // A secondary-base pointer or reference parameter/return typed as the base's managed
     // interface (I{Base}); set by SecondaryBaseViewPass.
     public bool ManagedIsSecondaryBaseView { get; init; }
@@ -607,6 +611,44 @@ public sealed class BindingType
             return this;
         return CopyWithMarshaller(Marshaller with { CppIsReference = value });
     }
+
+    public BindingType WithCppIsMutableReference(bool value)
+    {
+        if (Marshaller.CppIsMutableReference == value)
+            return this;
+        return CopyWithMarshaller(Marshaller with { CppIsMutableReference = value });
+    }
+
+    // A callback parameter that crosses as a pointer to its ABI value and arrives in the
+    // managed delegate as `ref T`. `ref` is not a valid generic type argument, so a callback
+    // with such a parameter needs a declared delegate type and not Action/Func.
+    public bool IsCallbackRefParameter =>
+        IsCallbackValueReference &&
+        Marshaller.CppIsMutableReference;
+
+    // A callback parameter that crosses as a pointer to its ABI value. A const reference
+    // arrives in the managed delegate by value, a mutable one as `ref T`.
+    public bool IsCallbackValueReference =>
+        Kind == BindingTypeKind.Primitive &&
+        Marshaller.CppIsReference &&
+        !Marshaller.IsRefStruct;
+
+    // Identifies the managed delegate shape of a callback type. Two callbacks with the same key
+    // can share one delegate declaration.
+    public string CallbackSignatureKey
+    {
+        get
+        {
+            var returnType = CallbackReturnType?.UnaliasedManagedTypeName ?? "void";
+            return string.Join("|", returnType, string.Join(";", CallbackParameterTypes.Select(static parameter =>
+                parameter.IsCallbackRefParameter ? $"ref {parameter.UnaliasedManagedTypeName}&" :
+                parameter.IsCallbackValueReference ? $"{parameter.UnaliasedManagedTypeName}&" :
+                parameter.UnaliasedManagedTypeName)));
+        }
+    }
+
+    public bool HasCallbackRefParameters =>
+        IsCallback && CallbackParameterTypes.Any(static parameter => parameter.IsCallbackRefParameter);
 
     public BindingType WithSecondaryBaseView(bool value)
     {
