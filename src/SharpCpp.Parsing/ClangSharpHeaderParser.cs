@@ -1725,6 +1725,7 @@ public sealed partial class ClangSharpHeaderParser
             PointerElementPointeeIsConst = IsPointerElementPointeeConst(fieldDecl.Type.Handle)
         };
         field.ReturnsOwnedHandle = ShouldReturnOwnedHandle(fieldDecl.Type, field.Type, managedTypeOverrides, preferReturnOverride: false);
+        MarkOwnedValueFieldGetter(field, fieldDecl.Type, managedTypeOverrides);
         if (isFunctionPointer)
         {
             field.SetMetadata(MetadataKeys.FunctionPointerField, true);
@@ -1974,6 +1975,7 @@ public sealed partial class ClangSharpHeaderParser
             PointerElementPointeeIsConst = IsPointerElementPointeeConst(leafFieldDecl.Type.Handle)
         };
         field.ReturnsOwnedHandle = ShouldReturnOwnedHandle(leafFieldDecl.Type, field.Type, managedTypeOverrides, preferReturnOverride: false);
+        MarkOwnedValueFieldGetter(field, leafFieldDecl.Type, managedTypeOverrides);
         field.SetMetadata(MetadataKeys.NativeFieldAccessExpression, accessPath);
         field.SetMetadata(MetadataKeys.DeclarationDisplayText, GetDeclarationDisplayText(leafFieldDecl));
         ApplyDeclarationFacts(leafFieldDecl, field);
@@ -2448,6 +2450,30 @@ public sealed partial class ClangSharpHeaderParser
 
     private static bool TypeIsLValueReference(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_LValueReference;
     private static bool TypeIsAnyReference(CXType type) => type.TypeClass is CX_TypeClass.CX_TypeClass_LValueReference or CX_TypeClass.CX_TypeClass_RValueReference;
+
+    // A field that holds a value (not a pointer or a reference) and has an owning ReturnMarshaller.
+    // When the field does not borrow record storage, the native getter converts the value with the
+    // ReturnMarshaller and allocates an owned copy. The renderer decides about the storage and reads
+    // this mark, because only the renderer knows if the field borrows its storage.
+    private static void MarkOwnedValueFieldGetter(
+        FieldBinding field,
+        ClangSharp.Type fieldType,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
+    {
+        var canonical = fieldType.Handle.CanonicalType;
+        if (field.ReturnsOwnedHandle ||
+            field.Type.IsFixedArray ||
+            canonical.kind == CXTypeKind.CXType_ConstantArray ||
+            TypeIsAnyReference(canonical) ||
+            TypeIsPointer(canonical) ||
+            !ShouldReturnOwnedHandle(fieldType, field.Type, managedTypeOverrides))
+        {
+            return;
+        }
+
+        field.SetMetadata(MetadataKeys.OwnedValueFieldGetter, true);
+    }
+
     private static bool TypeIsPointer(CXType type) => type.TypeClass == CX_TypeClass.CX_TypeClass_Pointer;
 
     private static int GetPointerDepth(CXType type)
@@ -4643,6 +4669,43 @@ public sealed partial class ClangSharpHeaderParser
             : ProjectVisibleTemplateArguments(
                 rawGenericArguments,
                 GetVisibleTemplateParameterIndices(managedTypeOverride, rawGenericArguments.Count));
+        if (managedTypeOverride.HandleArgumentOverride is { } handleArgumentOverride &&
+            configuredGenericArguments is [var argumentKindSelector])
+        {
+            if (argumentKindSelector.Kind == BindingTypeKind.Handle)
+            {
+                if (argumentKindSelector.RecordId is null)
+                {
+                    throw new NotSupportedException(
+                        $"Configured managed_type on '{effectiveCppTypeName}' needs a wrapper record for its handle argument '{argumentKindSelector.CppTypeName}'.");
+                }
+
+                // The native handle path copies the argument, so a move-only or abstract record
+                // cannot use it.
+                var handleRecord = recordsByName.Values.FirstOrDefault(candidate =>
+                    string.Equals(candidate.SymbolId, argumentKindSelector.RecordId, StringComparison.Ordinal));
+                if (handleRecord is { IsNonCopyable: true } or { IsAbstract: true })
+                {
+                    throw new NotSupportedException(
+                        $"Configured managed_type on '{effectiveCppTypeName}' needs a copyable handle argument, but '{argumentKindSelector.CppTypeName}' is move-only or abstract.");
+                }
+
+                return CreateConfiguredOrWrapperType(
+                    handleArgumentOverride,
+                    recordsByName,
+                    enumsByName,
+                    managedTypeOverrides,
+                    genericParameters,
+                    resolvedCppTypeName);
+            }
+
+            if (!IsBlittableValueArgument(argumentKindSelector))
+            {
+                throw new NotSupportedException(
+                    $"Configured managed_type on '{effectiveCppTypeName}' needs a handle or a blittable value argument, not '{argumentKindSelector.CppTypeName}'.");
+            }
+        }
+
         if (ShouldInstantiateConfiguredGenericType(managedTypeOverride) &&
             rawGenericArguments.Count == 0 &&
             managedTypeOverride.PublicTypeName.Contains('{', StringComparison.Ordinal))
@@ -4980,6 +5043,38 @@ public sealed partial class ClangSharpHeaderParser
         return string.Join(", ", Enumerable.Range(0, count).Select(static index => $"{{{index}}}"));
     }
 
+    // A value argument of an optional crosses in the OptionalAbi<T> struct, so the managed type
+    // must be an unmanaged struct. This holds for a primitive, for an enum (the native
+    // marshaller uses the exact underlying type of the enum), and for a configured struct whose
+    // managed type is also its marshaller type (a value that crosses as itself).
+    private static bool IsBlittableValueArgument(BindingType argument)
+    {
+        if (argument.IsCallback ||
+            argument.IsFixedArray ||
+            argument.IsDynamicArray ||
+            argument.Marshaller.IsRefStruct ||
+            argument.GenericArguments.Count != 0)
+        {
+            return false;
+        }
+
+        if (argument.Kind == BindingTypeKind.Enum)
+        {
+            return argument.ManagedMarshaller is null && argument.Marshaller.MarshallerTypeName is null;
+        }
+
+        if (argument.Kind != BindingTypeKind.Primitive ||
+            argument.ManagedMarshaller is not null ||
+            argument.PrimitiveKind is BindingPrimitiveKind.Void or BindingPrimitiveKind.Boolean ||
+            argument.Marshaller.PublicTypeName is "string" or "object")
+        {
+            return false;
+        }
+
+        return argument.Marshaller.MarshallerTypeName is null ||
+            string.Equals(argument.Marshaller.MarshallerTypeName, argument.Marshaller.PublicTypeName, StringComparison.Ordinal);
+    }
+
     private static BindingType CreateProjectedHandleType(
         ManagedTypeOverride managedTypeOverride,
         string effectiveCppTypeName,
@@ -5016,7 +5111,14 @@ public sealed partial class ClangSharpHeaderParser
 
         if (projectedRecord is not null)
         {
-            projectedHandleType.SetManagedTypeFormatOverride(projectedRecord.ManagedTypeFormat ?? projectedRecord.ManagedName);
+            // A nullable public_type ("{0}?") keeps its nullable annotation on the projected wrapper.
+            var projectedFormat = projectedRecord.ManagedTypeFormat ?? projectedRecord.ManagedName;
+            if (managedTypeOverride.PublicTypeName.EndsWith('?') && !projectedFormat.EndsWith('?'))
+            {
+                projectedFormat += "?";
+            }
+
+            projectedHandleType.SetManagedTypeFormatOverride(projectedFormat);
         }
 
         return projectedHandleType;

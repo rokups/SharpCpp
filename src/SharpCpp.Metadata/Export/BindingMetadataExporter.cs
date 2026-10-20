@@ -263,7 +263,7 @@ public static class BindingMetadataExporter
                 field.IsReadOnly,
                 field.IsStatic,
                 IsConstructor: false,
-                GetterReturnsOwnedHandle: field.ReturnsOwnedHandle),
+                GetterReturnsOwnedHandle: FieldGetterOwnership.GetterReturnsOwnedHandle(compilation, field)),
             _ => throw new NotSupportedException($"Metadata export does not support member kind '{member.Kind}'.")
         };
     }

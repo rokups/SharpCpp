@@ -13,6 +13,7 @@
 #include <map>
 #include <memory>
 #include <new>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -1331,6 +1332,209 @@ private:
     std::vector<TValue> storage_;
 };
 
+namespace detail
+{
+template <class TValue, class = void>
+struct IsOptionalValueAbi : std::false_type {};
+
+template <class TValue>
+struct IsOptionalValueAbi<TValue, std::void_t<typename Marshaller<TValue>::abi_type>>
+    : std::bool_constant<
+          std::is_trivially_copyable_v<typename Marshaller<TValue>::abi_type> &&
+          !std::is_pointer_v<typename Marshaller<TValue>::abi_type>>
+{
+};
+
+// The ABI value type inside the optional ABI struct of the value path.
+template <class TValue, bool IsEnum = std::is_enum_v<TValue>>
+struct OptionalValueAbiType
+{
+    using type = typename Marshaller<TValue>::abi_type;
+};
+
+template <class TValue>
+struct OptionalValueAbiType<TValue, true>
+{
+    using type = std::underlying_type_t<TValue>;
+};
+
+template <class TValue, class = void>
+struct IsOptionalHandleAbi : std::false_type {};
+
+template <class TValue>
+struct IsOptionalHandleAbi<TValue, std::void_t<typename Marshaller<TValue>::abi_type>>
+    : std::bool_constant<
+          std::is_class_v<TValue> &&
+          std::is_copy_constructible_v<TValue> &&
+          std::is_same_v<typename Marshaller<TValue>::abi_type, TValue*>>
+{
+};
+}
+
+// The value path of an optional: Marshaller<T>::abi_type is trivially copyable and is not a
+// pointer. Such an optional crosses the ABI by value as SharpCpp.Support.OptionalAbi<T>.
+template <class TValue>
+inline constexpr bool is_optional_value_abi_v = detail::IsOptionalValueAbi<TValue>::value;
+
+// The handle path of an optional: T is a copyable class that crosses the ABI as T*. Such an
+// optional crosses as a nullable handle, and a null pointer is an empty optional.
+template <class TValue>
+inline constexpr bool is_optional_handle_abi_v = detail::IsOptionalHandleAbi<TValue>::value;
+
+// An optional projected value, bound to Nullable<TManaged> through
+// SharpCpp.Support.OptionalAbiMarshaller<T>. The value crosses in Marshaller<T>::abi_type form
+// next to a has_value flag, so the managed struct must match that abi_type layout. When the
+// optional is empty, the value field is value-initialized.
+template <class TOptional, class TValue>
+struct OptionalValueMarshallerBase
+{
+    using cpp_type = TOptional;
+    using value_marshaller_type = Marshaller<TValue>;
+    // An enum crosses in its exact underlying type. The default enum marshaller widens a narrow
+    // underlying type to 32 bits, but the managed OptionalAbi<TEnum> has the layout of the
+    // managed enum, which has the underlying type of the native enum.
+    using value_abi_type = typename detail::OptionalValueAbiType<TValue>::type;
+
+    static_assert(
+        is_optional_value_abi_v<TValue>,
+        "OptionalValueMarshallerBase<TOptional, T> passes Marshaller<T>::abi_type by value, so the "
+        "abi_type must be trivially copyable and must not be a pointer.");
+
+    struct abi_type
+    {
+        value_abi_type value{};
+        bool has_value{};
+    };
+
+    static_assert(
+        std::is_trivially_copyable_v<abi_type>,
+        "OptionalValueMarshallerBase<TOptional, T>::abi_type crosses the ABI by value, so it must be "
+        "trivially copyable.");
+
+    abi_type ConvertToAbi(const cpp_type& value) noexcept
+    {
+        abi_type result{};
+        if (value.has_value())
+        {
+            if constexpr (std::is_enum_v<TValue>)
+                result.value = static_cast<value_abi_type>(*value);
+            else
+                result.value = value_marshaller_.ConvertToAbi(*value);
+            result.has_value = true;
+        }
+        return result;
+    }
+
+    cpp_type ConvertToCpp(abi_type value) noexcept
+    {
+        if (!value.has_value)
+            return cpp_type{};
+        if constexpr (std::is_enum_v<TValue>)
+            return cpp_type{static_cast<TValue>(value.value)};
+        else
+            return cpp_type{value_marshaller_.ConvertToCpp(value.value)};
+    }
+
+private:
+    value_marshaller_type value_marshaller_;
+};
+
+// A `const optional<T>&` parameter of the value path. The callee gets a reference to native
+// storage that lives until the call returns.
+template <class TOptional, class TValue>
+struct OptionalValueConstReferenceMarshallerBase
+{
+    using cpp_type = const TOptional&;
+    using value_marshaller_type = OptionalValueMarshallerBase<TOptional, TValue>;
+    using abi_type = typename value_marshaller_type::abi_type;
+
+    abi_type ConvertToAbi(cpp_type value) noexcept
+    {
+        return value_marshaller_.ConvertToAbi(value);
+    }
+
+    cpp_type ConvertToCpp(abi_type value) noexcept
+    {
+        // The storage is built in place: an optional of a type that is not assignable has no
+        // usable assignment operator.
+        auto converted = value_marshaller_.ConvertToCpp(value);
+        storage_.reset();
+        if (converted.has_value())
+            storage_.emplace(std::move(*converted));
+        return storage_;
+    }
+
+private:
+    value_marshaller_type value_marshaller_;
+    TOptional storage_{};
+};
+
+// An optional handle, bound to the nullable managed wrapper of T. The optional crosses as T*,
+// and a null pointer is an empty optional. A parameter copies the pointee into the optional. A
+// return allocates an owned copy of the value, as OwnedHandleMarshallerBase does, and gives a
+// null pointer when the optional is empty.
+template <class TOptional, class TValue>
+struct OptionalHandleMarshallerBase
+{
+    using cpp_type = TOptional;
+    using abi_type = TValue*;
+
+    static_assert(
+        is_optional_handle_abi_v<TValue>,
+        "OptionalHandleMarshallerBase<TOptional, T> passes T as a handle, so T must be a copyable "
+        "class whose Marshaller<T>::abi_type is T*.");
+
+    abi_type ConvertToAbi(const cpp_type& value) noexcept
+    {
+        return value.has_value() ? new TValue(*value) : nullptr;
+    }
+
+    abi_type ConvertToAbi(cpp_type&& value) noexcept
+    {
+        return value.has_value() ? new TValue(std::move(*value)) : nullptr;
+    }
+
+    cpp_type ConvertToCpp(abi_type value) noexcept
+    {
+        if (value == nullptr)
+            return cpp_type{};
+        return cpp_type{*value};
+    }
+};
+
+// A `const optional<T>&` parameter of the handle path. The callee gets a reference to native
+// storage that lives until the call returns.
+template <class TOptional, class TValue>
+struct OptionalHandleConstReferenceMarshallerBase
+{
+    using cpp_type = const TOptional&;
+    using abi_type = TValue*;
+
+    // The pointer borrows the referenced optional; nothing is allocated.
+    abi_type ConvertToAbi(cpp_type value) noexcept
+    {
+        return value.has_value() ? const_cast<TValue*>(&*value) : nullptr;
+    }
+
+    cpp_type ConvertToCpp(abi_type value) noexcept
+    {
+        // The storage is built in place: an optional of a type that is not assignable has no
+        // usable assignment operator.
+        storage_.reset();
+        if (value != nullptr)
+            storage_.emplace(*value);
+        return storage_;
+    }
+
+private:
+    TOptional storage_{};
+};
+
+template <class TOptional, class TValue>
+struct OptionalHandleReturnMarshallerBase : OptionalHandleMarshallerBase<TOptional, TValue>
+{
+};
+
 template <class TSignature>
 struct [[sharpcpp::managed_type(callback = true)]] Marshaller<std::function<TSignature>>
     : ManagedCallbackMarshallerBase<std::function<TSignature>, TSignature>
@@ -1946,6 +2150,30 @@ struct Marshaller<std::vector<T, TAllocator>*> : OwnedHandlePointerMarshallerBas
 template <typename T, typename TAllocator>
 struct Marshaller<const std::vector<T, TAllocator>*> : OwnedHandleConstPointerMarshallerBase<std::vector<T, TAllocator>> {};
 
+template <typename T>
+    requires is_optional_value_abi_v<T>
+struct [[sharpcpp::managed_type(
+    public_type = "{0}?",
+    managed_marshaller = "global::SharpCpp.Support.OptionalAbiMarshaller<{0}>"
+)]]
+Marshaller<std::optional<T>> : OptionalValueMarshallerBase<std::optional<T>, T> {};
+
+template <typename T>
+    requires is_optional_value_abi_v<T>
+struct Marshaller<const std::optional<T>&> : OptionalValueConstReferenceMarshallerBase<std::optional<T>, T> {};
+
+template <typename T>
+    requires is_optional_handle_abi_v<T>
+struct [[sharpcpp::managed_type(
+    public_type = "{0}?",
+    projection = true
+)]]
+Marshaller<std::optional<T>> : OptionalHandleMarshallerBase<std::optional<T>, T> {};
+
+template <typename T>
+    requires is_optional_handle_abi_v<T>
+struct Marshaller<const std::optional<T>&> : OptionalHandleConstReferenceMarshallerBase<std::optional<T>, T> {};
+
 template <typename T, std::size_t N>
 struct [[sharpcpp::managed_type(
     public_type = "Std.Array<{0}>",
@@ -2189,6 +2417,11 @@ struct [[sharpcpp::managed_type(
 template <typename T, typename TAllocator>
 struct [[sharpcpp::managed_type(return_ownership = "owning")]]
 ReturnMarshaller<std::vector<T, TAllocator>> : OwnedHandleReturnMarshallerBase<std::vector<T, TAllocator>> {};
+
+template <typename T>
+    requires is_optional_handle_abi_v<T>
+struct [[sharpcpp::managed_type(return_ownership = "owning")]]
+ReturnMarshaller<std::optional<T>> : OptionalHandleReturnMarshallerBase<std::optional<T>, T> {};
 
 template <typename T, std::size_t N>
 struct [[sharpcpp::managed_type(return_ownership = "owning")]]

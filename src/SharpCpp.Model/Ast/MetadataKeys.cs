@@ -3,6 +3,12 @@ namespace SharpCpp.Model.Ast;
 public static class MetadataKeys
 {
     public const string FunctionPointerField = "function_pointer_field";
+
+    /// <summary>
+    /// A value field whose ReturnMarshaller is owning. When the field does not borrow record storage,
+    /// the native getter allocates an owned copy, so the managed getter owns the result.
+    /// </summary>
+    public const string OwnedValueFieldGetter = "owned_value_field_getter";
     public const string BitField = "bit_field";
     public const string ExposeNativeFunctionPointer = "expose_native_function_pointer";
     public const string CanonicalCppIdentity = "canonical_cpp_identity";

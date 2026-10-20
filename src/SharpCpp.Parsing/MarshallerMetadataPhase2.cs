@@ -1337,8 +1337,16 @@ public static class MarshallerMetadataPhase2
                 record.GetMetadata<string>(MetadataKeys.ManagedMarshaller));
         }
 
+        // A nullable projection ("{0}?" over a handle) keeps its nullable annotation.
+        var isNullableProjection = type.ManagedTypeFormatOverride?.EndsWith('?') == true;
         type = ProjectManagedGenericArguments(type, record);
-        type.SetManagedTypeFormatOverride(GetManagedTypeFormatOverride(record));
+        var managedTypeFormatOverride = GetManagedTypeFormatOverride(record);
+        if (isNullableProjection && !managedTypeFormatOverride.EndsWith('?'))
+        {
+            managedTypeFormatOverride += "?";
+        }
+
+        type.SetManagedTypeFormatOverride(managedTypeFormatOverride);
         return type;
     }
 

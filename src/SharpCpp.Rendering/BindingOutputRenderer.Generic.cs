@@ -4249,7 +4249,7 @@ public static partial class BindingOutputRenderer
         RecordGenericInstantiationBinding instantiation,
         bool useNativeArguments)
     {
-        return new FieldBinding(
+        var concreteField = new FieldBinding(
             field.SymbolId,
             field.NativeName,
             field.ManagedName,
@@ -4261,6 +4261,13 @@ public static partial class BindingOutputRenderer
             AccessModifier = field.AccessModifier,
             ReturnsOwnedHandle = field.ReturnsOwnedHandle
         };
+
+        if (field.GetMetadata<bool>(MetadataKeys.OwnedValueFieldGetter))
+        {
+            concreteField.SetMetadata(MetadataKeys.OwnedValueFieldGetter, true);
+        }
+
+        return concreteField;
     }
 
     private static string GetGenericFieldGetterEntryPointName(BindingCompilation compilation, RecordBinding record, FieldBinding field, RecordGenericInstantiationBinding instantiation) =>

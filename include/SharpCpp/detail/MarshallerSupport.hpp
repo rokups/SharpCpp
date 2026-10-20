@@ -39,6 +39,28 @@ struct has_clear<T, std::void_t<decltype(std::declval<T&>().clear())>> : std::tr
 template <typename T>
 inline constexpr bool has_clear_v = has_clear<T>::value;
 
+// True for an optional-like type (has_value, reset, emplace) whose value type is not assignable.
+// The assignment operator of eastl::optional is not constrained, so the check uses the value type.
+template <typename T, typename = void>
+struct is_emplace_only_optional : std::false_type {};
+
+template <typename T>
+struct is_emplace_only_optional<
+    T,
+    std::void_t<
+        typename T::value_type,
+        decltype(std::declval<T&>().has_value()),
+        decltype(std::declval<T&>().reset()),
+        decltype(std::declval<T&>().emplace(std::declval<typename T::value_type>()))>>
+    : std::bool_constant<
+          !std::is_assignable_v<typename T::value_type&, typename T::value_type&&> ||
+          !std::is_assignable_v<typename T::value_type&, const typename T::value_type&>>
+{
+};
+
+template <typename T>
+inline constexpr bool is_emplace_only_optional_v = is_emplace_only_optional<T>::value;
+
 template <typename T>
 using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
 
@@ -818,6 +840,16 @@ struct MarshallerInvoker
             {
                 target[index] = source[index];
             }
+        }
+        else if constexpr (detail::is_emplace_only_optional_v<TValue>)
+        {
+            // An optional of a class with a const member has no assignment operator, so the
+            // setter destroys the old value and constructs the new one in place.
+            auto& target = std::invoke(field, self_marshaller.ConvertToCpp(self));
+            auto source = marshaller.ConvertToCpp(value);
+            target.reset();
+            if (source.has_value())
+                target.emplace(std::move(*source));
         }
         else
         {

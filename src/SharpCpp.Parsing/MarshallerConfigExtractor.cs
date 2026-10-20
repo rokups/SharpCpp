@@ -151,6 +151,12 @@ internal static class MarshallerConfigExtractor
         public string? ManagedInstanceCacheTypeName { get; init; }
         public bool EmitDefaultNativeReleaseOverride { get; init; } = true;
         public bool HasPublicTypeMapping { get; init; } = true;
+        /// <summary>
+        /// A projection override for the same native type pattern, selected by a different
+        /// constraint (`optional<T>` with a handle T next to `optional<T>` with a value T).
+        /// It applies when the single visible template argument resolves to a handle.
+        /// </summary>
+        public ManagedTypeOverride? HandleArgumentOverride { get; init; }
     }
 
     internal enum CppTypePatternKind
@@ -442,7 +448,7 @@ internal static class MarshallerConfigExtractor
             ? ExtractVisibleTemplateParameterIndices(publicTypeName, visibleArgumentCount)
             : Enumerable.Range(0, templateParameterNames.Count).ToArray();
 
-        result[key] = new ManagedTypeOverride(
+        var configuredOverride = new ManagedTypeOverride(
             cppTypeName,
             publicTypeName)
         {
@@ -487,6 +493,28 @@ internal static class MarshallerConfigExtractor
                 !string.Equals(releaseStrategyMatch.Groups["value"].Value, "base", StringComparison.OrdinalIgnoreCase),
             HasPublicTypeMapping = publicTypeMatch.Success || isCallback
         };
+
+        result[key] = result.TryGetValue(key, out var existing)
+            ? MergeArgumentKindOverrides(existing, configuredOverride)
+            : configuredOverride;
+    }
+
+    // Two partial specializations can share one native type pattern when a constraint (a
+    // `requires` clause) selects between them. The extractor cannot evaluate that constraint,
+    // so a projection next to a non-projection is kept as a pair: the projection
+    // applies to a handle argument and the other override applies to all other arguments. Any
+    // other pair keeps the last declaration, as before.
+    private static ManagedTypeOverride MergeArgumentKindOverrides(ManagedTypeOverride existing, ManagedTypeOverride configured)
+    {
+        if (existing.Projection == configured.Projection)
+        {
+            return configured;
+        }
+
+        var (valueOverride, handleOverride) = existing.Projection
+            ? (configured, existing)
+            : (existing, configured);
+        return valueOverride with { HandleArgumentOverride = handleOverride with { HandleArgumentOverride = null } };
     }
 
     private static void AddExplicitIndirectionMarshallerOverrides(

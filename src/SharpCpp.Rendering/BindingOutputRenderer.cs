@@ -1404,6 +1404,9 @@ public static partial class BindingOutputRenderer
         };
     }
 
+    private static bool FieldGetterReturnsOwnedHandle(BindingCompilation compilation, FieldBinding field) =>
+        FieldGetterOwnership.GetterReturnsOwnedHandle(compilation, field);
+
     private static NativeFieldInteropPlan CreateNativeFieldInteropPlan(BindingCompilation compilation, FieldBinding field)
     {
         var storageCppType = GetNativeFieldCppType(compilation, field);
@@ -1411,7 +1414,7 @@ public static partial class BindingOutputRenderer
         // suppress_emission value-marshalled record) round-trips as its blittable public
         // struct, exactly like the same type on a non-generic field; it never borrows storage.
         var projectsValue = IsValueProjectedHandleType(compilation, field.Type);
-        var borrowsStorage = !projectsValue && ShouldBorrowFieldStorage(compilation, field);
+        var borrowsStorage = FieldGetterOwnership.BorrowsRecordStorage(compilation, field);
         var setterMode = borrowsStorage
             ? FieldSetterMode.BorrowedStorage
             : projectsValue
@@ -2776,6 +2779,15 @@ public static partial class BindingOutputRenderer
                 .OrderBy(static a => a.ManagedName, StringComparer.Ordinal))
             {
                 var qualifiedTarget = FormatGlobalTypeName(alias.TargetType, compilation);
+
+                // A using alias cannot be a nullable reference type. A nullable handle projection
+                // keeps the plain wrapper type name in the alias.
+                if (alias.TargetType.Kind == BindingTypeKind.Handle &&
+                    qualifiedTarget.EndsWith("?", StringComparison.Ordinal))
+                {
+                    qualifiedTarget = qualifiedTarget[..^1];
+                }
+
                 writer.Write($"global using {alias.ManagedName} = {qualifiedTarget};");
             }
         }
@@ -3133,10 +3145,19 @@ public static partial class BindingOutputRenderer
             return QualifyManagedTypeText(compilation, managedTypeName, type.CppTypeName);
         }
 
-        var qualifiedHead = QualifyManagedTypeText(compilation, GetManagedTypeHead(managedTypeName), type.CppTypeName);
-        var renderedArguments = string.Join(", ", type.GenericArguments.Select(argument => publicSurface
+        var renderedArgumentList = type.GenericArguments.Select(argument => publicSurface
             ? GetManagedPublicReturnTypeName(argument, compilation)
-            : FormatGlobalTypeName(argument, compilation)));
+            : FormatGlobalTypeName(argument, compilation)).ToArray();
+
+        // A placeholder outside a generic argument list ("{0}?") is not a generic head, so the
+        // format itself places the arguments.
+        if (GetManagedTypeHead(type.Marshaller.PublicTypeName).Contains('{', StringComparison.Ordinal))
+        {
+            return FormatManagedTypeNameWithPlaceholders(type.Marshaller.PublicTypeName, renderedArgumentList);
+        }
+
+        var qualifiedHead = QualifyManagedTypeText(compilation, GetManagedTypeHead(managedTypeName), type.CppTypeName);
+        var renderedArguments = string.Join(", ", renderedArgumentList);
         return $"{qualifiedHead}<{renderedArguments}>";
     }
 
@@ -5511,7 +5532,7 @@ public static partial class BindingOutputRenderer
         else if (field.Type.Kind == BindingTypeKind.Handle)
         {
             writer.Write($$"""
-                return {{BuildManagedHandleReturnResultExpression(compilation, field.Type, getterInvocation, field.ReturnsOwnedHandle)}};
+                return {{BuildManagedHandleReturnResultExpression(compilation, field.Type, getterInvocation, FieldGetterReturnsOwnedHandle(compilation, field))}};
                 """);
         }
         else
@@ -5670,7 +5691,7 @@ public static partial class BindingOutputRenderer
     {
         var writer = new CodeWriter();
         var returnTypeName = GetManagedImportReturnTypeName(compilation, field.Type);
-        var returnAttribute = GetManagedImportReturnAttribute(compilation, field.Type, field.ReturnsOwnedHandle);
+        var returnAttribute = GetManagedImportReturnAttribute(compilation, field.Type, FieldGetterReturnsOwnedHandle(compilation, field));
         var parameters = field.IsStatic ? string.Empty : $"{recordManagedName} self";
         var importMethodLine = string.IsNullOrWhiteSpace(returnAttribute)
             ? $"internal static partial {returnTypeName} Get_{field.ManagedName}({parameters});"
@@ -7230,12 +7251,17 @@ public static partial class BindingOutputRenderer
         var baseTypeName = GetManagedPublicParameterTypeName(parameter, compilation);
         if (IsManagedReferenceDefaultParameter(parameter))
         {
-            return $"{baseTypeName}?";
+            return MakeManagedTypeNameNullable(baseTypeName);
         }
 
         return parameter.HasMetadata(MetadataKeys.UnexpressibleDefault)
-            ? $"{baseTypeName}?"
+            ? MakeManagedTypeNameNullable(baseTypeName)
             : baseTypeName;
+    }
+
+    private static string MakeManagedTypeNameNullable(string typeName)
+    {
+        return typeName.EndsWith("?", StringComparison.Ordinal) ? typeName : typeName + "?";
     }
 
     private static string GetManagedPublicParameterTypeName(ParameterBinding parameter, BindingCompilation compilation)
@@ -7295,7 +7321,7 @@ public static partial class BindingOutputRenderer
             (!forceRequired || !parameter.HasMetadata(MetadataKeys.UndefaultableParam));
 
         var typeName = (!forceRequired && parameter.HasMetadata(MetadataKeys.UnexpressibleDefault)) || isNullableManagedReferenceDefault
-            ? $"{GetManagedPublicParameterTypeName(parameter, compilation)}?"
+            ? MakeManagedTypeNameNullable(GetManagedPublicParameterTypeName(parameter, compilation))
             : GetManagedPublicParameterTypeName(parameter, compilation);
 
         var signature = $"{modifier}{typeName} {parameter.ManagedName}";
@@ -7995,6 +8021,11 @@ public static partial class BindingOutputRenderer
 
     private static string SanitizeManagedToken(string value)
     {
+        // A nullable managed type (for example "uint?") must give another token than its
+        // underlying type ("uint"). Without this the two tokens are equal and the native
+        // entry points of a "uint?[2]" array and a "uint[2]" array collide.
+        value = value.Replace("?", "Nullable", StringComparison.Ordinal);
+
         var builder = new StringBuilder(value.Length);
         foreach (var character in value)
         {
@@ -8768,23 +8799,6 @@ public static partial class BindingOutputRenderer
         }
 
         return false;
-    }
-
-    private static bool ShouldBorrowFieldStorage(BindingCompilation compilation, FieldBinding field)
-    {
-        if (field.Type.Kind != BindingTypeKind.Handle || field.IsPointer)
-        {
-            return false;
-        }
-
-        return field.Type.Marshaller.CppIsRecordValue || IsMarshallerBackedStorageWrapper(compilation, field.Type);
-    }
-
-    private static bool IsMarshallerBackedStorageWrapper(BindingCompilation compilation, BindingType type)
-    {
-        var record = ResolveRecord(compilation, type);
-        return record is not null &&
-            record.Members.OfType<FunctionBinding>().Any(static method => method.HasMetadata(MetadataKeys.MarshallerExposedMethod));
     }
 
     private static bool IsNativeFixedArrayType(BindingCompilation compilation, BindingType type)

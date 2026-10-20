@@ -1264,6 +1264,7 @@ public static class DegradeUnsupportedSurfacePass
 
     private static string SanitizeManagedToken(string value)
     {
+        value = value.Replace("?", "Nullable", StringComparison.Ordinal);
         var builder = new System.Text.StringBuilder(value.Length);
         foreach (var character in value)
         {
