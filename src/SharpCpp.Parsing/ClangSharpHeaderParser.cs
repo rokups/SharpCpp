@@ -9352,7 +9352,38 @@ public sealed partial class ClangSharpHeaderParser
         return repairedType;
     }
 
+    // A callback alias target takes the callback signature of the AST path, as a parameter does.
+    // MarkProjectedValueReference then gives the ref flags of the callback parameters, so that
+    // the alias target and a parameter spelled through the alias have the same target key.
     private static BindingType? TryMapAliasTargetType(
+        TypedefNameDecl typedefNameDecl,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
+    {
+        var targetType = TryMapAliasTargetTypeFromCxType(typedefNameDecl, recordsByName, enumsByName, managedTypeOverrides);
+        if (targetType is null || !targetType.IsCallback)
+        {
+            return targetType;
+        }
+
+        try
+        {
+            return ApplyAstTemplateArguments(
+                typedefNameDecl.UnderlyingType,
+                targetType,
+                recordsByName,
+                enumsByName,
+                managedTypeOverrides,
+                EmptyGenericParameters);
+        }
+        catch (NotSupportedException)
+        {
+            return null;
+        }
+    }
+
+    private static BindingType? TryMapAliasTargetTypeFromCxType(
         TypedefNameDecl typedefNameDecl,
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,

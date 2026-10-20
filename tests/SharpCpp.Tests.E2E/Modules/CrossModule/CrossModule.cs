@@ -44,6 +44,33 @@ public sealed class CrossModuleTests
     }
 
     [Fact]
+    public void Ref_callback_alias_names_the_shared_delegate_of_its_parameters()
+    {
+        // `ref` cannot be a generic type argument. Thus the alias names a declared delegate,
+        // and each function of the module that takes the alias uses this delegate.
+        var aliasType = typeof(AdjustCallback);
+        Assert.True(aliasType.IsSubclassOf(typeof(System.Delegate)));
+        Assert.True(aliasType.GetMethod("Invoke")!.GetParameters()[0].ParameterType.IsByRef);
+        Assert.Equal(aliasType, typeof(Library.LibraryBindings).GetMethod(nameof(Library.LibraryBindings.LibraryAdjust))!.GetParameters()[0].ParameterType);
+        Assert.Equal(aliasType, typeof(Library.LibraryBindings).GetMethod(nameof(Library.LibraryBindings.LibraryAdjustTwice))!.GetParameters()[0].ParameterType);
+
+        AdjustCallback addTwo = (ref int value) => value += 2;
+        Assert.Equal(5, Library.LibraryBindings.LibraryAdjust(addTwo, 3));
+        Assert.Equal(7, Library.LibraryBindings.LibraryAdjustTwice(addTwo, 3));
+    }
+
+    [Fact]
+    public void Imported_ref_callback_alias_uses_a_delegate_of_the_dependent_module()
+    {
+        // The metadata does not name the bindings class of the library module. Thus the dependent
+        // module declares its own delegate for a parameter spelled through the imported alias.
+        var parameterType = typeof(AppBindings).GetMethod(nameof(AppBindings.AppAdjust))!.GetParameters()[0].ParameterType;
+        Assert.NotEqual(typeof(AdjustCallback), parameterType);
+        Assert.True(parameterType.GetMethod("Invoke")!.GetParameters()[0].ParameterType.IsByRef);
+        Assert.Equal(12, AppBindings.AppAdjust((ref int value) => value *= 4, 3));
+    }
+
+    [Fact]
     public void Imported_records_with_standard_library_members_round_trip()
     {
         using var settings = new LibrarySettings();

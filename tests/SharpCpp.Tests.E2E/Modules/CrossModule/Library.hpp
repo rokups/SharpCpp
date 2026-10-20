@@ -21,6 +21,14 @@ inline int library_adjust(adjust_callback callback, int value)
     return value;
 }
 
+/// A second function with the alias. It uses the same delegate type as library_adjust.
+inline int library_adjust_twice(const adjust_callback& callback, int value)
+{
+    callback(value);
+    callback(value);
+    return value;
+}
+
 struct library_settings
 {
     std::string name;

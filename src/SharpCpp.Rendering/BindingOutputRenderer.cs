@@ -2176,7 +2176,7 @@ public static partial class BindingOutputRenderer
     private static string RenderManagedCallbackSupport(BindingCompilation compilation, IReadOnlyList<ParameterBinding> callbackParameters)
     {
         var writer = new CodeWriter();
-        var delegateDeclarations = CollectManagedCallbackDelegateDeclarations(callbackParameters).ToArray();
+        var delegateDeclarations = CollectManagedCallbackDelegateDeclarations(compilation, callbackParameters).ToArray();
         var usages = CollectManagedCallbackUsages(compilation, callbackParameters).ToArray();
 
         foreach (var declaration in delegateDeclarations.OrderBy(static declaration => declaration.DeclarationName, StringComparer.Ordinal))
@@ -2240,12 +2240,14 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static IEnumerable<ManagedCallbackDelegateDeclaration> CollectManagedCallbackDelegateDeclarations(IReadOnlyList<ParameterBinding> callbackParameters)
+    private static IEnumerable<ManagedCallbackDelegateDeclaration> CollectManagedCallbackDelegateDeclarations(
+        BindingCompilation compilation,
+        IReadOnlyList<ParameterBinding> callbackParameters)
     {
         var seen = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var parameter in callbackParameters.Where(static parameter => parameter.UseCallbackDelegate))
         {
-            var declarationName = GetGeneratedCallbackDelegateDeclarationName(parameter);
+            var declarationName = GetGeneratedCallbackDelegateDeclarationName(compilation, parameter);
             if (declarationName is null)
             {
                 continue;
@@ -2461,10 +2463,45 @@ public static partial class BindingOutputRenderer
                 : GetQualifiedGeneratedCallbackDelegateTypeName(compilation, parameter.CallbackDelegateTypeName!);
         }
 
-        return GetQualifiedGeneratedCallbackDelegateTypeName(compilation, GetGeneratedCallbackDelegateName(parameter));
+        return GetQualifiedGeneratedCallbackDelegateTypeName(
+            compilation,
+            TryGetRefCallbackAliasDelegateName(compilation, parameter, out var aliasDelegateName)
+                ? aliasDelegateName
+                : GetGeneratedCallbackDelegateName(parameter));
     }
 
-    private static string? GetGeneratedCallbackDelegateDeclarationName(ParameterBinding parameter)
+    // `ref` cannot be a generic type argument, so the Action/Func spelling of a callback alias
+    // with a ref parameter has the wrong shape. Each parameter spelled through such an alias
+    // uses one delegate with the alias name, and the alias names this delegate.
+    private static bool TryGetRefCallbackAliasDelegateName(BindingCompilation compilation, ParameterBinding parameter, out string delegateName)
+    {
+        delegateName = string.Empty;
+        if (!parameter.UseCallbackDelegate ||
+            !string.IsNullOrWhiteSpace(parameter.CallbackDelegateTypeName) ||
+            !parameter.Type.IsCallback ||
+            !parameter.Type.HasCallbackRefParameters ||
+            string.IsNullOrWhiteSpace(parameter.Type.ManagedTypeFormatOverride))
+        {
+            return false;
+        }
+
+        // ApplyAliasSurfaces stamps the managed alias name on a type that matches the alias target key.
+        var targetKey = BindingAliasTargetKey.From(parameter.Type.WithManagedTypeFormatOverride(null));
+        var alias = compilation.TypeAliases.FirstOrDefault(alias =>
+            !alias.IsImported &&
+            string.Equals(alias.ManagedName, parameter.Type.ManagedTypeFormatOverride, StringComparison.Ordinal) &&
+            BindingAliasTargetKey.From(alias.TargetType) == targetKey &&
+            IsRenderableAliasTarget(compilation, alias.TargetType));
+        if (alias is null)
+        {
+            return false;
+        }
+
+        delegateName = alias.ManagedName;
+        return true;
+    }
+
+    private static string? GetGeneratedCallbackDelegateDeclarationName(BindingCompilation compilation, ParameterBinding parameter)
     {
         if (!parameter.UseCallbackDelegate)
         {
@@ -2476,9 +2513,14 @@ public static partial class BindingOutputRenderer
             return null;
         }
 
-        return string.IsNullOrWhiteSpace(parameter.CallbackDelegateTypeName)
-            ? GetGeneratedCallbackDelegateName(parameter)
-            : parameter.CallbackDelegateTypeName!;
+        if (!string.IsNullOrWhiteSpace(parameter.CallbackDelegateTypeName))
+        {
+            return parameter.CallbackDelegateTypeName!;
+        }
+
+        return TryGetRefCallbackAliasDelegateName(compilation, parameter, out var aliasDelegateName)
+            ? aliasDelegateName
+            : GetGeneratedCallbackDelegateName(parameter);
     }
 
     private static string GetGeneratedCallbackDelegateName(ParameterBinding parameter)
@@ -2777,6 +2819,10 @@ public static partial class BindingOutputRenderer
 
         if (aliases.Length > 0)
         {
+            var refCallbackAliasDelegateNames = callbackParameters
+                .Select(parameter => TryGetRefCallbackAliasDelegateName(compilation, parameter, out var name) ? name : null)
+                .OfType<string>()
+                .ToHashSet(StringComparer.Ordinal);
             writer.WriteLine();
             foreach (var alias in aliases
                 .GroupBy(static a => a.ManagedName, StringComparer.Ordinal)
@@ -2784,6 +2830,19 @@ public static partial class BindingOutputRenderer
                 .OrderBy(static a => a.ManagedName, StringComparer.Ordinal))
             {
                 var qualifiedTarget = FormatGlobalTypeName(alias.TargetType, compilation);
+
+                // A callback alias with a ref parameter names the delegate that its parameters use.
+                // Without such a parameter no delegate exists, and the Action/Func spelling has the
+                // wrong shape. Thus the alias is not written.
+                if (alias.TargetType.IsCallback && alias.TargetType.HasCallbackRefParameters)
+                {
+                    if (!refCallbackAliasDelegateNames.Contains(alias.ManagedName))
+                    {
+                        continue;
+                    }
+
+                    qualifiedTarget = GetQualifiedGeneratedCallbackDelegateTypeName(compilation, alias.ManagedName);
+                }
 
                 // A using alias cannot be a nullable reference type. A nullable handle projection
                 // keeps the plain wrapper type name in the alias.
@@ -7722,7 +7781,9 @@ public static partial class BindingOutputRenderer
 
     private static string BuildManagedPublicToImportExpression(BindingCompilation compilation, BindingType type, string expression)
     {
-        if (type.Kind == BindingTypeKind.Handle || type.IsFixedArray)
+        // C# has no cast between two different delegate types. A callback parameter of the import
+        // has the same delegate type as the public parameter, so it needs no cast.
+        if (type.Kind == BindingTypeKind.Handle || type.IsFixedArray || type.IsCallback)
         {
             return expression;
         }
