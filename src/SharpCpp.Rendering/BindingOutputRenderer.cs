@@ -6710,8 +6710,11 @@ public static partial class BindingOutputRenderer
         var usesManagedMarshaller = CanUseManagedHandleReturnMarshaller(compilation, type);
         if (type.ManagedTypeFormatOverride?.EndsWith("?", StringComparison.Ordinal) == true)
         {
+            // A fresh wrapper is never closed, so IsInvalid tells if the handle is null. Every
+            // wrapper is a SafeHandle, but a wrapper with a configured managed base type (for
+            // example a string) does not get the generated IsNull property.
             return usesManagedMarshaller
-                ? $"{resultExpression} is {{ IsNull: false }} __nullableResult ? __nullableResult : null"
+                ? $"{resultExpression} is {{ IsInvalid: false }} __nullableResult ? __nullableResult : null"
                 : $"{resultExpression} is var __nullableHandle && __nullableHandle != 0 ? {BuildManagedHandleWrap(compilation, type, "__nullableHandle", ownsHandle)} : null";
         }
 

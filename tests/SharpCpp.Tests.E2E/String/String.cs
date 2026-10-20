@@ -161,4 +161,90 @@ public sealed class StringTests
         created.Touch((byte)'!');
         Assert.Equal("created!", created.ToString());
     }
+    [Fact]
+    public void Custom_string_field_borrows_record_storage()
+    {
+        using var holder = new CustomStringHolder();
+        var text = holder.Text;
+        text.Touch((byte)'a');
+        Assert.Equal("a", holder.Text.ToString());
+
+        using var value = new global::E2EStd.String();
+        value.Assign("set");
+        holder.Text = value;
+        Assert.Equal("set", holder.Text.ToString());
+    }
+
+    [Fact]
+    public void Optional_custom_string_field_is_null_when_empty()
+    {
+        using var holder = new CustomStringHolder();
+        Assert.Null(holder.OptionalText);
+        Assert.Equal(-1, E2EBindings.OptionalTextSize(holder));
+    }
+
+    [Fact]
+    public void Optional_custom_string_field_setter_copies_the_value()
+    {
+        using var holder = new CustomStringHolder();
+        using var value = new global::E2EStd.String();
+        value.Assign("hello");
+        holder.OptionalText = value;
+        Assert.Equal(5, E2EBindings.OptionalTextSize(holder));
+
+        value.Assign("changed value");
+        Assert.Equal(5, E2EBindings.OptionalTextSize(holder));
+
+        holder.OptionalText = null;
+        Assert.Equal(-1, E2EBindings.OptionalTextSize(holder));
+        Assert.Null(holder.OptionalText);
+    }
+
+    [Fact]
+    public void Optional_custom_string_field_getter_returns_owned_copies()
+    {
+        using var holder = new CustomStringHolder();
+        using (var value = new global::E2EStd.String())
+        {
+            value.Assign("abc");
+            holder.OptionalText = value;
+        }
+
+        var first = holder.OptionalText;
+        var second = holder.OptionalText;
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.Equal("abc", first.ToString());
+
+        first.Touch((byte)'!');
+        Assert.Equal("abc!", first.ToString());
+        Assert.Equal("abc", second.ToString());
+        Assert.Equal(3, E2EBindings.OptionalTextSize(holder));
+
+        E2EBindings.AppendOptionalText(holder, (byte)'?');
+        Assert.Equal("abc?", holder.OptionalText!.ToString());
+        Assert.Equal("abc", second.ToString());
+
+        first.Dispose();
+        second.Dispose();
+        Assert.Equal(4, E2EBindings.OptionalTextSize(holder));
+    }
+
+    [Fact]
+    public void Optional_custom_string_only_field_round_trips()
+    {
+        using var holder = new OptionalTextOnly();
+        Assert.Null(holder.Value);
+
+        using var value = new global::E2EStd.String();
+        value.Assign("only");
+        holder.Value = value;
+        using var copy = holder.Value;
+        Assert.NotNull(copy);
+        Assert.Equal("only", copy.ToString());
+
+        holder.Value = null;
+        Assert.Null(holder.Value);
+        Assert.Equal("only", copy.ToString());
+    }
 }

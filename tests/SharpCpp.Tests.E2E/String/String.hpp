@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -200,3 +201,31 @@ inline void append_custom_std_string(e2e_std::string& value, unsigned char byte)
 {
     value.push_back(static_cast<char>(byte));
 }
+
+// A record with a string field and an optional string field. The string field getter
+// borrows the record storage. The optional field getter returns an owned copy of the
+// string, because the field storage is an optional and not a string.
+struct custom_string_holder
+{
+    e2e_std::string text;
+    std::optional<e2e_std::string> optional_text;
+};
+
+inline int optional_text_size(const custom_string_holder& holder)
+{
+    return holder.optional_text.has_value() ? static_cast<int>(holder.optional_text->size()) : -1;
+}
+
+inline void append_optional_text(custom_string_holder& holder, unsigned char byte)
+{
+    if (holder.optional_text.has_value())
+    {
+        holder.optional_text->push_back(static_cast<char>(byte));
+    }
+}
+
+// A second record holds only an optional string field.
+struct optional_text_only
+{
+    std::optional<e2e_std::string> value;
+};
