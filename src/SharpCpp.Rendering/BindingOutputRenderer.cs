@@ -7342,17 +7342,32 @@ public static partial class BindingOutputRenderer
 
         if (parameter.Type.Kind == BindingTypeKind.Enum)
         {
-            var separator = defaultValueExpression.IndexOf('.');
-            if (separator > 0)
+            // The expression is one enum constant or a bitwise or of enum constants.
+            // A member name has no dot, so the last dot ends the type name.
+            var qualifiedTerms = new List<string>();
+            foreach (var term in defaultValueExpression.Split('|', StringSplitOptions.TrimEntries))
             {
-                var enumTypeName = defaultValueExpression[..separator];
-                var enumMemberName = defaultValueExpression[(separator + 1)..];
-                var qualifiedEnumTypeName = GetQualifiedEnumTypeName(compilation, parameter.Type);
-                if (string.Equals(enumTypeName, parameter.Type.UnaliasedManagedTypeName, StringComparison.Ordinal) ||
-                    string.Equals(enumTypeName, NormalizeEnumManagedTypeName(parameter.Type.UnaliasedManagedTypeName), StringComparison.Ordinal))
+                var separator = term.LastIndexOf('.');
+                if (separator <= 0)
                 {
-                    return $"{qualifiedEnumTypeName}.{enumMemberName}";
+                    qualifiedTerms.Clear();
+                    break;
                 }
+
+                var enumTypeName = term[..separator];
+                if (!string.Equals(enumTypeName, parameter.Type.UnaliasedManagedTypeName, StringComparison.Ordinal) &&
+                    !string.Equals(enumTypeName, NormalizeEnumManagedTypeName(parameter.Type.UnaliasedManagedTypeName), StringComparison.Ordinal))
+                {
+                    qualifiedTerms.Clear();
+                    break;
+                }
+
+                qualifiedTerms.Add($"{GetQualifiedEnumTypeName(compilation, parameter.Type)}.{term[(separator + 1)..]}");
+            }
+
+            if (qualifiedTerms.Count != 0)
+            {
+                return string.Join(" | ", qualifiedTerms);
             }
         }
 
