@@ -163,7 +163,7 @@ public static class DegradeUnsupportedSurfacePass
                     continue;
                 }
 
-                if (TryGetNamespaceExclusionReason(@enum.CppQualifiedName, allowedNamespaceRoots, out var namespaceReason))
+                if (TryGetNamespaceExclusionReason(@enum.ScopeCppQualifiedName, allowedNamespaceRoots, out var namespaceReason))
                 {
                     @enum.SetIgnoreReason(namespaceReason);
                     changed = true;

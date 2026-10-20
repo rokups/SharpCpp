@@ -83,6 +83,9 @@ public static class MetadataKeys
     public const string ManagedWrapperProviderKind = "managed_wrapper_provider_kind";
     public const string ManagedWrapperProviderNamespace = "managed_wrapper_provider_namespace";
     public const string ManagedWrapperCopyable = "managed_wrapper_copyable";
+    // Set (string) on an enum that an external header declares and that an owned alias names.
+    // The value is the C++ qualified name of the alias. The alias scope sets the managed namespace.
+    public const string ExternalTypeAlias = "external_type_alias";
     public const string ExplicitManagedRename = "explicit_managed_rename";
     public const string ManagedStaticInterfaces = "managed_static_interfaces";
     public const string ManagedStaticInterfacesAbstract = "managed_static_interfaces_abstract";

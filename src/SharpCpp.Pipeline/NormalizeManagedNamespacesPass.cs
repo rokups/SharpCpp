@@ -27,9 +27,12 @@ public static class NormalizeManagedNamespacesPass
                 continue;
             }
 
-            var cppQualifiedName = @enum.NativeName == "Enum"
-                ? GetWrapperEnumOwnerName(@enum.CppQualifiedName)
-                : @enum.CppQualifiedName;
+            // An external enum that an owned alias names takes the namespace of the alias.
+            var cppQualifiedName = @enum.HasMetadata(MetadataKeys.ExternalTypeAlias)
+                ? @enum.ScopeCppQualifiedName
+                : @enum.NativeName == "Enum"
+                    ? GetWrapperEnumOwnerName(@enum.CppQualifiedName)
+                    : @enum.CppQualifiedName;
             @enum.ManagedNamespace = ResolveManagedNamespace(
                 cppQualifiedName,
                 compilation.ManagedNamespace,

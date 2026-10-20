@@ -30,6 +30,19 @@ public sealed class EnumBinding : BindingNamedNode
 
     public string CppQualifiedName { get; set; }
 
+    /// <summary>
+    /// The C++ name that sets the namespace scope of the enum. An external enum that an owned
+    /// alias names has the scope of the alias. All other enums have the scope of their own name.
+    /// </summary>
+    public string ScopeCppQualifiedName
+    {
+        get
+        {
+            var externalTypeAlias = GetMetadata<string>(MetadataKeys.ExternalTypeAlias);
+            return string.IsNullOrWhiteSpace(externalTypeAlias) ? CppQualifiedName : externalTypeAlias;
+        }
+    }
+
     public string? ManagedNamespace { get; set; }
 
     public IList<EnumValueBinding> Values => _values;

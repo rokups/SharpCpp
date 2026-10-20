@@ -161,6 +161,14 @@ public sealed partial class ClangSharpHeaderParser
         var managedTranslationUnit = TranslationUnit.GetOrCreate(translationUnit);
         BuildTypeAliasIndex(managedTranslationUnit.TranslationUnitDecl);
         BuildOwnedManagedAliasIndex(managedTranslationUnit.TranslationUnitDecl, ownedFileRoots);
+        // Register external enums before the owned declarations so that their signatures can use them.
+        RegisterExternalEnumAliases(
+            managedTranslationUnit.TranslationUnitDecl,
+            compilation,
+            enumsByName,
+            ownedFileRoots,
+            ownedFileRootIncludePrefixes,
+            request.HeaderIncludePath);
         foreach (var child in managedTranslationUnit.TranslationUnitDecl.Decls)
         {
             if (!IsOwnedDecl(child, ownedFileRoots))
@@ -7409,7 +7417,7 @@ public sealed partial class ClangSharpHeaderParser
         }
     }
 
-    private static void RegisterEnum(EnumDecl enumDecl, BindingCompilation compilation, IDictionary<string, EnumBinding> enumsByName, string? headerIncludePath)
+    private static EnumBinding? RegisterEnum(EnumDecl enumDecl, BindingCompilation compilation, IDictionary<string, EnumBinding> enumsByName, string? headerIncludePath)
     {
         var nativeName = enumDecl.Name ?? enumDecl.Spelling.ToString();
         var cppQualifiedName = GetCppQualifiedName(enumDecl);
@@ -7418,7 +7426,7 @@ public sealed partial class ClangSharpHeaderParser
             nativeName.Contains("(anonymous", StringComparison.Ordinal) ||
             enumsByName.ContainsKey(cppQualifiedName))
         {
-            return;
+            return null;
         }
 
         var enumSourceText = GetSourceText(enumDecl.TranslationUnit.Handle, enumDecl.Extent);
@@ -7455,6 +7463,83 @@ public sealed partial class ClangSharpHeaderParser
         IndexEnumKeys(enumsByName, @enum);
         @enum.HeaderIncludePath = headerIncludePath;
         compilation.Members.Add(@enum);
+        return @enum;
+    }
+
+    private static void RegisterExternalEnumAliases(
+        Decl decl,
+        BindingCompilation compilation,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyList<string> ownedFileRoots,
+        IReadOnlyDictionary<string, string> ownedFileRootIncludePrefixes,
+        string headerIncludePath)
+    {
+        foreach (var child in EnumerateChildDeclsSafely(decl))
+        {
+            if (child is not (NamespaceDecl or LinkageSpecDecl or TypedefNameDecl) ||
+                !IsOwnedDecl(child, ownedFileRoots))
+            {
+                continue;
+            }
+
+            if (TryGetAliasDecl(child, out var aliasDecl))
+            {
+                if (IsNamespaceOrTranslationUnitAlias(aliasDecl))
+                {
+                    TryRegisterExternalEnumAlias(
+                        aliasDecl,
+                        compilation,
+                        enumsByName,
+                        ownedFileRoots,
+                        ResolveDeclIncludePath(aliasDecl, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath));
+                }
+
+                continue;
+            }
+
+            RegisterExternalEnumAliases(child, compilation, enumsByName, ownedFileRoots, ownedFileRootIncludePrefixes, headerIncludePath);
+        }
+    }
+
+    // An owned alias can name an enum that a header outside the owned roots declares.
+    // The generator then wraps that enum under the alias name, in the namespace of the alias.
+    // The C++ identity stays the external enum, so native glue and type lookups use the real type.
+    private static void TryRegisterExternalEnumAlias(
+        TypedefNameDecl aliasDecl,
+        BindingCompilation compilation,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyList<string> ownedFileRoots,
+        string? headerIncludePath)
+    {
+        if (aliasDecl.UnderlyingType.CanonicalType is not EnumType { Decl: EnumDecl enumDecl } ||
+            enumDecl.Definition is not EnumDecl enumDefinition ||
+            IsOwnedDecl(enumDefinition, ownedFileRoots))
+        {
+            return;
+        }
+
+        var aliasCppQualifiedName = NormalizeTypeName(GetCppQualifiedName(aliasDecl));
+        var aliasNativeName = aliasDecl.Name ?? aliasDecl.Spelling.ToString();
+        if (string.IsNullOrWhiteSpace(aliasCppQualifiedName) || string.IsNullOrWhiteSpace(aliasNativeName))
+        {
+            return;
+        }
+
+        // A second alias of the same enum, or an enum that an imported module wraps, keeps the first binding.
+        var @enum = RegisterEnum(enumDefinition, compilation, enumsByName, headerIncludePath);
+        if (@enum is null)
+        {
+            return;
+        }
+
+        @enum.ManagedName = GetManagedAliasName(aliasNativeName);
+        @enum.SetMetadata(MetadataKeys.ExternalTypeAlias, aliasCppQualifiedName);
+        var aliasSourceText = GetSourceText(aliasDecl.Handle.TranslationUnit, aliasDecl.Extent);
+        @enum.IsFlags |= HasSharpCppAttribute(aliasSourceText, "flags");
+        CheckAndApplyIgnoreAttribute(aliasDecl, @enum);
+        TryApplyRename(aliasDecl, @enum);
+        ApplyDeclarationFacts(aliasDecl, @enum);
+        TryAddBindingKey(enumsByName, aliasCppQualifiedName, @enum);
     }
 
     private static string GetManagedEnumName(EnumDecl enumDecl, string nativeName)
@@ -7560,7 +7645,9 @@ public sealed partial class ClangSharpHeaderParser
     private static string GetPortableEnumUnderlyingTypeName(EnumDecl enumDecl, string enumSourceText)
     {
         var clangTypeName = NormalizeTypeName(enumDecl.IntegerType.CanonicalType.AsString);
-        if (enumDecl.IsScoped || HasFixedUnderlyingType(enumSourceText))
+        if (enumDecl.IsScoped ||
+            !IsDefaultEnumIntegerType(clangTypeName) ||
+            HasFixedUnderlyingType(enumSourceText))
         {
             return clangTypeName;
         }
@@ -7586,6 +7673,11 @@ public sealed partial class ClangSharpHeaderParser
 
         return "int";
     }
+
+    // Clang gives an enum without a fixed type `int` or `unsigned int`, and a wider type only when a value
+    // does not fit. Any other type in the AST is a fixed type, also when a macro spells the declaration.
+    private static bool IsDefaultEnumIntegerType(string clangTypeName)
+        => clangTypeName is "int" or "unsigned int";
 
     // `enum [[sharpcpp::flags]] E : unsigned` — the attribute has colons, so it is removed first.
     private static bool HasFixedUnderlyingType(string enumSourceText)

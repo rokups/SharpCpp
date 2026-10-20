@@ -602,6 +602,11 @@ internal static class Program
                 [ownedRootDirectory] = "/Modules/OwnedFiles/",
                 [string.Empty] = "ignored"
             }));
+        // Only the owned namespace is allowed. The external enums under owned aliases must stay bound.
+        owned.NamespaceMappings = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["owned_root"] = owned.ManagedNamespace
+        };
         BindingCompilationBootstrapPipeline.Apply(
             owned,
             Array.Empty<string>(),
