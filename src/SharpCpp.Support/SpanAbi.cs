@@ -8,8 +8,8 @@ namespace SharpCpp.Support;
 
 /// <summary>
 /// ABI shape of a span argument: a pointer to the first element and the element count, matching
-/// the <c>{ data, length }</c> abi_type of ProjectedValueSpanMarshallerBase and
-/// ProjectedValueConstSpanMarshallerBase in SharpCpp/Marshaller.hpp.
+/// the <c>{ data, length }</c> abi_type of ProjectedValueSpanMarshallerBase,
+/// ProjectedValueConstSpanMarshallerBase and SpanMarshallerBase in SharpCpp/Marshaller.hpp.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct SpanAbi
@@ -73,4 +73,30 @@ public unsafe ref struct ReadOnlySpanAbiMarshaller<T>
     public void Free()
     {
     }
+}
+
+/// <summary>
+/// Returns a native span as a <see cref="Span{T}"/> over the native elements, with no copy and
+/// no allocation. The span is valid only while the native storage lives. A null pointer or a zero
+/// length gives an empty span. <typeparamref name="T"/> must have the native element layout.
+/// </summary>
+[CustomMarshaller(typeof(Span<>), MarshalMode.ManagedToUnmanagedOut, typeof(SpanAbiReturnMarshaller<>))]
+public static unsafe class SpanAbiReturnMarshaller<T>
+    where T : unmanaged
+{
+    public static Span<T> ConvertToManaged(SpanAbi unmanaged) => unmanaged.Data == 0 || unmanaged.Length == 0
+        ? Span<T>.Empty
+        : new Span<T>((void*)unmanaged.Data, checked((int)unmanaged.Length));
+}
+
+/// <summary>
+/// Read-only counterpart to <see cref="SpanAbiReturnMarshaller{T}"/> for <see cref="ReadOnlySpan{T}"/>.
+/// </summary>
+[CustomMarshaller(typeof(ReadOnlySpan<>), MarshalMode.ManagedToUnmanagedOut, typeof(ReadOnlySpanAbiReturnMarshaller<>))]
+public static unsafe class ReadOnlySpanAbiReturnMarshaller<T>
+    where T : unmanaged
+{
+    public static ReadOnlySpan<T> ConvertToManaged(SpanAbi unmanaged) => unmanaged.Data == 0 || unmanaged.Length == 0
+        ? ReadOnlySpan<T>.Empty
+        : new ReadOnlySpan<T>((void*)unmanaged.Data, checked((int)unmanaged.Length));
 }

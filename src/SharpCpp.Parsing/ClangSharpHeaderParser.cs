@@ -3885,7 +3885,8 @@ public sealed partial class ClangSharpHeaderParser
                      .OrderBy(pair => pair.Value.TemplateParameterNames.Count)
                      .ThenByDescending(pair => GetFixedTemplateArgumentCount(
                          pair.Value.CppTypeName,
-                         pair.Value.TemplateParameterNames)))
+                         pair.Value.TemplateParameterNames))
+                     .ThenByDescending(pair => MarshallerConfigExtractor.CountConstTemplateParameters(pair.Value.NativeTypePattern)))
         {
             if (GenericTypePatternMatches(
                     spelledTypeName,
@@ -4660,7 +4661,13 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         var rawGenericArguments = ShouldInstantiateConfiguredGenericType(managedTypeOverride)
-            ? ParseConcreteTemplateArgumentsOrOpaque(effectiveCppTypeName, recordsByName, enumsByName, managedTypeOverrides, genericParameters)
+            ? ParseConcreteTemplateArgumentsOrOpaque(
+                effectiveCppTypeName,
+                recordsByName,
+                enumsByName,
+                managedTypeOverrides,
+                genericParameters,
+                stripConstArguments: IsGenericSpanView(managedTypeOverride))
             : Array.Empty<BindingType>();
         var isConfiguredFixedArray = managedTypeOverride.FixedArray || IsFixedArrayConfiguredType(effectiveCppTypeName, managedTypeOverrides);
         var isConfiguredDynamicArray = managedTypeOverride.DynamicArray || IsDynamicArrayConfiguredType(effectiveCppTypeName, managedTypeOverrides);
@@ -4669,6 +4676,17 @@ public sealed partial class ClangSharpHeaderParser
             : ProjectVisibleTemplateArguments(
                 rawGenericArguments,
                 GetVisibleTemplateParameterIndices(managedTypeOverride, rawGenericArguments.Count));
+        // A generic span view gives managed code the native elements in place, so the element
+        // must be an unmanaged value with the native layout. The native constraint
+        // (is_span_element_abi_v) is not visible to the generator, so it is checked here.
+        if (IsGenericSpanView(managedTypeOverride) &&
+            configuredGenericArguments.FirstOrDefault(argument =>
+                !IsBlittableValueArgument(argument) || !CrossesWithNativeLayout(argument, managedTypeOverrides)) is { } spanElement)
+        {
+            throw new NotSupportedException(
+                $"Configured managed_type on '{effectiveCppTypeName}' passes its elements in place and needs a blittable value element, not '{spanElement.CppTypeName}'.");
+        }
+
         if (managedTypeOverride.HandleArgumentOverride is { } handleArgumentOverride &&
             configuredGenericArguments is [var argumentKindSelector])
         {
@@ -5041,6 +5059,78 @@ public sealed partial class ClangSharpHeaderParser
     private static string FormatGenericPlaceholders(int count)
     {
         return string.Join(", ", Enumerable.Range(0, count).Select(static index => $"{{{index}}}"));
+    }
+
+    // A span view over a template element (`span<T>`), as opposed to a span projection that
+    // names one concrete element type.
+    private static bool IsGenericSpanView(ManagedTypeOverride managedTypeOverride) =>
+        managedTypeOverride.TemplateParameterNames.Count > 0 &&
+        managedTypeOverride.ManagedMarshaller is { } marshaller &&
+        (marshaller.Contains("SpanAbiMarshaller<", StringComparison.Ordinal) ||
+         marshaller.Contains("SpanAbiReturnMarshaller<", StringComparison.Ordinal));
+
+    // A configured value type crosses with its native layout only when its Marshaller<T>
+    // declares `abi_type` as T. A value without a configured marshaller (a builtin or an enum)
+    // has its native layout. A configured value that is not found under its spelled name is
+    // looked up by its managed type, and it must then cross with its native layout too.
+    private static bool CrossesWithNativeLayout(
+        BindingType argument,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides)
+    {
+        var cppTypeName = StripTopLevelConst(argument.CppTypeName);
+        if (managedTypeOverrides.TryGetValue(cppTypeName, out var directOverride) &&
+            directOverride.TemplateParameterNames.Count == 0)
+        {
+            return directOverride.AbiCrossesAsCppType;
+        }
+
+        if (argument.Kind == BindingTypeKind.Enum || IsBuiltinArithmeticTypeName(cppTypeName))
+        {
+            return true;
+        }
+
+        var valueOverrides = managedTypeOverrides
+            .Where(pair => !pair.Key.StartsWith("return:", StringComparison.Ordinal))
+            .Select(static pair => pair.Value)
+            .Where(candidate =>
+                candidate.TemplateParameterNames.Count == 0 &&
+                candidate.NativeTypePattern?.Kind is not (MarshallerConfigExtractor.CppTypePatternKind.Pointer or
+                    MarshallerConfigExtractor.CppTypePatternKind.LValueReference or
+                    MarshallerConfigExtractor.CppTypePatternKind.RValueReference) &&
+                string.Equals(candidate.PublicTypeName, argument.Marshaller.PublicTypeName, StringComparison.Ordinal))
+            .ToArray();
+        return valueOverrides.Length == 0 || valueOverrides.All(static candidate => candidate.AbiCrossesAsCppType);
+    }
+
+    private static string StripTopLevelConst(string typeName)
+    {
+        var name = typeName.Trim();
+        if (name.StartsWith("const ", StringComparison.Ordinal))
+        {
+            name = name["const ".Length..].TrimStart();
+        }
+
+        if (name.EndsWith(" const", StringComparison.Ordinal))
+        {
+            name = name[..^" const".Length].TrimEnd();
+        }
+
+        return name;
+    }
+
+    private static bool IsBuiltinArithmeticTypeName(string typeName)
+    {
+        var name = typeName.StartsWith("std::", StringComparison.Ordinal) ? typeName["std::".Length..] : typeName;
+        if (name is "int8_t" or "uint8_t" or "int16_t" or "uint16_t" or "int32_t" or "uint32_t" or
+            "int64_t" or "uint64_t" or "size_t" or "ptrdiff_t" or "intptr_t" or "uintptr_t")
+        {
+            return true;
+        }
+
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return words.Length > 0 && words.All(static word => word is
+            "signed" or "unsigned" or "char" or "short" or "int" or "long" or "float" or "double" or
+            "wchar_t" or "char8_t" or "char16_t" or "char32_t");
     }
 
     // A value argument of an optional crosses in the OptionalAbi<T> struct, so the managed type
@@ -5532,7 +5622,8 @@ public sealed partial class ClangSharpHeaderParser
         IDictionary<string, RecordBinding> recordsByName,
         IDictionary<string, EnumBinding> enumsByName,
         IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
-        IReadOnlyDictionary<string, BindingType> genericParameters)
+        IReadOnlyDictionary<string, BindingType> genericParameters,
+        bool stripConstArguments = false)
     {
         if (!TryGetTopLevelTemplateArguments(cppTypeName, out _, out var arguments))
         {
@@ -5540,8 +5631,11 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         var result = new List<BindingType>(arguments.Count);
-        foreach (var argument in arguments)
+        foreach (var spelledArgument in arguments)
         {
+            // The element of a `span<const T>` projects to the managed T; the const goes to
+            // the ReadOnlySpan of the public type.
+            var argument = stripConstArguments ? StripTopLevelConst(spelledArgument) : spelledArgument;
             try
             {
                 // A template argument names a C++ type, not its managed-call ABI

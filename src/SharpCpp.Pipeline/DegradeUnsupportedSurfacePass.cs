@@ -486,7 +486,10 @@ public static class DegradeUnsupportedSurfacePass
             return true;
         }
 
-        if (function.ReturnType.Marshaller.IsSpanProjection)
+        // A direct call can return a span view of native memory. A virtual return needs the
+        // managed override to give native code a span, which the director cannot do.
+        if (function.ReturnType.Marshaller.IsSpanProjection &&
+            (!function.ReturnType.Marshaller.IsSpanViewReturn || function.IsVirtual))
         {
             reason = $"return type is unsupported in this bootstrap surface: {SpanProjectionReason(function.ReturnType, "a return value")}";
             return true;

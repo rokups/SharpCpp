@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <concepts>
@@ -14,6 +15,7 @@
 #include <memory>
 #include <new>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -1535,6 +1537,188 @@ struct OptionalHandleReturnMarshallerBase : OptionalHandleMarshallerBase<TOption
 {
 };
 
+namespace detail
+{
+template <class TElement>
+consteval bool IsSpanElementAbi()
+{
+    using element_type = std::remove_cv_t<TElement>;
+    if constexpr (
+        std::is_same_v<element_type, bool> ||
+        std::is_pointer_v<element_type> ||
+        !is_complete_type_v<element_type> ||
+        !std::is_trivially_copyable_v<element_type>)
+    {
+        return false;
+    }
+    else if constexpr (std::is_arithmetic_v<element_type> || std::is_enum_v<element_type>)
+    {
+        return true;
+    }
+    else if constexpr (std::is_class_v<element_type> && requires { typename Marshaller<element_type>::abi_type; })
+    {
+        // The managed span addresses the native elements, so the element must cross as itself.
+        return std::is_same_v<typename Marshaller<element_type>::abi_type, element_type>;
+    }
+    else
+    {
+        return false;
+    }
+}
+
+template <class>
+inline constexpr bool span_always_false_v = false;
+}
+
+// A span element that managed code can address in place: an arithmetic type other than bool,
+// an enum, or a trivially copyable class whose Marshaller<T>::abi_type is T. The managed element
+// type must have the native layout of T.
+template <class TElement>
+inline constexpr bool is_span_element_abi_v = detail::IsSpanElementAbi<TElement>();
+
+// The dynamic-extent value of a span type. The default is std::dynamic_extent. A library whose
+// span type uses a different value specializes this variable template for its span type.
+template <class TSpan>
+inline constexpr std::size_t span_dynamic_extent_v = std::dynamic_extent;
+
+// A span bound to Span<TManaged> or ReadOnlySpan<TManaged>. The span crosses the ABI as
+// { data, length } (SharpCpp.Support.SpanAbi), and both sides address the same elements: there
+// is no copy and no allocation. A parameter borrows the pinned managed memory until the call
+// returns. A return value is a managed view of native memory, so it is valid only while the
+// native storage lives.
+//
+// A span with a fixed extent needs exactly that number of elements. When the managed span has a
+// different length, the callee gets a value-initialized local array that holds the available
+// elements. Sync() writes the mutable elements back after the call.
+template <class TSpan>
+struct SpanMarshallerBase
+{
+    using cpp_type = TSpan;
+    using element_type = typename TSpan::element_type;
+    using value_type = std::remove_cv_t<element_type>;
+
+    static constexpr bool is_dynamic_extent = TSpan::extent == span_dynamic_extent_v<TSpan>;
+
+    static_assert(
+        is_span_element_abi_v<element_type>,
+        "SpanMarshallerBase<TSpan> gives managed code the native elements in place, so the element "
+        "must be an arithmetic type other than bool, an enum, or a trivially copyable class whose "
+        "Marshaller<T>::abi_type is T.");
+
+    struct abi_type
+    {
+        element_type* data{};
+        std::size_t length{};
+    };
+
+    static_assert(
+        std::is_trivially_copyable_v<abi_type>,
+        "SpanMarshallerBase<TSpan>::abi_type crosses the ABI by value, so it must be trivially copyable.");
+
+    constexpr abi_type ConvertToAbi(cpp_type value) noexcept
+    {
+        return { value.data(), value.size() };
+    }
+
+    cpp_type ConvertToCpp(abi_type value) noexcept
+    {
+        if constexpr (is_dynamic_extent)
+        {
+            if (value.data == nullptr || value.length == 0)
+                return cpp_type{};
+            return cpp_type(value.data, value.length);
+        }
+        else
+        {
+            if (value.data != nullptr && value.length == TSpan::extent)
+                return cpp_type(value.data, TSpan::extent);
+
+            abi_argument_ = value;
+            storage_ = {};
+            const auto count = value.data == nullptr ? std::size_t{0} : std::min(value.length, TSpan::extent);
+            for (std::size_t index = 0; index < count; ++index)
+                storage_[index] = value.data[index];
+            return cpp_type(storage_.data(), TSpan::extent);
+        }
+    }
+
+    // Writes the elements of the local fixed-extent array back to the managed span.
+    void Sync() noexcept
+        requires(!is_dynamic_extent && !std::is_const_v<element_type>)
+    {
+        if (abi_argument_.data == nullptr)
+            return;
+        const auto count = std::min(abi_argument_.length, TSpan::extent);
+        for (std::size_t index = 0; index < count; ++index)
+            abi_argument_.data[index] = storage_[index];
+    }
+
+private:
+    struct NoStorage {};
+    using storage_type = std::conditional_t<
+        is_dynamic_extent,
+        NoStorage,
+        std::array<value_type, is_dynamic_extent ? 0 : TSpan::extent>>;
+    using abi_argument_type = std::conditional_t<is_dynamic_extent, NoStorage, abi_type>;
+
+    [[no_unique_address]] abi_argument_type abi_argument_{};
+    [[no_unique_address]] storage_type storage_{};
+};
+
+// The read-only counterpart to SpanMarshallerBase: a span of const elements, bound to
+// ReadOnlySpan<TManaged>. Nothing is written back.
+template <class TSpan>
+struct ConstSpanMarshallerBase : SpanMarshallerBase<TSpan>
+{
+    static_assert(
+        std::is_const_v<typename TSpan::element_type>,
+        "ConstSpanMarshallerBase<TSpan> binds a span of const elements; use SpanMarshallerBase for "
+        "a span of mutable elements.");
+};
+
+// A `const span<T>&` parameter. The callee gets a reference to a native span that lives until
+// the call returns.
+template <class TSpan, class TBase>
+struct SpanConstReferenceMarshallerBase
+{
+    using cpp_type = const TSpan&;
+    using abi_type = typename TBase::abi_type;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) noexcept
+    {
+        return value_marshaller_.ConvertToAbi(value);
+    }
+
+    cpp_type ConvertToCpp(abi_type value) noexcept
+    {
+        storage_.emplace(value_marshaller_.ConvertToCpp(value));
+        return *storage_;
+    }
+
+    void Sync() noexcept
+        requires requires(TBase& marshaller) { marshaller.Sync(); }
+    {
+        value_marshaller_.Sync();
+    }
+
+private:
+    TBase value_marshaller_;
+    std::optional<TSpan> storage_;
+};
+
+// Selected when a span element does not satisfy is_span_element_abi_v. The generator does not
+// evaluate the constraints, so this specialization turns a binding of such a span into a clear
+// compile error and not into a silent ABI mismatch.
+template <class TSpan>
+struct UnsupportedSpanMarshallerBase
+{
+    static_assert(
+        detail::span_always_false_v<TSpan>,
+        "A span crosses the ABI without a copy, so its element must be an arithmetic type other "
+        "than bool, an enum, or a trivially copyable class whose Marshaller<T>::abi_type is T. "
+        "Ignore this member in the generator.");
+};
+
 template <class TSignature>
 struct [[sharpcpp::managed_type(callback = true)]] Marshaller<std::function<TSignature>>
     : ManagedCallbackMarshallerBase<std::function<TSignature>, TSignature>
@@ -2174,6 +2358,38 @@ template <typename T>
     requires is_optional_handle_abi_v<T>
 struct Marshaller<const std::optional<T>&> : OptionalHandleConstReferenceMarshallerBase<std::optional<T>, T> {};
 
+template <typename T, std::size_t Extent>
+    requires(!std::is_const_v<T> && is_span_element_abi_v<T>)
+struct [[sharpcpp::managed_type(
+    public_type = "global::System.Span<{0}>",
+    managed_marshaller = "global::SharpCpp.Support.SpanAbiMarshaller<>",
+    undefaultable = true
+)]]
+Marshaller<std::span<T, Extent>> : SpanMarshallerBase<std::span<T, Extent>> {};
+
+template <typename T, std::size_t Extent>
+    requires is_span_element_abi_v<T>
+struct [[sharpcpp::managed_type(
+    public_type = "global::System.ReadOnlySpan<{0}>",
+    managed_marshaller = "global::SharpCpp.Support.ReadOnlySpanAbiMarshaller<>",
+    undefaultable = true
+)]]
+Marshaller<std::span<const T, Extent>> : ConstSpanMarshallerBase<std::span<const T, Extent>> {};
+
+template <typename T, std::size_t Extent>
+    requires(!is_span_element_abi_v<T>)
+struct Marshaller<std::span<T, Extent>> : UnsupportedSpanMarshallerBase<std::span<T, Extent>> {};
+
+template <typename T, std::size_t Extent>
+    requires(!std::is_const_v<T> && is_span_element_abi_v<T>)
+struct Marshaller<const std::span<T, Extent>&>
+    : SpanConstReferenceMarshallerBase<std::span<T, Extent>, Marshaller<std::span<T, Extent>>> {};
+
+template <typename T, std::size_t Extent>
+    requires is_span_element_abi_v<T>
+struct Marshaller<const std::span<const T, Extent>&>
+    : SpanConstReferenceMarshallerBase<std::span<const T, Extent>, Marshaller<std::span<const T, Extent>>> {};
+
 template <typename T, std::size_t N>
 struct [[sharpcpp::managed_type(
     public_type = "Std.Array<{0}>",
@@ -2422,6 +2638,22 @@ template <typename T>
     requires is_optional_handle_abi_v<T>
 struct [[sharpcpp::managed_type(return_ownership = "owning")]]
 ReturnMarshaller<std::optional<T>> : OptionalHandleReturnMarshallerBase<std::optional<T>, T> {};
+
+template <typename T, std::size_t Extent>
+    requires(!std::is_const_v<T> && is_span_element_abi_v<T>)
+struct [[sharpcpp::managed_type(
+    public_type = "global::System.Span<{0}>",
+    managed_marshaller = "global::SharpCpp.Support.SpanAbiReturnMarshaller<>"
+)]]
+ReturnMarshaller<std::span<T, Extent>> : Marshaller<std::span<T, Extent>> {};
+
+template <typename T, std::size_t Extent>
+    requires is_span_element_abi_v<T>
+struct [[sharpcpp::managed_type(
+    public_type = "global::System.ReadOnlySpan<{0}>",
+    managed_marshaller = "global::SharpCpp.Support.ReadOnlySpanAbiReturnMarshaller<>"
+)]]
+ReturnMarshaller<std::span<const T, Extent>> : Marshaller<std::span<const T, Extent>> {};
 
 template <typename T, std::size_t N>
 struct [[sharpcpp::managed_type(return_ownership = "owning")]]

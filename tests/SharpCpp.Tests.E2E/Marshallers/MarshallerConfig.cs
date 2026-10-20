@@ -60,6 +60,15 @@ public sealed class MarshallerConfigTests
     }
 
     [Fact]
+    public void Marshaller_patterns_with_a_const_template_parameter_bind_the_unqualified_type()
+    {
+        Assert.Equal(7008L, E2EBindings.PackConstTwin(7008L));
+        // twin<const int, short> does not match twin<const T, T>, so it does not cross as long.
+        var mixed = typeof(E2EBindings).GetMethod("PackConstMixed");
+        Assert.True(mixed is null || Assert.Single(mixed.GetParameters()).ParameterType != typeof(long));
+    }
+
+    [Fact]
     public void Marshaller_patterns_repeating_a_non_type_parameter_match_equal_arguments()
     {
         Assert.Equal(7003L, E2EBindings.PackSquare(7003L));

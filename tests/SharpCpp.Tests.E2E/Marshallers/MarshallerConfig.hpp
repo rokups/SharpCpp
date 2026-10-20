@@ -47,6 +47,19 @@ inline long long pack_mixed(twin<int, short> value)
     return value.first + value.second;
 }
 
+/// A `const T` pattern parameter binds T to the type without the const, so the second argument
+/// must be the same type without the const.
+inline long long pack_const_twin(twin<const int, int> value)
+{
+    return static_cast<long long>(value.first) * 1000 + value.second;
+}
+
+/// The second argument differs from the unqualified first argument: no match.
+inline long long pack_const_mixed(twin<const int, short> value)
+{
+    return value.first + value.second;
+}
+
 /// A value with two non-type arguments; its marshaller only matches when they are equal.
 template <class T, int Rows, int Columns>
 struct triple

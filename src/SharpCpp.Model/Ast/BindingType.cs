@@ -52,7 +52,14 @@ public sealed record MarshallerDescriptor(
     public bool IsSpanProjection =>
         IsRefStruct &&
         (ManagedMarshaller?.Contains("SpanAbiMarshaller<", StringComparison.Ordinal) == true ||
+         IsSpanViewReturn ||
          !string.Equals(PublicTypeName, "global::System.ReadOnlySpan<byte>", StringComparison.Ordinal));
+
+    // A span projection that a direct call returns as a view of native memory, with no copy
+    // (SpanAbiReturnMarshaller<>/ReadOnlySpanAbiReturnMarshaller<>).
+    public bool IsSpanViewReturn =>
+        IsRefStruct &&
+        ManagedMarshaller?.Contains("SpanAbiReturnMarshaller<", StringComparison.Ordinal) == true;
 
     // The ref structs a marshaller can project to: spans (a UTF-8 view as ReadOnlySpan<byte>, a
     // projected-value array as Span<T>/ReadOnlySpan<T>). Only the outer type counts, so a

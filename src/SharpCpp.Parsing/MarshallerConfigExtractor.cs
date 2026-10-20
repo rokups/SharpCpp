@@ -126,6 +126,12 @@ internal static class MarshallerConfigExtractor
             NativeTypePattern is { } pattern && HasRepeatedTemplateParameter(pattern, new HashSet<(uint Depth, uint Index)>());
         public bool Undefaultable { get; init; }
         /// <summary>
+        /// The specialization declares `using abi_type = T;` for its own cpp type T, so a value
+        /// crosses the ABI with its native layout. A span can then give managed code the native
+        /// elements in place.
+        /// </summary>
+        public bool AbiCrossesAsCppType { get; init; }
+        /// <summary>
         /// The public type is the pointee's projection passed by reference (`out string`
         /// over `const char**`); positions that cannot pass by reference keep the pointer ABI.
         /// </summary>
@@ -453,6 +459,7 @@ internal static class MarshallerConfigExtractor
             publicTypeName)
         {
             NativeTypePattern = nativeTypePattern,
+            AbiCrossesAsCppType = DeclaresAbiTypeAsCppType(decl),
             Undefaultable = undefaultableMatch.Success &&
                 string.Equals(undefaultableMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase),
             ByReference = ByReferenceExpression.Match(body) is { Success: true } byReferenceMatch &&
@@ -541,7 +548,9 @@ internal static class MarshallerConfigExtractor
             }
 
             var projectedTypePattern = pointee with { IsConst = false };
-            var inherited = configuredOverrides.FirstOrDefault(candidate =>
+            var inherited = configuredOverrides
+                .OrderByDescending(static candidate => CountConstTemplateParameters(candidate.Value.NativeTypePattern))
+                .FirstOrDefault(candidate =>
                 candidate.Key.StartsWith("return:", StringComparison.Ordinal) == isReturn &&
                 candidate.Value.NativeTypePattern is { } configuredTypePattern &&
                 MatchesCppTypePattern(
@@ -625,6 +634,36 @@ internal static class MarshallerConfigExtractor
                 CreateCppTypePattern(configured[0].AsType) is { } pattern &&
                 HasRepeatedTemplateParameter(pattern, new HashSet<(uint Depth, uint Index)>())
         };
+    }
+
+    /// <summary>
+    /// Counts the `const T` template parameters in a pattern. Of two patterns that match one type,
+    /// the pattern with more `const T` parameters is the more specialized one
+    /// (`span<const T>` against `span<T>`), as in C++ partial ordering.
+    /// </summary>
+    internal static int CountConstTemplateParameters(CppTypePattern? pattern) =>
+        pattern is null
+            ? 0
+            : (pattern.Kind == CppTypePatternKind.TemplateParameter && pattern.IsConst ? 1 : 0) +
+                CountConstTemplateParameters(pattern.Pointee) +
+                (pattern.TemplateArguments ?? []).Sum(static argument => CountConstTemplateParameters(argument));
+
+    // True when a full specialization `Marshaller<T>` declares `abi_type` as T itself. An
+    // inherited or a different abi_type gives false.
+    private static bool DeclaresAbiTypeAsCppType(Decl decl)
+    {
+        if (decl is ClassTemplatePartialSpecializationDecl ||
+            decl is not ClassTemplateSpecializationDecl { TemplateArgs: { Count: > 0 } arguments } specialization ||
+            arguments[0].Kind != CXTemplateArgumentKind.CXTemplateArgumentKind_Type)
+        {
+            return false;
+        }
+
+        var abiType = specialization.Decls
+            .OfType<TypedefNameDecl>()
+            .FirstOrDefault(static declaration => string.Equals(declaration.Name, "abi_type", StringComparison.Ordinal));
+        return abiType is not null &&
+            clang.equalTypes(abiType.UnderlyingType.CanonicalType.Handle, arguments[0].AsType.CanonicalType.Handle) != 0;
     }
 
     internal static bool HasRepeatedTemplateParameter(CppTypePattern pattern, ISet<(uint Depth, uint Index)> seen) =>
@@ -1149,6 +1188,15 @@ internal static class MarshallerConfigExtractor
         switch (configured.Kind)
         {
             case CppTypePatternKind.TemplateParameter:
+                // A `const T` parameter binds only a const type, as in C++, and T binds the type
+                // without the const. A plain `T` binds a const type too; the candidate order
+                // prefers the `const T` pattern.
+                if (configured.IsConst)
+                {
+                    if (clang.isConstQualifiedType(actual) == 0)
+                        return false;
+                    actual = clang.getUnqualifiedType(actual);
+                }
                 var key = (configured.TemplateParameterDepth, configured.TemplateParameterIndex);
                 if (bindings.TryGetValue(key, out var bound))
                     return clang.equalTypes(bound, actual) != 0;
@@ -1286,6 +1334,11 @@ internal static class MarshallerConfigExtractor
             // A type parameter binds a type and a non-type parameter a value; never each other.
             if ((configured.Kind == CppTypePatternKind.NonTypeTemplateParameter) !=
                 (actual.Kind is CppTypePatternKind.IntegralValue or CppTypePatternKind.NonTypeTemplateParameter))
+            {
+                return false;
+            }
+            // A `const T` parameter binds only a const type, as in C++.
+            if (configured.IsConst && !actual.IsConst)
             {
                 return false;
             }
