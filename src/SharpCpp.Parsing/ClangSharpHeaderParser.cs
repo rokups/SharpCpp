@@ -2905,7 +2905,16 @@ public sealed partial class ClangSharpHeaderParser
                     // Defaulted arguments keep the default expression's sugar, which is only
                     // valid in the template's scope; spell them canonically.
                     var argumentType = argumentIndex < writtenArgumentCount ? argument.AsType : argument.AsType.CanonicalType;
-                    var mappedArgument = argumentType.CanonicalType is FunctionType
+                    var mappedArgument = argumentType.CanonicalType is FunctionProtoType functionArgument &&
+                        !IsDependentCxType(argumentType.Handle)
+                        ? CreateFunctionTypeTemplateArgument(
+                            argumentType,
+                            functionArgument,
+                            recordsByName,
+                            enumsByName,
+                            managedTypeOverrides,
+                            genericParameters)
+                        : argumentType.CanonicalType is FunctionType
                         ? BindingType.CreateConfigured(
                             FormatCppTypeFromAst(argumentType, recordsByName, genericParameters),
                             FormatCppTypeFromAst(argumentType, recordsByName, genericParameters))
@@ -2932,7 +2941,8 @@ public sealed partial class ClangSharpHeaderParser
                         : FormatCanonicalCxTypeName(argumentType.CanonicalType.Handle));
                     nativeArguments.Add(BindingTemplateArgument.FromType(
                         mappedArgument,
-                        argumentType.CanonicalType.AsCXXRecordDecl is { } argumentRecord && IsNonDefaultConstructibleAllocator(argumentRecord)));
+                        argumentType.CanonicalType.AsCXXRecordDecl is { } argumentRecord && IsNonDefaultConstructibleAllocator(argumentRecord),
+                        isDefaulted: argumentIndex >= writtenArgumentCount));
                     break;
 
                 case CXTemplateArgumentKind.CXTemplateArgumentKind_Integral:
@@ -5024,6 +5034,59 @@ public sealed partial class ClangSharpHeaderParser
         return isDynamicArray && rawGenericArguments.Count > 0
             ? type.WithDynamicArray(rawGenericArguments[0])
             : type;
+    }
+
+    /// <summary>
+    /// Maps a function-type template argument, for example arg 0 of <c>Signal&lt;void(const Foo&amp;)&gt;</c>,
+    /// to a callback-shaped type. The callback parameters keep their mapped types, so that later
+    /// passes can name and bind the instantiation. An unmappable signature stays a configured type.
+    /// </summary>
+    private static BindingType CreateFunctionTypeTemplateArgument(
+        ClangSharp.Type argumentType,
+        FunctionProtoType functionType,
+        IDictionary<string, RecordBinding> recordsByName,
+        IDictionary<string, EnumBinding> enumsByName,
+        IReadOnlyDictionary<string, ManagedTypeOverride> managedTypeOverrides,
+        IReadOnlyDictionary<string, BindingType> genericParameters)
+    {
+        var cppTypeName = FormatCppTypeFromAst(argumentType, recordsByName, genericParameters);
+        try
+        {
+            var returnType = functionType.ReturnType.CanonicalType is BuiltinType { Kind: CXTypeKind.CXType_Void }
+                ? BindingType.Void
+                : MapType(
+                    functionType.ReturnType.Handle,
+                    recordsByName,
+                    enumsByName,
+                    managedTypeOverrides,
+                    genericParameters,
+                    preserveAliasSurface: false);
+            var parameterTypes = functionType.ParamTypes
+                .Select(parameterType => MarkProjectedValueReference(
+                    parameterType,
+                    MapType(
+                        parameterType.Handle,
+                        recordsByName,
+                        enumsByName,
+                        managedTypeOverrides,
+                        genericParameters,
+                        preserveAliasSurface: false),
+                    recordsByName,
+                    enumsByName,
+                    managedTypeOverrides,
+                    genericParameters))
+                .ToArray();
+            return BindingType.CreateCallback(
+                cppTypeName,
+                FormatManagedCallbackType(returnType, parameterTypes),
+                managedMarshaller: null,
+                returnType,
+                parameterTypes);
+        }
+        catch (NotSupportedException)
+        {
+            return BindingType.CreateConfigured(cppTypeName, cppTypeName);
+        }
     }
 
     private static BindingType CreateCallbackType(

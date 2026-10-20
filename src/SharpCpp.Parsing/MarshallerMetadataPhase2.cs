@@ -227,6 +227,11 @@ public static class MarshallerMetadataPhase2
                 record.SetMetadata(MetadataKeys.MarshallerConfiguredRecord, true);
             }
 
+            if (config.FlattenInstantiations)
+            {
+                record.SetMetadata(MetadataKeys.MarshallerFlattenInstantiations, true);
+            }
+
             if (FixedArrayExpression.IsMatch(body))
             {
                 record.SetMetadata(MetadataKeys.FixedArrayRecord, true);
@@ -417,6 +422,10 @@ public static class MarshallerMetadataPhase2
                     OwningRecordCppTypeName = record.CppQualifiedName
                 };
                 function.SetMetadata(MetadataKeys.MarshallerExposedMethod, cppTypeName);
+                if (member.ThrowOnFalseMessage is { } throwOnFalseMessage)
+                {
+                    function.SetMetadata(MetadataKeys.MarshallerThrowOnFalse, throwOnFalseMessage);
+                }
 
                 // Skip the first parameter (self-reference passed by the Marshaller infrastructure).
                 for (var parameterIndex = 1; parameterIndex < member.Parameters.Count; parameterIndex++)

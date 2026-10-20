@@ -3972,7 +3972,14 @@ public static partial class BindingOutputRenderer
             WriteDocumentationComment(writer, function);
         }
 
-        var returnTypeName = GetManagedPublicReturnTypeName(function.ReturnType, compilation);
+        // A bool status result becomes an exception: the managed method returns void.
+        var throwOnFalseMessage = function.ReturnType.PrimitiveKind == BindingPrimitiveKind.Boolean &&
+            function.TryGetMetadata(MetadataKeys.MarshallerThrowOnFalse, out string? configuredMessage)
+            ? configuredMessage
+            : null;
+        var returnTypeName = throwOnFalseMessage is not null
+            ? "void"
+            : GetManagedPublicReturnTypeName(function.ReturnType, compilation);
         var importMethodName = useCallbase
             ? GetManagedCallbaseImportMethodName(function)
             : GetManagedImportMethodName(function);
@@ -4079,6 +4086,24 @@ public static partial class BindingOutputRenderer
                 {
                     writer.Write(statement);
                 }
+            }
+            else if (throwOnFalseMessage is not null)
+            {
+                writer.Write($$"""
+                    var __result = __PInvoke.{{importMethodName}}({{invokeArguments}});
+                    """);
+
+                foreach (var statement in invocationPlan.PostCallStatements)
+                {
+                    writer.Write(statement);
+                }
+
+                writer.Write($$"""
+                    if (!__result)
+                    {
+                        throw new global::System.InvalidOperationException({{SymbolDisplayLiteral(throwOnFalseMessage)}});
+                    }
+                    """);
             }
         else if (function.ReturnType.Kind == BindingTypeKind.Handle)
         {
@@ -10236,4 +10261,23 @@ public static partial class BindingOutputRenderer
         }
     }
 
+
+    // Gives a C# string literal. A control character becomes a \uXXXX escape.
+    private static string SymbolDisplayLiteral(string value)
+    {
+        var builder = new System.Text.StringBuilder(value.Length + 2).Append('"');
+        foreach (var character in value)
+        {
+            _ = character switch
+            {
+                '\\' => builder.Append("\\\\"),
+                '"' => builder.Append("\\\""),
+                _ when char.IsControl(character) || character is '\u2028' or '\u2029' =>
+                    builder.Append("\\u").Append(((int)character).ToString("X4", System.Globalization.CultureInfo.InvariantCulture)),
+                _ => builder.Append(character)
+            };
+        }
+
+        return builder.Append('"').ToString();
+    }
 }

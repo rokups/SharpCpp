@@ -75,6 +75,10 @@ internal static class MarshallerConfigExtractor
         @"projection\s*=\s*(?<value>true|false)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    private static readonly Regex FlattenInstantiationsExpression = new(
+        @"flatten_instantiations\s*=\s*(?<value>true|false)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private static readonly Regex CallbackExpression = new(
         @"callback\s*=\s*(?<value>true|false)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -105,6 +109,10 @@ internal static class MarshallerConfigExtractor
 
     private static readonly Regex ReleaseStrategyExpression = new(
         @"release_strategy\s*=\s*\""(?<value>[^\""\\]*(?:\\.[^\""\\]*)*)\""",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex ThrowOnFalseExpression = new(
+        @"throw_on_false\s*=\s*\""(?<value>(?:[^\""\\]|\\.)*)\""",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private static readonly Regex ShapeExpression = new(
@@ -202,7 +210,13 @@ internal static class MarshallerConfigExtractor
         bool Exposed,
         IReadOnlyList<(string Name, string CppType)> Parameters,
         long ReturnTypeSize,
-        IReadOnlyList<long> ParameterTypeSizes);
+        IReadOnlyList<long> ParameterTypeSizes)
+    {
+        /// <summary>
+        /// The message of the InvalidOperationException that the managed method throws when the member returns false.
+        /// </summary>
+        public string? ThrowOnFalseMessage { get; init; }
+    }
 
     /// <summary>
     /// Full attribute body + extracted exposed member info for a Marshaller specialization.
@@ -220,6 +234,10 @@ internal static class MarshallerConfigExtractor
     {
         public string? ManagedWrapperProviderKind { get; init; }
         public string? ManagedWrapperProviderNamespace { get; init; }
+        /// <summary>
+        /// Each instantiation of the class template renders as its own non-generic managed class.
+        /// </summary>
+        public bool FlattenInstantiations { get; init; }
         public bool? ManagedWrapperCopyable { get; init; }
 
         /// <summary>
@@ -628,8 +646,12 @@ internal static class MarshallerConfigExtractor
         {
             ManagedWrapperProviderKind = GetManagedWrapperProviderKind(body),
             ManagedWrapperProviderNamespace = GetManagedWrapperProviderNamespace(body),
+            FlattenInstantiations = FlattenInstantiationsExpression.Match(body) is { Success: true } flattenMatch &&
+                string.Equals(flattenMatch.Groups["value"].Value, "true", StringComparison.OrdinalIgnoreCase),
             ManagedWrapperCopyable = GetManagedWrapperCopyable(body),
-            ConstrainsTemplateArguments = decl is ClassTemplateSpecializationDecl { TemplateArgs: { Count: > 0 } configured } &&
+            // A flattened template binds each instantiation to the pattern itself, so the pattern does not constrain the record.
+            ConstrainsTemplateArguments = !FlattenInstantiationsExpression.IsMatch(body) &&
+                decl is ClassTemplateSpecializationDecl { TemplateArgs: { Count: > 0 } configured } &&
                 configured[0].Kind == CXTemplateArgumentKind.CXTemplateArgumentKind_Type &&
                 CreateCppTypePattern(configured[0].AsType) is { } pattern &&
                 HasRepeatedTemplateParameter(pattern, new HashSet<(uint Depth, uint Index)>())
@@ -783,7 +805,12 @@ internal static class MarshallerConfigExtractor
             Exposed: exposed,
             Parameters: parameters.AsReadOnly(),
             ReturnTypeSize: methodDecl.ReturnType.Handle.SizeOf,
-            ParameterTypeSizes: parameterTypeSizes.AsReadOnly());
+            ParameterTypeSizes: parameterTypeSizes.AsReadOnly())
+        {
+            ThrowOnFalseMessage = ThrowOnFalseExpression.Match(attrBody) is { Success: true } throwMatch
+                ? UnescapeCppStringLiteral(throwMatch.Groups["value"].Value)
+                : null
+        };
         return true;
     }
 
@@ -1439,6 +1466,10 @@ internal static class MarshallerConfigExtractor
             RecordType recordType => GetCppQualifiedName(recordType.Decl),
             EnumType enumType => GetCppQualifiedName(enumType.Decl),
             BuiltinType => type.AsString,
+            PackExpansionType packType => FormatConfiguredCppType(packType.Pattern, templateParameters) is { } element
+                ? element + "..."
+                : null,
+            FunctionProtoType functionType => FormatConfiguredFunctionType(functionType, templateParameters),
             _ => null
         };
 
@@ -1452,6 +1483,94 @@ internal static class MarshallerConfigExtractor
             !rendered.StartsWith("const ", StringComparison.Ordinal)
             ? "const " + rendered
             : rendered;
+    }
+
+    // Gives the value of the body of a narrow C++ string literal. The renderer escapes the value again for C#.
+    internal static string UnescapeCppStringLiteral(string body)
+    {
+        var builder = new System.Text.StringBuilder(body.Length);
+        for (var index = 0; index < body.Length; ++index)
+        {
+            if (body[index] != '\\' || index + 1 == body.Length)
+            {
+                builder.Append(body[index]);
+                continue;
+            }
+
+            var escape = body[++index];
+            switch (escape)
+            {
+                case 'n': builder.Append('\n'); break;
+                case 't': builder.Append('\t'); break;
+                case 'r': builder.Append('\r'); break;
+                case 'a': builder.Append('\a'); break;
+                case 'b': builder.Append('\b'); break;
+                case 'f': builder.Append('\f'); break;
+                case 'v': builder.Append('\v'); break;
+                case 'x':
+                {
+                    var start = index + 1;
+                    var end = start;
+                    while (end < body.Length && Uri.IsHexDigit(body[end]))
+                    {
+                        ++end;
+                    }
+
+                    if (end == start)
+                    {
+                        builder.Append('x');
+                        break;
+                    }
+
+                    builder.Append((char)Convert.ToInt32(body[start..end], 16));
+                    index = end - 1;
+                    break;
+                }
+                case >= '0' and <= '7':
+                {
+                    var end = index;
+                    while (end < body.Length && end - index < 3 && body[end] is >= '0' and <= '7')
+                    {
+                        ++end;
+                    }
+
+                    builder.Append((char)Convert.ToInt32(body[index..end], 8));
+                    index = end - 1;
+                    break;
+                }
+                default:
+                    // A backslash, a quote, an apostrophe or a question mark gives the character itself.
+                    builder.Append(escape);
+                    break;
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    // A function type pattern such as `void (Args...)` keeps its pack expansions.
+    private static string? FormatConfiguredFunctionType(
+        FunctionProtoType functionType,
+        IReadOnlyList<NamedDecl> templateParameters)
+    {
+        var returnType = FormatConfiguredCppType(functionType.ReturnType, templateParameters);
+        if (returnType is null)
+        {
+            return null;
+        }
+
+        var parameters = new List<string>();
+        foreach (var parameterType in functionType.ParamTypes)
+        {
+            if (FormatConfiguredCppType(parameterType, templateParameters) is not { } parameter)
+            {
+                return null;
+            }
+
+            parameters.Add(parameter);
+        }
+
+        return $"{returnType} ({string.Join(", ", parameters)})";
     }
 
     private static string? FormatTemplateSpecialization(

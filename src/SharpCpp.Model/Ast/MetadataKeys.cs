@@ -82,6 +82,12 @@ public static class MetadataKeys
     public const string UnexpressibleDefault = "unexpressible_default";
     public const string MarshallerExposedMethod = "marshaller_exposed_method";
     public const string MarshallerConfiguredRecord = "marshaller_configured_record";
+    // Set on a marshaller-backed class template: each instantiation renders as its own class.
+    public const string MarshallerFlattenInstantiations = "marshaller_flatten_instantiations";
+    // Set on a flattened instantiation record: the symbol id of its class template record.
+    public const string FlattenedInstantiationOf = "flattened_instantiation_of";
+    // Set on an exposed method that returns bool: false throws InvalidOperationException with this message.
+    public const string MarshallerThrowOnFalse = "marshaller_throw_on_false";
     public const string UndefaultableParam = "undefaultable_param";
     public const string ManagedBindingProjection = "managed_binding_projection";
     public const string ManagedMarshaller = "managed_marshaller";

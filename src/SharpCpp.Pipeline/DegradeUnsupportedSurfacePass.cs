@@ -135,8 +135,10 @@ public static class DegradeUnsupportedSurfacePass
                     continue;
                 }
 
+                // A marshaller-backed record needs no complete definition: the marshaller owns its surface.
                 if (record.GetMetadata<bool>(MetadataKeys.ForwardDeclaration) &&
-                    !record.GetMetadata<bool>(MetadataKeys.OpaqueNativeHandle))
+                    !record.GetMetadata<bool>(MetadataKeys.OpaqueNativeHandle) &&
+                    !IsMarshallerBackedWrapperSurface(record))
                 {
                     record.SetIgnoreReason("record is only forward-declared; wrapper materialization requires a complete definition");
                     changed = true;
@@ -457,6 +459,37 @@ public static class DegradeUnsupportedSurfacePass
         }
     }
 
+    // The renderer applies throw_on_false only on the plain method path. The overload paths keep the bool result.
+    private static bool TryGetThrowOnFalseReason(FunctionBinding function, out string reason)
+    {
+        if (function.ReturnType.PrimitiveKind != BindingPrimitiveKind.Boolean)
+        {
+            reason = "throw_on_false needs a bool return type";
+            return true;
+        }
+
+        if (function.Parameters.Any(static parameter =>
+                parameter.HasMetadata(MetadataKeys.UnexpressibleDefault) ||
+                parameter.HasMetadata(MetadataKeys.UndefaultableParam)))
+        {
+            reason = "throw_on_false is not supported on a method with generated default-argument overloads";
+            return true;
+        }
+
+        if (function.Parameters.Any(static parameter =>
+                parameter.HasMetadata(MetadataKeys.InputPointerArray) ||
+                parameter.Direction == BindingParameterDirection.In &&
+                parameter.AbiKind == BindingParameterAbiKind.Pointer &&
+                parameter.Type.Kind == BindingTypeKind.Handle))
+        {
+            reason = "throw_on_false is not supported on a method with a pointer array parameter";
+            return true;
+        }
+
+        reason = string.Empty;
+        return false;
+    }
+
     private static bool TryGetUnsupportedFunctionReason(
         FunctionBinding function,
         IReadOnlyDictionary<string, RecordBinding> recordsById,
@@ -469,6 +502,11 @@ public static class DegradeUnsupportedSurfacePass
             !abstractRecord.RequiresDirector(compilation))
         {
             reason = $"constructors on abstract record '{abstractRecord.CppQualifiedName}' need a director with at least one bindable virtual slot";
+            return true;
+        }
+
+        if (function.HasMetadata(MetadataKeys.MarshallerThrowOnFalse) && TryGetThrowOnFalseReason(function, out reason))
+        {
             return true;
         }
 

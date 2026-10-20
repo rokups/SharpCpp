@@ -32,10 +32,18 @@ public sealed class BindingTemplateArgument
     /// </summary>
     public bool IsNonDefaultConstructibleAllocator { get; }
 
-    public static BindingTemplateArgument FromType(BindingType type, bool isNonDefaultConstructibleAllocator = false)
+    /// <summary>
+    /// True when the source does not spell the argument, so that it comes from the template default.
+    /// </summary>
+    public bool IsDefaulted { get; init; }
+
+    public static BindingTemplateArgument FromType(BindingType type, bool isNonDefaultConstructibleAllocator = false, bool isDefaulted = false)
     {
         ArgumentNullException.ThrowIfNull(type);
-        return new BindingTemplateArgument(BindingTemplateArgumentKind.Type, type, 0, isNonDefaultConstructibleAllocator: isNonDefaultConstructibleAllocator);
+        return new BindingTemplateArgument(BindingTemplateArgumentKind.Type, type, 0, isNonDefaultConstructibleAllocator: isNonDefaultConstructibleAllocator)
+        {
+            IsDefaulted = isDefaulted
+        };
     }
 
     public static BindingTemplateArgument FromIntegral(long value, bool isBoolean = false) =>
