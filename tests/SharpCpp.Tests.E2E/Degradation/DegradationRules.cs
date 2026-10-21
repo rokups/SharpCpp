@@ -67,6 +67,22 @@ public sealed partial class DegradationRuleTests
     }
 
     [Fact]
+    public void Director_virtual_with_a_callback_parameter_is_not_bound()
+    {
+        Assert.Null(typeof(CallbackVisitor).GetMethod("Visit"));
+        Assert.Null(typeof(CallbackVisitor).GetMethod("VisitValue"));
+
+        using var visitor = new CountingCallbackVisitor();
+        Assert.Equal(5, E2EBindings.CallCount(visitor));
+        Assert.Equal(23, E2EBindings.CallVisit(visitor));
+    }
+
+    private sealed partial class CountingCallbackVisitor : CallbackVisitor
+    {
+        public override int Count() => 5;
+    }
+
+    [Fact]
     public void Director_with_an_unavailable_pure_virtual_is_not_bound()
     {
         Assert.Null(typeof(E2EBindings).Assembly.GetType("Degradation_rules.UnavailableAbstract"));
@@ -85,7 +101,8 @@ public sealed partial class DegradationRuleTests
     {
         Assert.Null(typeof(E2EBindings).GetMethod("GetCallback"));
         Assert.Null(typeof(CallbackOwner).GetProperty("Callback"));
-        Assert.Null(typeof(E2EBindings).GetMethod("InvokeViewCallback"));
+        Assert.Null(typeof(E2EBindings).GetMethod("InvokeViewReturnCallback"));
+        Assert.Null(typeof(E2EBindings).GetMethod("InvokeMutableSpanCallback"));
         Assert.Null(typeof(E2EBindings).GetMethod("FirstSharedDelegate"));
         Assert.Null(typeof(E2EBindings).GetMethod("SecondSharedDelegate"));
         Assert.Null(typeof(E2EBindings).GetMethod("RefSharedDelegate"));

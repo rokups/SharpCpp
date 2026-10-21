@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <functional>
+#include <span>
+#include <string_view>
 #include <vector>
 
 namespace signal_like
@@ -120,6 +122,10 @@ struct button
     sig<void(point)> dropped;
     sig<void(int&), custom_sender> adjusted;
     sig<void(bool&)> handled;
+    /// The shape of Urho3D::NetworkConnection::OnDataReceived: a byte view and a ref flag.
+    sig<void(std::span<const unsigned char>, bool&)> received;
+    /// A string view and a span view in one slot, with a sender.
+    sig<void(std::string_view, std::span<const int>), custom_sender> labelled;
     sig<void(int), custom_sender> sent;
     prio_sig<void(int)> ordered;
     prio_sig<void(int), float> weighted;
@@ -150,5 +156,21 @@ inline int invoke_adjusted(button& target, custom_sender* sender, int initial)
     int value = initial;
     target.adjusted.invoke(sender, value);
     return value;
+}
+
+/// Invokes the byte-view signal from native code. The view is valid only during the slots.
+inline bool invoke_received(button& target, int count)
+{
+    unsigned char bytes[4]{10, 20, 30, 40};
+    bool handled = false;
+    target.received.invoke(nullptr, std::span<const unsigned char>(bytes, static_cast<std::size_t>(count < 4 ? count : 4)), handled);
+    return handled;
+}
+
+/// Invokes the string-view signal from native code.
+inline void invoke_labelled(button& target, custom_sender* sender)
+{
+    const int values[2]{3, 4};
+    target.labelled.invoke(sender, std::string_view("label"), std::span<const int>(values));
 }
 }

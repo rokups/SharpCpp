@@ -100,4 +100,52 @@ public sealed class CallbackRefParameterTests
 
         Assert.Equal(707, result);
     }
+
+    [Fact]
+    public void SpanParameterArrivesAsReadOnlySpan()
+    {
+        var result = E2EBindings.InvokeByteSpanCallback(bytes =>
+        {
+            var sum = 0;
+            foreach (var value in bytes)
+                sum = sum * 10 + value;
+            return sum * 10 + bytes.Length;
+        }, 3);
+
+        Assert.Equal(1233, result);
+    }
+
+    [Fact]
+    public void SpanParameterWithRefParameter()
+    {
+        float[]? received = null;
+        var handled = E2EBindings.InvokeFloatSpanRefCallback((System.ReadOnlySpan<float> values, ref bool flag) =>
+        {
+            received = values.ToArray();
+            flag = true;
+        });
+
+        Assert.True(handled);
+        Assert.Equal(new[] { 1.5f, 2.5f, 3.5f }, received);
+    }
+
+    [Fact]
+    public void EmptySpanParameterIsEmpty()
+    {
+        Assert.Equal(-1, E2EBindings.InvokeEmptySpanCallback(values => values.IsEmpty ? -1 : values.Length));
+    }
+
+    [Fact]
+    public void StringViewParameterArrivesAsUtf8Span()
+    {
+        string? text = null;
+        var result = E2EBindings.InvokeStringViewCallback((number, utf8) =>
+        {
+            text = System.Text.Encoding.UTF8.GetString(utf8);
+            return (nuint)(number + utf8.Length);
+        });
+
+        Assert.Equal("hello", text);
+        Assert.Equal((nuint)12, result);
+    }
 }

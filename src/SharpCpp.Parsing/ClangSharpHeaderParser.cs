@@ -4047,6 +4047,14 @@ public sealed partial class ClangSharpHeaderParser
             var patternArgument = patternArguments[index];
             if (ContainsTemplateParameter(patternArgument, templateParameterNames))
             {
+                // A `const T` argument matches only a const type, as in C++ partial ordering:
+                // span<const T> does not match span<int>.
+                if (IsConstTemplateParameterArgument(patternArgument, templateParameterNames) &&
+                    !IsConstQualifiedTypeName(candidateArguments[index]))
+                {
+                    return false;
+                }
+
                 continue;
             }
 
@@ -4059,6 +4067,21 @@ public sealed partial class ClangSharpHeaderParser
         }
 
         return true;
+    }
+
+    private static bool IsConstTemplateParameterArgument(string argument, IReadOnlyList<string> templateParameterNames)
+    {
+        var normalized = NormalizeTypeName(argument);
+        return templateParameterNames.Any(name =>
+            string.Equals(normalized, $"const {name}", StringComparison.Ordinal) ||
+            string.Equals(normalized, $"{name} const", StringComparison.Ordinal));
+    }
+
+    private static bool IsConstQualifiedTypeName(string typeName)
+    {
+        var normalized = NormalizeTypeName(typeName);
+        return normalized.StartsWith("const ", StringComparison.Ordinal) ||
+            normalized.EndsWith(" const", StringComparison.Ordinal);
     }
 
     private static bool ContainsTemplateParameter(string typeName, IReadOnlyList<string> templateParameterNames)
@@ -7212,9 +7235,9 @@ public sealed partial class ClangSharpHeaderParser
             match = FindSharpCppAttribute(parameterSourceText, "delegate");
         }
 
-        // `ref` cannot be a generic type argument, so a callback with a ref parameter needs a
-        // declared delegate type.
-        if (parameter.Type.HasCallbackRefParameters)
+        // A callback with a ref or ref-struct parameter needs a declared delegate type (see
+        // BindingType.RequiresDeclaredCallbackDelegate).
+        if (parameter.Type.RequiresDeclaredCallbackDelegate)
         {
             parameter.UseCallbackDelegate = true;
         }

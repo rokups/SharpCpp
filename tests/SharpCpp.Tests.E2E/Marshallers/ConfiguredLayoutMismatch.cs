@@ -161,6 +161,13 @@ public sealed class ConfiguredLayoutMismatchTests
     }
 
     [Fact]
+    public void ProjectedArrayCallbackParameterIsNotBound()
+    {
+        // A const T* array has no native length, so a callback cannot give it as a view.
+        Assert.Null(typeof(E2EBindings).GetMethod("InvokePaddedPairCallback"));
+    }
+
+    [Fact]
     public void Span_projections_in_returns_fields_and_virtual_parameters_are_degraded()
     {
         Assert.Null(typeof(E2EBindings).GetMethod("GetConfiguredWideVector3s"));

@@ -527,8 +527,8 @@ public static class FlattenMarshallerInstantiationsPass
     {
         return new ParameterBinding(symbolId, nativeName, managedName, type, direction, abiKind, cppTypeName)
         {
-            // `ref` is not a valid generic type argument, so a callback with a ref parameter needs a declared delegate.
-            UseCallbackDelegate = type.HasCallbackRefParameters
+            // A callback with a ref or ref-struct parameter needs a declared delegate (see RequiresDeclaredCallbackDelegate).
+            UseCallbackDelegate = type.RequiresDeclaredCallbackDelegate
         };
     }
 

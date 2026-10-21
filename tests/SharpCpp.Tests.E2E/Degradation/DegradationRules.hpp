@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <functional>
+#include <span>
 #include <string_view>
 
 namespace degradation_rules
@@ -135,6 +136,39 @@ protected:
     int origin_{};
 };
 
+/// A director cannot give a native function object to a managed override, so a virtual
+/// with a callback parameter is not bound. The record and its other virtuals are bound.
+class [[sharpcpp::director]] callback_visitor
+{
+public:
+    virtual ~callback_visitor() = default;
+
+    virtual int visit(const std::function<int(int)>& callback)
+    {
+        return callback(2);
+    }
+
+    virtual int visit_value(std::function<int(int)> callback)
+    {
+        return callback(3);
+    }
+
+    virtual int count() const
+    {
+        return 1;
+    }
+};
+
+inline int call_visit(callback_visitor& visitor)
+{
+    return visitor.visit([](int value) { return value * 10; }) + visitor.visit_value([](int value) { return value; });
+}
+
+inline int call_count(const callback_visitor& visitor)
+{
+    return visitor.count();
+}
+
 /// A director whose pure virtual callback cannot be generated cannot be subclassed.
 class [[sharpcpp::director]] unsupported_abstract
 {
@@ -186,10 +220,17 @@ inline void replace_callback(std::function<void(int)>& callback)
     callback = {};
 }
 
-/// Callback arguments that need a managed conversion cannot be generated.
-inline int invoke_view_callback(const std::function<int(std::string_view)>& callback)
+/// A callback cannot return a view: the managed memory does not outlive the call.
+inline int invoke_view_return_callback(const std::function<std::string_view(int)>& callback)
 {
-    return callback("text");
+    return static_cast<int>(callback(1).size());
+}
+
+/// A mutable span is not a read-only view, so a generated callback cannot take it.
+inline int invoke_mutable_span_callback(const std::function<int(std::span<int>)>& callback)
+{
+    int values[2]{1, 2};
+    return callback(std::span<int>(values));
 }
 
 struct value_argument

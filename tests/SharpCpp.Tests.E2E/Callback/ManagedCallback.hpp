@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <functional>
 #include <new>
+#include <span>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 
@@ -117,5 +119,37 @@ inline int invoke_int_ref_callback(std::function<int(int&)> callback, int initia
     int value = initial;
     const int result = callback(value);
     return value * 100 + result;
+}
+
+/// A span of const blittable elements arrives in the managed delegate as ReadOnlySpan<T>.
+/// The span is a view of this native array. It is valid only during the call.
+inline int invoke_byte_span_callback(SharpCpp::ManagedCallback<int(std::span<const unsigned char>)> callback, int count)
+{
+    unsigned char bytes[8]{};
+    for (int index = 0; index < count && index < 8; ++index)
+        bytes[index] = static_cast<unsigned char>(index + 1);
+    return callback(std::span<const unsigned char>(bytes, static_cast<std::size_t>(count < 8 ? count : 8)));
+}
+
+/// A span view together with a ref parameter, the shape of the Urho3D network signals.
+inline bool invoke_float_span_ref_callback(std::function<void(std::span<const float>, bool&)> callback)
+{
+    const float values[3]{1.5f, 2.5f, 3.5f};
+    bool handled = false;
+    callback(std::span<const float>(values), handled);
+    return handled;
+}
+
+/// An empty span arrives as an empty ReadOnlySpan<T>.
+inline int invoke_empty_span_callback(SharpCpp::ManagedCallback<int(std::span<const int>)> callback)
+{
+    return callback(std::span<const int>());
+}
+
+/// A UTF-8 string view arrives in the managed delegate as ReadOnlySpan<byte>.
+inline std::size_t invoke_string_view_callback(SharpCpp::ManagedCallback<std::size_t(int, std::string_view)> callback)
+{
+    const char text[] = "hello, view";
+    return callback(7, std::string_view(text, 5));
 }
 }

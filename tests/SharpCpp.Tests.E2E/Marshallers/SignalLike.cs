@@ -177,6 +177,55 @@ public sealed class SignalLikeTests
     }
 
     [Fact]
+    public void SpanViewSignalArgument()
+    {
+        using var button = new Button();
+        using var receiver = new Receiver();
+        byte[]? received = null;
+
+        // A span of const bytes is a ReadOnlySpan<byte> view that is valid only during the slot.
+        button.Received.Subscribe(receiver, (System.ReadOnlySpan<byte> data, ref bool handled) =>
+        {
+            received = data.ToArray();
+            handled = data.Length > 0;
+        });
+
+        Assert.True(E2EBindings.InvokeReceived(button, 3));
+        Assert.Equal(new byte[] { 10, 20, 30 }, received);
+
+        Assert.False(E2EBindings.InvokeReceived(button, 0));
+        Assert.Empty(received!);
+
+        var handled = false;
+        button.Received.Invoke(null!, new byte[] { 7, 8 }, ref handled);
+        Assert.True(handled);
+        Assert.Equal(new byte[] { 7, 8 }, received);
+    }
+
+    [Fact]
+    public void StringViewSignalArgumentWithSender()
+    {
+        using var button = new Button();
+        using var receiver = new Receiver();
+        using var sender = new CustomSender { Id = 9 };
+        string? label = null;
+        int[]? values = null;
+        var senderId = 0;
+
+        button.Labelled.SubscribeWithSender(receiver, (from, text, items) =>
+        {
+            senderId = from.Id;
+            label = System.Text.Encoding.UTF8.GetString(text);
+            values = items.ToArray();
+        });
+        E2EBindings.InvokeLabelled(button, sender);
+
+        Assert.Equal(9, senderId);
+        Assert.Equal("label", label);
+        Assert.Equal(new[] { 3, 4 }, values);
+    }
+
+    [Fact]
     public void ZeroArgSignal()
     {
         using var button = new Button();
@@ -218,7 +267,7 @@ public sealed class SignalLikeTests
             .Where(static property => property.PropertyType.Name.StartsWith("Sig_", StringComparison.Ordinal) ||
                 property.PropertyType.Name.StartsWith("PrioSig_", StringComparison.Ordinal))
             .ToArray();
-        Assert.Equal(10, properties.Length);
+        Assert.Equal(12, properties.Length);
         Assert.All(properties, static property => Assert.False(property.CanWrite, property.Name));
 
         var setters = typeof(Button).GetNestedTypes(all)

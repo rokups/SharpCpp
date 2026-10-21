@@ -311,6 +311,20 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   only be used for a parameter of a direct call, not ..." (the UTF-8 `ReadOnlySpan<byte>`
   string views are unaffected). The minimum length comes only from
   `MetadataKeys.MinimumSpanLength` set by the consumer; there is no parser heuristic.
+- A generated callback marshaller gives a read-only view parameter to the managed delegate.
+  A span of const elements (`ReadOnlySpanAbiMarshaller<>`) arrives as `ReadOnlySpan<T>`, and a
+  UTF-8 string view (`Utf8SpanAbiMarshaller`) arrives as `ReadOnlySpan<byte>`. There is no copy,
+  and the view is valid only during the call. Such a callback, and a callback with a `ref`
+  parameter, uses a declared delegate (`BindingType.RequiresDeclaredCallbackDelegate`) and not
+  Action/Func. A mutable `Span<T>` parameter and any view return of a callback stay degraded.
+  Fixtures: `Callback/ManagedCallback.hpp`, `Marshallers/SignalLike.hpp`,
+  `Degradation/DegradationRules.hpp`.
+- A `const T` argument in a token-matched marshaller pattern matches only a const type, so a
+  callback parameter `std::span<int>` does not select the `std::span<const T>` marshaller.
+- A director virtual with a callback parameter is not bound (ignore reason "is a callback; a
+  director cannot give a native function object to a managed override"). The callback
+  marshallers convert only a managed delegate to a native function object. A pure virtual of
+  this shape makes the director record unavailable. Fixture: `callback_visitor`.
 - Pointer ranges: `[[sharpcpp::ended_by(end)]]` on a begin pointer parameter (mirrors Clang
   `__ended_by`), or a consumer setting `MetadataKeys.EndedBy` to the end parameter's native
   name, binds `(T* begin, T* end)` as one managed span: `ReadOnlySpan<T>` for a const pointee,

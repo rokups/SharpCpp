@@ -665,6 +665,14 @@ public static class DegradeUnsupportedSurfacePass
                 reason = $"parameter '{parameter.ManagedName}' must be an in-value parameter";
                 return true;
             }
+
+            // The callback marshallers convert only a managed delegate to a native function
+            // object. The director cannot give the native function object to a managed override.
+            if (parameter.Type.IsCallback)
+            {
+                reason = $"parameter '{parameter.ManagedName}' is a callback; a director cannot give a native function object to a managed override";
+                return true;
+            }
         }
 
         reason = string.Empty;
@@ -1110,13 +1118,21 @@ public static class DegradeUnsupportedSurfacePass
 
             foreach (var parameterType in type.CallbackParameterTypes)
             {
-                if (type.ManagedMarshaller is null && !IsGeneratedCallbackValueSupported(parameterType, recordsById))
+                // A read-only view parameter is valid only during the call, so only a parameter
+                // (and never a callback return value) can be one.
+                if (type.ManagedMarshaller is null &&
+                    !parameterType.IsCallbackReadOnlyViewParameter &&
+                    !IsGeneratedCallbackValueSupported(parameterType, recordsById))
                 {
                     reason = $"generated callback marshaller cannot convert callback parameter type '{parameterType.ManagedTypeName}'";
                     return true;
                 }
 
-                if (parameterType.Marshaller.IsSpanProjection)
+                // A generated callback marshaller gives a read-only view to the delegate as a
+                // ReadOnlySpan<T> that is valid only during the call. Other span projections
+                // (a mutable Span<T>) still need a direct call.
+                if (parameterType.Marshaller.IsSpanProjection &&
+                    (type.ManagedMarshaller is not null || !parameterType.IsCallbackReadOnlyViewParameter))
                 {
                     reason = $"callback parameter type '{parameterType.ManagedTypeName}' is unsupported: {SpanProjectionReason(parameterType, "a callback parameter")}";
                     return true;

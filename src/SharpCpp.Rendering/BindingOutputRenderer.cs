@@ -2411,15 +2411,50 @@ public static partial class BindingOutputRenderer
             return "global::SharpCpp.Support.NativeArrayAbi";
         }
 
+        // A read-only view crosses as its two-field ABI struct and is rebuilt as a ReadOnlySpan<T>.
+        if (type.Marshaller.IsReadOnlySpanView)
+        {
+            return "global::SharpCpp.Support.SpanAbi";
+        }
+
+        if (type.Marshaller.IsUtf8StringView)
+        {
+            return "global::SharpCpp.Support.Utf8SpanAbi";
+        }
+
         var abiType = GetManagedImportTypeName(type, compilation);
         return IsManagedCallbackValueReference(type) ? $"{abiType}*" : abiType;
     }
 
     private static string BuildManagedCallbackInvocationArgument(BindingCompilation compilation, BindingType type, string valueExpression)
     {
+        // The ReadOnlySpan<T> is a view of the native memory with no copy. It is valid only
+        // during the call, which the ref struct type enforces in the delegate.
+        if (type.Marshaller.IsReadOnlySpanView)
+        {
+            return $"global::SharpCpp.Support.ReadOnlySpanAbiReturnMarshaller<{GetReadOnlySpanElementTypeName(compilation, type)}>.ConvertToManaged({valueExpression})";
+        }
+
+        if (type.Marshaller.IsUtf8StringView)
+        {
+            return $"global::SharpCpp.Support.Utf8SpanAbiReturnMarshaller.ConvertToManaged({valueExpression})";
+        }
+
         return type.Kind == BindingTypeKind.Handle
             ? BuildManagedHandleWrap(compilation, type, valueExpression, ownsHandle: false, handleIsArrayAbi: IsManagedCallbackFixedArrayAbi(compilation, type))
             : BuildManagedImportToPublicExpression(compilation, type, valueExpression);
+    }
+
+    private static string GetReadOnlySpanElementTypeName(BindingCompilation compilation, BindingType type)
+    {
+        const string prefix = "global::System.ReadOnlySpan<";
+        var publicTypeName = GetManagedPublicReturnTypeName(type, compilation);
+        if (!publicTypeName.StartsWith(prefix, StringComparison.Ordinal) || !publicTypeName.EndsWith('>'))
+        {
+            throw new InvalidOperationException($"Callback view parameter '{type.CppTypeName}' does not project to ReadOnlySpan<T>.");
+        }
+
+        return publicTypeName[prefix.Length..^1];
     }
 
     private static string BuildManagedCallbackReturnExpression(BindingCompilation compilation, BindingType type, string valueExpression)
@@ -2470,8 +2505,8 @@ public static partial class BindingOutputRenderer
                 : GetGeneratedCallbackDelegateName(parameter));
     }
 
-    // `ref` cannot be a generic type argument, so the Action/Func spelling of a callback alias
-    // with a ref parameter has the wrong shape. Each parameter spelled through such an alias
+    // `ref` and a ref struct cannot be a generic type argument, so the Action/Func spelling of a
+    // callback alias with such a parameter has the wrong shape. Each parameter spelled through such an alias
     // uses one delegate with the alias name, and the alias names this delegate.
     private static bool TryGetRefCallbackAliasDelegateName(BindingCompilation compilation, ParameterBinding parameter, out string delegateName)
     {
@@ -2479,7 +2514,7 @@ public static partial class BindingOutputRenderer
         if (!parameter.UseCallbackDelegate ||
             !string.IsNullOrWhiteSpace(parameter.CallbackDelegateTypeName) ||
             !parameter.Type.IsCallback ||
-            !parameter.Type.HasCallbackRefParameters ||
+            !parameter.Type.RequiresDeclaredCallbackDelegate ||
             string.IsNullOrWhiteSpace(parameter.Type.ManagedTypeFormatOverride))
         {
             return false;
@@ -2831,10 +2866,10 @@ public static partial class BindingOutputRenderer
             {
                 var qualifiedTarget = FormatGlobalTypeName(alias.TargetType, compilation);
 
-                // A callback alias with a ref parameter names the delegate that its parameters use.
+                // A callback alias with a ref or ref-struct parameter names the delegate that its parameters use.
                 // Without such a parameter no delegate exists, and the Action/Func spelling has the
                 // wrong shape. Thus the alias is not written.
-                if (alias.TargetType.IsCallback && alias.TargetType.HasCallbackRefParameters)
+                if (alias.TargetType.IsCallback && alias.TargetType.RequiresDeclaredCallbackDelegate)
                 {
                     if (!refCallbackAliasDelegateNames.Contains(alias.ManagedName))
                     {

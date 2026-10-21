@@ -65,6 +65,21 @@ public sealed record MarshallerDescriptor(
         IsRefStruct &&
         ManagedMarshaller?.Contains("SpanAbiReturnMarshaller<", StringComparison.Ordinal) == true;
 
+    // A native-to-managed callback gives a read-only view to the managed delegate as a
+    // ReadOnlySpan<T>, with no copy. The view is valid only during the call. See
+    // BindingType.IsCallbackReadOnlyViewParameter.
+    // A span of const elements that crosses as SharpCpp.Support.SpanAbi.
+    public bool IsReadOnlySpanView =>
+        IsRefStruct &&
+        IsGenericTypeName(PublicTypeName, "global::System.ReadOnlySpan<") &&
+        ManagedMarshaller?.StartsWith("global::SharpCpp.Support.ReadOnlySpanAbiMarshaller<", StringComparison.Ordinal) == true;
+
+    // A UTF-8 string view that crosses as SharpCpp.Support.Utf8SpanAbi.
+    public bool IsUtf8StringView =>
+        IsRefStruct &&
+        string.Equals(PublicTypeName, "global::System.ReadOnlySpan<byte>", StringComparison.Ordinal) &&
+        string.Equals(ManagedMarshaller, "global::SharpCpp.Support.Utf8SpanAbiMarshaller", StringComparison.Ordinal);
+
     // The ref structs a marshaller can project to: spans (a UTF-8 view as ReadOnlySpan<byte>, a
     // projected-value array as Span<T>/ReadOnlySpan<T>). Only the outer type counts, so a
     // container of spans is not itself a ref struct.
@@ -647,8 +662,21 @@ public sealed class BindingType
         }
     }
 
+    // A callback parameter that the managed delegate gets as a ReadOnlySpan<T> view. A span is a
+    // template instantiation with an element argument. A projected-value array (`const T*` over
+    // ProjectedValueConstSpanMarshallerBase) has no length on the native side, so it is not a view.
+    public bool IsCallbackReadOnlyViewParameter =>
+        Marshaller.IsUtf8StringView ||
+        (Marshaller.IsReadOnlySpanView && GenericArguments.Count > 0);
+
     public bool HasCallbackRefParameters =>
         IsCallback && CallbackParameterTypes.Any(static parameter => parameter.IsCallbackRefParameter);
+
+    // `ref T` and a ref struct such as ReadOnlySpan<T> are not valid Action/Func type arguments
+    // on every target framework, so such a callback needs a declared delegate type.
+    public bool RequiresDeclaredCallbackDelegate =>
+        IsCallback && CallbackParameterTypes.Any(static parameter =>
+            parameter.IsCallbackRefParameter || parameter.Marshaller.IsRefStruct);
 
     public BindingType WithSecondaryBaseView(bool value)
     {
