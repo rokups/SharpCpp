@@ -55,6 +55,14 @@ public sealed partial class ConfigBreadthTests
         Assert.Same(value, repair.EchoRepairConfigured());
         Assert.Same(repair, E2EBindings.Config2RepairConstReference(repair));
         Assert.Equal(87, E2EBindings.InvokeConfig2RepairAlias(repair, value));
+        using var eaRepair = E2EBindings.MakeEaConfig2RepairAlias(
+            value,
+            (left, right) => left.GetValue() + right.GetValue(),
+            6);
+        Assert.Equal(86, eaRepair.InvokeRepairConfigured(value));
+        Assert.Same(value, eaRepair.EchoRepairConfigured());
+        Assert.Same(eaRepair, E2EBindings.EaConfig2RepairConstReference(eaRepair));
+        Assert.Equal(87, E2EBindings.InvokeEaConfig2RepairAlias(eaRepair, value));
         Assert.Equal(96, E2EBindings.Config2InvokeSpecializedCallback<
             Func<Config2Surface<Config2Value>, Config2Value, int>>(
             (configured, item) => configured.ReadConfigured() + item.GetValue(),

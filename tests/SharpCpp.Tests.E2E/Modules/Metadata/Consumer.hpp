@@ -59,6 +59,16 @@ inline int consume_dependency_transform(dependency_transform callback, int value
     return callback(value) + 1;
 }
 
+inline void consume_dependency_ea_action(dependency_ea_action callback)
+{
+    callback();
+}
+
+inline int consume_dependency_ea_transform(dependency_ea_transform callback, int value)
+{
+    return callback(value) + 1;
+}
+
 inline int consume_dependency_box_alias(const dependency_int_box_alias* value)
 {
     return value == nullptr ? -1 : value->get_value();

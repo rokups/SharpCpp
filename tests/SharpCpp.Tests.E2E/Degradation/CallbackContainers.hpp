@@ -31,6 +31,27 @@ inline int count_fixed_callbacks(const std::array<std::function<void()>, 2>& cal
     return static_cast<int>(callbacks.size());
 }
 
+inline int count_ea_fixed_callbacks(const std::array<ea::function<void()>, 2>& callbacks)
+{
+    return static_cast<int>(callbacks.size());
+}
+
+inline int count_std_array_of_ea_callbacks(const std::array<ea::function<int(int)>, 3>& callbacks)
+{
+    return static_cast<int>(callbacks.size());
+}
+
+inline std::vector<ea::function<int(int)>> make_ea_callbacks()
+{
+    return {};
+}
+
+struct ea_callback_list
+{
+    std::vector<ea::function<void()>> callbacks;
+    int value{};
+};
+
 struct callback_list
 {
     std::vector<std::function<void()>> callbacks;

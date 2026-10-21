@@ -46,3 +46,29 @@ public sealed class DegradationTests
         Assert.EndsWith(".ThirdNode", typeof(SharpCpp.Tests.E2E.Modules.NamespaceMapping.Generated.ThirdNode.Instance).Namespace, StringComparison.Ordinal);
     }
 }
+
+public sealed class EaDegradationTests
+{
+    [Fact]
+    public void Ea_callbacks_degrade_like_std_callbacks()
+    {
+        foreach (var name in new[]
+        {
+            "CallbackWithUnsupportedReturn",
+            "CallbackWithIgnoredReturn",
+            "CallbackWithUnsupportedParameter",
+            "CallbackWithIgnoredParameter"
+        })
+        {
+            Assert.Null(typeof(DegradationBindings).GetMethod(name));
+            Assert.Null(typeof(DegradationBindings).GetMethod("Ea" + name));
+        }
+
+        // A [[sharpcpp::ref]] callback by value is excluded for both function types.
+        Assert.Null(typeof(DegradationBindings).GetMethod("CallbackMarkedRef"));
+        Assert.Null(typeof(DegradationBindings).GetMethod("EaCallbackMarkedRef"));
+
+        Assert.Null(typeof(UnsupportedFields).GetProperty("Callback"));
+        Assert.Null(typeof(UnsupportedFields).GetProperty("EaCallback"));
+    }
+}

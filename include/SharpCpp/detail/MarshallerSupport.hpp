@@ -195,7 +195,9 @@ TFunction CreateManagedCallbackWrapper(SharpCpp::ManagedCallbackHandleAbi handle
     }
     else
     {
-        using signature = typename ManagedCallbackSignature<remove_cvref_t<TSignature>>::type;
+        // A noexcept signature keeps its noexcept: a function object with such a signature
+        // accepts only a callable that does not throw.
+        using signature = remove_cvref_t<TSignature>;
         SharpCpp::ManagedCallback<signature> callback(handle);
         if (!callback)
         {

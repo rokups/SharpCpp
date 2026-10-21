@@ -1,6 +1,8 @@
 #pragma once
 
 #include <functional>
+
+#include "../../Callback/EaFunction.h"
 #include <locale>
 #include <string_view>
 #include <system_error>
@@ -194,6 +196,31 @@ inline void callback_marked_ref([[sharpcpp::ref]] std::function<void(int)> callb
     callback(1);
 }
 
+inline void ea_callback_with_unsupported_return(ea::function<long double()> callback)
+{
+    (void)callback;
+}
+
+inline void ea_callback_with_ignored_return(ea::function<ignored_record*()> callback)
+{
+    (void)callback;
+}
+
+inline void ea_callback_with_unsupported_parameter(ea::function<void(long double)> callback)
+{
+    (void)callback;
+}
+
+inline void ea_callback_with_ignored_parameter(ea::function<void(ignored_record*)> callback)
+{
+    (void)callback;
+}
+
+inline void ea_callback_marked_ref([[sharpcpp::ref]] ea::function<void(int)> callback)
+{
+    callback(1);
+}
+
 struct record_value
 {
     int value{};
@@ -213,6 +240,7 @@ struct unsupported_fields
 
     int& reference;
     std::function<void(int)> callback;
+    ea::function<void(int)> ea_callback;
     record_value nested;
 };
 

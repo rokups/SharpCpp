@@ -1,6 +1,8 @@
 #pragma once
 
 #include <functional>
+
+#include "../Callback/EaFunction.h"
 #include <cstddef>
 #include <memory>
 #include <type_traits>
@@ -245,6 +247,30 @@ inline int invoke_surface_dynamic_discovery_callback(
     return returned != nullptr ? returned->sum() + provider.sum() : -1;
 }
 
+inline int ea_invoke_surface_fixed_discovery_callback(
+    const ea::function<surface_array_callback_box<e2e_std::array<int, 3>*>*(
+        surface_array_callback_box<e2e_std::array<int, 3>*>*,
+        surface_array_callback_box<e2e_std::shared_array<double>*>*)>& callback,
+    int seed)
+{
+    surface_array_callback_box<e2e_std::array<int, 3>*> fixed(seed);
+    surface_array_callback_box<e2e_std::shared_array<double>*> shared(seed + 10);
+    auto* returned = callback(&fixed, &shared);
+    return returned != nullptr ? returned->sum() + shared.sum() : -1;
+}
+
+inline int ea_invoke_surface_dynamic_discovery_callback(
+    const ea::function<surface_array_callback_box<e2e_std::shared_array<double>*>*(
+        surface_array_callback_box<e2e_std::shared_array<double>*>*,
+        surface_array_callback_box<e2e_std::provider_array<float>*>*)>& callback,
+    int seed)
+{
+    surface_array_callback_box<e2e_std::shared_array<double>*> shared(seed);
+    surface_array_callback_box<e2e_std::provider_array<float>*> provider(seed + 10);
+    auto* returned = callback(&shared, &provider);
+    return returned != nullptr ? returned->sum() + provider.sum() : -1;
+}
+
 struct flattened_leaf
 {
     int x{};
@@ -451,6 +477,16 @@ inline void unsupported_callback_reference(std::function<int(int)>& callback)
     (void)callback;
 }
 
+inline ea::function<int(int)> ea_unsupported_callback_return()
+{
+    return [](int value) { return value; };
+}
+
+inline void ea_unsupported_callback_reference(ea::function<int(int)>& callback)
+{
+    (void)callback;
+}
+
 inline void unsupported_delegate_non_callback([[sharpcpp::delegate]] int value)
 {
     (void)value;
@@ -476,6 +512,30 @@ inline void unsupported_duplicate_delegate_a(
 
 inline void unsupported_duplicate_delegate_b(
     [[sharpcpp::delegate("SharedSurfaceCallback")]] std::function<void(float)> callback)
+{
+    callback(1.0f);
+}
+
+inline void ea_unsupported_delegate_name(
+    [[sharpcpp::delegate("not valid")]] ea::function<void(int)> callback)
+{
+    callback(1);
+}
+
+inline void ea_unsupported_external_delegate_name(
+    [[sharpcpp::delegate("global::")]] ea::function<void(int)> callback)
+{
+    callback(1);
+}
+
+inline void ea_unsupported_duplicate_delegate_a(
+    [[sharpcpp::delegate("EaSharedSurfaceCallback")]] ea::function<void(int)> callback)
+{
+    callback(1);
+}
+
+inline void ea_unsupported_duplicate_delegate_b(
+    [[sharpcpp::delegate("EaSharedSurfaceCallback")]] ea::function<void(float)> callback)
 {
     callback(1.0f);
 }

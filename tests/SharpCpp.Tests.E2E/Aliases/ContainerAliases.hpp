@@ -2,6 +2,8 @@
 
 #include <cstddef>
 #include <functional>
+
+#include "../Callback/EaFunction.h"
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -199,6 +201,11 @@ public:
 
     /// Callback arguments keep the map alias.
     int send(object* receiver, const std::function<int(object*, string_hash, variant_map&)>& handler)
+    {
+        return handler(receiver, string_hash{7}, data_);
+    }
+
+    int ea_send(object* receiver, const ea::function<int(object*, string_hash, variant_map&)>& handler)
     {
         return handler(receiver, string_hash{7}, data_);
     }

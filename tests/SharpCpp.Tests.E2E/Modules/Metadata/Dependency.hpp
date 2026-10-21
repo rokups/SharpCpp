@@ -5,6 +5,8 @@
 #include <functional>
 #include <vector>
 
+#include "../../Callback/EaFunction.h"
+
 namespace sharpcpp_coverage
 {
 enum class dependency_state : unsigned int
@@ -138,6 +140,8 @@ using dependency_fixed_alias = std::array<int, 4>;
 using dependency_dynamic_alias = std::vector<int>;
 using dependency_action = std::function<void()>;
 using dependency_transform = std::function<int(int)>;
+using dependency_ea_action = ea::function<void()>;
+using dependency_ea_transform = ea::function<int(int)>;
 
 struct dependency_base
 {
@@ -261,6 +265,16 @@ struct dependency_primitives
     }
 
     int invoke_transform(dependency_transform callback, int value) const
+    {
+        return callback(value);
+    }
+
+    void invoke_ea_action(dependency_ea_action callback) const
+    {
+        callback();
+    }
+
+    int invoke_ea_transform(dependency_ea_transform callback, int value) const
     {
         return callback(value);
     }

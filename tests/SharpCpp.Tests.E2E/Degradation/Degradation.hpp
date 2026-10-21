@@ -4,6 +4,8 @@
 #include <string_view>
 #include <vector>
 
+#include "../Callback/EaFunction.h"
+
 namespace pipeline_breadth
 {
 inline int pipeline_round_trip(int value)
@@ -126,6 +128,7 @@ struct pipeline_field_host
     int source{};
     int& reference;
     std::function<void(int)> callback;
+    ea::function<void(int)> ea_callback;
     pipeline_plain_value nested;
     pipeline_nonflattenable_value record_value;
     pipeline_configured_unsupported configured;
@@ -206,6 +209,36 @@ inline void reject_nested_callback_return(
 
 inline void reject_nested_callback_parameter(
     std::function<void(std::function<int(int)>)> callback)
+{
+    (void)callback;
+}
+
+inline void reject_ea_configured_callback_return(
+    ea::function<pipeline_configured_unsupported()> callback)
+{
+    (void)callback;
+}
+
+inline void reject_ea_nested_callback_return(
+    ea::function<ea::function<int(int)>()> callback)
+{
+    (void)callback;
+}
+
+inline void reject_ea_nested_callback_parameter(
+    ea::function<void(ea::function<int(int)>)> callback)
+{
+    (void)callback;
+}
+
+inline void reject_mixed_nested_callback_return(
+    std::function<ea::function<int(int)>()> callback)
+{
+    (void)callback;
+}
+
+inline void reject_mixed_nested_callback_parameter(
+    ea::function<void(std::function<int(int)>)> callback)
 {
     (void)callback;
 }

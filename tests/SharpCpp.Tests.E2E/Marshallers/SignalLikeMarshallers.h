@@ -50,6 +50,44 @@ struct [[sharpcpp::managed_type(
     static int CountOrFail(signal_like::sig<void(Args...), Sender>& self) { return self.count(); }
 };
 
+/// The ea::function form: the same exposed members over ea_sig.
+template <class Sender, class... Args>
+struct [[sharpcpp::managed_type(
+    public_type = "EaSig",
+    flatten_instantiations = true
+)]] Marshaller<signal_like::ea_sig<void(Args...), Sender>*>
+{
+    using cpp_type = signal_like::ea_sig<void(Args...), Sender>*;
+    using abi_type = signal_like::ea_sig<void(Args...), Sender>*;
+
+    constexpr abi_type ConvertToAbi(cpp_type value) noexcept { return value; }
+    constexpr cpp_type ConvertToCpp(abi_type value) noexcept { return value; }
+
+    [[sharpcpp::expose_member]]
+    static void Subscribe(signal_like::ea_sig<void(Args...), Sender>& self, signal_like::receiver* receiver, SharpCpp::ManagedCallback<void(Args...)> handler)
+    {
+        self.subscribe(receiver, std::move(handler));
+    }
+
+    [[sharpcpp::expose_member]]
+    static void SubscribeWithSender(signal_like::ea_sig<void(Args...), Sender>& self, signal_like::receiver* receiver, SharpCpp::ManagedCallback<void(Sender*, Args...)> handler)
+    {
+        self.subscribe_with_sender(receiver, std::move(handler));
+    }
+
+    [[sharpcpp::expose_member]]
+    static void Unsubscribe(signal_like::ea_sig<void(Args...), Sender>& self, signal_like::receiver* receiver) { self.unsubscribe(receiver); }
+
+    [[sharpcpp::expose_member(throw_on_false = "The signal \"sig\" is already being invoked.")]]
+    static bool Invoke(signal_like::ea_sig<void(Args...), Sender>& self, Sender* sender, Args... args) { return self.invoke(sender, args...); }
+
+    [[sharpcpp::expose_member]]
+    static bool HasSubscriptions(signal_like::ea_sig<void(Args...), Sender>& self) { return self.has_subscriptions(); }
+
+    [[sharpcpp::expose_member]]
+    static int Count(signal_like::ea_sig<void(Args...), Sender>& self) { return self.count(); }
+};
+
 template <class Sender, class Priority, class... Args>
 struct [[sharpcpp::managed_type(
     public_type = "PrioSig",

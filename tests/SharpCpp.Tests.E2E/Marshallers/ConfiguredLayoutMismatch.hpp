@@ -2,6 +2,8 @@
 
 #include <functional>
 
+#include "../Callback/EaFunction.h"
+
 /// A projected value type whose native layout genuinely differs from its abi_type layout
 /// (mirrors JPH::Vec3, which is 16-byte SIMD natively but projects to the 12-byte
 /// JoltVector3Abi). alignas(16) float v[4] gives this a 16-byte size and 16-byte alignment;
@@ -95,6 +97,12 @@ struct alignas(16) configured_padded_pair
 /// A projected-value array has no length on the native side, so a generated callback cannot
 /// give it to a managed delegate as a view. The function is not bound.
 inline float invoke_padded_pair_callback(const std::function<float(const configured_padded_pair*)>& callback)
+{
+    const configured_padded_pair pair{1.0f, 2.0f};
+    return callback(&pair);
+}
+
+inline float ea_invoke_padded_pair_callback(const ea::function<float(const configured_padded_pair*)>& callback)
 {
     const configured_padded_pair pair{1.0f, 2.0f};
     return callback(&pair);

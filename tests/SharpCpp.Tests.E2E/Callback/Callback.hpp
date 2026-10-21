@@ -111,3 +111,15 @@ inline int invoke_array_callback(std::function<int(std::array<int, 2>&)> callbac
     std::array<int, 2> values{ 3, 4 };
     return callback(values);
 }
+
+// A noexcept native function takes a function object. std::function has no noexcept signature,
+// so the noexcept belongs to the native function.
+inline int invoke_noexcept_function_callback(std::function<int(int)> callback, int value) noexcept
+{
+    return callback(value);
+}
+
+inline int invoke_noexcept_function_reference_callback(const std::function<int(int)>& callback, int value) noexcept
+{
+    return callback(value);
+}

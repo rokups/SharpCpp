@@ -5,10 +5,18 @@
 #include <string_view>
 #include <vector>
 
+#include "../Callback/EaFunction.h"
+
 namespace instantiations
 {
 /// The map instantiation is only named inside the callback signature.
 inline int invoke_with_map(const std::function<int(const std::map<int, int>&)>& callback)
+{
+    std::map<int, int> values{{1, 10}, {2, 20}};
+    return callback(values);
+}
+
+inline int ea_invoke_with_map(const ea::function<int(const std::map<int, int>&)>& callback)
 {
     std::map<int, int> values{{1, 10}, {2, 20}};
     return callback(values);

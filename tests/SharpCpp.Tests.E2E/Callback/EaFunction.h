@@ -103,6 +103,57 @@ private:
 
     std::unique_ptr<Concept> callable_;
 };
+
+// The real eastl::function has no noexcept signature. This stand-in adds one, so the tests can
+// check the handling of a noexcept function signature for a function object type other than
+// std::function (std::function<R(A...) noexcept> is not a valid type).
+template <class TResult, class... TArgs>
+class function<TResult(TArgs...) noexcept>
+{
+public:
+    function() noexcept = default;
+
+    function(std::nullptr_t) noexcept
+    {
+    }
+
+    template <class TFunctor,
+        class = std::enable_if_t<!std::is_same_v<std::decay_t<TFunctor>, function> &&
+            std::is_nothrow_invocable_r_v<TResult, std::decay_t<TFunctor>&, TArgs...>>>
+    function(TFunctor&& functor)
+        : inner_(std::forward<TFunctor>(functor))
+    {
+    }
+
+    function(const function&) = default;
+    function(function&&) noexcept = default;
+    function& operator=(const function&) = default;
+    function& operator=(function&&) noexcept = default;
+
+    function& operator=(std::nullptr_t) noexcept
+    {
+        inner_ = nullptr;
+        return *this;
+    }
+
+    explicit operator bool() const noexcept
+    {
+        return static_cast<bool>(inner_);
+    }
+
+    TResult operator()(TArgs... arguments) const noexcept
+    {
+        return inner_(std::forward<TArgs>(arguments)...);
+    }
+
+    void swap(function& other) noexcept
+    {
+        inner_.swap(other.inner_);
+    }
+
+private:
+    function<TResult(TArgs...)> inner_;
+};
 }
 
 namespace ea = eastl;

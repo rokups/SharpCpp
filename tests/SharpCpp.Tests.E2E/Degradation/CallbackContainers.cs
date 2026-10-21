@@ -17,8 +17,13 @@ public sealed class CallbackContainerTests
         Assert.Null(typeof(E2EBindings).GetMethod("MakeCallbacks"));
         Assert.Null(typeof(E2EBindings).GetMethod("CountEaCallbacks"));
         Assert.Null(typeof(E2EBindings).GetMethod("CountFixedCallbacks"));
+        Assert.Null(typeof(E2EBindings).GetMethod("CountEaFixedCallbacks"));
+        Assert.Null(typeof(E2EBindings).GetMethod("CountStdArrayOfEaCallbacks"));
+        Assert.Null(typeof(E2EBindings).GetMethod("MakeEaCallbacks"));
         Assert.Null(typeof(CallbackList).GetProperty("Callbacks"));
         Assert.NotNull(typeof(CallbackList).GetProperty("Value"));
+        Assert.Null(typeof(EaCallbackList).GetProperty("Callbacks"));
+        Assert.NotNull(typeof(EaCallbackList).GetProperty("Value"));
 
         var log = Diagnostics.GeneratedArtifacts.ReadText("generator.log").Split('\n');
         foreach (var (kind, name) in new[]
@@ -27,7 +32,11 @@ public sealed class CallbackContainerTests
             ("Function", "make_callbacks"),
             ("Function", "count_ea_callbacks"),
             ("Function", "count_fixed_callbacks"),
+            ("Function", "count_ea_fixed_callbacks"),
+            ("Function", "count_std_array_of_ea_callbacks"),
+            ("Function", "make_ea_callbacks"),
             ("Field", "callback_list::callbacks"),
+            ("Field", "ea_callback_list::callbacks"),
         })
         {
             Assert.Contains(

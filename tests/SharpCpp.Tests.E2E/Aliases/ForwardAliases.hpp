@@ -2,14 +2,18 @@
 
 #include <functional>
 
+#include "../Callback/EaFunction.h"
+
 namespace phase2_breadth
 {
 struct phase2_value;
 using phase2_alias = phase2_value;
 using phase2_callback = std::function<int(phase2_alias*)>;
+using phase2_ea_callback = ea::function<int(phase2_alias*)>;
 
 phase2_alias* phase2_forward_identity(phase2_alias* value);
 int phase2_invoke_alias_callback(const phase2_callback& callback, phase2_alias* value);
+int phase2_invoke_ea_alias_callback(const phase2_ea_callback& callback, phase2_alias* value);
 
 struct phase2_value
 {
@@ -61,6 +65,11 @@ inline phase2_alias* phase2_forward_identity(phase2_alias* value)
 }
 
 inline int phase2_invoke_alias_callback(const phase2_callback& callback, phase2_alias* value)
+{
+    return callback(value) + 1;
+}
+
+inline int phase2_invoke_ea_alias_callback(const phase2_ea_callback& callback, phase2_alias* value)
 {
     return callback(value) + 1;
 }

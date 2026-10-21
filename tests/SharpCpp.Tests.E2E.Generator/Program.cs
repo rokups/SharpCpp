@@ -423,9 +423,11 @@ internal static class Program
         IReadOnlyList<string> fixtureMarshallerConfigurationFiles)
     {
         // Like a real application, only the core marshallers; fixture-local ones would
-        // re-emit the main module's locally configured wrappers.
+        // re-emit the main module's locally configured wrappers. The ea::function marshallers
+        // are the exception: they only add the function object type, like the marshallers of
+        // an application that uses eastl::function.
         IReadOnlyList<string> marshallerConfigurationFiles = fixtureMarshallerConfigurationFiles
-            .Where(static path => string.Equals(Path.GetFileName(path), "Marshaller.hpp", StringComparison.Ordinal))
+            .Where(static path => Path.GetFileName(path) is "Marshaller.hpp" or "EaFunctionMarshallers.h")
             .ToArray();
         var library = ParseModuleHeader(
             "SharpCpp.Tests.E2E.Modules.CrossModule.Library",
@@ -655,9 +657,9 @@ internal static class Program
 
     private static void ApplyNamespaceMappingOverrides(BindingCompilation compilation)
     {
-        compilation.Functions.Single(function =>
-                string.Equals(function.NativeName, "callback_marked_ref", StringComparison.Ordinal))
-            .ClearIgnoreReason();
+        foreach (var function in compilation.Functions.Where(function =>
+                     function.NativeName is "callback_marked_ref" or "ea_callback_marked_ref"))
+            function.ClearIgnoreReason();
     }
 
     private static BindingMetadataDocument CreateCompatibilityDependencyMetadata(BindingMetadataDocument document)

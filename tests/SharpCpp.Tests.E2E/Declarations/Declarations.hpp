@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <functional>
+
+#include "../Callback/EaFunction.h"
 #include <locale>
 #include <system_error>
 #include <utility>
@@ -268,6 +270,11 @@ void breadth_increment_template(T& value)
 }
 
 inline int invoke_breadth_callback_reference(const std::function<int(int)>& callback, int value)
+{
+    return callback(value) + 1;
+}
+
+inline int ea_invoke_breadth_callback_reference(const ea::function<int(int)>& callback, int value)
 {
     return callback(value) + 1;
 }

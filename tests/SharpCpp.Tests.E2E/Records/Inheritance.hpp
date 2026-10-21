@@ -2,6 +2,8 @@
 
 #include <functional>
 
+#include "../Callback/EaFunction.h"
+
 struct [[sharpcpp::director]] inheritance_access_root
 {
     virtual ~inheritance_access_root() = default;
@@ -99,6 +101,13 @@ struct inheritance_projection_mixin
 
     int projected_callback(
         [[sharpcpp::delegate("SharpCpp.Tests.E2E.Records.InheritanceProjectionCallback")]] std::function<int(int)> callback,
+        int value) const
+    {
+        return callback(value) + offset_;
+    }
+
+    int ea_projected_callback(
+        [[sharpcpp::delegate("SharpCpp.Tests.E2E.Records.InheritanceProjectionCallback")]] ea::function<int(int)> callback,
         int value) const
     {
         return callback(value) + offset_;

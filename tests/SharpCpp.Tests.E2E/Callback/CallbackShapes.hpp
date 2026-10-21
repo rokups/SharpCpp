@@ -2,6 +2,8 @@
 
 #include <functional>
 
+#include "EaFunction.h"
+
 namespace callback_shapes
 {
 struct point2
@@ -58,5 +60,41 @@ inline int point_sum(const point2& value)
 inline point2 make_point(int x, int y)
 {
     return point2{x, y};
+}
+
+/// The ea::function forms of the callback shapes above.
+inline float ea_for_each(ea::function<void(int, float)> callback)
+{
+    callback(1, 0.5f);
+    callback(2, 1.5f);
+    return 2.0f;
+}
+
+inline int ea_notify(ea::function<void()> callback)
+{
+    callback();
+    return 1;
+}
+
+inline unsigned ea_invoke_optional(ea::function<unsigned()> callback = nullptr)
+{
+    return callback ? callback() : 99u;
+}
+
+inline int ea_use_point_value_callback(ea::function<int(point2)> callback)
+{
+    return callback(point2{5, 6});
+}
+
+inline int ea_use_point_callback(ea::function<int(const point2&)> callback)
+{
+    return callback(point2{3, 4});
+}
+
+inline int ea_invoke_point_ref_callback(ea::function<void(point2&)> callback, int x, int y)
+{
+    point2 value{x, y};
+    callback(value);
+    return value.x * 1000 + value.y;
 }
 }

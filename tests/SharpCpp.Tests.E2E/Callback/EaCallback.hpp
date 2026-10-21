@@ -2,7 +2,10 @@
 
 #include <SharpCpp/ManagedCallback.hpp>
 
+#include <array>
+#include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "EaFunction.h"
@@ -228,4 +231,99 @@ struct ea_callback_owner
 inline void ea_replace_callback(ea::function<void(int)>& callback)
 {
     callback = nullptr;
+}
+
+inline int ea_invoke_object_reference_callback(ea::function<void(ea_callback_box&)> callback, int value)
+{
+    static ea_callback_box box{};
+    box.set_value(value);
+    callback(box);
+    return box.get_value();
+}
+
+inline int ea_invoke_primitive_pointer_callback(ea::function<void(int*)> callback, int value)
+{
+    int local = value;
+    callback(&local);
+    return local;
+}
+
+inline void ea_invoke_named_delegate_callback([[sharpcpp::delegate("EaValueCallback")]] ea::function<void(int)> callback, int value)
+{
+    callback(value);
+}
+
+inline int ea_invoke_external_delegate_callback(
+    [[sharpcpp::delegate("SharpCpp.Tests.E2E.Callback.ExternalValueCallback")]] ea::function<int(int)> callback,
+    int value)
+{
+    return callback(value);
+}
+
+// Shared wrapper with a non-type template argument crossing into a managed callback.
+inline int ea_invoke_array_callback(ea::function<int(std::array<int, 2>&)> callback)
+{
+    std::array<int, 2> values{ 3, 4 };
+    return callback(values);
+}
+
+// A noexcept native function takes an ea::function. The signature of the function object is
+// plain, as for std::function.
+inline int ea_invoke_noexcept_function_callback(ea::function<int(int)> callback, int value) noexcept
+{
+    return callback(value);
+}
+
+inline int ea_invoke_noexcept_function_reference_callback(const ea::function<int(int)>& callback, int value) noexcept
+{
+    return callback(value);
+}
+
+// The stand-in also has a noexcept signature (see EaFunction.h). A ManagedCallback with a
+// noexcept signature is already tested.
+inline int ea_invoke_noexcept_signature_callback(ea::function<int(int) noexcept> callback, int value) noexcept
+{
+    return callback(value);
+}
+
+inline int ea_invoke_noexcept_signature_ref_callback(const ea::function<void(int&) noexcept>& callback, int value) noexcept
+{
+    int local = value;
+    callback(local);
+    return local;
+}
+
+// A ref parameter with a result.
+inline int ea_invoke_int_ref_callback(ea::function<int(int&)> callback, int initial)
+{
+    int value = initial;
+    const int result = callback(value);
+    return value * 100 + result;
+}
+
+// A span view together with a ref parameter.
+inline bool ea_invoke_float_span_ref_callback(ea::function<void(std::span<const float>, bool&)> callback)
+{
+    const float values[3]{1.5f, 2.5f, 3.5f};
+    bool handled = false;
+    callback(std::span<const float>(values), handled);
+    return handled;
+}
+
+// A view return and a mutable span are not supported by a generated callback.
+inline int ea_invoke_view_return_callback(const ea::function<std::string_view(int)>& callback)
+{
+    return static_cast<int>(callback(1).size());
+}
+
+inline int ea_invoke_mutable_span_callback(const ea::function<int(std::span<int>)>& callback)
+{
+    int values[2]{1, 2};
+    return callback(std::span<int>(values));
+}
+
+// A null default is a managed null default.
+inline int ea_invoke_optional_callback(ea::function<int()> callback = nullptr)
+{
+    return callback ? callback() : 99;
 }

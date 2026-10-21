@@ -335,12 +335,21 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   Other shapes stay unbound with a reason. A pure virtual of such a shape makes the director
   record unavailable. Fixtures: `VirtualAdvanced/DirectorNativeCallback.hpp`,
   `Callback/EaCallback.hpp`, `callback_visitor`.
+  Two limits apply. (a) An owned function object is destroyed on the .NET finalizer thread
+  when the override does not dispose the delegate. (b) The end of a borrowed call (`EndCall`)
+  waits without limit if a call on another thread blocks on the director thread.
 - A callback cannot be a generic argument (for example `std::vector<std::function<void()>>`).
   The declaration is degraded with the reason "a callback cannot be a generic argument".
   Fixture: `Degradation/CallbackContainers.hpp`.
 - The core E2E fixtures test `eastl::function` with a minimal stand-in
   (`Callback/EaFunction.h`, opt-in by include) and its marshallers
   (`Callback/EaFunctionMarshallers.h`, which mirror the `std::function` marshallers).
+  Each `std::function` fixture has an `ea::function` twin (`ea_` names, `EaCallback*.cs`,
+  `EaFixtureTwins.cs`, `Ea*` tests in the module and director areas). The stand-in has a
+  `function<R(A...) noexcept>` form for `noexcept` signature tests. The cross-module
+  generation (Library and App) also loads `EaFunctionMarshallers.h`. An alias target of a
+  callback uses the canonical spelling (`eastl::function`) so that the alias names the shared
+  delegate of its parameters.
 - Pointer ranges: `[[sharpcpp::ended_by(end)]]` on a begin pointer parameter (mirrors Clang
   `__ended_by`), or a consumer setting `MetadataKeys.EndedBy` to the end parameter's native
   name, binds `(T* begin, T* end)` as one managed span: `ReadOnlySpan<T>` for a const pointee,

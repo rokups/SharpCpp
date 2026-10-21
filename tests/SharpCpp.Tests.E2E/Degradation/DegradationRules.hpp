@@ -5,6 +5,8 @@
 #include <span>
 #include <string_view>
 
+#include "../Callback/EaFunction.h"
+
 namespace degradation_rules
 {
 /// A static constant and an instance field that project to the same managed name.
@@ -263,6 +265,69 @@ inline void ref_shared_delegate([[sharpcpp::delegate("RefSharedDelegate")]] std:
 }
 
 inline void value_shared_delegate([[sharpcpp::delegate("RefSharedDelegate")]] std::function<void(int)> callback)
+{
+    callback(1);
+}
+
+/// The ea::function forms of the callback degradation fixtures above.
+class [[sharpcpp::director]] ea_callback_visitor
+{
+public:
+    virtual ~ea_callback_visitor() = default;
+
+    virtual int visit(const ea::function<int(bool)>& callback)
+    {
+        return callback(true);
+    }
+
+    virtual int visit_value(ea::function<int(int)> callback)
+    {
+        return callback(3);
+    }
+
+    virtual int count() const
+    {
+        return 1;
+    }
+};
+
+inline int ea_call_callback_visit(ea_callback_visitor& visitor)
+{
+    return visitor.visit([](bool value) { return value ? 20 : 0; }) + visitor.visit_value([](int value) { return value; });
+}
+
+inline int ea_call_callback_count(const ea_callback_visitor& visitor)
+{
+    return visitor.count();
+}
+
+inline int ea_invoke_result_callback(const ea::function<callback_result()>& callback)
+{
+    return callback().value;
+}
+
+inline int ea_invoke_value_argument_callback(const ea::function<int(value_argument)>& callback)
+{
+    return callback(value_argument{3});
+}
+
+inline void ea_first_shared_delegate([[sharpcpp::delegate("EaSharedDelegate")]] ea::function<void(int)> callback)
+{
+    callback(1);
+}
+
+inline void ea_second_shared_delegate([[sharpcpp::delegate("EaSharedDelegate")]] ea::function<void(float)> callback)
+{
+    callback(1.0f);
+}
+
+inline void ea_ref_shared_delegate([[sharpcpp::delegate("EaRefSharedDelegate")]] ea::function<void(int&)> callback)
+{
+    int value = 1;
+    callback(value);
+}
+
+inline void ea_value_shared_delegate([[sharpcpp::delegate("EaRefSharedDelegate")]] ea::function<void(int)> callback)
 {
     callback(1);
 }

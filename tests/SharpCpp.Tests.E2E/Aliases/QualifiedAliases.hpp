@@ -1,6 +1,8 @@
 #pragma once
 
 #include <functional>
+
+#include "../Callback/EaFunction.h"
 #include <map>
 
 namespace config_breadth2
@@ -173,6 +175,17 @@ inline int invoke_config2_nested_callback(
     return callback(surface, value) + 3;
 }
 
+using config2_nested_ea_callback =
+    ea::function<int(config2_value_surface_alias*, config2_value_alias*)>;
+
+inline int invoke_config2_nested_ea_callback(
+    const config2_nested_ea_callback& callback,
+    config2_value_surface_alias* surface,
+    config2_value_alias* value)
+{
+    return callback(surface, value) + 3;
+}
+
 using config2_repair_callback =
     std::function<int(config2_value_alias*, config2_value_alias*)>;
 
@@ -237,6 +250,71 @@ inline const repair_view::qualified_alias& config2_repair_const_reference(
 
 inline int invoke_config2_repair_alias(
     const repair_view::qualified_alias& value,
+    config2_value_alias* other)
+{
+    return value.invoke(other) + 1;
+}
+
+/// The ea::function form of config2_repair. It is a separate template: one managed class
+/// cannot wrap two instantiations that differ only in the callback type.
+using ea_config2_repair_callback =
+    ea::function<int(config2_value_alias*, config2_value_alias*)>;
+
+template <
+    typename TValue,
+    typename TCallback = ea_config2_repair_callback,
+    typename THidden = unsigned int>
+struct
+[[sharpcpp::instantiate("config_breadth2::config2_derived*")]]
+ea_config2_repair
+{
+    ea_config2_repair() = default;
+
+    [[sharpcpp::ignore("constructed through generated factory")]]
+    ea_config2_repair(TValue value, TCallback callback, int bias)
+        : value_(value)
+        , callback_(callback)
+        , bias_(bias)
+    {
+    }
+
+    int invoke(config2_value_alias* other) const
+    {
+        return callback_ ? callback_(value_, other) + bias_ : bias_;
+    }
+
+    TValue echo_value() const { return value_; }
+
+private:
+    TValue value_{};
+    TCallback callback_{};
+    int bias_{};
+};
+
+using ea_config2_repair_alias =
+    ea_config2_repair<config2_value_alias*, ea_config2_repair_callback, unsigned long>;
+
+namespace repair_view
+{
+using ea_qualified_alias = ea_config2_repair_alias;
+}
+
+inline ea_config2_repair_alias* make_ea_config2_repair_alias(
+    config2_value_alias* value,
+    const ea_config2_repair_callback& callback,
+    int bias)
+{
+    return new ea_config2_repair_alias(value, callback, bias);
+}
+
+inline const repair_view::ea_qualified_alias& ea_config2_repair_const_reference(
+    const repair_view::ea_qualified_alias& value)
+{
+    return value;
+}
+
+inline int invoke_ea_config2_repair_alias(
+    const repair_view::ea_qualified_alias& value,
     config2_value_alias* other)
 {
     return value.invoke(other) + 1;

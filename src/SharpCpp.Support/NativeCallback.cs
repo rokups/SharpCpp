@@ -31,6 +31,17 @@ public struct NativeCallbackHandleAbi
 /// Each call increments an in-use counter. A borrowed scope waits for the calls of other threads
 /// before the override call returns, so no call uses the function object after the caller
 /// destroys it. An owned holder is released after the last call returns.
+/// <para>
+/// Owned holder: when the override does not dispose the delegate, the .NET finalizer releases the
+/// holder. Then the native destructor of the function object runs on the finalizer thread.
+/// The destructor of the captured state must be safe on any thread.
+/// </para>
+/// <para>
+/// Borrowed scope: the end of the override call waits for calls on other threads. The wait has no
+/// time limit. If a call on another thread blocks until the director thread continues, the end of
+/// the override call waits for ever. Do not block on the director thread while a borrowed call
+/// runs on another thread.
+/// </para>
 /// </summary>
 public abstract unsafe class NativeCallbackScope
 {

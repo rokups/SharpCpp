@@ -95,6 +95,16 @@ public sealed class MetadataDependencyTests
         Assert.Equal(41, consumerObserved);
         Assert.Equal(41, ConsumerBindings.ConsumeDependencyTransform(number => number * 2, 20));
 
+        var dependencyEaObserved = 0;
+        primitives.InvokeEaAction(() => dependencyEaObserved = 37);
+        Assert.Equal(37, dependencyEaObserved);
+        Assert.Equal(42, primitives.InvokeEaTransform(number => number * 2, 21));
+
+        var consumerEaObserved = 0;
+        ConsumerBindings.ConsumeDependencyEaAction(() => consumerEaObserved = 41);
+        Assert.Equal(41, consumerEaObserved);
+        Assert.Equal(41, ConsumerBindings.ConsumeDependencyEaTransform(number => number * 2, 20));
+
         var updated = 9;
         primitives.Update(ref updated);
         Assert.Equal(10, updated);

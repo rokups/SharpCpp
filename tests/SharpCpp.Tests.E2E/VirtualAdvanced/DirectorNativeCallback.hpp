@@ -2,6 +2,8 @@
 
 #include <functional>
 
+#include "../Callback/EaFunction.h"
+
 // A director gives a native function object to a managed override. The override gets a delegate
 // that calls the native function object. For a const reference parameter, the delegate is valid
 // only during the override call, and no native memory is allocated. A call after the override
@@ -197,6 +199,134 @@ inline int dnc_call_sink_empty(dnc_visitor& visitor)
 
 // A managed delegate that a director gives back to native code.
 inline int dnc_invoke(const std::function<int(int)>& callback, int value)
+{
+    return callback(value);
+}
+
+// The ea::function (eastl::function) form of the director fixture above. The function object
+// lifetime rules are the same as for std::function. The counters of dnc_counted_function are
+// shared.
+using ea_dnc_position_callback = ea::function<void(int, float&)>;
+
+class [[sharpcpp::director]] ea_dnc_visitor
+{
+public:
+    virtual ~ea_dnc_visitor() = default;
+
+    virtual void move(const ea_dnc_position_callback& callback)
+    {
+        float position = 1.0f;
+        callback(1, position);
+    }
+
+    virtual int combine(const ea::function<int(int, int)>& callback)
+    {
+        return callback(1, 2);
+    }
+
+    virtual double scale(ea::function<double(double)> callback)
+    {
+        return callback(0.5);
+    }
+
+    virtual int sink(ea::function<int(int)> callback)
+    {
+        return callback(1);
+    }
+
+    virtual int sink_rvalue(ea::function<int(int)>&& callback)
+    {
+        return callback(2);
+    }
+
+    virtual int borrow(const ea::function<int(int)>& callback)
+    {
+        return callback(3);
+    }
+
+    virtual dnc_mode choose(const ea::function<dnc_mode(dnc_mode)>& callback)
+    {
+        return callback(dnc_mode::first);
+    }
+
+    // A noexcept signature of the function object (the stand-in of EaFunction.h).
+    virtual int borrow_noexcept(const ea::function<int(int) noexcept>& callback)
+    {
+        return callback(4);
+    }
+
+    virtual int sink_noexcept(ea::function<int(int) noexcept> callback)
+    {
+        return callback(5);
+    }
+};
+
+inline float ea_dnc_call_move(ea_dnc_visitor& visitor, int scale)
+{
+    float last = -1.0f;
+    visitor.move([&last, scale](int index, float& position)
+    {
+        position += static_cast<float>(index * scale);
+        last = position;
+    });
+    return last;
+}
+
+inline int ea_dnc_call_combine(ea_dnc_visitor& visitor, int factor)
+{
+    return visitor.combine([factor](int left, int right) { return (left + right) * factor; });
+}
+
+inline int ea_dnc_call_combine_empty(ea_dnc_visitor& visitor)
+{
+    return visitor.combine(ea::function<int(int, int)>{});
+}
+
+inline double ea_dnc_call_scale(ea_dnc_visitor& visitor)
+{
+    return visitor.scale([](double value) { return value * 4.0; });
+}
+
+inline dnc_mode ea_dnc_call_choose(ea_dnc_visitor& visitor)
+{
+    return visitor.choose([](dnc_mode mode) { return mode == dnc_mode::first ? dnc_mode::second : dnc_mode::first; });
+}
+
+inline int ea_dnc_call_sink(ea_dnc_visitor& visitor, int factor)
+{
+    ea::function<int(int)> source = dnc_counted_function(factor);
+    return visitor.sink(std::move(source));
+}
+
+inline int ea_dnc_call_sink_rvalue(ea_dnc_visitor& visitor, int factor)
+{
+    ea::function<int(int)> source = dnc_counted_function(factor);
+    return visitor.sink_rvalue(std::move(source));
+}
+
+inline int ea_dnc_call_borrow(ea_dnc_visitor& visitor, int factor)
+{
+    const ea::function<int(int)> source = dnc_counted_function(factor);
+    return visitor.borrow(source);
+}
+
+inline int ea_dnc_call_sink_empty(ea_dnc_visitor& visitor)
+{
+    return visitor.sink(ea::function<int(int)>{});
+}
+
+inline int ea_dnc_call_borrow_noexcept(ea_dnc_visitor& visitor, int factor)
+{
+    return visitor.borrow_noexcept([factor](int value) noexcept { return value * factor; });
+}
+
+inline int ea_dnc_call_sink_noexcept(ea_dnc_visitor& visitor, int factor)
+{
+    return visitor.sink_noexcept([factor](int value) noexcept { return value * factor; });
+}
+
+// A managed delegate that a director gives back to native code.
+inline int ea_dnc_invoke(const ea::function<int(int)>& callback, int value)
 {
     return callback(value);
 }

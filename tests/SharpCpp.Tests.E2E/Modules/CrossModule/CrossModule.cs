@@ -174,4 +174,53 @@ public sealed class CrossModuleTests
             "global::System.Action<ScoreMap>",
             Diagnostics.GeneratedArtifacts.ReadText("SharpCppCrossModuleLibrary.Bindings.g.cs"));
     }
+
+    [Fact]
+    public void Imported_ea_function_alias_with_ref_parameter_writes_back()
+    {
+        Assert.Equal(5, Library.LibraryBindings.LibraryEaAdjust((ref int value, int step) => value += 2 * step, 3));
+        Assert.Equal(12, AppBindings.AppEaAdjust((ref int value, int step) => value *= 4 * step, 3));
+        Assert.Equal(21, Library.LibraryBindings.LibraryEaTransform(value => value * 3, 7));
+        Assert.Equal(22, AppBindings.AppEaTransform(value => value * 3, 7));
+    }
+
+    [Fact]
+    public void Ea_function_ref_alias_names_the_shared_delegate_of_its_parameters()
+    {
+        var aliasType = typeof(Library.LibraryBindings.EaAdjustCallback);
+        Assert.True(aliasType.IsSubclassOf(typeof(System.Delegate)));
+        Assert.True(aliasType.GetMethod("Invoke")!.GetParameters()[0].ParameterType.IsByRef);
+        Assert.Equal(aliasType, typeof(Library.LibraryBindings).GetMethod(nameof(Library.LibraryBindings.LibraryEaAdjust))!.GetParameters()[0].ParameterType);
+        Assert.Equal(aliasType, typeof(Library.LibraryBindings).GetMethod(nameof(Library.LibraryBindings.LibraryEaAdjustTwice))!.GetParameters()[0].ParameterType);
+
+        Library.LibraryBindings.EaAdjustCallback addTwo = (ref int value, int step) => value += 2 * step;
+        Assert.Equal(5, Library.LibraryBindings.LibraryEaAdjust(addTwo, 3));
+        Assert.Equal(7, Library.LibraryBindings.LibraryEaAdjustTwice(addTwo, 3));
+
+        // The dependent module declares its own delegate for the imported alias.
+        var parameterType = typeof(AppBindings).GetMethod(nameof(AppBindings.AppEaAdjust))!.GetParameters()[0].ParameterType;
+        Assert.NotEqual(aliasType, parameterType);
+        Assert.True(parameterType.GetMethod("Invoke")!.GetParameters()[0].ParameterType.IsByRef);
+    }
+
+    [Fact]
+    public void Imported_ea_function_alias_is_bound_through_its_target_type()
+    {
+        using var widget = new AppWidget();
+        var reported = new List<int>();
+
+        AppBindings.AppEaReport(widget, reported.Add, 7);
+        widget.ReportEa(8);
+
+        Assert.Equal(new[] { 7, 8 }, reported);
+    }
+
+    [Fact]
+    public void Ea_function_template_instantiations_keep_aliased_callback_parameters()
+    {
+        using var events = new LibraryEaEvents();
+        var seen = 0;
+        Assert.Equal(2, events.Subscribe(scores => { seen = scores.Count; scores[3] = 1; }));
+        Assert.Equal(1, seen);
+    }
 }

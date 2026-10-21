@@ -9313,6 +9313,21 @@ public sealed partial class ClangSharpHeaderParser
         {
             targetType = RepairAliasTargetGenericArguments(targetType, repairTypeName, recordsByName, enumsByName, managedTypeOverrides);
         }
+
+        if (targetType is { IsCallback: true })
+        {
+            // A function parameter keeps the canonical callback spelling (for example eastl::function
+            // for the namespace alias ea::function). The alias target uses the same spelling.
+            // Then the alias key matches the parameters that use the alias.
+            var canonicalName = NormalizeTypeName(GetAliasUnderlyingType(typedefNameDecl).CanonicalType.Spelling.ToString());
+            if (canonicalName.Contains('<', StringComparison.Ordinal) &&
+                !string.Equals(canonicalName, targetType.CppTypeName, StringComparison.Ordinal) &&
+                targetType.CppTypeName.Contains('<', StringComparison.Ordinal))
+            {
+                targetType = targetType.WithCppTypeName(canonicalName);
+            }
+        }
+
         if (targetType is null || !CanRenderManagedAliasTarget(targetType))
         {
             aliasBinding = null!;

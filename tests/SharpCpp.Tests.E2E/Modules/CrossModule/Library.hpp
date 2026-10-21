@@ -9,11 +9,39 @@
 #include <utility>
 #include <vector>
 
+#include "../../Callback/EaFunction.h"
+
 namespace cross_library
 {
 using progress_callback = std::function<void(int)>;
 /// The dependent module sees the ref parameter through the imported alias.
 using adjust_callback = std::function<void(int&)>;
+
+/// The ea::function (eastl::function) forms of the callback aliases.
+using ea_progress_callback = ea::function<void(int)>;
+// The extra parameter keeps the target shape different from adjust_callback. The generator
+// names one shared delegate for each target shape.
+using ea_adjust_callback = ea::function<void(int&, int)>;
+using ea_transform_callback = ea::function<int(int)>;
+
+inline int library_ea_adjust(ea_adjust_callback callback, int value)
+{
+    callback(value, 1);
+    return value;
+}
+
+/// A second function with the alias. It uses the same delegate type as library_ea_adjust.
+inline int library_ea_adjust_twice(const ea_adjust_callback& callback, int value)
+{
+    callback(value, 1);
+    callback(value, 1);
+    return value;
+}
+
+inline int library_ea_transform(const ea_transform_callback& callback, int value)
+{
+    return callback(value);
+}
 
 inline int library_adjust(adjust_callback callback, int value)
 {
@@ -78,10 +106,19 @@ struct library_widget
             progress_(value);
     }
 
+    void set_ea_progress(ea_progress_callback callback) { ea_progress_ = std::move(callback); }
+
+    void report_ea(int value)
+    {
+        if (ea_progress_)
+            ea_progress_(value);
+    }
+
     std::string describe() const { return "widget"; }
 
 private:
     progress_callback progress_;
+    ea_progress_callback ea_progress_;
     std::unordered_map<int, library_marker*> markers_;
 };
 /// A hasher with a defaulted parameter (eastl::hash<T, Enable = void>): a map spelled with
@@ -120,6 +157,26 @@ struct library_events
 {
     template <class T>
     [[sharpcpp::instantiate("cross_library::library_handler::function")]]
+    int subscribe(T handler)
+    {
+        score_map scores{{1, 2.5f}};
+        handler(scores);
+        return static_cast<int>(scores.size());
+    }
+};
+
+/// The ea::function form of the nested handler alias.
+struct library_ea_handler
+{
+    using function = ea::function<void(score_map&)>;
+
+    int id() const { return 2; }
+};
+
+struct library_ea_events
+{
+    template <class T>
+    [[sharpcpp::instantiate("cross_library::library_ea_handler::function")]]
     int subscribe(T handler)
     {
         score_map scores{{1, 2.5f}};

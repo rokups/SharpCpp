@@ -41,6 +41,24 @@ inline int app_adjust(cross_library::adjust_callback callback, int value)
     return value;
 }
 
+/// An imported ea::function alias with a ref parameter writes back to the native value.
+inline int app_ea_adjust(cross_library::ea_adjust_callback callback, int value)
+{
+    callback(value, 1);
+    return value;
+}
+
+inline int app_ea_transform(const cross_library::ea_transform_callback& callback, int value)
+{
+    return callback(value) + 1;
+}
+
+inline void app_ea_report(cross_library::library_widget* widget, cross_library::ea_progress_callback callback, int value)
+{
+    widget->set_ea_progress(std::move(callback));
+    widget->report_ea(value);
+}
+
 inline void app_report(cross_library::library_widget* widget, cross_library::progress_callback callback, int value)
 {
     widget->set_progress(std::move(callback));

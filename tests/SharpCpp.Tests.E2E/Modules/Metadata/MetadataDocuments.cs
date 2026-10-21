@@ -75,6 +75,13 @@ public sealed class MetadataDocumentTests
         Assert.Equal("int", transform.GetProperty("callback_return_type").GetProperty("cpp_type").GetString());
         Assert.Equal("int", Assert.Single(transform.GetProperty("callback_parameter_types").EnumerateArray()).GetProperty("cpp_type").GetString());
 
+        var eaTransform = Alias(DependencyDocument, "DependencyEaTransform").GetProperty("target_type");
+        Assert.True(eaTransform.GetProperty("is_callback").GetBoolean());
+        Assert.Equal("global::System.Func<int, int>", eaTransform.GetProperty("public_type").GetString());
+        Assert.Equal("int", eaTransform.GetProperty("callback_return_type").GetProperty("cpp_type").GetString());
+        Assert.Equal("int", Assert.Single(eaTransform.GetProperty("callback_parameter_types").EnumerateArray()).GetProperty("cpp_type").GetString());
+        Assert.True(Alias(DependencyDocument, "DependencyEaAction").GetProperty("target_type").GetProperty("is_callback").GetBoolean());
+
         Assert.Equal("global::Std.Vector<int>", Alias(DependencyDocument, "DependencyDynamicAlias").GetProperty("target_type").GetProperty("public_type").GetString());
     }
 

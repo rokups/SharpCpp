@@ -1,6 +1,8 @@
 #pragma once
 
 #include <functional>
+
+#include "../Callback/EaFunction.h"
 #include <vector>
 
 template <typename T>
@@ -31,6 +33,13 @@ double generic_mixed_add(TLeft left, TRight right)
 template <typename TCallback>
 [[sharpcpp::instantiate("std::function<int(int)>")]]
 int generic_invoke_callback(TCallback callback, int value)
+{
+    return callback(value) + 1;
+}
+
+template <typename TCallback>
+[[sharpcpp::instantiate("ea::function<int(int)>")]]
+int ea_generic_invoke_callback(TCallback callback, int value)
 {
     return callback(value) + 1;
 }

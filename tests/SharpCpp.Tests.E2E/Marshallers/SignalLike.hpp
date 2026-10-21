@@ -6,6 +6,8 @@
 #include <string_view>
 #include <vector>
 
+#include "../Callback/EaFunction.h"
+
 namespace signal_like
 {
 struct point
@@ -130,6 +132,112 @@ struct button
     prio_sig<void(int)> ordered;
     prio_sig<void(int), float> weighted;
 };
+
+/// The ea::function form of the signal above. Urho3D::Signal stores ea::fixed_function slots.
+template <class Priority, class Sender, class... A>
+class ea_signal_base
+{
+public:
+    void unsubscribe(receiver* target)
+    {
+        subscriptions_.erase(
+            std::remove_if(subscriptions_.begin(), subscriptions_.end(),
+                [target](const subscription& item) { return item.target == target; }),
+            subscriptions_.end());
+    }
+
+    bool invoke(Sender* sender, A... args)
+    {
+        if (invoking_)
+            return false;
+
+        invoking_ = true;
+        const auto copy = subscriptions_;
+        for (const auto& item : copy)
+            item.slot(sender, args...);
+        invoking_ = false;
+        return true;
+    }
+
+    bool has_subscriptions() const { return !subscriptions_.empty(); }
+
+    int count() const { return static_cast<int>(subscriptions_.size()); }
+
+protected:
+    struct subscription
+    {
+        receiver* target{};
+        Priority priority{};
+        ea::function<void(Sender*, A...)> slot;
+    };
+
+    void add(receiver* target, Priority priority, ea::function<void(Sender*, A...)> slot)
+    {
+        auto position = std::find_if(subscriptions_.begin(), subscriptions_.end(),
+            [priority](const subscription& item) { return item.priority < priority; });
+        subscriptions_.insert(position, subscription{target, priority, std::move(slot)});
+    }
+
+private:
+    std::vector<subscription> subscriptions_;
+    bool invoking_{};
+};
+
+template <class Signature, class Sender = default_sender>
+struct ea_sig;
+
+template <class Sender, class... A>
+struct ea_sig<void(A...), Sender> : ea_signal_base<int, Sender, A...>
+{
+    void subscribe(receiver* target, ea::function<void(A...)> slot)
+    {
+        this->add(target, 0, [slot](Sender*, A... args) { slot(args...); });
+    }
+
+    void subscribe_with_sender(receiver* target, ea::function<void(Sender*, A...)> slot)
+    {
+        this->add(target, 0, std::move(slot));
+    }
+};
+
+struct ea_button
+{
+    ea_sig<void()> clicked;
+    ea_sig<void(int)> pressed;
+    ea_sig<void(const point&)> moved;
+    ea_sig<void(point)> dropped;
+    ea_sig<void(int&), custom_sender> adjusted;
+    ea_sig<void(bool&)> handled;
+    ea_sig<void(std::span<const unsigned char>, bool&)> received;
+    ea_sig<void(int), custom_sender> sent;
+};
+
+inline void ea_add_native_slot(ea_button& target)
+{
+    target.pressed.subscribe(nullptr, [](int) {});
+}
+
+inline bool ea_invoke_handled(ea_button& target)
+{
+    bool value = false;
+    target.handled.invoke(nullptr, value);
+    return value;
+}
+
+inline int ea_invoke_adjusted(ea_button& target, custom_sender* sender, int initial)
+{
+    int value = initial;
+    target.adjusted.invoke(sender, value);
+    return value;
+}
+
+inline bool ea_invoke_received(ea_button& target, int count)
+{
+    unsigned char bytes[4]{10, 20, 30, 40};
+    bool handled = false;
+    target.received.invoke(nullptr, std::span<const unsigned char>(bytes, static_cast<std::size_t>(count < 4 ? count : 4)), handled);
+    return handled;
+}
 
 struct slider
 {
