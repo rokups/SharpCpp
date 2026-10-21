@@ -27,7 +27,8 @@ public static class BindingCompilationGenericInstantiationPass
         }
 
         ResetFunctionInstantiations(compilation);
-        CollectInferredInstantiations(compilation);
+        // Degradation can still remove a conflicting use, so RefreshInferred reports conflicts.
+        CollectInferredInstantiations(compilation, conflicts: null);
     }
 
     /// <summary>
@@ -53,7 +54,12 @@ public static class BindingCompilationGenericInstantiationPass
             }
         }
 
-        CollectInferredInstantiations(compilation);
+        var conflicts = new List<string>();
+        CollectInferredInstantiations(compilation, conflicts);
+        if (conflicts.Count > 0)
+        {
+            throw new InvalidOperationException(string.Join(Environment.NewLine, conflicts.Distinct(StringComparer.Ordinal)));
+        }
 
         // Target configuration may deliberately narrow the inferred surface. Refreshing
         // after degradation is an intersection with the still-live uses, not permission
@@ -70,7 +76,7 @@ public static class BindingCompilationGenericInstantiationPass
         }
     }
 
-    private static void CollectInferredInstantiations(BindingCompilation compilation)
+    private static void CollectInferredInstantiations(BindingCompilation compilation, List<string>? conflicts)
     {
         foreach (var function in compilation.Functions)
         {
@@ -79,10 +85,10 @@ public static class BindingCompilationGenericInstantiationPass
                 continue;
             }
 
-            CollectRecordInstantiations(compilation, function.ReturnType);
+            CollectRecordInstantiations(compilation, function.ReturnType, conflicts);
             foreach (var parameter in function.Parameters)
             {
-                CollectRecordInstantiations(compilation, parameter.Type);
+                CollectRecordInstantiations(compilation, parameter.Type, conflicts);
             }
         }
 
@@ -93,17 +99,17 @@ public static class BindingCompilationGenericInstantiationPass
                 continue;
             }
 
-            CollectRecordInstantiations(compilation, field.Type);
+            CollectRecordInstantiations(compilation, field.Type, conflicts);
         }
 
         foreach (var baseBinding in compilation.Records.SelectMany(static record => record.Bases))
         {
-            CollectRecordInstantiations(compilation, baseBinding.Type);
+            CollectRecordInstantiations(compilation, baseBinding.Type, conflicts);
         }
 
         foreach (var alias in compilation.TypeAliases)
         {
-            CollectRecordInstantiations(compilation, alias.TargetType);
+            CollectRecordInstantiations(compilation, alias.TargetType, conflicts);
         }
         DropIncompleteNativeShapes(compilation);
     }
@@ -129,18 +135,18 @@ public static class BindingCompilationGenericInstantiationPass
         }
     }
 
-    private static void CollectRecordInstantiations(BindingCompilation compilation, BindingType type)
+    private static void CollectRecordInstantiations(BindingCompilation compilation, BindingType type, List<string>? conflicts)
     {
         if (type.IsCallback)
         {
             if (type.CallbackReturnType is not null)
             {
-                CollectRecordInstantiations(compilation, type.CallbackReturnType);
+                CollectRecordInstantiations(compilation, type.CallbackReturnType, conflicts);
             }
 
             foreach (var parameterType in type.CallbackParameterTypes)
             {
-                CollectRecordInstantiations(compilation, parameterType);
+                CollectRecordInstantiations(compilation, parameterType, conflicts);
             }
 
             return;
@@ -148,7 +154,7 @@ public static class BindingCompilationGenericInstantiationPass
 
         foreach (var genericArgument in type.GenericArguments)
         {
-            CollectRecordInstantiations(compilation, genericArgument);
+            CollectRecordInstantiations(compilation, genericArgument, conflicts);
         }
 
         if (type.Kind != BindingTypeKind.Handle ||
@@ -195,12 +201,29 @@ public static class BindingCompilationGenericInstantiationPass
             return;
         }
 
-        if (record.SupportedGenericInstantiations.Any(existing =>
-                InstantiationsEqual(existing.TypeArguments, type.GenericArguments) &&
-                (existing.NativeTemplateArguments.All(static argument => argument.Kind == BindingTemplateArgumentKind.Type) &&
-                 type.NativeTemplateArguments.All(static argument => argument.Kind == BindingTemplateArgumentKind.Type) ||
-                 NativeTemplateArgumentsEqual(existing.NativeTemplateArguments, type.NativeTemplateArguments))))
+        var sameManagedShape = record.SupportedGenericInstantiations.FirstOrDefault(existing =>
+            InstantiationsEqual(existing.TypeArguments, type.GenericArguments) &&
+            (existing.NativeTemplateArguments.All(static argument => argument.Kind == BindingTemplateArgumentKind.Type) &&
+             type.NativeTemplateArguments.All(static argument => argument.Kind == BindingTemplateArgumentKind.Type) ||
+             NativeTemplateArgumentsEqual(existing.NativeTemplateArguments, type.NativeTemplateArguments)));
+        if (sameManagedShape is not null)
         {
+            // The managed name hides a native argument (for example a callback type that public_type
+            // does not use). Two complete specializations then get one managed class, and its
+            // methods call the entry points of the first one. That is not safe, thus it is an error.
+            if (conflicts is not null &&
+                sameManagedShape.NativeTemplateArguments.Count == nativeTemplateParameterCount &&
+                type.NativeTemplateArguments.Count == nativeTemplateParameterCount &&
+                NativeTemplateIdentitiesDiffer(sameManagedShape.NativeTemplateArguments, type.NativeTemplateArguments))
+            {
+                conflicts.Add(
+                    $"Record '{record.CppQualifiedName}' has two specializations with one managed type '{record.ManagedName}': " +
+                    $"'{FormatSpecialization(record, sameManagedShape.NativeTemplateArguments)}' and " +
+                    $"'{FormatSpecialization(record, type.NativeTemplateArguments)}'. " +
+                    "Use each template argument that differs in the managed type name (public_type), " +
+                    "configure a separate marshaller template, or ignore one of the uses.");
+            }
+
             return;
         }
 
@@ -266,6 +289,51 @@ public static class BindingCompilationGenericInstantiationPass
                     ? string.Equals(pair.First.RecordId, pair.Second.RecordId, StringComparison.Ordinal)
                     : pair.First.Kind == pair.Second.Kind &&
                         string.Equals(pair.First.CppTypeName, pair.Second.CppTypeName, StringComparison.Ordinal));
+    }
+
+    private static string FormatSpecialization(RecordBinding record, IReadOnlyList<BindingTemplateArgument> arguments) =>
+        $"{record.CppQualifiedName}<{string.Join(", ", arguments.Select(static argument => argument.Kind == BindingTemplateArgumentKind.Integral ? BindingTemplateArgument.FormatIntegral(argument.IntegralValue, argument.IsBoolean) : argument.Type?.CppTypeName))}>";
+
+    // Compares the canonical identity of each native argument, not the spelling. An alias, sugar
+    // or a defaulted nested argument gives a different spelling for one C++ type. An argument
+    // without a known identity does not cause a conflict.
+    private static bool NativeTemplateIdentitiesDiffer(
+        IReadOnlyList<BindingTemplateArgument> left,
+        IReadOnlyList<BindingTemplateArgument> right)
+    {
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < left.Count; ++index)
+        {
+            var first = left[index];
+            var second = right[index];
+            if (first.Kind != second.Kind)
+            {
+                return true;
+            }
+
+            if (first.Kind == BindingTemplateArgumentKind.Integral)
+            {
+                if (first.IntegralValue != second.IntegralValue)
+                {
+                    return true;
+                }
+
+                continue;
+            }
+
+            if (first.CanonicalIdentity is { } firstIdentity &&
+                second.CanonicalIdentity is { } secondIdentity &&
+                !string.Equals(firstIdentity, secondIdentity, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool NativeTemplateArgumentsEqual(

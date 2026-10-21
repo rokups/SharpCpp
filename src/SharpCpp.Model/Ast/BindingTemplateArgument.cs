@@ -37,12 +37,24 @@ public sealed class BindingTemplateArgument
     /// </summary>
     public bool IsDefaulted { get; init; }
 
-    public static BindingTemplateArgument FromType(BindingType type, bool isNonDefaultConstructibleAllocator = false, bool isDefaulted = false)
+    /// <summary>
+    /// The canonical Clang spelling of a type argument, with all defaulted nested arguments and no sugar.
+    /// Two spellings of one C++ type have the same value. Null when the parser does not know it,
+    /// for example for a dependent type.
+    /// </summary>
+    public string? CanonicalIdentity { get; init; }
+
+    public static BindingTemplateArgument FromType(
+        BindingType type,
+        bool isNonDefaultConstructibleAllocator = false,
+        bool isDefaulted = false,
+        string? canonicalIdentity = null)
     {
         ArgumentNullException.ThrowIfNull(type);
         return new BindingTemplateArgument(BindingTemplateArgumentKind.Type, type, 0, isNonDefaultConstructibleAllocator: isNonDefaultConstructibleAllocator)
         {
-            IsDefaulted = isDefaulted
+            IsDefaulted = isDefaulted,
+            CanonicalIdentity = canonicalIdentity
         };
     }
 

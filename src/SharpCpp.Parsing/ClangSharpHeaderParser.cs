@@ -2936,13 +2936,15 @@ public sealed partial class ClangSharpHeaderParser
                         genericParameters);
                     // A native argument names one C++ type however it was spelled (alias,
                     // defaulted nested arguments), so one specialization has one shape key.
-                    mappedArgument = mappedArgument.WithCppTypeName(IsDependentCxType(argumentType.Handle)
+                    var isDependentArgument = IsDependentCxType(argumentType.Handle);
+                    mappedArgument = mappedArgument.WithCppTypeName(isDependentArgument
                         ? FormatCppTypeFromAst(argumentType, recordsByName, genericParameters)
                         : FormatCanonicalCxTypeName(argumentType.CanonicalType.Handle));
                     nativeArguments.Add(BindingTemplateArgument.FromType(
                         mappedArgument,
                         argumentType.CanonicalType.AsCXXRecordDecl is { } argumentRecord && IsNonDefaultConstructibleAllocator(argumentRecord),
-                        isDefaulted: argumentIndex >= writtenArgumentCount));
+                        isDefaulted: argumentIndex >= writtenArgumentCount,
+                        canonicalIdentity: isDependentArgument ? null : FormatCanonicalCxTypeName(argumentType.CanonicalType.Handle)));
                     break;
 
                 case CXTemplateArgumentKind.CXTemplateArgumentKind_Integral:
@@ -3047,7 +3049,11 @@ public sealed partial class ClangSharpHeaderParser
                                 managedTypeOverrides,
                                 genericParameters,
                                 preserveAliasSurface: false);
-                    nativeArguments.Add(BindingTemplateArgument.FromType(mappedArgument.WithCppTypeName(cppTypeName)));
+                    // The written spelling keeps its sugar. The canonical identity lets two
+                    // spellings of one C++ type compare equal.
+                    nativeArguments.Add(BindingTemplateArgument.FromType(
+                        mappedArgument.WithCppTypeName(cppTypeName),
+                        canonicalIdentity: IsDependentCxType(argumentType) ? null : FormatCanonicalCxTypeName(argumentType)));
                     continue;
                 }
 
@@ -9674,7 +9680,9 @@ public sealed partial class ClangSharpHeaderParser
             .ToArray();
         var nativeTemplateArguments = instantiation.NativeTemplateArguments
             .Select(argument => argument.Kind == BindingTemplateArgumentKind.Type
-                ? BindingTemplateArgument.FromType(NormalizeTemplateArgumentType(argument.Type!, recordsByName, enumsByName))
+                ? BindingTemplateArgument.FromType(
+                    NormalizeTemplateArgumentType(argument.Type!, recordsByName, enumsByName),
+                    canonicalIdentity: argument.CanonicalIdentity)
                 : BindingTemplateArgument.FromIntegral(argument.IntegralValue, argument.IsBoolean))
             .ToArray();
         return new RecordGenericInstantiationBinding(typeArguments, nativeTemplateArguments, instantiation.IsInferred);

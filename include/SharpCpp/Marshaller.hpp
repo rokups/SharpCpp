@@ -2574,6 +2574,16 @@ struct CompleteType<T, std::void_t<decltype(sizeof(std::enable_if_t<!std::is_ref
 template <typename T>
 inline constexpr bool AllowByValueReturnAbi = false;
 
+// MSVC returns a class of 8 bytes or less in a register only when it is a plain C struct. A class with a user
+// constructor, a private member or a base class returns through a hidden pointer, but .NET reads the register.
+// The check sees all of these except a public base class of an aggregate. Only a class type gets the sizeof test.
+template <typename T, bool = std::is_class_v<T>>
+inline constexpr bool ReturnsInRegisterOnAllTargets = true;
+
+template <typename T>
+inline constexpr bool ReturnsInRegisterOnAllTargets<T, true> =
+    sizeof(T) > 8 || (std::is_aggregate_v<T> && std::is_standard_layout_v<T>);
+
 // A class returned by value from an extern "C" function has the C ABI only when it is trivially copyable and
 // trivially destructible. Any other class type is a compile error here.
 template <typename T>
@@ -2582,6 +2592,13 @@ struct CheckedReturnAbi : CompleteType<T>
     static_assert(
         !std::is_class_v<T> || AllowByValueReturnAbi<T> || (std::is_trivially_copyable_v<T> && std::is_trivially_destructible_v<T>),
         "A class type returned by value from an exported function must be trivially copyable and trivially destructible.");
+    // Return a trivial ABI struct instead (Marshaller<T>::abi_type or ReturnMarshaller<T>::abi_type).
+    // AllowByValueReturnAbi<T> also disables this check.
+    static_assert(
+        AllowByValueReturnAbi<T> || ReturnsInRegisterOnAllTargets<T>,
+        "A class type of 8 bytes or less returned by value from an exported function must be an aggregate with a "
+        "standard layout (no user constructor, no private member, no base class). MSVC returns other classes through "
+        "a hidden pointer. Use a trivial ABI struct as abi_type.");
 };
 
 // Names a function type outside of any extern "C" scope. MSVC gives C linkage to a function type named by a typedef

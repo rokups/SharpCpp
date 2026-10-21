@@ -171,6 +171,8 @@ internal static class Program
             parser,
             clangArguments,
             marshallerConfigurationFiles));
+        WriteGeneratorModuleResult("InstantiationConflict", fixtureRoot, generatedRoot, parser, clangArguments, projectRoot);
+        WriteGeneratorModuleResult("InstantiationSpelling", fixtureRoot, generatedRoot, parser, clangArguments, projectRoot);
         new GeneratedBindingSet(generatedFiles).WriteToDirectory(generatedRoot);
         Logger.LogInformation("Wrote sample bindings to {GeneratedRoot}", generatedRoot);
         return 0;
@@ -802,6 +804,54 @@ internal static class Program
                 _ => alias
             }).ToArray()
         };
+    }
+
+    // Runs the generator pipeline on a module that tests a generator error. Modules/InstantiationConflict
+    // must fail: two specializations differ only in an argument that the managed type name does not use.
+    // Modules/InstantiationSpelling must pass: it spells one specialization in different ways.
+    // The E2E tests read the result from "<module>.error.txt".
+    private static void WriteGeneratorModuleResult(
+        string moduleName,
+        string fixtureRoot,
+        string generatedRoot,
+        ClangSharpHeaderParser parser,
+        IReadOnlyList<string> clangArguments,
+        string projectRoot)
+    {
+        var marshallerConfigurationFiles = new[]
+        {
+            Path.Combine(projectRoot, "include", "SharpCpp", "Marshaller.hpp"),
+            Path.Combine(fixtureRoot, "Modules", moduleName, moduleName + "Config.h")
+        };
+        var compilation = ParseModuleHeader(
+            "SharpCpp.Tests.E2E.Modules." + moduleName,
+            "SharpCpp.Tests.E2E.Modules." + moduleName,
+            moduleName + "Bindings",
+            $"Modules/{moduleName}/{moduleName}.hpp",
+            "sharpcpp_" + moduleName.ToLowerInvariant(),
+            fixtureRoot,
+            parser,
+            clangArguments,
+            marshallerConfigurationFiles);
+        string message;
+        try
+        {
+            BindingCompilationBootstrapPipeline.Apply(compilation, marshallerConfigurationFiles, clangArguments);
+            // List the instantiations, so a test can see that the module has generic uses.
+            message = string.Join(
+                Environment.NewLine,
+                compilation.Records
+                    .Where(static record => record.SupportedGenericInstantiations.Count > 0)
+                    .Select(static record => $"{record.CppQualifiedName}: {record.SupportedGenericInstantiations.Count} instantiation(s)")
+                    .Order(StringComparer.Ordinal)
+                    .Prepend("The generator accepted the module."));
+        }
+        catch (InvalidOperationException exception)
+        {
+            message = exception.Message;
+        }
+
+        File.WriteAllText(Path.Combine(generatedRoot, moduleName + ".error.txt"), message);
     }
 
     private static BindingCompilation ParseModuleHeader(

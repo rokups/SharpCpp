@@ -1447,13 +1447,24 @@ public static partial class BindingOutputRenderer
 
         var declaredCppTypeName = NormalizeCppTypeName(field.CppTypeName);
         var mappedCppTypeName = NormalizeCppTypeName(field.Type.CppTypeName);
+        // An alias can rename the managed type, so the unaliased name is the configured public type.
+        var managedTypeName = StripGlobalPrefix(field.Type.UnaliasedManagedTypeName);
         return compilation.Records.Any(record =>
             record.GetMetadata<bool>(MetadataKeys.SuppressEmission) &&
             (string.Equals(record.CppQualifiedName, declaredCppTypeName, StringComparison.Ordinal) ||
                 string.Equals(record.NativeName, declaredCppTypeName, StringComparison.Ordinal) ||
                 string.Equals(record.CppQualifiedName, mappedCppTypeName, StringComparison.Ordinal) ||
-                string.Equals(record.NativeName, mappedCppTypeName, StringComparison.Ordinal)));
+                string.Equals(record.NativeName, mappedCppTypeName, StringComparison.Ordinal) ||
+                // A marshaller for an alias of a class template specialization (for example
+                // Vector2 = BaseVector2<float>) configures the template record, and the field
+                // names the specialization. The configured public type identifies the projection.
+                (field.Type.Kind == BindingTypeKind.Primitive &&
+                    record.ManagedTypeFormat is { } publicType &&
+                    string.Equals(StripGlobalPrefix(publicType), managedTypeName, StringComparison.Ordinal))));
     }
+
+    private static string StripGlobalPrefix(string typeName) =>
+        typeName.StartsWith("global::", StringComparison.Ordinal) ? typeName["global::".Length..] : typeName;
 
     private static string RenderNativeFieldGetInvocation(BindingCompilation compilation, FieldBinding field, NativeFieldInteropPlan plan, string selfExpression, string? fieldOwnerCppTypeName = null)
     {
