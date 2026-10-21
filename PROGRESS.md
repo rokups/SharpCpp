@@ -321,10 +321,26 @@ Known gaps (unbound or degraded today, with a diagnostic where the generator see
   `Degradation/DegradationRules.hpp`.
 - A `const T` argument in a token-matched marshaller pattern matches only a const type, so a
   callback parameter `std::span<int>` does not select the `std::span<const T>` marshaller.
-- A director virtual with a callback parameter is not bound (ignore reason "is a callback; a
-  director cannot give a native function object to a managed override"). The callback
-  marshallers convert only a managed delegate to a native function object. A pure virtual of
-  this shape makes the director record unavailable. Fixture: `callback_visitor`.
+- A director gives a native function object (`std::function`, `eastl::function`,
+  `SharpCpp::ManagedCallback`) to a managed override as a delegate over a native invoker.
+  The handle ABI (`ManagedCallbackHandleAbi`) has `state`, `callback`, `release` and `retain`.
+  A `const&` parameter crosses as a borrowed handle with no allocation. The delegate is valid
+  only during the override call, and after the call it throws `ObjectDisposedException`.
+  `NativeCallback.Retain()` copies the function object into an owned holder during the call.
+  A by-value or rvalue-reference parameter (a sink) moves the function object into a
+  reference-counted holder. The delegate owns the holder until `NativeCallback.Dispose()` or
+  the finalizer releases it. Each call uses an in-use counter: the end of a borrowed call waits
+  for calls on other threads, and the last call after a release frees an owned holder. Only
+  numeric primitive, numeric reference and enum callback parameters and returns can cross.
+  Other shapes stay unbound with a reason. A pure virtual of such a shape makes the director
+  record unavailable. Fixtures: `VirtualAdvanced/DirectorNativeCallback.hpp`,
+  `Callback/EaCallback.hpp`, `callback_visitor`.
+- A callback cannot be a generic argument (for example `std::vector<std::function<void()>>`).
+  The declaration is degraded with the reason "a callback cannot be a generic argument".
+  Fixture: `Degradation/CallbackContainers.hpp`.
+- The core E2E fixtures test `eastl::function` with a minimal stand-in
+  (`Callback/EaFunction.h`, opt-in by include) and its marshallers
+  (`Callback/EaFunctionMarshallers.h`, which mirror the `std::function` marshallers).
 - Pointer ranges: `[[sharpcpp::ended_by(end)]]` on a begin pointer parameter (mirrors Clang
   `__ended_by`), or a consumer setting `MetadataKeys.EndedBy` to the end parameter's native
   name, binds `(T* begin, T* end)` as one managed span: `ReadOnlySpan<T>` for a const pointee,

@@ -884,7 +884,7 @@ public static partial class BindingOutputRenderer
     {
         var method = slot.Method;
         var parameterList = string.Join(", ", method.Parameters.Select(parameter => $"{parameter.CppTypeName} {parameter.NativeName}"));
-        var arguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
+        var arguments = string.Join(", ", method.Parameters.Select(RenderNativeForwardedArgument));
         var callbackArguments = string.Join(", ", new[] { "const_cast<void*>(static_cast<const void*>(this))" }.Concat(method.Parameters.Select((parameter, parameterIndex) =>
             parameter.Type.PrimitiveKind == BindingPrimitiveKind.Boolean
                 ? $"static_cast<std::uint8_t>(__abi_arg{parameterIndex})"
@@ -900,8 +900,12 @@ public static partial class BindingOutputRenderer
 
         foreach (var (parameter, parameterIndex) in method.Parameters.Select((parameter, parameterIndex) => (parameter, parameterIndex)))
         {
+            // A by-value or rvalue-reference function object moves into an owned handle, so the
+            // override can keep it. The native implementation does not run on this path, so the
+            // move is safe. A const reference stays a borrowed handle.
+            var argument = parameter.Type.IsCallback ? $"std::move({parameter.NativeName})" : parameter.NativeName;
             writer.WriteLine($"    ParameterMarshaller<{parameter.CppTypeName}> __arg{parameterIndex}_marshaller;");
-            writer.WriteLine($"    auto __abi_arg{parameterIndex} = __arg{parameterIndex}_marshaller.ConvertToAbi({parameter.NativeName});");
+            writer.WriteLine($"    auto __abi_arg{parameterIndex} = __arg{parameterIndex}_marshaller.ConvertToAbi({argument});");
         }
 
         if (method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
@@ -1696,11 +1700,18 @@ public static partial class BindingOutputRenderer
         }
     }
 
+    // A callback parameter goes to the native implementation with its declared value category
+    // (std::forward), so a by-value or rvalue-reference function object moves and is not copied.
+    private static string RenderNativeForwardedArgument(ParameterBinding parameter) =>
+        parameter.Type.IsCallback
+            ? $"static_cast<decltype({parameter.NativeName})&&>({parameter.NativeName})"
+            : parameter.NativeName;
+
     private static string RenderNativeCallbaseHelper(RecordBinding record, VirtualMethodSlotBinding slot)
     {
         var method = slot.Method;
         var parameterList = string.Join(", ", method.Parameters.Select(parameter => $"{parameter.CppTypeName} {parameter.NativeName}"));
-        var arguments = string.Join(", ", method.Parameters.Select(static parameter => parameter.NativeName));
+        var arguments = string.Join(", ", method.Parameters.Select(RenderNativeForwardedArgument));
         var directorName = GetNativeDirectorClassName(record);
         var writer = new CodeWriter();
 
@@ -2208,6 +2219,12 @@ public static partial class BindingOutputRenderer
                     public nint State { get; }
 
                     public nint Callback { get; }
+
+                    // Not null only for an owned native function object.
+                    public nint Release { get; }
+
+                    // Not null only for a native function object.
+                    public nint Retain { get; }
                 }
 
                 private static unsafe void __RegisterManagedCallbackRelease()
@@ -2383,11 +2400,10 @@ public static partial class BindingOutputRenderer
             """;
     }
 
-    // A director gives a native function object to a managed override as a callback handle that
-    // borrows the function object. The scope gives the override a delegate that calls the native
-    // invoker. The delegate is valid only during the override call: after the call, the scope is
-    // closed and the delegate throws ObjectDisposedException. Native memory is not touched after
-    // the scope closes. A call from another thread at the same time as the close is not safe.
+    // A director gives a native function object to a managed override as a callback handle. The
+    // scope gives the override a delegate that calls the native invoker. SharpCpp.Support.
+    // NativeCallbackScope holds the lifetime rules: a borrowed handle is valid only during the
+    // override call, and an owned handle is valid until the delegate is disposed or finalized.
     private static string RenderManagedNativeCallbackScope(BindingCompilation compilation, ManagedCallbackUsage usage)
     {
         var callbackType = usage.CallbackType;
@@ -2410,42 +2426,40 @@ public static partial class BindingOutputRenderer
             ? $"&__abi{item.index}"
             : BuildManagedPublicToImportExpression(compilation, item.type, $"arg{item.index}"))));
         var functionPointerTypes = string.Join(", ", new[] { "nint" }.Concat(parameters.Select(static item => item.abiType)).Append(returnAbiType));
-        var call = $"((delegate* unmanaged[Cdecl]<{functionPointerTypes}>)_invoke)({callArguments})";
+        var call = $"((delegate* unmanaged[Cdecl]<{functionPointerTypes}>)InvokePointer)({callArguments})";
         var body = isVoid
             ? $"{loads}{call};\n{stores}"
             : $"{loads}var __result = {call};\n{stores}return {BuildManagedImportToPublicExpression(compilation, callbackReturnType, "__result")};\n";
 
         return $$"""
 
-            internal sealed unsafe class NativeScope
+            internal sealed unsafe class NativeScope : global::SharpCpp.Support.NativeCallbackScope
             {
-                private nint _state;
-                private readonly nint _invoke;
-
-                private NativeScope(__SharpCppManagedCallbackHandleAbi handle)
+                private NativeScope(nint state, nint invoke, nint release, nint retain)
+                    : base(state, invoke, release, retain)
                 {
-                    _state = handle.State;
-                    _invoke = handle.Callback;
-                    Callback = handle.Callback == 0 ? null : new {{usage.ManagedTypeName}}(Invoke);
+                    Callback = invoke == 0 ? null : new {{usage.ManagedTypeName}}(Invoke);
                 }
 
                 public {{usage.ManagedTypeName}}? Callback { get; }
 
-                public static NativeScope Create(__SharpCppManagedCallbackHandleAbi handle) => new(handle);
+                public static NativeScope Create(__SharpCppManagedCallbackHandleAbi handle) =>
+                    new(handle.State, handle.Callback, handle.Release, handle.Retain);
 
-                public void Close() => _state = 0;
+                protected override global::System.Delegate CreateRetained(nint state, nint invoke, nint release, nint retain) =>
+                    new NativeScope(state, invoke, release, retain).Callback!;
 
                 private {{returnType}} Invoke({{parameterList}})
                 {
-                    var state = _state;
-                    if (state == 0)
+                    var state = Enter();
+                    try
                     {
-                        throw new global::System.ObjectDisposedException(
-                            nameof(NativeScope),
-                            "A native callback that a director gives to a managed override is valid only during the override call.");
+                        {{body}}
                     }
-
-                    {{body}}
+                    finally
+                    {
+                        Exit();
+                    }
                 }
             }
             """;
@@ -5200,8 +5214,9 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
-        // A native function object is valid only during the override call. The scope closes after
-        // the call, so a delegate that the override keeps throws ObjectDisposedException.
+        // A borrowed native function object is valid only during the override call. EndCall closes
+        // a borrowed scope, so a delegate that the override keeps throws ObjectDisposedException.
+        // An owned scope stays valid after the call.
         var nativeCallbacks = GetPublicManagedParameters(method.Parameters)
             .Where(static parameter => parameter.Type.IsCallback)
             .ToArray();
@@ -5244,7 +5259,7 @@ public static partial class BindingOutputRenderer
             writer.WriteLine("{");
             foreach (var callback in nativeCallbacks)
             {
-                writer.WriteLine($"{GetNativeCallbackScopeLocalName(callback)}.Close();");
+                writer.WriteLine($"{GetNativeCallbackScopeLocalName(callback)}.EndCall();");
             }
 
             writer.WriteLine("}");

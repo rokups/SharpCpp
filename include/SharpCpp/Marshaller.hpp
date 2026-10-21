@@ -38,14 +38,21 @@ namespace SharpCpp
 }
 
 // A callback handle crosses the ABI in two directions. From managed code to native code, the state
-// is a GCHandle of the managed delegate and the callback is a managed trampoline. From native code
-// to managed code (a director gives a function object to a managed override), the state is the
-// address of the native function object and the callback is a native invoker. The managed code
-// can call the native function object only during the call that gives the handle.
+// is a GCHandle of the managed delegate and the callback is a managed trampoline. The release and
+// retain fields are null. From native code to managed code (a director gives a function object to
+// a managed override), the callback is a native invoker, and the handle has one of two forms:
+// - Borrowed (a const reference parameter): the state is the address of the function object of
+//   the caller, and release is null. Managed code can call the function object only during the
+//   director call. Retain copies the function object into an owned handle during that call.
+// - Owned (a by-value or rvalue-reference parameter): the state is a reference-counted heap holder.
+//   Release (void(void* state)) releases the reference of the handle. Retain
+//   (void(void* state, ManagedCallbackHandleAbi* result)) gives a second owned handle.
 struct ManagedCallbackHandleAbi
 {
     void* state{};
     void* callback{};
+    void* release{};
+    void* retain{};
 };
 
 // A named, copyable function object over a managed delegate. SharpCpp/ManagedCallback.hpp
@@ -279,6 +286,9 @@ TFunction CreateManagedCallbackWrapper(ManagedCallbackHandleAbi handle);
 
 template <typename TFunction, typename TSignature>
 ManagedCallbackHandleAbi CreateNativeCallbackHandle(const TFunction& function) noexcept;
+
+template <typename TFunction, typename TSignature>
+ManagedCallbackHandleAbi CreateOwnedNativeCallbackHandle(TFunction&& function) noexcept;
 }
 
 template <class TString>
@@ -522,14 +532,13 @@ struct ManagedCallbackMarshallerBase
         return detail::CreateNativeCallbackHandle<cpp_type, TSignature>(value);
     }
 
-    // A temporary (for example a returned function object) does not live after the conversion.
+    // A sink parameter (by value or by rvalue reference): the function object moves into a heap
+    // holder that the handle owns, so managed code can keep the delegate after the call.
     template <class T = cpp_type>
         requires std::is_same_v<T, cpp_type>
-    abi_type ConvertToAbi(T&&) noexcept
+    abi_type ConvertToAbi(T&& value) noexcept
     {
-        static_assert(!std::is_same_v<T, T>,
-            "SharpCpp does not support native-to-managed callback function-object returns in this slice.");
-        return {};
+        return detail::CreateOwnedNativeCallbackHandle<cpp_type, TSignature>(std::move(value));
     }
 
     cpp_type ConvertToCpp(abi_type value) noexcept

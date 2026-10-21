@@ -667,7 +667,7 @@ public static class DegradeUnsupportedSurfacePass
             }
 
             // A director gives a native function object to a managed override as a delegate
-            // that is valid only during the override call. Only some callback shapes can cross.
+            // (borrowed for a const reference, owned for a sink). Only some callback shapes can cross.
             if (parameter.Type.IsCallback &&
                 TryGetUnsupportedDirectorNativeCallbackReason(parameter.Type, out var callbackShapeReason))
             {
@@ -1257,6 +1257,15 @@ public static class DegradeUnsupportedSurfacePass
 
         foreach (var argument in GetGenericArgumentsForValidation(type))
         {
+            // A callback crosses only as a parameter, with a callback handle that the call controls.
+            // A generic type (for example a container) gives its arguments as values or handles,
+            // so a callback argument would cross as a handle that does not exist.
+            if (argument.IsCallback)
+            {
+                reason = $"generic argument '{argument.ManagedTypeName}' is unsupported: a callback cannot be a generic argument (for example a container element)";
+                return true;
+            }
+
             if (TryGetUnsupportedTypeReason(argument, argument.CppTypeName, recordsById, enumsById, disallowNonPointerHandles: false, out var nestedReason))
             {
                 reason = $"generic argument '{argument.ManagedTypeName}' is unsupported: {nestedReason}";

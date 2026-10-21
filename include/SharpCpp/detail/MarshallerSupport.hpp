@@ -342,19 +342,31 @@ constexpr decltype(auto) InvokeWithMarshallersImpl(
     }
 }
 
+// Gives the invoker the native function object of a borrowed handle. The state is the address of
+// the function object of the caller. The function object lives only during the director call.
+template <typename TFunction>
+struct NativeCallbackBorrow
+{
+    static const TFunction& Get(void* state) noexcept
+    {
+        return *static_cast<const TFunction*>(state);
+    }
+};
+
 // Calls a native function object that a director gives to a managed override. The managed code
 // gives ABI arguments, and the parameter marshallers convert them to C++ arguments. A mutable
 // reference argument points to managed memory, so the function object writes it back in place.
-template <typename TFunction, typename TSignature>
+// TAccess gets the function object from the handle state.
+template <typename TAccess, typename TSignature>
 struct NativeCallbackInvoker;
 
-template <typename TFunction, typename TResult, typename... TArgs>
-struct NativeCallbackInvoker<TFunction, TResult(TArgs...)>
+template <typename TAccess, typename TResult, typename... TArgs>
+struct NativeCallbackInvoker<TAccess, TResult(TArgs...)>
 {
     // A C++ exception must not cross into managed code, so an exception ends the process.
     static callback_return_abi_t<TResult> Invoke(void* state, callback_parameter_abi_t<TArgs>... abiArguments) noexcept
     {
-        const auto& function = *static_cast<const TFunction*>(state);
+        const auto& function = TAccess::Get(state);
         using argument_tuple = std::tuple<TArgs...>;
         marshaller_tuple_t<argument_tuple> marshallers;
         return InvokeWithMarshallersImpl<TResult, argument_tuple>(
@@ -365,22 +377,108 @@ struct NativeCallbackInvoker<TFunction, TResult(TArgs...)>
     }
 };
 
+// A heap holder that owns a native function object for managed code. Each owned handle holds one
+// reference. The managed delegate releases its reference when it is disposed or finalized. The
+// last release deletes the holder in the module that allocated it.
+template <typename TFunction, typename TSignature>
+struct NativeCallbackHolder
+{
+    template <typename T>
+    explicit NativeCallbackHolder(T&& value)
+        : function(std::forward<T>(value))
+    {
+    }
+
+    static const TFunction& Get(void* state) noexcept
+    {
+        return static_cast<const NativeCallbackHolder*>(state)->function;
+    }
+
+    static void Release(void* state) noexcept
+    {
+        auto* holder = static_cast<NativeCallbackHolder*>(state);
+        if (holder->references.fetch_sub(1, std::memory_order_acq_rel) == 1)
+        {
+            delete holder;
+        }
+    }
+
+    // Gives a second owned handle to the same holder.
+    static void Retain(void* state, SharpCpp::ManagedCallbackHandleAbi* result) noexcept
+    {
+        auto* holder = static_cast<NativeCallbackHolder*>(state);
+        holder->references.fetch_add(1, std::memory_order_relaxed);
+        *result = holder->Handle();
+    }
+
+    SharpCpp::ManagedCallbackHandleAbi Handle() noexcept
+    {
+        return {
+            this,
+            reinterpret_cast<void*>(&NativeCallbackInvoker<NativeCallbackHolder, TSignature>::Invoke),
+            reinterpret_cast<void*>(&NativeCallbackHolder::Release),
+            reinterpret_cast<void*>(&NativeCallbackHolder::Retain)};
+    }
+
+    std::atomic<std::size_t> references{1};
+    TFunction function;
+};
+
+template <typename TFunction>
+bool IsEmptyNativeCallback(const TFunction& function) noexcept
+{
+    if constexpr (std::is_constructible_v<bool, const TFunction&>)
+    {
+        return !static_cast<bool>(function);
+    }
+    else
+    {
+        return false;
+    }
+}
+
+// Copies a borrowed function object into a new holder. Managed code calls it during the director
+// call (the Retain extension method), so the borrowed function object still lives. A failed
+// allocation ends the process, because a C++ exception must not cross into managed code.
+template <typename TFunction, typename TSignature>
+void RetainBorrowedNativeCallback(void* state, SharpCpp::ManagedCallbackHandleAbi* result) noexcept
+{
+    auto* holder = new NativeCallbackHolder<TFunction, TSignature>(NativeCallbackBorrow<TFunction>::Get(state));
+    *result = holder->Handle();
+}
+
+// A borrowed handle: no allocation. The handle has no release function, because the caller owns
+// the function object. Managed code can copy the function object with the retain function.
 template <typename TFunction, typename TSignature>
 SharpCpp::ManagedCallbackHandleAbi CreateNativeCallbackHandle(const TFunction& function) noexcept
 {
     // An empty function object crosses as an empty handle, and the managed override gets null.
-    if constexpr (std::is_constructible_v<bool, const TFunction&>)
+    if (IsEmptyNativeCallback(function))
     {
-        if (!static_cast<bool>(function))
-        {
-            return {};
-        }
+        return {};
     }
 
     using signature = typename ManagedCallbackSignature<remove_cvref_t<TSignature>>::type;
     return {
         const_cast<void*>(static_cast<const void*>(std::addressof(function))),
-        reinterpret_cast<void*>(&NativeCallbackInvoker<TFunction, signature>::Invoke)};
+        reinterpret_cast<void*>(&NativeCallbackInvoker<NativeCallbackBorrow<TFunction>, signature>::Invoke),
+        nullptr,
+        reinterpret_cast<void*>(&RetainBorrowedNativeCallback<TFunction, signature>)};
+}
+
+// An owned handle: the function object moves into a new holder, and the handle owns the holder.
+// This is the only conversion that allocates. A failed allocation ends the process.
+template <typename TFunction, typename TSignature>
+SharpCpp::ManagedCallbackHandleAbi CreateOwnedNativeCallbackHandle(TFunction&& function) noexcept
+{
+    if (IsEmptyNativeCallback(function))
+    {
+        return {};
+    }
+
+    using signature = typename ManagedCallbackSignature<remove_cvref_t<TSignature>>::type;
+    auto* holder = new NativeCallbackHolder<TFunction, signature>(std::move(function));
+    return holder->Handle();
 }
 
 template <typename TResult, typename TCppArgumentTuple, typename TCallable, typename TMarshallerTuple, typename... TAbiArgs, std::size_t... TIndices>
