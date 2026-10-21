@@ -67,19 +67,21 @@ public sealed partial class DegradationRuleTests
     }
 
     [Fact]
-    public void Director_virtual_with_a_callback_parameter_is_not_bound()
+    public void Director_virtual_with_an_unsupported_callback_shape_is_not_bound()
     {
         Assert.Null(typeof(CallbackVisitor).GetMethod("Visit"));
-        Assert.Null(typeof(CallbackVisitor).GetMethod("VisitValue"));
+        Assert.NotNull(typeof(CallbackVisitor).GetMethod("VisitValue"));
 
         using var visitor = new CountingCallbackVisitor();
         Assert.Equal(5, E2EBindings.CallCount(visitor));
-        Assert.Equal(23, E2EBindings.CallVisit(visitor));
+        Assert.Equal(60, E2EBindings.CallVisit(visitor));
     }
 
     private sealed partial class CountingCallbackVisitor : CallbackVisitor
     {
         public override int Count() => 5;
+
+        public override int VisitValue(global::System.Func<int, int> callback) => callback(4) * 10;
     }
 
     [Fact]

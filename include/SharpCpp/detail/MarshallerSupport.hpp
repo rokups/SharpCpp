@@ -342,6 +342,47 @@ constexpr decltype(auto) InvokeWithMarshallersImpl(
     }
 }
 
+// Calls a native function object that a director gives to a managed override. The managed code
+// gives ABI arguments, and the parameter marshallers convert them to C++ arguments. A mutable
+// reference argument points to managed memory, so the function object writes it back in place.
+template <typename TFunction, typename TSignature>
+struct NativeCallbackInvoker;
+
+template <typename TFunction, typename TResult, typename... TArgs>
+struct NativeCallbackInvoker<TFunction, TResult(TArgs...)>
+{
+    // A C++ exception must not cross into managed code, so an exception ends the process.
+    static callback_return_abi_t<TResult> Invoke(void* state, callback_parameter_abi_t<TArgs>... abiArguments) noexcept
+    {
+        const auto& function = *static_cast<const TFunction*>(state);
+        using argument_tuple = std::tuple<TArgs...>;
+        marshaller_tuple_t<argument_tuple> marshallers;
+        return InvokeWithMarshallersImpl<TResult, argument_tuple>(
+            function,
+            marshallers,
+            std::index_sequence_for<TArgs...>{},
+            abiArguments...);
+    }
+};
+
+template <typename TFunction, typename TSignature>
+SharpCpp::ManagedCallbackHandleAbi CreateNativeCallbackHandle(const TFunction& function) noexcept
+{
+    // An empty function object crosses as an empty handle, and the managed override gets null.
+    if constexpr (std::is_constructible_v<bool, const TFunction&>)
+    {
+        if (!static_cast<bool>(function))
+        {
+            return {};
+        }
+    }
+
+    using signature = typename ManagedCallbackSignature<remove_cvref_t<TSignature>>::type;
+    return {
+        const_cast<void*>(static_cast<const void*>(std::addressof(function))),
+        reinterpret_cast<void*>(&NativeCallbackInvoker<TFunction, signature>::Invoke)};
+}
+
 template <typename TResult, typename TCppArgumentTuple, typename TCallable, typename TMarshallerTuple, typename... TAbiArgs, std::size_t... TIndices>
 auto InvokeWithMarshallersOwnedImpl(
     TCallable&& callable,

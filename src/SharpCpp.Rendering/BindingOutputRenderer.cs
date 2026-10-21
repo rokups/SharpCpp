@@ -2173,7 +2173,10 @@ public static partial class BindingOutputRenderer
         return writer.ToString();
     }
 
-    private static string RenderManagedCallbackSupport(BindingCompilation compilation, IReadOnlyList<ParameterBinding> callbackParameters)
+    private static string RenderManagedCallbackSupport(
+        BindingCompilation compilation,
+        IReadOnlyList<ParameterBinding> callbackParameters,
+        IReadOnlySet<string> nativeScopeDeclarations)
     {
         var writer = new CodeWriter();
         var delegateDeclarations = CollectManagedCallbackDelegateDeclarations(compilation, callbackParameters).ToArray();
@@ -2233,7 +2236,7 @@ public static partial class BindingOutputRenderer
             foreach (var usage in usages.OrderBy(static usage => usage.MarshallerDeclarationName, StringComparer.Ordinal))
             {
                 writer.WriteLine();
-                writer.Write(RenderManagedCallbackMarshallerHelper(compilation, usage));
+                writer.Write(RenderManagedCallbackMarshallerHelper(compilation, usage, nativeScopeDeclarations.Contains(usage.MarshallerDeclarationName)));
             }
         }
 
@@ -2295,7 +2298,7 @@ public static partial class BindingOutputRenderer
             """;
     }
 
-    private static string RenderManagedCallbackMarshallerHelper(BindingCompilation compilation, ManagedCallbackUsage usage)
+    private static string RenderManagedCallbackMarshallerHelper(BindingCompilation compilation, ManagedCallbackUsage usage, bool includeNativeScope)
     {
         var callbackType = usage.CallbackType;
         var declarationName = usage.MarshallerDeclarationName;
@@ -2360,7 +2363,7 @@ public static partial class BindingOutputRenderer
                         global::System.Runtime.InteropServices.GCHandle.ToIntPtr(handle),
                         __Invoke);
                 }
-
+            {{(includeNativeScope ? RenderManagedNativeCallbackScope(compilation, usage) : string.Empty)}}
             }
 
             [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -2375,6 +2378,74 @@ public static partial class BindingOutputRenderer
                 {
                     global::System.Environment.FailFast("SharpCpp managed callback threw an exception.", exception);
               {{(callbackReturnType.PrimitiveKind == BindingPrimitiveKind.Void ? "return;" : "return default;")}}
+                }
+            }
+            """;
+    }
+
+    // A director gives a native function object to a managed override as a callback handle that
+    // borrows the function object. The scope gives the override a delegate that calls the native
+    // invoker. The delegate is valid only during the override call: after the call, the scope is
+    // closed and the delegate throws ObjectDisposedException. Native memory is not touched after
+    // the scope closes. A call from another thread at the same time as the close is not safe.
+    private static string RenderManagedNativeCallbackScope(BindingCompilation compilation, ManagedCallbackUsage usage)
+    {
+        var callbackType = usage.CallbackType;
+        var callbackReturnType = callbackType.CallbackReturnType ?? BindingType.Void;
+        var isVoid = callbackReturnType.PrimitiveKind == BindingPrimitiveKind.Void;
+        var returnAbiType = isVoid ? "void" : GetManagedImportTypeName(callbackReturnType, compilation);
+        var returnType = isVoid ? "void" : GetManagedCallbackDelegateValueTypeName(compilation, callbackReturnType);
+        var parameters = callbackType.CallbackParameterTypes
+            .Select((type, index) => (type, index, abiType: GetManagedCallbackParameterAbiTypeName(compilation, type)))
+            .ToArray();
+        var parameterList = string.Join(", ", parameters.Select(item =>
+            $"{(item.type.IsCallbackRefParameter ? "ref " : string.Empty)}{GetManagedCallbackDelegateValueTypeName(compilation, item.type)} arg{item.index}"));
+        // A reference parameter crosses as a pointer to a local ABI value. A mutable reference
+        // copies the local back to the ref parameter after the call.
+        var loads = string.Concat(parameters.Where(static item => IsManagedCallbackValueReference(item.type)).Select(item =>
+            $"var __abi{item.index} = {BuildManagedPublicToImportExpression(compilation, item.type, $"arg{item.index}")};\n"));
+        var stores = string.Concat(parameters.Where(static item => item.type.IsCallbackRefParameter).Select(item =>
+            $"arg{item.index} = {BuildManagedImportToPublicExpression(compilation, item.type, $"__abi{item.index}")};\n"));
+        var callArguments = string.Join(", ", new[] { "state" }.Concat(parameters.Select(item => IsManagedCallbackValueReference(item.type)
+            ? $"&__abi{item.index}"
+            : BuildManagedPublicToImportExpression(compilation, item.type, $"arg{item.index}"))));
+        var functionPointerTypes = string.Join(", ", new[] { "nint" }.Concat(parameters.Select(static item => item.abiType)).Append(returnAbiType));
+        var call = $"((delegate* unmanaged[Cdecl]<{functionPointerTypes}>)_invoke)({callArguments})";
+        var body = isVoid
+            ? $"{loads}{call};\n{stores}"
+            : $"{loads}var __result = {call};\n{stores}return {BuildManagedImportToPublicExpression(compilation, callbackReturnType, "__result")};\n";
+
+        return $$"""
+
+            internal sealed unsafe class NativeScope
+            {
+                private nint _state;
+                private readonly nint _invoke;
+
+                private NativeScope(__SharpCppManagedCallbackHandleAbi handle)
+                {
+                    _state = handle.State;
+                    _invoke = handle.Callback;
+                    Callback = handle.Callback == 0 ? null : new {{usage.ManagedTypeName}}(Invoke);
+                }
+
+                public {{usage.ManagedTypeName}}? Callback { get; }
+
+                public static NativeScope Create(__SharpCppManagedCallbackHandleAbi handle) => new(handle);
+
+                public void Close() => _state = 0;
+
+                private {{returnType}} Invoke({{parameterList}})
+                {
+                    var state = _state;
+                    if (state == 0)
+                    {
+                        throw new global::System.ObjectDisposedException(
+                            nameof(NativeScope),
+                            "A native callback that a director gives to a managed override is valid only during the override call.");
+                    }
+
+                    {{body}}
                 }
             }
             """;
@@ -2921,10 +2992,19 @@ public static partial class BindingOutputRenderer
             writer.Write(RenderNativeObjectRegistryInitializer(compilation, polymorphicConcreteRecords));
         }
 
-        if (callbackParameters.Length > 0)
+        // A director callback parameter needs a scope that gives a native function object to the
+        // managed override.
+        var directorCallbackParameters = virtualCallbacks
+            .SelectMany(static callback => callback.Slot.ManagedCallbackMethod.Parameters)
+            .Where(static parameter => parameter.Type.IsCallback && parameter.Type.ManagedMarshaller is null)
+            .ToArray();
+        if (callbackParameters.Length > 0 || directorCallbackParameters.Length > 0)
         {
+            var nativeScopeDeclarations = directorCallbackParameters
+                .Select(parameter => GetManagedCallbackUsage(compilation, parameter).MarshallerDeclarationName)
+                .ToHashSet(StringComparer.Ordinal);
             writer.WriteLine();
-            writer.Write(RenderManagedCallbackSupport(compilation, callbackParameters));
+            writer.Write(RenderManagedCallbackSupport(compilation, [.. callbackParameters, .. directorCallbackParameters], nativeScopeDeclarations));
         }
 
         if (stringFreeFunctions.Length > 0)
@@ -5120,38 +5200,65 @@ public static partial class BindingOutputRenderer
                 """);
         }
 
+        // A native function object is valid only during the override call. The scope closes after
+        // the call, so a delegate that the override keeps throws ObjectDisposedException.
+        var nativeCallbacks = GetPublicManagedParameters(method.Parameters)
+            .Where(static parameter => parameter.Type.IsCallback)
+            .ToArray();
+        foreach (var callback in nativeCallbacks)
+        {
+            writer.WriteLine($"var {GetNativeCallbackScopeLocalName(callback)} = {GetManagedCallbackMarshallerTypeName(compilation, callback)}.NativeScope.Create({callback.ManagedName});");
+        }
+
+        if (nativeCallbacks.Length > 0)
+        {
+            writer.WriteLine("try");
+            writer.WriteLine("{");
+        }
+
         var invocation = $"owner.{method.ManagedName}({invocationArguments})";
         if (method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Void)
         {
-            writer.Write($$"""
-                {{invocation}};
-            }
-            """);
-            return writer.ToString();
+            writer.WriteLine($"{invocation};");
         }
-
-        if (method.ReturnType.Kind == BindingTypeKind.Handle)
+        else if (method.ReturnType.Kind == BindingTypeKind.Handle)
         {
             var handleExpression = ReturnsOwnedHandle(method)
                 ? "global::SharpCpp.Support.NativeObject.TransferHandleOwnership(__result)"
                 : "global::SharpCpp.Support.NativeObject.GetHandle(__result)";
-            writer.Write($$"""
-                var __result = {{invocation}};
-                return {{handleExpression}};
-            }
-            """);
-            return writer.ToString();
+            writer.WriteLine($"var __result = {invocation};");
+            writer.WriteLine($"return {handleExpression};");
+        }
+        else
+        {
+            var returnExpression = method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Boolean
+                ? $"{invocation} ? (byte)1 : (byte)0"
+                : BuildManagedPublicToImportExpression(compilation, method.ReturnType, invocation);
+            writer.WriteLine($"return {returnExpression};");
         }
 
-        var returnExpression = method.ReturnType.PrimitiveKind == BindingPrimitiveKind.Boolean
-            ? $"{invocation} ? (byte)1 : (byte)0"
-            : BuildManagedPublicToImportExpression(compilation, method.ReturnType, invocation);
-        writer.Write($$"""
-            return {{returnExpression}};
+        if (nativeCallbacks.Length > 0)
+        {
+            writer.WriteLine("}");
+            writer.WriteLine("finally");
+            writer.WriteLine("{");
+            foreach (var callback in nativeCallbacks)
+            {
+                writer.WriteLine($"{GetNativeCallbackScopeLocalName(callback)}.Close();");
             }
-            """);
+
+            writer.WriteLine("}");
+        }
+
+        writer.Write("}");
         return writer.ToString();
     }
+
+    private static string GetNativeCallbackScopeLocalName(ParameterBinding parameter) =>
+        $"__{parameter.ManagedName.TrimStart('@')}_native_callback";
+
+    private static string GetManagedCallbackHandleAbiTypeName(BindingCompilation compilation) =>
+        $"global::{compilation.ManagedNamespace}.{compilation.ManagedClassName}.__SharpCppManagedCallbackHandleAbi";
 
     private static string RenderManagedStaticMethod(BindingCompilation compilation, RecordBinding record, FunctionBinding function)
     {
@@ -8067,6 +8174,12 @@ public static partial class BindingOutputRenderer
     {
         ValidateVirtualCallbackSupport(method, parameter);
 
+        // The delegate over the native function object is null for an empty function object.
+        if (parameter.Type.IsCallback)
+        {
+            return $"{GetNativeCallbackScopeLocalName(parameter)}.Callback!";
+        }
+
         if (IsRecordPointerRangeBegin(parameter) || IsStringPointerRangeBegin(parameter) || IsCountedStringArray(method, parameter))
         {
             return $"new {GetManagedPublicArrayTypeName(parameter, compilation)}(__{parameter.ManagedName.TrimStart('@')}_items)";
@@ -8098,6 +8211,12 @@ public static partial class BindingOutputRenderer
 
     private static string GetManagedVirtualCallbackAbiTypeName(BindingCompilation compilation, BindingType type)
     {
+        // A native function object crosses a director callback as a borrowed callback handle.
+        if (type.IsCallback)
+        {
+            return GetManagedCallbackHandleAbiTypeName(compilation);
+        }
+
         return type.PrimitiveKind == BindingPrimitiveKind.Boolean
             ? "byte"
             : GetManagedImportTypeName(type, compilation);
@@ -8111,6 +8230,9 @@ public static partial class BindingOutputRenderer
         var parameterTypes = GetPublicManagedParameters(method.Parameters)
             .Select(parameter => IsPointerRangeBegin(parameter) || IsCountedStringArray(method, parameter)
                 ? GetManagedPublicArrayTypeName(parameter, compilation)
+                // A callback key names its public delegate type, so a ref parameter is in the key.
+                : parameter.Type.IsCallback
+                ? GetManagedCallbackParameterTypeName(compilation, parameter)
                 : GetManagedWrapperTypeName(parameter.Type, compilation));
         return $"{GetManagedRecordTypeName(compilation, ownerRecord)}.{method.ManagedName}({string.Join(",", parameterTypes)})"
             .Replace("global::", string.Empty, StringComparison.Ordinal);

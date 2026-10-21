@@ -666,11 +666,12 @@ public static class DegradeUnsupportedSurfacePass
                 return true;
             }
 
-            // The callback marshallers convert only a managed delegate to a native function
-            // object. The director cannot give the native function object to a managed override.
-            if (parameter.Type.IsCallback)
+            // A director gives a native function object to a managed override as a delegate
+            // that is valid only during the override call. Only some callback shapes can cross.
+            if (parameter.Type.IsCallback &&
+                TryGetUnsupportedDirectorNativeCallbackReason(parameter.Type, out var callbackShapeReason))
             {
-                reason = $"parameter '{parameter.ManagedName}' is a callback; a director cannot give a native function object to a managed override";
+                reason = $"parameter '{parameter.ManagedName}' is a callback that a director cannot give to a managed override: {callbackShapeReason}";
                 return true;
             }
         }
@@ -678,6 +679,51 @@ public static class DegradeUnsupportedSurfacePass
         reason = string.Empty;
         return false;
     }
+
+    // The managed delegate over a native function object converts its arguments and its return
+    // value with no allocation. A numeric primitive (not bool) can be a value, a const reference
+    // or a mutable reference (a managed ref parameter). An enum can be a value.
+    private static bool TryGetUnsupportedDirectorNativeCallbackReason(BindingType callback, out string reason)
+    {
+        if (callback.ManagedMarshaller is not null)
+        {
+            reason = $"the callback type '{callback.ManagedTypeName}' has a custom managed marshaller";
+            return true;
+        }
+
+        var returnType = callback.CallbackReturnType ?? BindingType.Void;
+        if (returnType.PrimitiveKind != BindingPrimitiveKind.Void &&
+            (returnType.Marshaller.CppIsReference || !IsDirectorNativeCallbackValueSupported(returnType)))
+        {
+            reason = $"the callback return type '{returnType.ManagedTypeName}' is not void, a numeric primitive or an enum";
+            return true;
+        }
+
+        foreach (var parameterType in callback.CallbackParameterTypes)
+        {
+            if (!IsDirectorNativeCallbackValueSupported(parameterType) ||
+                (parameterType.Marshaller.CppIsReference && !parameterType.IsCallbackValueReference))
+            {
+                reason = $"the callback parameter type '{parameterType.ManagedTypeName}' is not a numeric primitive, a reference to a numeric primitive or an enum";
+                return true;
+            }
+        }
+
+        reason = string.Empty;
+        return false;
+    }
+
+    private static bool IsDirectorNativeCallbackValueSupported(BindingType type) =>
+        string.IsNullOrWhiteSpace(type.MarshallerTypeName) &&
+        !type.IsCallback &&
+        !type.IsPointerType &&
+        !type.Marshaller.IsRefStruct &&
+        type.Kind switch
+        {
+            BindingTypeKind.Primitive => type.PrimitiveKind is not (BindingPrimitiveKind.Unsupported or BindingPrimitiveKind.Void or BindingPrimitiveKind.Boolean),
+            BindingTypeKind.Enum => true,
+            _ => false
+        };
 
     private static HashSet<string> CollectReferencedRecordIds(BindingCompilation compilation)
     {

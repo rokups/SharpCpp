@@ -136,16 +136,17 @@ protected:
     int origin_{};
 };
 
-/// A director cannot give a native function object to a managed override, so a virtual
-/// with a callback parameter is not bound. The record and its other virtuals are bound.
+/// A director gives a native function object to a managed override only for some callback
+/// shapes. A bool callback parameter is not one of them, so the virtual with that callback is
+/// not bound. The record and its other virtuals (one with a supported callback) are bound.
 class [[sharpcpp::director]] callback_visitor
 {
 public:
     virtual ~callback_visitor() = default;
 
-    virtual int visit(const std::function<int(int)>& callback)
+    virtual int visit(const std::function<int(bool)>& callback)
     {
-        return callback(2);
+        return callback(true);
     }
 
     virtual int visit_value(std::function<int(int)> callback)
@@ -161,7 +162,7 @@ public:
 
 inline int call_visit(callback_visitor& visitor)
 {
-    return visitor.visit([](int value) { return value * 10; }) + visitor.visit_value([](int value) { return value; });
+    return visitor.visit([](bool value) { return value ? 20 : 0; }) + visitor.visit_value([](int value) { return value; });
 }
 
 inline int call_count(const callback_visitor& visitor)
